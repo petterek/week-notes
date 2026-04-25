@@ -2896,6 +2896,15 @@ document.addEventListener('keydown', function(e) {
                     });
                     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMtgModal(); });
                 })();
+            </script>
+            <script src="/mention-autocomplete.js"></script>
+            <script>
+                (function(){
+                    ['mtgTitle','mtgAttendees','mtgNotes'].forEach(id => {
+                        const el = document.getElementById(id);
+                        if (el) initMentionAutocomplete(el);
+                    });
+                })();
             </script>`;
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(pageHtml('Kalender', body));
@@ -4116,7 +4125,7 @@ function initMentionAutocomplete(el) {
         if (atIdx === -1) return null;
         const afterAt = before.slice(atIdx + 1);
         if (/\\s/.test(afterAt)) return null;
-        if (atIdx > 0 && !/[\\s\\n(]/.test(before[atIdx - 1])) return null;
+        if (atIdx > 0 && !/[\\s\\n(,;]/.test(before[atIdx - 1])) return null;
         return afterAt.toLowerCase();
     }
 
