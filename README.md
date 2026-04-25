@@ -18,21 +18,32 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 - Render any note as a [reveal.js](https://revealjs.com/) presentation in **7 styles**: paper, noir, klassisk, levende, minimal, matrix (digital rain), and NAV (with Aksel design tokens + circular logo watermark)
 
 ### Tasks
-- Open tasks list on the home page, completed tasks shown with the week they were closed in
+- Open tasks list on the home page (left sidebar), completed tasks shown with the week they were closed in
 - Inline edit, notes per task, due dates
-- Keyboard shortcuts (`Alt+H`, `Alt+O`, `Alt+S`)
+- Add tasks per week with `+` button
+
+### Calendar & meetings 📅
+- Week-grid calendar at `/calendar` — click a slot to create, click a meeting to edit
+- Meetings have a **type** (1-on-1, standup, workshop, …) shown as an icon in the grid and the home sidebar
+- Meeting types are **per-context** and editable from both the calendar (`✏️ Typer`) and the context's settings card
+- Grouped emoji picker with sections (Personer, Kommunikasjon, Dokumenter, Planlegging, Arbeid, Sport, …)
 
 ### People & results
 - Lightweight CRM: name, title, email, phone, freeform notes
+- **Inactivate** to hide from autocomplete; **delete** uses tombstones so `@mentions` don't auto-recreate them
 - Result/outcome log per week
 
 ### Contexts (multiple workspaces)
-Switch between completely isolated workspaces — e.g. **work**, **side-project**, **golf** — each with its own notes, tasks, people, and settings.
+Switch between completely isolated workspaces — e.g. **work**, **side-project**, **golf** — each with its own notes, tasks, people, meeting types, and settings.
 
 - Top-left dropdown switcher, available on every page
-- 25 emoji icons to choose from (including ⛳)
-- Per-context settings page at `/settings` with inline editing
+- Curated emoji icon palette (including ⛳ 🏌️)
+- Master/detail settings page at `/settings`: contexts on the left, full editor on the right
 - Hot-switching: no restart needed
+
+### In-app help ❓
+- `❓ Hjelp` button in the navbar opens a modal with the rendered `help.md`
+- Same markdown styling as notes (tables, blockquotes, code blocks)
 
 ### Git per context 🔀
 Every context is a stand-alone git repository under `data/<context>/`.
@@ -100,6 +111,8 @@ weeks/
         ├── tasks.json
         ├── notes-meta.json
         ├── people.json
+        ├── meetings.json
+        ├── meeting-types.json   # optional, falls back to defaults
         ├── results.json
         └── <YYYY-WNN>/
             └── *.md
@@ -114,7 +127,11 @@ weeks/
 | Shortcut  | Action               |
 |-----------|----------------------|
 | `Alt+H`   | Home                 |
-| `Alt+O`   | Open tasks           |
+| `Alt+O`   | Tasks                |
+| `Alt+K`   | Calendar             |
+| `Alt+P`   | People               |
+| `Alt+R`   | Results              |
+| `Alt+N`   | New note             |
 | `Alt+S`   | Settings (contexts)  |
 
 ---
@@ -132,8 +149,11 @@ Mostly JSON, mostly REST-shaped. Useful endpoints:
 | GET    | `/api/contexts/:id/git`             | `{isRepo, dirty, last, remote}`      |
 | POST   | `/api/contexts/:id/commit`          | Commit pending changes               |
 | POST   | `/api/contexts/:id/push`            | `git push origin HEAD`               |
-| GET    | `/api/people`                       | People directory                     |
+| GET/PUT| `/api/contexts/:id/meeting-types`   | Per-context meeting type list        |
+| GET    | `/api/people`                       | People directory (excludes tombstones) |
+| GET    | `/api/meetings`                     | Meetings for the active context      |
 | GET    | `/api/notes/:week/:file/render`     | Rendered markdown for hover/preview  |
+| GET    | `/help.md`                          | In-app help content                  |
 
 ---
 
@@ -144,7 +164,7 @@ Mostly JSON, mostly REST-shaped. Useful endpoints:
 - [reveal.js](https://revealjs.com/) for presentations (loaded from CDN)
 - [Aksel design tokens](https://aksel.nav.no/) + Source Sans 3 for the NAV slide style
 
-No build step. No bundler. ~2700 lines of `server.js`.
+No build step. No bundler. ~4300 lines of `server.js`.
 
 ---
 
