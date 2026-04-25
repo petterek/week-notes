@@ -2624,7 +2624,7 @@ document.addEventListener('keydown', function(e) {
                 .mt-icon-picker-card h4 { margin: 0 0 10px; }
                 .mt-icon-grid { display: grid; grid-template-columns: repeat(8, 42px); gap: 6px; max-height: 70vh; overflow-y: auto; }
                 .mt-icon-grid button { width: 42px; height: 42px; font-size: 1.5em; background: #fbf9f4; border: 1px solid #ebe2cb; border-radius: 4px; cursor: pointer; padding: 0; line-height: 1; }
-                .mt-icon-grid button:hover { background: #f0e8d4; transform: scale(1.1); }
+                .mt-icon-grid button:hover { background: #f0e8d4; border-color: #1a365d; }
                 .mt-icon-grid .mt-grp-label { grid-column: 1 / -1; font-size: 0.72em; font-weight: 600; color: #7a6f4d; text-transform: uppercase; letter-spacing: 0.08em; padding: 6px 2px 2px; border-bottom: 1px solid #ebe2cb; }
                 .mt-icon-grid .mt-grp-label:first-child { padding-top: 0; }
 
@@ -3071,7 +3071,7 @@ document.addEventListener('keydown', function(e) {
                 .icon-picker-card { background:#fffdf7; border:1px solid #d6cdb6; border-radius:8px; padding:16px 20px; }
                 .icon-grid { display:grid; grid-template-columns: repeat(8, 42px); gap:6px; max-height:70vh; overflow-y:auto; }
                 .icon-grid button { width:42px; height:42px; font-size:1.5em; background:#fbf9f4; border:1px solid #ebe2cb; border-radius:4px; cursor:pointer; padding:0; line-height:1; }
-                .icon-grid button:hover { background:#f0e8d4; transform:scale(1.1); }
+                .icon-grid button:hover { background:#f0e8d4; border-color:#1a365d; }
                 .icon-grid .ig-grp-label { grid-column: 1 / -1; font-size:0.72em; font-weight:600; color:#7a6f4d; text-transform:uppercase; letter-spacing:0.08em; padding:6px 2px 2px; border-bottom:1px solid #ebe2cb; }
                 .icon-grid .ig-grp-label:first-child { padding-top:0; }
             </style>
