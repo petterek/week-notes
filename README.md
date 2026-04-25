@@ -23,10 +23,15 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 - Add tasks per week with `+` button
 
 ### Calendar & meetings 📅
-- Week-grid calendar at `/calendar` — click a slot to create, click a meeting to edit
+- Full-width week-grid calendar at `/calendar` covering all 24 hours
+- Click an empty slot to create, right-click for the meeting-type list, or use the `+ Nytt møte` button
 - Meetings have a **type** (1-on-1, standup, workshop, …) shown as an icon in the grid and the home sidebar
 - Meeting types are **per-context** and editable from both the calendar (`✏️ Typer`) and the context's settings card
 - Grouped emoji picker with sections (Personer, Kommunikasjon, Dokumenter, Planlegging, Arbeid, Sport, …)
+- Time picker uses hour/minute selects with 5-minute steps (consistent across browsers)
+- Per-context **working hours** (start/end + weekdays, default Mon–Fri 08:00–16:00) rendered as a band overlay
+- Per-context **default meeting length** prefills the end time when creating new meetings
+- Click an upcoming-meeting card on the home page to jump to that week and pulse-highlight the meeting
 
 ### People & results
 - Lightweight CRM: name, title, email, phone, freeform notes
