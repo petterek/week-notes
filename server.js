@@ -2212,7 +2212,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         async function deleteNoteFromHome(week, fileEnc, name) {
-            if (!confirm('Slette notatet "' + name + '"?\n\nDette kan ikke angres.')) return;
+            if (!confirm('Slette notatet "' + name + '"?\\n\\nDette kan ikke angres.')) return;
             try {
                 const resp = await fetch('/api/notes/' + week + '/' + fileEnc, { method: 'DELETE' });
                 if (resp.ok) {
