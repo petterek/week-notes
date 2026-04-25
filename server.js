@@ -2693,7 +2693,7 @@ document.addEventListener('keydown', function(e) {
                 .cal-grid { display:grid; grid-template-columns: 56px repeat(7, 1fr); gap:0; background:#fffdf7; border:1px solid #d6cdb6; border-radius:6px; overflow:hidden; }
                 .cal-col, .cal-hours { border-right:1px solid #ebe2cb; }
                 .cal-col:last-child { border-right:none; }
-                .cal-col-head { background:#f8f3e2; padding:8px 10px; border-bottom:1px solid #d6cdb6; font-size:0.85em; color:#3c3a30; display:flex; justify-content:space-between; align-items:baseline; gap:6px; }
+                .cal-col-head { background:#f8f3e2; padding:8px 10px; border-bottom:1px solid #d6cdb6; font-size:0.85em; color:#3c3a30; display:flex; justify-content:space-between; align-items:baseline; gap:6px; min-height:36px; box-sizing:border-box; }
                 .cal-col-head span { color:#a99a78; }
                 .cal-col.today .cal-col-head { background:#fff5d1; }
                 .cal-col.today .cal-col-head strong { color:#8a5a00; }
