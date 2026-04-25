@@ -2594,6 +2594,77 @@ document.addEventListener('keydown', function(e) {
         return;
     }
 
+    // Open or create a meeting note linked to a meeting id
+    const meetingNoteMatch = pathname.match(/^\/meeting-note\/([A-Za-z0-9_]+)$/);
+    if (meetingNoteMatch) {
+        const mid = meetingNoteMatch[1];
+        const meetings = loadMeetings();
+        const m = meetings.find(x => x.id === mid);
+        if (!m) {
+            res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+            res.end('Møte ikke funnet');
+            return;
+        }
+        // Search existing notes meta for one already linked to this meeting
+        const meta = loadNotesMeta();
+        for (const key of Object.keys(meta)) {
+            if (meta[key] && meta[key].meetingId === mid) {
+                const slash = key.indexOf('/');
+                if (slash > 0) {
+                    const w = key.slice(0, slash);
+                    const f = key.slice(slash + 1);
+                    if (fs.existsSync(path.join(dataDir(), w, f))) {
+                        res.writeHead(302, { Location: `/editor/${w}/${encodeURIComponent(f)}` });
+                        res.end();
+                        return;
+                    }
+                }
+            }
+        }
+        // Compute week folder (YYYY-N format used by note folders) from meeting date
+        const md = new Date((m.date || '') + 'T00:00:00Z');
+        let week;
+        if (isNaN(md.getTime())) {
+            week = getCurrentYearWeek();
+        } else {
+            const t = new Date(Date.UTC(md.getUTCFullYear(), md.getUTCMonth(), md.getUTCDate()));
+            t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));
+            const ys = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+            const wn = Math.ceil((((t - ys) / 86400000) + 1) / 7);
+            week = `${t.getUTCFullYear()}-${wn}`;
+        }
+        const slug = (m.title || 'mote').toLowerCase()
+            .replace(/[^a-z0-9æøå]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 60) || 'mote';
+        const dir = path.join(dataDir(), week);
+        fs.mkdirSync(dir, { recursive: true });
+        let file = `mote-${m.date}-${slug}.md`;
+        let n = 1;
+        while (fs.existsSync(path.join(dir, file))) {
+            n += 1;
+            file = `mote-${m.date}-${slug}-${n}.md`;
+        }
+        const lines = [
+            `# ${m.title || 'Møte'}`,
+            '',
+            `**Dato:** ${m.date}${m.start ? ' kl. ' + m.start : ''}${m.end ? '–' + m.end : ''}  `
+        ];
+        if (m.location) lines.push(`**Sted:** ${m.location}  `);
+        if (m.attendees && m.attendees.length) {
+            lines.push(`**Deltakere:** ${m.attendees.map(a => '@' + a).join(' ')}  `);
+        }
+        lines.push('', '## Agenda', '', '- ', '', '## Notater', '');
+        if (m.notes) lines.push(m.notes, '');
+        lines.push('## Aksjonspunkter', '', '- [ ] ', '');
+        fs.writeFileSync(path.join(dir, file), lines.join('\n'), 'utf-8');
+        const now = new Date().toISOString();
+        setNoteMeta(week, file, { type: 'meeting', meetingId: mid, created: now, modified: now });
+        res.writeHead(302, { Location: `/editor/${week}/${encodeURIComponent(file)}` });
+        res.end();
+        return;
+    }
+
     // Calendar page (week view)
     const calMatch = pathname.match(/^\/calendar(?:\/(\d{4}-W\d{2}))?$/);
     if (calMatch) {
@@ -2633,6 +2704,7 @@ document.addEventListener('keydown', function(e) {
                 const att = (m.attendees || []).slice(0, 3).map(a => '@' + a).join(' ');
                 const more = (m.attendees || []).length > 3 ? ' +' + ((m.attendees.length - 3)) : '';
                 return `<div class="mtg" data-mid="${escapeHtml(m.id)}" style="top:${Math.max(0, top)}px;height:${height}px">
+                    <a class="mtg-note" href="/meeting-note/${encodeURIComponent(m.id)}" title="Åpne møtenotat" onclick="event.stopPropagation()">📝</a>
                     <div class="mtg-time">${escapeHtml(m.start || '')}${m.end ? '–' + escapeHtml(m.end) : ''}</div>
                     <div class="mtg-t">${escapeHtml(m.title)}</div>
                     ${att ? `<div class="mtg-att">${escapeHtml(att + more)}</div>` : ''}
@@ -2709,6 +2781,8 @@ document.addEventListener('keydown', function(e) {
                 .mtg-time { font-weight:600; font-size:0.85em; }
                 .mtg-t { font-weight:500; line-height:1.2; }
                 .mtg-att, .mtg-l { color:#4a5568; font-size:0.92em; }
+                .mtg-note { position:absolute; top:2px; right:3px; font-size:0.95em; text-decoration:none; padding:0 3px; opacity:0.55; line-height:1; border-radius:3px; }
+                .mtg-note:hover { opacity:1; background:#fffdf7; }
                 .mtg-modal { display:none; position:fixed; inset:0; background:rgba(26,32,44,0.45); z-index:1000; align-items:center; justify-content:center; }
                 .mtg-modal.open { display:flex; }
                 .mtg-modal-card { background:#fffdf7; border:1px solid #d6cdb6; border-radius:8px; padding:20px 24px; width:520px; max-width:92vw; max-height:90vh; overflow:auto; }
