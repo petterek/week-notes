@@ -132,14 +132,6 @@ No build step. No bundler. ~2700 lines of `server.js`.
 
 ---
 
-## 📖 Domain context
-
-Originally built around tracking the migration from **Arena** (the legacy AAP system, retiring 2027-12-31) to **Kelvin** (the new system) — hence the name and the NAV-themed presentation style.
-
-But the app itself is domain-agnostic: anything you'd track week-by-week with notes, tasks and people fits.
-
----
-
 ## 📜 License
 
 See `LICENSE`.
