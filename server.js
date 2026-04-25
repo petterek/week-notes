@@ -2693,7 +2693,7 @@ document.addEventListener('keydown', function(e) {
                 .cal-grid { display:grid; grid-template-columns: 56px repeat(7, 1fr); gap:0; background:#fffdf7; border:1px solid #d6cdb6; border-radius:6px; overflow:hidden; }
                 .cal-col, .cal-hours { border-right:1px solid #ebe2cb; }
                 .cal-col:last-child { border-right:none; }
-                .cal-col-head { background:#f8f3e2; padding:8px 10px; border-bottom:1px solid #d6cdb6; font-size:0.85em; color:#3c3a30; display:flex; justify-content:space-between; align-items:baseline; gap:6px; min-height:36px; box-sizing:border-box; }
+                .cal-col-head { background:#f8f3e2; padding:8px 10px; border-bottom:1px solid #d6cdb6; font-size:0.85em; color:#3c3a30; display:flex; justify-content:space-between; align-items:baseline; gap:6px; height:36px; box-sizing:border-box; overflow:hidden; }
                 .cal-col-head span { color:#a99a78; }
                 .cal-col.today .cal-col-head { background:#fff5d1; }
                 .cal-col.today .cal-col-head strong { color:#8a5a00; }
@@ -2701,8 +2701,8 @@ document.addEventListener('keydown', function(e) {
                 .cal-col-body:hover { background:#fbf9f4; }
                 .cal-hours .cal-col-body { cursor:default; }
                 .cal-hours .cal-col-body:hover { background:transparent; }
-                .hour-line { position:absolute; left:0; right:0; padding:0 6px; font-size:0.7em; color:#a99a78; text-align:right; line-height:1; transform:translateY(-50%); background:#fffdf7; }
-                .hour-line:first-child { transform:none; padding-top:2px; }
+                .hour-line { position:absolute; left:0; right:0; height:0; padding:0 6px; font-size:0.7em; color:#a99a78; text-align:right; line-height:1; display:flex; align-items:center; justify-content:flex-end; }
+                .hour-line:first-child { align-items:flex-start; padding-top:2px; }
                 .cal-col-body { background-image: repeating-linear-gradient(to bottom, #ebe2cb 0, #ebe2cb 1px, transparent 1px, transparent 48px); }
                 .mtg { position:absolute; left:2px; right:2px; background:#e6efff; border:1px solid #b9c8e0; border-left:3px solid #2b6cb0; border-radius:3px; padding:3px 6px; font-size:0.78em; color:#1a365d; cursor:pointer; overflow:hidden; box-shadow:0 1px 2px rgba(26,54,93,0.1); }
                 .mtg:hover { background:#d9e5fb; z-index:5; }
