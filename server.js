@@ -244,13 +244,12 @@ function saveMeetings(meetings) {
 }
 
 function dateToIsoWeek(d) {
-    const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-    const dayNum = (date.getUTCDay() + 6) % 7;
-    date.setUTCDate(date.getUTCDate() - dayNum + 3);
-    const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
-    const diff = (date - firstThursday) / 86400000;
-    const week = 1 + Math.floor(diff / 7);
-    return `${date.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+    // Canonical ISO 8601 week: target = Thursday of d's week
+    const target = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    target.setUTCDate(target.getUTCDate() + 4 - (target.getUTCDay() || 7));
+    const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+    const week = Math.ceil((((target - yearStart) / 86400000) + 1) / 7);
+    return `${target.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
 }
 
 function isoWeekMonday(yearWeek) {
@@ -1840,7 +1839,7 @@ const server = http.createServer(async (req, res) => {
                 if (days === 0) return 'I dag';
                 if (days === 1) return 'I morgen';
                 const wkd = ['søn','man','tir','ons','tor','fre','lør'][d.getUTCDay()];
-                return wkd + ' ' + d.getUTCDate() + '.' + (d.getUTCMonth() + 1) + '.';
+                return wkd + ' ' + String(d.getUTCDate()).padStart(2, '0') + '.' + String(d.getUTCMonth() + 1).padStart(2, '0');
             };
             let h = '<h3 class="side-h" style="margin-top:18px">📅 Kommende møter · ' + upcoming.length + '</h3>';
             if (upcoming.length === 0) {
@@ -2610,7 +2609,7 @@ document.addEventListener('keydown', function(e) {
             const d = new Date(monday);
             d.setUTCDate(monday.getUTCDate() + i);
             const iso = d.toISOString().slice(0, 10);
-            days.push({ iso, label: dayNames[i], dayNum: d.getUTCDate(), month: d.getUTCMonth() + 1, isToday: iso === todayStr });
+            days.push({ iso, label: dayNames[i], dayNum: String(d.getUTCDate()).padStart(2, '0'), month: String(d.getUTCMonth() + 1).padStart(2, '0'), isToday: iso === todayStr });
         }
         const meetings = loadMeetings().filter(m => m.date >= days[0].iso && m.date <= days[6].iso);
         const prevWeek = shiftIsoWeek(week, -1);
