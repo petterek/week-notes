@@ -2635,7 +2635,7 @@ document.addEventListener('keydown', function(e) {
                 .mt-icon-picker.open { display: flex; }
                 .mt-icon-picker-card { background: #fffdf7; border: 1px solid #d6cdb6; border-radius: 8px; padding: 16px 20px; }
                 .mt-icon-picker-card h4 { margin: 0 0 10px; }
-                .mt-icon-grid { display: grid; grid-template-columns: repeat(8, 42px); gap: 6px; }
+                .mt-icon-grid { display: grid; grid-template-columns: repeat(8, 42px); gap: 6px; max-height: 70vh; overflow-y: auto; }
                 .mt-icon-grid button { width: 42px; height: 42px; font-size: 1.5em; background: #fbf9f4; border: 1px solid #ebe2cb; border-radius: 4px; cursor: pointer; padding: 0; line-height: 1; }
                 .mt-icon-grid button:hover { background: #f0e8d4; transform: scale(1.1); }
 
@@ -2735,7 +2735,7 @@ document.addEventListener('keydown', function(e) {
                     });
                 }));
                 (function() {
-                    const ICON_PALETTE = ['👥','☕','🔄','🛠️','🎬','📋','🔍','🎉','📞','🎯','💬','📅','📊','📈','📉','💡','🧠','🎓','📚','🖥️','💻','📱','📝','✏️','📎','📌','📍','🚀','⚡','🔥','⭐','🌟','✨','🏆','🎖️','🥇','🎁','🎈','🍰','☎️','📨','📧','📤','📥','🔔','🔕','✅','☑️','❌','⚠️','❓','❗','🟢','🟡','🔴','🔵','⏰','⏳','⌛','🗓️','🤝','👋','👀','🙌','🏌️','⛳','🏃','🚴'];
+                    const ICON_PALETTE = ['👥','🤝','👋','🙌','👀','🗣️','💬','🗨️','📞','☎️','📱','📧','📨','📤','📥','🔔','📋','📝','✏️','📎','📌','📍','📅','🗓️','📊','📈','📉','🎯','🧠','💡','🔍','⚖️','🖥️','💻','🛠️','🔧','⚙️','🧪','🔬','🚀','⏰','⏳','⌛','🟢','🟡','🔴','🔵','⚡','🎉','🎊','🎁','🎈','🍰','🏆','🎖️','🥇','🎬','📷','📹','🎤','🎵','🎓','📚','☕','🍕','🍔','🍱','🍷','🍺','🥂','🍻','🥗','⚽','🏀','🏈','⚾','🎾','🏐','🏉','⛳','🏌️','🏓','🏸','🥊','🏃','🚴','🏊','🧗','✅','❌','❓','❗','⚠️','⭐','🌟','✨'];
                     window.__mtState = {};
                     let pickerCtx = null, pickerIdx = null;
                     function slugKey(label) {
@@ -3062,7 +3062,7 @@ document.addEventListener('keydown', function(e) {
                 .icon-picker { display:none; position:fixed; inset:0; background:rgba(26,32,44,0.55); z-index:1100; align-items:center; justify-content:center; }
                 .icon-picker.open { display:flex; }
                 .icon-picker-card { background:#fffdf7; border:1px solid #d6cdb6; border-radius:8px; padding:16px 20px; }
-                .icon-grid { display:grid; grid-template-columns: repeat(8, 42px); gap:6px; }
+                .icon-grid { display:grid; grid-template-columns: repeat(8, 42px); gap:6px; max-height:70vh; overflow-y:auto; }
                 .icon-grid button { width:42px; height:42px; font-size:1.5em; background:#fbf9f4; border:1px solid #ebe2cb; border-radius:4px; cursor:pointer; padding:0; line-height:1; }
                 .icon-grid button:hover { background:#f0e8d4; transform:scale(1.1); }
             </style>
@@ -3159,7 +3159,7 @@ document.addEventListener('keydown', function(e) {
             </script>
             <script>
                 (function(){
-                    const ICON_PALETTE = ['👥','☕','🔄','🛠️','🎬','📋','🔍','🎉','📞','🎯','💬','📅','📊','📈','📉','💡','🧠','🎓','📚','🖥️','💻','📱','📝','✏️','📎','📌','📍','🚀','⚡','🔥','⭐','🌟','✨','🏆','🎖️','🥇','🎁','🎈','🍰','☎️','📨','📧','📤','📥','🔔','🔕','✅','☑️','❌','⚠️','❓','❗','🟢','🟡','🔴','🔵','⏰','⏳','⌛','🗓️','🤝','👋','👀','🙌','🏌️','⛳','🏃','🚴'];
+                    const ICON_PALETTE = ['👥','🤝','👋','🙌','👀','🗣️','💬','🗨️','📞','☎️','📱','📧','📨','📤','📥','🔔','📋','📝','✏️','📎','📌','📍','📅','🗓️','📊','📈','📉','🎯','🧠','💡','🔍','⚖️','🖥️','💻','🛠️','🔧','⚙️','🧪','🔬','🚀','⏰','⏳','⌛','🟢','🟡','🔴','🔵','⚡','🎉','🎊','🎁','🎈','🍰','🏆','🎖️','🥇','🎬','📷','📹','🎤','🎵','🎓','📚','☕','🍕','🍔','🍱','🍷','🍺','🥂','🍻','🥗','⚽','🏀','🏈','⚾','🎾','🏐','🏉','⛳','🏌️','🏓','🏸','🥊','🏃','🚴','🏊','🧗','✅','❌','❓','❗','⚠️','⭐','🌟','✨'];
                     let currentTypes = ${JSON.stringify(meetingTypes)};
                     let pickerTarget = null;
 
