@@ -170,4 +170,4 @@ No build step. No bundler. ~4300 lines of `server.js`.
 
 ## 📜 License
 
-See `LICENSE`.
+MIT — see [`LICENSE`](LICENSE).
