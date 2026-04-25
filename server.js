@@ -691,6 +691,7 @@ function pageHtml(title, body, extraNavLinks) {
         .note-card .note-h .note-actions { display: inline-flex; align-items: center; gap: 2px; }
         .note-card .note-h .note-icon-btn { background: none; border: none; cursor: pointer; padding: 2px 4px; font-size: 1em; line-height: 1; border-radius: 3px; color: inherit; }
         .note-card .note-h .note-icon-btn:hover { background: #f0e8d4; }
+        .note-card .note-h .note-icon-btn.note-del:hover { background: #fed7d7; color: #c53030; }
         .note-card .note-body { color: #7a6f4d; font-size: 0.92em; line-height: 1.5; }
         .file-card { margin: 6px 0; background: #fffdf7; border-radius: 6px; border: 1px solid #e8e2d2; overflow: hidden; }
         .file-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; background: #fffdf7; cursor: pointer; user-select: none; }
@@ -1929,8 +1930,8 @@ const server = http.createServer(async (req, res) => {
                         let raw = '';
                         try { raw = fs.readFileSync(filePath, 'utf-8'); } catch {}
                         const snippet = linkMentions(escapeHtml(noteSnippet(raw, 220)));
-                        notesHtml += `<div class="note-card">
-                            <div class="note-h"><span>${pinIcon}${typeIcon} ${escapeHtml(name)}</span><span class="note-actions"><button type="button" class="note-icon-btn" onclick="openNoteViewModal('${week}','${encodeURIComponent(f)}')" title="Vis ${escapeHtml(name)}">👁️</button>${presentBtn}<a href="${editHref}" title="Rediger ${escapeHtml(name)}">✏️</a></span></div>
+                        notesHtml += `<div class="note-card" data-note-card="${week}/${encodeURIComponent(f)}">
+                            <div class="note-h"><span>${pinIcon}${typeIcon} ${escapeHtml(name)}</span><span class="note-actions"><button type="button" class="note-icon-btn" onclick="openNoteViewModal('${week}','${encodeURIComponent(f)}')" title="Vis ${escapeHtml(name)}">👁️</button>${presentBtn}<a href="${editHref}" title="Rediger ${escapeHtml(name)}">✏️</a><button type="button" class="note-icon-btn note-del" onclick="deleteNoteFromHome('${week}','${encodeURIComponent(f)}','${escapeHtml(name).replace(/'/g, "\\'")}')" title="Slett ${escapeHtml(name)}">🗑️</button></span></div>
                             ${snippet ? `<div class="note-body">${snippet}</div>` : ''}
                         </div>`;
                     });
@@ -2208,6 +2209,21 @@ const server = http.createServer(async (req, res) => {
             const features = 'popup=yes,noopener=no,width=' + w + ',height=' + h + ',left=0,top=0,menubar=no,toolbar=no,location=no,status=no,scrollbars=no,resizable=yes';
             const win = window.open(url, 'presentation_' + Date.now(), features);
             if (win) win.focus();
+        }
+
+        async function deleteNoteFromHome(week, fileEnc, name) {
+            if (!confirm('Slette notatet "' + name + '"?\n\nDette kan ikke angres.')) return;
+            try {
+                const resp = await fetch('/api/notes/' + week + '/' + fileEnc, { method: 'DELETE' });
+                if (resp.ok) {
+                    const card = document.querySelector('[data-note-card="' + week + '/' + fileEnc + '"]');
+                    if (card) card.remove();
+                } else {
+                    alert('Kunne ikke slette notatet.');
+                }
+            } catch (e) {
+                alert('Nettverksfeil: ' + e.message);
+            }
         }
 
         async function openNoteViewModal(week, fileEnc) {
