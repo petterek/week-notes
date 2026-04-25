@@ -2562,6 +2562,7 @@ document.addEventListener('keydown', function(e) {
             </div>
 
             <style>
+                body:has(.ctx-page) { max-width: none; }
                 .ctx-page { display: grid; grid-template-columns: 260px 1fr; gap: 24px; align-items: start; }
                 @media (max-width: 760px) { .ctx-page { grid-template-columns: 1fr; } }
                 .ctx-rail { display: flex; flex-direction: column; gap: 4px; padding: 6px; background: #fffdf7; border: 1px solid #d6cdb6; border-radius: 8px; position: sticky; top: 16px; }
