@@ -3019,6 +3019,7 @@ document.addEventListener('keydown', function(e) {
         const meetingTypes = loadMeetingTypes();
         const dateRange = isoWeekToDateRange(week);
         const body = `
+            <div class="cal-page">
             <div class="cal-toolbar">
                 <h1 style="margin:0">📅 Kalender · Uke ${week.split('-W')[1]}</h1>
                 <span style="color:#a99a78">${escapeHtml(dateRange)}</span>
@@ -3089,7 +3090,10 @@ document.addEventListener('keydown', function(e) {
                     <div id="iconGrid" class="icon-grid"></div>
                 </div>
             </div>
+            </div>
             <style>
+                body:has(.cal-page) { max-width: none; }
+                .cal-page { width: 100%; }
                 .cal-toolbar { display:flex; align-items:center; gap:14px; margin-bottom:14px; }
                 .cal-nav-btn { background:#fffdf7; border:1px solid #d6cdb6; padding:6px 12px; border-radius:4px; text-decoration:none; color:#1a365d; font-size:0.9em; cursor:pointer; font-family:inherit; }
                 .cal-nav-btn:hover { background:#f0e8d4; text-decoration:none; }
