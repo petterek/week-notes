@@ -109,6 +109,7 @@ function tasksFile() { return path.join(dataDir(), 'tasks.json'); }
 function notesMetaFile() { return path.join(dataDir(), 'notes-meta.json'); }
 function peopleFile() { return path.join(dataDir(), 'people.json'); }
 function resultsFile() { return path.join(dataDir(), 'results.json'); }
+function meetingsFile() { return path.join(dataDir(), 'meetings.json'); }
 
 // --- Git per context ---
 function checkExternalTools() {
@@ -231,6 +232,54 @@ function loadPeople() {
 
 function savePeople(people) {
     fs.writeFileSync(peopleFile(), JSON.stringify(people, null, 2), 'utf-8');
+}
+
+function loadMeetings() {
+    try { return JSON.parse(fs.readFileSync(meetingsFile(), 'utf-8')); }
+    catch { return []; }
+}
+
+function saveMeetings(meetings) {
+    fs.writeFileSync(meetingsFile(), JSON.stringify(meetings, null, 2), 'utf-8');
+}
+
+function dateToIsoWeek(d) {
+    const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    const dayNum = (date.getUTCDay() + 6) % 7;
+    date.setUTCDate(date.getUTCDate() - dayNum + 3);
+    const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
+    const diff = (date - firstThursday) / 86400000;
+    const week = 1 + Math.floor(diff / 7);
+    return `${date.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+function isoWeekMonday(yearWeek) {
+    const parts = (yearWeek || '').split('-W');
+    const year = parseInt(parts[0], 10);
+    const week = parseInt(parts[1], 10);
+    if (!year || !week) return null;
+    const jan4 = new Date(Date.UTC(year, 0, 4));
+    const jan4Dow = (jan4.getUTCDay() + 6) % 7;
+    const week1Mon = new Date(jan4);
+    week1Mon.setUTCDate(jan4.getUTCDate() - jan4Dow);
+    const monday = new Date(week1Mon);
+    monday.setUTCDate(week1Mon.getUTCDate() + (week - 1) * 7);
+    return monday;
+}
+
+function currentIsoWeek() {
+    return dateToIsoWeek(new Date());
+}
+
+function shiftIsoWeek(yearWeek, delta) {
+    const mon = isoWeekMonday(yearWeek);
+    if (!mon) return yearWeek;
+    mon.setUTCDate(mon.getUTCDate() + delta * 7);
+    return dateToIsoWeek(mon);
+}
+
+function meetingId() {
+    return 'm_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
 function extractMentions(text) {
@@ -550,6 +599,7 @@ function pageHtml(title, body, extraNavLinks) {
             <div class="nav-links">
                 <a href="/" data-key="h" title="Hjem (Alt+H)">🏠 Hjem <kbd>Alt+H</kbd></a>
                 <a href="/tasks" data-key="o" title="Oppgaver (Alt+O)">☑️ Oppgaver <kbd>Alt+O</kbd></a>
+                <a href="/calendar" data-key="k" title="Kalender (Alt+K)">📅 Kalender <kbd>Alt+K</kbd></a>
                 <a href="/people" data-key="p" title="Personer (Alt+P)">👥 Personer <kbd>Alt+P</kbd></a>
                 <a href="/results" data-key="r" title="Resultater (Alt+R)">⚖️ Resultater <kbd>Alt+R</kbd></a>
                 <a href="/editor" data-key="n" title="Nytt notat (Alt+N)">📝 Nytt <kbd>Alt+N</kbd></a>
@@ -681,6 +731,14 @@ function pageHtml(title, body, extraNavLinks) {
         .row-note-btn { background: none; border: none; cursor: pointer; font-size: 0.9em; padding: 0; }
         .row-note-btn.empty { opacity: 0.3; }
         .row-note-body { margin: 1px 0 6px 26px; font-size: 0.82em; color: #7a6f4d; background: transparent; }
+        .sidebar-meetings { display: flex; flex-direction: column; gap: 8px; }
+        .sidebar-meeting { padding: 8px 10px; background: #fffdf7; border: 1px solid #ebe2cb; border-left: 3px solid #2b6cb0; border-radius: 4px; font-size: 0.85em; cursor: pointer; transition: background 0.1s; }
+        .sidebar-meeting:hover { background: #f8f3e2; }
+        .sidebar-meeting .mtg-when { color: #4a5568; font-size: 0.85em; margin-bottom: 2px; }
+        .sidebar-meeting .mtg-when strong { color: #1a365d; font-weight: 600; }
+        .sidebar-meeting .mtg-title { color: #1a202c; font-weight: 500; line-height: 1.3; }
+        .sidebar-meeting .mtg-meta { margin-top: 4px; color: #7a6f4d; font-size: 0.85em; }
+        .sidebar-meeting .mtg-loc { color: #7a6f4d; }
         .search-box { display: none; }
         .search { width: 100%; box-sizing: border-box; padding: 14px 2px 10px; border: none; border-bottom: 1px solid #d6cdb6; border-radius: 0; font-size: 1em; outline: none; background: #fbf9f4; color: #3c3a30; font-style: italic; margin: 0 0 16px; font-family: inherit; position: sticky; top: 0; z-index: 50; }
         .search::placeholder { color: #a99a78; font-style: italic; }
@@ -1765,6 +1823,46 @@ const server = http.createServer(async (req, res) => {
         }
         sidebar += '</div></aside>';
 
+        // Replace closing tag — augment with upcoming meetings section before </aside>
+        sidebar = sidebar.replace('</aside>', (function(){
+            const meetings = loadMeetings();
+            const today = new Date();
+            const todayStr = today.toISOString().slice(0,10);
+            const cutoff = new Date(today.getTime() + 14 * 86400000).toISOString().slice(0,10);
+            const upcoming = meetings
+                .filter(m => m.date >= todayStr && m.date <= cutoff)
+                .sort((a,b) => (a.date + (a.start || '')).localeCompare(b.date + (b.start || '')))
+                .slice(0, 12);
+            const dayLabel = (iso) => {
+                const d = new Date(iso + 'T00:00:00Z');
+                const t = today; t.setUTCHours(0,0,0,0);
+                const days = Math.round((d - Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate())) / 86400000);
+                if (days === 0) return 'I dag';
+                if (days === 1) return 'I morgen';
+                const wkd = ['søn','man','tir','ons','tor','fre','lør'][d.getUTCDay()];
+                return wkd + ' ' + d.getUTCDate() + '.' + (d.getUTCMonth() + 1) + '.';
+            };
+            let h = '<h3 class="side-h" style="margin-top:18px">📅 Kommende møter · ' + upcoming.length + '</h3>';
+            if (upcoming.length === 0) {
+                h += '<p class="empty-quiet">Ingen møter de neste 14 dagene. <a href="/calendar">Legg til</a></p>';
+            } else {
+                h += '<div class="sidebar-meetings">';
+                upcoming.forEach(m => {
+                    const time = m.start ? escapeHtml(m.start) + (m.end ? '–' + escapeHtml(m.end) : '') : 'Hele dagen';
+                    const att = (m.attendees || []).map(a => '<a class="mention-link" data-person-key="' + escapeHtml(a) + '" href="/people#' + escapeHtml(a) + '">@' + escapeHtml(a) + '</a>').join(' ');
+                    const loc = m.location ? '<span class="mtg-loc">📍 ' + escapeHtml(m.location) + '</span>' : '';
+                    h += '<div class="sidebar-meeting" data-mid="' + escapeHtml(m.id) + '">'
+                        + '<div class="mtg-when"><strong>' + escapeHtml(dayLabel(m.date)) + '</strong> · ' + time + '</div>'
+                        + '<div class="mtg-title">' + linkMentions(escapeHtml(m.title)) + '</div>'
+                        + (att || loc ? '<div class="mtg-meta">' + att + (att && loc ? ' · ' : '') + loc + '</div>' : '')
+                        + '</div>';
+                });
+                h += '</div>';
+                h += '<div style="margin-top:8px"><a href="/calendar" style="font-size:0.85em;color:#2b6cb0">Åpne kalender →</a></div>';
+            }
+            return h + '</aside>';
+        })());
+
         let body = '<div class="home-layout">' + sidebar + '<main class="home-main">';
         body += '<input class="search" id="searchInput" type="text" placeholder="Søk i notater…" />';
         body += '<div id="searchResults"></div>';
@@ -2494,6 +2592,220 @@ document.addEventListener('keydown', function(e) {
         `;
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(pageHtml('Innstillinger', body));
+        return;
+    }
+
+    // Calendar page (week view)
+    const calMatch = pathname.match(/^\/calendar(?:\/(\d{4}-W\d{2}))?$/);
+    if (calMatch) {
+        const week = calMatch[1] || currentIsoWeek();
+        const monday = isoWeekMonday(week);
+        if (!monday) {
+            res.writeHead(404); res.end('Bad week'); return;
+        }
+        const days = [];
+        const dayNames = ['Mandag', 'Tirsdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lørdag', 'Søndag'];
+        const todayStr = new Date().toISOString().slice(0, 10);
+        for (let i = 0; i < 7; i++) {
+            const d = new Date(monday);
+            d.setUTCDate(monday.getUTCDate() + i);
+            const iso = d.toISOString().slice(0, 10);
+            days.push({ iso, label: dayNames[i], dayNum: d.getUTCDate(), month: d.getUTCMonth() + 1, isToday: iso === todayStr });
+        }
+        const meetings = loadMeetings().filter(m => m.date >= days[0].iso && m.date <= days[6].iso);
+        const prevWeek = shiftIsoWeek(week, -1);
+        const nextWeek = shiftIsoWeek(week, 1);
+        const HOUR_START = 7, HOUR_END = 20, HOUR_PX = 48;
+        const hourLabels = [];
+        for (let h = HOUR_START; h <= HOUR_END; h++) hourLabels.push(h);
+        const dayColumns = days.map(d => {
+            const dayMeetings = meetings.filter(m => m.date === d.iso);
+            const blocks = dayMeetings.map(m => {
+                let top = 0, height = HOUR_PX;
+                if (m.start) {
+                    const [sh, sm] = m.start.split(':').map(n => parseInt(n, 10));
+                    top = ((sh - HOUR_START) + (sm || 0) / 60) * HOUR_PX;
+                    if (m.end) {
+                        const [eh, em] = m.end.split(':').map(n => parseInt(n, 10));
+                        const dur = (eh + (em || 0) / 60) - (sh + (sm || 0) / 60);
+                        height = Math.max(20, dur * HOUR_PX);
+                    }
+                }
+                const att = (m.attendees || []).slice(0, 3).map(a => '@' + a).join(' ');
+                const more = (m.attendees || []).length > 3 ? ' +' + ((m.attendees.length - 3)) : '';
+                return `<div class="mtg" data-mid="${escapeHtml(m.id)}" style="top:${Math.max(0, top)}px;height:${height}px">
+                    <div class="mtg-time">${escapeHtml(m.start || '')}${m.end ? '–' + escapeHtml(m.end) : ''}</div>
+                    <div class="mtg-t">${escapeHtml(m.title)}</div>
+                    ${att ? `<div class="mtg-att">${escapeHtml(att + more)}</div>` : ''}
+                    ${m.location ? `<div class="mtg-l">📍 ${escapeHtml(m.location)}</div>` : ''}
+                </div>`;
+            }).join('');
+            return `<div class="cal-col${d.isToday ? ' today' : ''}" data-date="${d.iso}">
+                <div class="cal-col-head"><strong>${d.label}</strong><span>${d.dayNum}.${d.month}</span></div>
+                <div class="cal-col-body" style="height:${(HOUR_END - HOUR_START + 1) * HOUR_PX}px">${blocks}</div>
+            </div>`;
+        }).join('');
+        const hoursCol = `<div class="cal-hours"><div class="cal-col-head"></div><div class="cal-col-body" style="height:${(HOUR_END - HOUR_START + 1) * HOUR_PX}px">${hourLabels.map(h => `<div class="hour-line" style="top:${(h - HOUR_START) * HOUR_PX}px">${String(h).padStart(2,'0')}:00</div>`).join('')}</div></div>`;
+        const dateRange = isoWeekToDateRange(week);
+        const body = `
+            <div class="cal-toolbar">
+                <h1 style="margin:0">📅 Kalender · Uke ${week.split('-W')[1]}</h1>
+                <span style="color:#a99a78">${escapeHtml(dateRange)}</span>
+                <div style="margin-left:auto;display:flex;gap:6px">
+                    <a href="/calendar/${prevWeek}" class="cal-nav-btn">‹ Forrige</a>
+                    <a href="/calendar" class="cal-nav-btn">I dag</a>
+                    <a href="/calendar/${nextWeek}" class="cal-nav-btn">Neste ›</a>
+                </div>
+            </div>
+            <div class="cal-grid">
+                ${hoursCol}
+                ${dayColumns}
+            </div>
+            <div id="mtgModal" class="mtg-modal" onclick="if(event.target===this)closeMtgModal()">
+                <div class="mtg-modal-card">
+                    <div class="mtg-modal-head">
+                        <h3 id="mtgModalTitle" style="margin:0">Nytt møte</h3>
+                        <button type="button" onclick="closeMtgModal()" class="mtg-x">✕</button>
+                    </div>
+                    <form id="mtgForm">
+                        <input type="hidden" id="mtgId">
+                        <label>Tittel<input type="text" id="mtgTitle" required autofocus></label>
+                        <div class="mtg-row">
+                            <label style="flex:1.2">Dato<input type="date" id="mtgDate" required></label>
+                            <label style="flex:0.8">Fra<input type="time" id="mtgStart"></label>
+                            <label style="flex:0.8">Til<input type="time" id="mtgEnd"></label>
+                        </div>
+                        <label>Deltakere (kommaseparert eller @navn)<input type="text" id="mtgAttendees" placeholder="@kari, @ola"></label>
+                        <label>Sted<input type="text" id="mtgLocation" placeholder="Møterom, Teams, …"></label>
+                        <label>Notater<textarea id="mtgNotes" rows="4" placeholder="Agenda, lenker, …"></textarea></label>
+                        <div class="mtg-modal-actions">
+                            <button type="button" id="mtgDelete" class="mtg-btn-del" style="display:none">🗑️ Slett</button>
+                            <span style="flex:1"></span>
+                            <button type="button" onclick="closeMtgModal()" class="mtg-btn-cancel">Avbryt</button>
+                            <button type="submit" class="mtg-btn-save">💾 Lagre</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            <style>
+                .cal-toolbar { display:flex; align-items:center; gap:14px; margin-bottom:14px; }
+                .cal-nav-btn { background:#fffdf7; border:1px solid #d6cdb6; padding:6px 12px; border-radius:4px; text-decoration:none; color:#1a365d; font-size:0.9em; }
+                .cal-nav-btn:hover { background:#f0e8d4; text-decoration:none; }
+                .cal-grid { display:grid; grid-template-columns: 56px repeat(7, 1fr); gap:0; background:#fffdf7; border:1px solid #d6cdb6; border-radius:6px; overflow:hidden; }
+                .cal-col, .cal-hours { border-right:1px solid #ebe2cb; }
+                .cal-col:last-child { border-right:none; }
+                .cal-col-head { background:#f8f3e2; padding:8px 10px; border-bottom:1px solid #d6cdb6; font-size:0.85em; color:#3c3a30; display:flex; justify-content:space-between; align-items:baseline; gap:6px; }
+                .cal-col-head span { color:#a99a78; }
+                .cal-col.today .cal-col-head { background:#fff5d1; }
+                .cal-col.today .cal-col-head strong { color:#8a5a00; }
+                .cal-col-body { position:relative; cursor:crosshair; }
+                .cal-col-body:hover { background:#fbf9f4; }
+                .cal-hours .cal-col-body { cursor:default; }
+                .cal-hours .cal-col-body:hover { background:transparent; }
+                .hour-line { position:absolute; left:0; right:0; height:48px; border-top:1px solid #ebe2cb; padding:2px 6px; font-size:0.7em; color:#a99a78; text-align:right; box-sizing:border-box; }
+                .cal-col-body { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 47px, #ebe2cb 47px, #ebe2cb 48px); }
+                .mtg { position:absolute; left:2px; right:2px; background:#e6efff; border:1px solid #b9c8e0; border-left:3px solid #2b6cb0; border-radius:3px; padding:3px 6px; font-size:0.78em; color:#1a365d; cursor:pointer; overflow:hidden; box-shadow:0 1px 2px rgba(26,54,93,0.1); }
+                .mtg:hover { background:#d9e5fb; z-index:5; }
+                .mtg-time { font-weight:600; font-size:0.85em; }
+                .mtg-t { font-weight:500; line-height:1.2; }
+                .mtg-att, .mtg-l { color:#4a5568; font-size:0.92em; }
+                .mtg-modal { display:none; position:fixed; inset:0; background:rgba(26,32,44,0.45); z-index:1000; align-items:center; justify-content:center; }
+                .mtg-modal.open { display:flex; }
+                .mtg-modal-card { background:#fffdf7; border:1px solid #d6cdb6; border-radius:8px; padding:20px 24px; width:520px; max-width:92vw; max-height:90vh; overflow:auto; }
+                .mtg-modal-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+                .mtg-x { background:none; border:none; font-size:1.3em; cursor:pointer; color:#718096; }
+                #mtgForm label { display:block; margin-bottom:10px; font-size:0.85em; color:#4a5568; font-weight:600; }
+                #mtgForm input[type=text], #mtgForm input[type=date], #mtgForm input[type=time], #mtgForm textarea { width:100%; box-sizing:border-box; padding:7px 10px; border:1px solid #d6cdb6; border-radius:4px; font-family:inherit; font-size:0.95em; margin-top:4px; background:#fbf9f4; color:#1a202c; }
+                #mtgForm textarea { font-family: ui-monospace, monospace; font-size:0.88em; }
+                .mtg-row { display:flex; gap:10px; }
+                .mtg-modal-actions { display:flex; align-items:center; gap:8px; margin-top:14px; }
+                .mtg-btn-save { background:#1a365d; color:#fffdf7; border:none; padding:8px 18px; border-radius:4px; cursor:pointer; font-weight:600; font-family:inherit; }
+                .mtg-btn-save:hover { background:#102542; }
+                .mtg-btn-cancel { background:none; border:1px solid #d6cdb6; padding:7px 14px; border-radius:4px; cursor:pointer; font-family:inherit; color:#7a6f4d; }
+                .mtg-btn-del { background:#fef0c7; border:1px solid #f0d589; color:#8a5a00; padding:7px 12px; border-radius:4px; cursor:pointer; font-family:inherit; font-size:0.9em; }
+                .mtg-btn-del:hover { background:#f7e2a3; }
+            </style>
+            <script>
+                (function(){
+                    const HOUR_PX = ${HOUR_PX}, HOUR_START = ${HOUR_START};
+                    const modal = document.getElementById('mtgModal');
+                    const $ = id => document.getElementById(id);
+                    function openModal(meeting, prefillDate, prefillStart) {
+                        $('mtgForm').reset();
+                        if (meeting) {
+                            $('mtgModalTitle').textContent = 'Rediger møte';
+                            $('mtgId').value = meeting.id;
+                            $('mtgTitle').value = meeting.title || '';
+                            $('mtgDate').value = meeting.date || '';
+                            $('mtgStart').value = meeting.start || '';
+                            $('mtgEnd').value = meeting.end || '';
+                            $('mtgAttendees').value = (meeting.attendees || []).map(a => '@' + a).join(', ');
+                            $('mtgLocation').value = meeting.location || '';
+                            $('mtgNotes').value = meeting.notes || '';
+                            $('mtgDelete').style.display = '';
+                        } else {
+                            $('mtgModalTitle').textContent = 'Nytt møte';
+                            $('mtgId').value = '';
+                            $('mtgDate').value = prefillDate || '';
+                            $('mtgStart').value = prefillStart || '';
+                            $('mtgDelete').style.display = 'none';
+                        }
+                        modal.classList.add('open');
+                        setTimeout(() => $('mtgTitle').focus(), 50);
+                    }
+                    window.closeMtgModal = function(){ modal.classList.remove('open'); };
+                    document.querySelectorAll('.cal-col-body').forEach(body => {
+                        body.addEventListener('click', e => {
+                            if (e.target.closest('.mtg')) return;
+                            const col = body.closest('.cal-col');
+                            if (!col) return;
+                            const rect = body.getBoundingClientRect();
+                            const y = e.clientY - rect.top;
+                            const hour = Math.max(HOUR_START, Math.min(HOUR_START + 12, HOUR_START + Math.floor(y / HOUR_PX)));
+                            const date = col.getAttribute('data-date');
+                            openModal(null, date, String(hour).padStart(2,'0') + ':00');
+                        });
+                    });
+                    document.querySelectorAll('.mtg').forEach(el => {
+                        el.addEventListener('click', e => {
+                            e.stopPropagation();
+                            const id = el.getAttribute('data-mid');
+                            fetch('/api/meetings').then(r => r.json()).then(all => {
+                                const m = all.find(x => x.id === id);
+                                if (m) openModal(m);
+                            });
+                        });
+                    });
+                    $('mtgForm').addEventListener('submit', e => {
+                        e.preventDefault();
+                        const id = $('mtgId').value;
+                        const attendeesRaw = $('mtgAttendees').value || '';
+                        const attendees = attendeesRaw.split(/[,\\s]+/).map(s => s.replace(/^@/, '').toLowerCase()).filter(Boolean);
+                        const data = {
+                            title: $('mtgTitle').value.trim(),
+                            date: $('mtgDate').value,
+                            start: $('mtgStart').value,
+                            end: $('mtgEnd').value,
+                            attendees,
+                            location: $('mtgLocation').value.trim(),
+                            notes: $('mtgNotes').value
+                        };
+                        const url = id ? '/api/meetings/' + encodeURIComponent(id) : '/api/meetings';
+                        const method = id ? 'PUT' : 'POST';
+                        fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+                            .then(r => r.json()).then(d => { if (d.ok) location.reload(); else alert('Feil: ' + (d.error || '')); });
+                    });
+                    $('mtgDelete').addEventListener('click', () => {
+                        const id = $('mtgId').value;
+                        if (!id || !confirm('Slette dette møtet?')) return;
+                        fetch('/api/meetings/' + encodeURIComponent(id), { method: 'DELETE' })
+                            .then(r => r.json()).then(() => location.reload());
+                    });
+                    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMtgModal(); });
+                })();
+            </script>`;
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(pageHtml('Kalender', body));
         return;
     }
 
@@ -3283,6 +3595,90 @@ function expandAllPeople(expand) {
     if (pathname === '/api/people' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(loadPeople()));
+        return;
+    }
+
+    // API: list meetings (?week=YYYY-WNN, ?upcoming=N days)
+    if (pathname === '/api/meetings' && req.method === 'GET') {
+        const sp = new URL('http://x' + req.url).searchParams;
+        let meetings = loadMeetings();
+        if (sp.get('week')) {
+            const w = sp.get('week');
+            meetings = meetings.filter(m => dateToIsoWeek(new Date(m.date + 'T00:00:00Z')) === w);
+        }
+        if (sp.get('upcoming')) {
+            const days = parseInt(sp.get('upcoming'), 10) || 7;
+            const now = new Date();
+            const today = now.toISOString().slice(0, 10);
+            const cutoff = new Date(now.getTime() + days * 86400000).toISOString().slice(0, 10);
+            meetings = meetings.filter(m => m.date >= today && m.date <= cutoff);
+        }
+        meetings.sort((a, b) => (a.date + (a.start || '')).localeCompare(b.date + (b.start || '')));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(meetings));
+        return;
+    }
+
+    // API: create meeting
+    if (pathname === '/api/meetings' && req.method === 'POST') {
+        const data = JSON.parse(await readBody(req) || '{}');
+        if (!data.date || !data.title) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'date and title required' }));
+            return;
+        }
+        const meetings = loadMeetings();
+        const m = {
+            id: meetingId(),
+            date: data.date,
+            start: data.start || '',
+            end: data.end || '',
+            title: String(data.title).trim(),
+            attendees: Array.isArray(data.attendees) ? data.attendees : extractMentions(data.attendees || ''),
+            location: (data.location || '').trim(),
+            notes: (data.notes || '').trim(),
+            created: new Date().toISOString()
+        };
+        meetings.push(m);
+        saveMeetings(meetings);
+        try { syncMentions(m.title, m.notes, (m.attendees || []).map(a => '@' + a).join(' ')); } catch {}
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, meeting: m }));
+        return;
+    }
+
+    // API: update / delete meeting
+    const meetingMatch = pathname.match(/^\/api\/meetings\/([^/]+)$/);
+    if (meetingMatch && (req.method === 'PUT' || req.method === 'DELETE')) {
+        const id = meetingMatch[1];
+        const meetings = loadMeetings();
+        const idx = meetings.findIndex(m => m.id === id);
+        if (idx === -1) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'not found' }));
+            return;
+        }
+        if (req.method === 'DELETE') {
+            meetings.splice(idx, 1);
+            saveMeetings(meetings);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true }));
+            return;
+        }
+        const data = JSON.parse(await readBody(req) || '{}');
+        const m = meetings[idx];
+        if (data.date !== undefined) m.date = data.date;
+        if (data.start !== undefined) m.start = data.start;
+        if (data.end !== undefined) m.end = data.end;
+        if (data.title !== undefined) m.title = String(data.title).trim();
+        if (data.attendees !== undefined) m.attendees = Array.isArray(data.attendees) ? data.attendees : extractMentions(data.attendees || '');
+        if (data.location !== undefined) m.location = (data.location || '').trim();
+        if (data.notes !== undefined) m.notes = (data.notes || '').trim();
+        m.updated = new Date().toISOString();
+        saveMeetings(meetings);
+        try { syncMentions(m.title, m.notes, (m.attendees || []).map(a => '@' + a).join(' ')); } catch {}
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, meeting: m }));
         return;
     }
 
