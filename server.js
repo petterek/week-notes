@@ -27,13 +27,7 @@ function getActiveContext() {
     try { active = fs.readFileSync(ACTIVE_FILE, 'utf-8').trim(); } catch {}
     const all = listContexts();
     if (active && all.includes(active)) return active;
-    if (all.length === 0) {
-        const fallback = 'work';
-        try { fs.mkdirSync(path.join(CONTEXTS_DIR, fallback), { recursive: true }); } catch {}
-        try { fs.writeFileSync(path.join(CONTEXTS_DIR, fallback, 'settings.json'), JSON.stringify({ name: 'Arbeid', icon: '💼' }, null, 2)); } catch {}
-        try { fs.writeFileSync(ACTIVE_FILE, fallback); } catch {}
-        return fallback;
-    }
+    if (all.length === 0) return '';
     const first = all[0];
     try { fs.writeFileSync(ACTIVE_FILE, first); } catch {}
     return first;
@@ -524,19 +518,24 @@ function iconPickerHtml(name, current, pickerId, inputId) {
 function contextSwitcherHtml() {
     const active = getActiveContext();
     const contexts = listContexts();
-    const cur = getContextSettings(active);
+    const cur = active ? getContextSettings(active) : { name: '', icon: '📁' };
     const curIcon = escapeHtml(cur.icon || '📁');
+    const curLabel = active ? escapeHtml(cur.name || active) : 'Ingen kontekst';
     const items = contexts.map(id => {
         const s = getContextSettings(id);
         const isActive = id === active ? ' active' : '';
         return `<button type="button" class="ctx-item${isActive}" data-id="${escapeHtml(id)}"><span class="ctx-icon">${escapeHtml(s.icon || '📁')}</span>${escapeHtml(s.name || id)}</button>`;
     }).join('');
+    const commitBtn = active
+        ? `<button type="button" class="ctx-item ctx-commit-btn" id="ctxCommitBtn" data-active="${escapeHtml(active)}">💾 Commit endringer i «${escapeHtml(cur.name || active)}»</button>`
+        : '';
+    const sep = (items || commitBtn) ? '<div class="ctx-sep"></div>' : '';
     return `<div class="ctx-switcher">
-        <button type="button" class="ctx-trigger" id="ctxTrigger" title="Bytt kontekst"><span class="ctx-icon">${curIcon}</span><span class="ctx-name">${escapeHtml(cur.name || active)}</span><span class="ctx-caret">▾</span></button>
+        <button type="button" class="ctx-trigger" id="ctxTrigger" title="Bytt kontekst"><span class="ctx-icon">${curIcon}</span><span class="ctx-name">${curLabel}</span><span class="ctx-caret">▾</span></button>
         <div class="ctx-menu" id="ctxMenu">
             ${items}
-            <div class="ctx-sep"></div>
-            <button type="button" class="ctx-item ctx-commit-btn" id="ctxCommitBtn" data-active="${escapeHtml(active)}">💾 Commit endringer i «${escapeHtml(cur.name || active)}»</button>
+            ${sep}
+            ${commitBtn}
             <a class="ctx-item ctx-link" href="/settings">⚙️ Administrer kontekster</a>
         </div>
     </div>`;
@@ -1699,6 +1698,18 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const pathname = decodeURIComponent(url.pathname);
 
+    // Guard: if no contexts exist, force the user onto /settings to create one
+    if (listContexts().length === 0) {
+        const allowed = pathname === '/settings'
+            || pathname.startsWith('/api/contexts')
+            || pathname === '/_layouts' || pathname === '/_layouts.html';
+        if (!allowed) {
+            res.writeHead(302, { Location: '/settings' });
+            res.end();
+            return;
+        }
+    }
+
     // Layout mockups (design preview)
     if (pathname === '/_layouts' || pathname === '/_layouts.html') {
         try {
@@ -2321,11 +2332,15 @@ document.addEventListener('keydown', function(e) {
                     </div>
                 </form>
             </div>`).join('');
+        const emptyBanner = all.length === 0
+            ? `<div style="background:#fff7e0;border:1px solid #f0d589;color:#8a5a00;padding:14px 16px;border-radius:8px;margin:16px 0">👋 Ingen kontekster ennå. Opprett din første kontekst nedenfor for å komme i gang.</div>`
+            : '';
         const body = `
             <h1>⚙️ Kontekster</h1>
             <p style="color:#718096">Hver kontekst har sine egne notater, oppgaver, personer og resultater. Data er fullstendig isolert mellom kontekster.</p>
-            <h2>Tilgjengelige kontekster</h2>
-            <div class="ctx-list">${list}</div>
+            ${emptyBanner}
+            ${all.length > 0 ? `<h2>Tilgjengelige kontekster</h2>
+            <div class="ctx-list">${list}</div>` : ''}
 
             <h2 style="margin-top:32px">Ny kontekst</h2>
             <form id="newCtxForm" class="settings-form">
