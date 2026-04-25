@@ -2702,7 +2702,7 @@ document.addEventListener('keydown', function(e) {
                 .cal-hours .cal-col-body { cursor:default; }
                 .cal-hours .cal-col-body:hover { background:transparent; }
                 .hour-line { position:absolute; left:0; right:0; height:48px; border-top:1px solid #ebe2cb; padding:2px 6px; font-size:0.7em; color:#a99a78; text-align:right; box-sizing:border-box; }
-                .cal-col-body { background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 47px, #ebe2cb 47px, #ebe2cb 48px); }
+                .cal-col-body { background-image: repeating-linear-gradient(to bottom, #ebe2cb 0, #ebe2cb 1px, transparent 1px, transparent 48px); }
                 .mtg { position:absolute; left:2px; right:2px; background:#e6efff; border:1px solid #b9c8e0; border-left:3px solid #2b6cb0; border-radius:3px; padding:3px 6px; font-size:0.78em; color:#1a365d; cursor:pointer; overflow:hidden; box-shadow:0 1px 2px rgba(26,54,93,0.1); }
                 .mtg:hover { background:#d9e5fb; z-index:5; }
                 .mtg-time { font-weight:600; font-size:0.85em; }
