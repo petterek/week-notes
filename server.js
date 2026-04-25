@@ -3101,6 +3101,7 @@ document.addEventListener('keydown', function(e) {
             <script>
                 (function(){
                     const HOUR_PX = ${HOUR_PX}, HOUR_START = ${HOUR_START};
+                    const MEETING_TYPES = ${JSON.stringify(meetingTypes)};
                     const modal = document.getElementById('mtgModal');
                     const $ = id => document.getElementById(id);
                     function openModal(meeting, prefillDate, prefillStart) {
@@ -3172,7 +3173,7 @@ document.addEventListener('keydown', function(e) {
                         h.className = 'cm-h';
                         h.textContent = 'Nytt møte · type';
                         ctxMenu.appendChild(h);
-                        currentTypes.forEach(t => {
+                        MEETING_TYPES.forEach(t => {
                             const b = document.createElement('button');
                             b.type = 'button';
                             b.className = 'cm-item';
