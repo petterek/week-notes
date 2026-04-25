@@ -2931,6 +2931,7 @@ document.addEventListener('keydown', function(e) {
                 </select>
                 <button onclick="expandAllPeople(true)" title="Utvid alle" style="padding:8px 12px;border:1px solid #e8e2d2;background:white;border-radius:8px;cursor:pointer;color:#4a5568;font-size:0.9em">⇣ Utvid</button>
                 <button onclick="expandAllPeople(false)" title="Skjul alle" style="padding:8px 12px;border:1px solid #e8e2d2;background:white;border-radius:8px;cursor:pointer;color:#4a5568;font-size:0.9em">⇡ Skjul</button>
+                <label style="display:flex;align-items:center;gap:6px;font-size:0.85em;color:#4a5568;cursor:pointer;padding:8px 6px"><input id="showInactive" type="checkbox" onchange="applyPeopleFilter()" /> Vis inaktive</label>
                 <span id="peopleCount" style="font-size:0.85em;color:#718096"></span>
             </div>
             <div id="peopleList">`;
@@ -2959,13 +2960,14 @@ document.addEventListener('keydown', function(e) {
                     ? (person.lastName ? `${person.firstName} ${person.lastName}` : person.firstName)
                     : person.name;
                 const searchBlob = [displayName, person.name, person.title, person.email, person.phone, person.notes].filter(Boolean).join(' ').toLowerCase();
-                body += `<div class="person-card" data-name="${escapeHtml(displayName.toLowerCase())}" data-refs="${total}" data-search="${escapeHtml(searchBlob)}" style="margin-bottom:8px;background:white;border-radius:8px;border:1px solid #e8e2d2;overflow:hidden">`;
+                body += `<div class="person-card${person.inactive ? ' inactive' : ''}" data-name="${escapeHtml(displayName.toLowerCase())}" data-refs="${total}" data-inactive="${person.inactive ? '1' : '0'}" data-search="${escapeHtml(searchBlob)}" style="margin-bottom:8px;background:white;border-radius:8px;border:1px solid #e8e2d2;overflow:hidden${person.inactive ? ';opacity:0.55' : ''}">`;
                 body += `<div class="person-header" onclick="togglePerson(this)" style="padding:8px 14px;background:#fffdf7;display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none">`;
                 body += `<span class="person-chev" style="font-size:0.7em;color:#a0aec0;transition:transform 0.15s;display:inline-block;width:10px">▶</span>`;
-                body += `<span style="font-size:1.1em">👤</span>`;
+                body += `<span style="font-size:1.1em">${person.inactive ? '👻' : '👤'}</span>`;
                 body += `<div style="flex:1;min-width:0;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">`;
-                body += `<span style="font-weight:600;color:#1a365d">${escapeHtml(displayName)}</span>`;
+                body += `<span style="font-weight:600;color:#1a365d${person.inactive ? ';text-decoration:line-through' : ''}">${escapeHtml(displayName)}</span>`;
                 body += `<span style="font-size:0.8em;color:#a0aec0">@${escapeHtml(person.name)}</span>`;
+                if (person.inactive) body += `<span style="font-size:0.75em;background:#edf2f7;color:#4a5568;padding:1px 8px;border-radius:10px;font-weight:500">inaktiv</span>`;
                 if (person.title) body += `<span style="font-size:0.82em;color:#4a5568">· ${escapeHtml(person.title)}</span>`;
                 body += `</div>`;
                 body += `<span style="font-size:0.8em;color:#718096;white-space:nowrap">${total} ref.</span>`;
@@ -3041,8 +3043,13 @@ document.addEventListener('keydown', function(e) {
       <label style="font-size:0.85em;font-weight:600;color:#4a5568">Notat
         <textarea id="editPersonNotes" rows="3" style="display:block;margin-top:4px"></textarea>
       </label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:0.9em;color:#4a5568;cursor:pointer;padding:6px 0">
+        <input id="editPersonInactive" type="checkbox" style="width:16px;height:16px;cursor:pointer" />
+        <span>Inaktiv (skjules fra @-autofullføring)</span>
+      </label>
     </div>
-    <div class="page-modal-actions" style="margin-top:20px">
+    <div class="page-modal-actions" style="margin-top:20px;display:flex;align-items:center;gap:10px">
+      <button class="page-modal-btn" onclick="deleteEditPerson()" style="background:#fff5f5;color:#c53030;border:1px solid #fed7d7;margin-right:auto">🗑️ Slett</button>
       <button class="page-modal-btn cancel" onclick="closeEditPerson()">Avbryt</button>
       <button class="page-modal-btn blue" style="padding:8px 20px" onclick="saveEditPerson()">💾 Lagre</button>
     </div>
@@ -3060,6 +3067,7 @@ function openEditPerson(p) {
     document.getElementById('editPersonEmail').value = p.email || '';
     document.getElementById('editPersonPhone').value = p.phone || '';
     document.getElementById('editPersonNotes').value = p.notes || '';
+    document.getElementById('editPersonInactive').checked = !!p.inactive;
     const modal = document.getElementById('editPersonModal');
     modal.style.display = 'flex';
     setTimeout(() => document.getElementById('editPersonFirstName').focus(), 50);
@@ -3077,11 +3085,22 @@ function saveEditPerson() {
         title: document.getElementById('editPersonTitle').value.trim(),
         email: document.getElementById('editPersonEmail').value.trim(),
         phone: document.getElementById('editPersonPhone').value.trim(),
-        notes: document.getElementById('editPersonNotes').value.trim()
+        notes: document.getElementById('editPersonNotes').value.trim(),
+        inactive: document.getElementById('editPersonInactive').checked
     };
     if (!data.firstName) { alert('Fornavn er påkrevd'); return; }
     fetch('/api/people/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
         .then(r => r.json()).then(r => { if (r.ok) location.reload(); else alert('Feil ved lagring'); });
+}
+function deleteEditPerson() {
+    const id = document.getElementById('editPersonId').value;
+    const firstName = document.getElementById('editPersonFirstName').value.trim();
+    const lastName = document.getElementById('editPersonLastName').value.trim();
+    const name = (firstName + ' ' + lastName).trim() || 'denne personen';
+    if (!confirm('Slette ' + name + '?\\n\\nDette fjerner kun selve oppføringen. @-referanser i notater og oppgaver beholdes som tekst.')) return;
+    fetch('/api/people/' + id, { method: 'DELETE' })
+        .then(r => r.json()).then(r => { if (r.ok) location.reload(); else alert('Feil ved sletting'); })
+        .catch(() => alert('Nettverksfeil'));
 }
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') closeEditPerson();
@@ -3095,14 +3114,21 @@ function applyPeopleFilter() {
     if (!list) return;
     const q = (filterEl ? filterEl.value : '').trim().toLowerCase();
     const sort = sortEl ? sortEl.value : 'name-asc';
+    const showInactiveEl = document.getElementById('showInactive');
+    const showInactive = showInactiveEl ? showInactiveEl.checked : false;
     const cards = Array.from(list.querySelectorAll('.person-card'));
     let visible = 0;
     cards.forEach(c => {
-        const match = !q || (c.dataset.search || '').includes(q);
+        const inactive = c.dataset.inactive === '1';
+        const match = (!q || (c.dataset.search || '').includes(q)) && (showInactive || !inactive);
         c.style.display = match ? '' : 'none';
         if (match) visible++;
     });
     cards.sort((a, b) => {
+        // Always push inactive to the bottom, regardless of sort field
+        const ai = a.dataset.inactive === '1' ? 1 : 0;
+        const bi = b.dataset.inactive === '1' ? 1 : 0;
+        if (ai !== bi) return ai - bi;
         if (sort === 'name-asc') return a.dataset.name.localeCompare(b.dataset.name, 'nb');
         if (sort === 'name-desc') return b.dataset.name.localeCompare(a.dataset.name, 'nb');
         const ra = parseInt(a.dataset.refs || '0', 10), rb = parseInt(b.dataset.refs || '0', 10);
@@ -3956,11 +3982,27 @@ function expandAllPeople(expand) {
                 if (data.email !== undefined) person.email = data.email;
                 if (data.phone !== undefined) person.phone = data.phone;
                 if (data.notes !== undefined) person.notes = data.notes;
+                if (data.inactive !== undefined) person.inactive = !!data.inactive;
                 savePeople(people);
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ ok: true, person }));
             } catch { res.writeHead(400); res.end(JSON.stringify({ ok: false })); }
         });
+        return;
+    }
+
+    if (peopleUpdateMatch && req.method === 'DELETE') {
+        const people = loadPeople();
+        const idx = people.findIndex(p => p.id === peopleUpdateMatch[1]);
+        if (idx === -1) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Not found' }));
+            return;
+        }
+        people.splice(idx, 1);
+        savePeople(people);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
         return;
     }
 
@@ -4116,7 +4158,7 @@ function expandAllPeople(expand) {
 function initMentionAutocomplete(el) {
     let people = [];
     let dropdown = null;
-    fetch('/api/people').then(r => r.json()).then(p => { people = p; });
+    fetch('/api/people').then(r => r.json()).then(p => { people = (p || []).filter(x => !x.inactive); });
 
     function getMentionQuery() {
         const val = el.value, pos = el.selectionStart;
