@@ -1926,7 +1926,7 @@ const server = http.createServer(async (req, res) => {
                     const typeIcon = meetingTypeIcon(m.type);
                     const typeLabel = meetingTypeLabel(m.type);
                     const typeHtml = typeIcon ? '<span class="mtg-type-icon" title="' + escapeHtml(typeLabel) + '">' + typeIcon + '</span> ' : '';
-                    h += '<div class="sidebar-meeting" data-mid="' + escapeHtml(m.id) + '">'
+                    h += '<div class="sidebar-meeting" data-mid="' + escapeHtml(m.id) + '" data-cal-href="/calendar/' + escapeHtml(dateToIsoWeek(new Date(m.date + 'T00:00:00Z'))) + '#m-' + encodeURIComponent(m.id) + '" title="Åpne i kalender">'
                         + '<a class="sidebar-mtg-note" href="/meeting-note/' + encodeURIComponent(m.id) + '" title="Åpne møtenotat">📝</a>'
                         + '<div class="mtg-when"><strong>' + escapeHtml(dayLabel(m.date)) + '</strong> · ' + time + '</div>'
                         + '<div class="mtg-title">' + typeHtml + linkMentions(escapeHtml(m.title)) + '</div>'
@@ -2359,6 +2359,13 @@ const server = http.createServer(async (req, res) => {
             const orig = window.openNoteModal;
             window.openNoteModal = function(id) { orig(id); setTimeout(() => initMentionAutocomplete(document.getElementById('noteText')), 120); };
         })();
+        document.addEventListener('click', function(e) {
+            const card = e.target.closest('.sidebar-meeting');
+            if (!card) return;
+            if (e.target.closest('a, button')) return;
+            const href = card.getAttribute('data-cal-href');
+            if (href) window.location.href = href;
+        });
         </script>`;
 
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -2995,7 +3002,7 @@ document.addEventListener('keydown', function(e) {
                 const att = (m.attendees || []).slice(0, 3).map(a => '@' + a).join(' ');
                 const more = (m.attendees || []).length > 3 ? ' +' + ((m.attendees.length - 3)) : '';
                 const typeIcon = meetingTypeIcon(m.type);
-                return `<div class="mtg" data-mid="${escapeHtml(m.id)}" style="top:${Math.max(0, top)}px;height:${height}px">
+                return `<div class="mtg" id="m-${escapeHtml(m.id)}" data-mid="${escapeHtml(m.id)}" style="top:${Math.max(0, top)}px;height:${height}px">
                     <a class="mtg-note" href="/meeting-note/${encodeURIComponent(m.id)}" title="Åpne møtenotat" onclick="event.stopPropagation()">📝</a>
                     <div class="mtg-time">${escapeHtml(m.start || '')}${m.end ? '–' + escapeHtml(m.end) : ''}</div>
                     <div class="mtg-t">${typeIcon ? `<span class="mtg-type-icon" title="${escapeHtml(meetingTypeLabel(m.type))}">${typeIcon}</span> ` : ''}${escapeHtml(m.title)}</div>
@@ -3110,6 +3117,8 @@ document.addEventListener('keydown', function(e) {
                 .hour-line:first-child { align-items:flex-start; padding-top:2px; }
                 .cal-col-body { background-image: repeating-linear-gradient(to bottom, #ebe2cb 0, #ebe2cb 1px, transparent 1px, transparent 48px); }
                 .mtg { position:absolute; left:2px; right:2px; background:#e6efff; border:1px solid #b9c8e0; border-left:3px solid #2b6cb0; border-radius:3px; padding:3px 6px; font-size:0.78em; color:#1a365d; cursor:pointer; overflow:hidden; box-shadow:0 1px 2px rgba(26,54,93,0.1); }
+                .mtg.targeted { box-shadow:0 0 0 2px #f6ad55, 0 1px 4px rgba(26,54,93,0.2); animation: mtgPulse 1.6s ease-in-out 2; }
+                @keyframes mtgPulse { 0%,100% { background:#e6efff; } 50% { background:#fff3d6; } }
                 .mtg:hover { background:#d9e5fb; z-index:5; }
                 .mtg-time { font-weight:600; font-size:0.85em; }
                 .mtg-t { font-weight:500; line-height:1.2; }
@@ -3320,6 +3329,17 @@ document.addEventListener('keydown', function(e) {
                             .then(r => r.json()).then(() => location.reload());
                     });
                     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMtgModal(); });
+                    function focusFromHash() {
+                        const m = (location.hash || '').match(/^#m-(.+)$/);
+                        if (!m) return;
+                        const el = document.getElementById('m-' + decodeURIComponent(m[1]));
+                        if (!el) return;
+                        document.querySelectorAll('.mtg.targeted').forEach(x => x.classList.remove('targeted'));
+                        el.classList.add('targeted');
+                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                    window.addEventListener('hashchange', focusFromHash);
+                    setTimeout(focusFromHash, 50);
                 })();
             </script>
             <script src="/mention-autocomplete.js"></script>
