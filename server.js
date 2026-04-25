@@ -253,7 +253,7 @@ function saveMeetings(meetings) {
     fs.writeFileSync(meetingsFile(), JSON.stringify(meetings, null, 2), 'utf-8');
 }
 
-const MEETING_TYPES = [
+const DEFAULT_MEETING_TYPES = [
     { key: 'meeting', label: 'Møte', icon: '👥' },
     { key: '1on1', label: '1:1', icon: '☕' },
     { key: 'standup', label: 'Standup', icon: '🔄' },
@@ -265,9 +265,24 @@ const MEETING_TYPES = [
     { key: 'call', label: 'Telefon', icon: '📞' },
     { key: 'focus', label: 'Fokus', icon: '🎯' }
 ];
+function meetingTypesFile() { return path.join(dataDir(), 'meeting-types.json'); }
+function loadMeetingTypes() {
+    try {
+        const arr = JSON.parse(fs.readFileSync(meetingTypesFile(), 'utf-8'));
+        if (Array.isArray(arr)) return arr.filter(t => t && t.key);
+    } catch {}
+    return DEFAULT_MEETING_TYPES.slice();
+}
+function saveMeetingTypes(types) {
+    fs.writeFileSync(meetingTypesFile(), JSON.stringify(types, null, 2), 'utf-8');
+}
 function meetingTypeIcon(key) {
-    const t = MEETING_TYPES.find(x => x.key === key);
-    return t ? t.icon : '';
+    const t = loadMeetingTypes().find(x => x.key === key);
+    return t ? (t.icon || '') : '';
+}
+function meetingTypeLabel(key) {
+    const t = loadMeetingTypes().find(x => x.key === key);
+    return t ? (t.label || '') : '';
 }
 
 function dateToIsoWeek(d) {
@@ -1881,7 +1896,7 @@ const server = http.createServer(async (req, res) => {
                     const att = (m.attendees || []).map(a => '<a class="mention-link" data-person-key="' + escapeHtml(a) + '" href="/people#' + escapeHtml(a) + '">@' + escapeHtml(a) + '</a>').join(' ');
                     const loc = m.location ? '<span class="mtg-loc">📍 ' + escapeHtml(m.location) + '</span>' : '';
                     const typeIcon = meetingTypeIcon(m.type);
-                    const typeLabel = (MEETING_TYPES.find(t => t.key === m.type) || {}).label || '';
+                    const typeLabel = meetingTypeLabel(m.type);
                     const typeHtml = typeIcon ? '<span class="mtg-type-icon" title="' + escapeHtml(typeLabel) + '">' + typeIcon + '</span> ' : '';
                     h += '<div class="sidebar-meeting" data-mid="' + escapeHtml(m.id) + '">'
                         + '<a class="sidebar-mtg-note" href="/meeting-note/' + encodeURIComponent(m.id) + '" title="Åpne møtenotat">📝</a>'
@@ -2756,7 +2771,7 @@ document.addEventListener('keydown', function(e) {
                 return `<div class="mtg" data-mid="${escapeHtml(m.id)}" style="top:${Math.max(0, top)}px;height:${height}px">
                     <a class="mtg-note" href="/meeting-note/${encodeURIComponent(m.id)}" title="Åpne møtenotat" onclick="event.stopPropagation()">📝</a>
                     <div class="mtg-time">${escapeHtml(m.start || '')}${m.end ? '–' + escapeHtml(m.end) : ''}</div>
-                    <div class="mtg-t">${typeIcon ? `<span class="mtg-type-icon" title="${escapeHtml((MEETING_TYPES.find(t => t.key === m.type) || {}).label || '')}">${typeIcon}</span> ` : ''}${escapeHtml(m.title)}</div>
+                    <div class="mtg-t">${typeIcon ? `<span class="mtg-type-icon" title="${escapeHtml(meetingTypeLabel(m.type))}">${typeIcon}</span> ` : ''}${escapeHtml(m.title)}</div>
                     ${att ? `<div class="mtg-att">${escapeHtml(att + more)}</div>` : ''}
                     ${m.location ? `<div class="mtg-l">📍 ${escapeHtml(m.location)}</div>` : ''}
                 </div>`;
@@ -2767,12 +2782,14 @@ document.addEventListener('keydown', function(e) {
             </div>`;
         }).join('');
         const hoursCol = `<div class="cal-hours"><div class="cal-col-head"></div><div class="cal-col-body" style="height:${(HOUR_END - HOUR_START + 1) * HOUR_PX}px">${hourLabels.map(h => `<div class="hour-line" style="top:${(h - HOUR_START) * HOUR_PX}px">${String(h).padStart(2,'0')}:00</div>`).join('')}</div></div>`;
+        const meetingTypes = loadMeetingTypes();
         const dateRange = isoWeekToDateRange(week);
         const body = `
             <div class="cal-toolbar">
                 <h1 style="margin:0">📅 Kalender · Uke ${week.split('-W')[1]}</h1>
                 <span style="color:#a99a78">${escapeHtml(dateRange)}</span>
                 <div style="margin-left:auto;display:flex;gap:6px">
+                    <button type="button" class="cal-nav-btn" onclick="openTypesModal()" title="Rediger møtetyper">✏️ Typer</button>
                     <a href="/calendar/${prevWeek}" class="cal-nav-btn">‹ Forrige</a>
                     <a href="/calendar" class="cal-nav-btn">I dag</a>
                     <a href="/calendar/${nextWeek}" class="cal-nav-btn">Neste ›</a>
@@ -2793,7 +2810,7 @@ document.addEventListener('keydown', function(e) {
                         <label>Tittel<input type="text" id="mtgTitle" required autofocus></label>
                         <div class="mtg-row">
                             <label style="flex:1">Type<select id="mtgType">
-                                ${MEETING_TYPES.map(t => `<option value="${t.key}">${t.icon} ${escapeHtml(t.label)}</option>`).join('')}
+                                ${meetingTypes.map(t => `<option value="${escapeHtml(t.key)}">${t.icon || ''} ${escapeHtml(t.label)}</option>`).join('')}
                             </select></label>
                             <label style="flex:1.2">Dato<input type="date" id="mtgDate" required></label>
                             <label style="flex:0.8">Fra<input type="time" id="mtgStart"></label>
@@ -2809,6 +2826,31 @@ document.addEventListener('keydown', function(e) {
                             <button type="submit" class="mtg-btn-save">💾 Lagre</button>
                         </div>
                     </form>
+                </div>
+            </div>
+            <div id="typesModal" class="mtg-modal" onclick="if(event.target===this)closeTypesModal()">
+                <div class="mtg-modal-card" style="width:480px">
+                    <div class="mtg-modal-head">
+                        <h3 style="margin:0">✏️ Møtetyper</h3>
+                        <button type="button" onclick="closeTypesModal()" class="mtg-x">✕</button>
+                    </div>
+                    <p style="font-size:0.85em;color:#7a6f4d;margin:0 0 12px">Klikk på et ikon for å bytte. Slett fjerner typen (eksisterende møter beholdes uten ikon).</p>
+                    <div id="typesList"></div>
+                    <button type="button" class="cal-nav-btn" onclick="addType()" style="margin-top:8px">+ Ny type</button>
+                    <div class="mtg-modal-actions">
+                        <span style="flex:1"></span>
+                        <button type="button" onclick="closeTypesModal()" class="mtg-btn-cancel">Avbryt</button>
+                        <button type="button" class="mtg-btn-save" onclick="saveTypes()">💾 Lagre</button>
+                    </div>
+                </div>
+            </div>
+            <div id="iconPicker" class="icon-picker" onclick="if(event.target===this)closeIconPicker()">
+                <div class="icon-picker-card">
+                    <div class="mtg-modal-head">
+                        <h4 style="margin:0">Velg ikon</h4>
+                        <button type="button" onclick="closeIconPicker()" class="mtg-x">✕</button>
+                    </div>
+                    <div id="iconGrid" class="icon-grid"></div>
                 </div>
             </div>
             <style>
@@ -2852,6 +2894,18 @@ document.addEventListener('keydown', function(e) {
                 .mtg-btn-cancel { background:none; border:1px solid #d6cdb6; padding:7px 14px; border-radius:4px; cursor:pointer; font-family:inherit; color:#7a6f4d; }
                 .mtg-btn-del { background:#fef0c7; border:1px solid #f0d589; color:#8a5a00; padding:7px 12px; border-radius:4px; cursor:pointer; font-family:inherit; font-size:0.9em; }
                 .mtg-btn-del:hover { background:#f7e2a3; }
+                .types-row { display:flex; align-items:center; gap:8px; margin-bottom:6px; padding:6px; border:1px solid #ebe2cb; border-radius:4px; background:#fbf9f4; }
+                .types-row .ti-icon { width:38px; height:38px; font-size:1.4em; cursor:pointer; background:#fffdf7; border:1px solid #d6cdb6; border-radius:4px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+                .types-row .ti-icon:hover { background:#f0e8d4; }
+                .types-row input[type=text] { flex:1; padding:7px 10px; border:1px solid #d6cdb6; border-radius:4px; font-family:inherit; font-size:0.95em; background:#fffdf7; color:#1a202c; }
+                .types-row .ti-del { background:#fff5f5; color:#c53030; border:1px solid #fed7d7; padding:6px 10px; border-radius:4px; cursor:pointer; font-family:inherit; font-size:0.9em; }
+                .types-row .ti-del:hover { background:#fed7d7; }
+                .icon-picker { display:none; position:fixed; inset:0; background:rgba(26,32,44,0.55); z-index:1100; align-items:center; justify-content:center; }
+                .icon-picker.open { display:flex; }
+                .icon-picker-card { background:#fffdf7; border:1px solid #d6cdb6; border-radius:8px; padding:16px 20px; }
+                .icon-grid { display:grid; grid-template-columns: repeat(8, 42px); gap:6px; }
+                .icon-grid button { width:42px; height:42px; font-size:1.5em; background:#fbf9f4; border:1px solid #ebe2cb; border-radius:4px; cursor:pointer; padding:0; line-height:1; }
+                .icon-grid button:hover { background:#f0e8d4; transform:scale(1.1); }
             </style>
             <script>
                 (function(){
@@ -2942,6 +2996,82 @@ document.addEventListener('keydown', function(e) {
                         const el = document.getElementById(id);
                         if (el) initMentionAutocomplete(el);
                     });
+                })();
+            </script>
+            <script>
+                (function(){
+                    const ICON_PALETTE = ['👥','☕','🔄','🛠️','🎬','📋','🔍','🎉','📞','🎯','💬','📅','📊','📈','📉','💡','🧠','🎓','📚','🖥️','💻','📱','📝','✏️','📎','📌','📍','🚀','⚡','🔥','⭐','🌟','✨','🏆','🎖️','🥇','🎁','🎈','🍰','☎️','📨','📧','📤','📥','🔔','🔕','✅','☑️','❌','⚠️','❓','❗','🟢','🟡','🔴','🔵','⏰','⏳','⌛','🗓️','🤝','👋','👀','🙌'];
+                    let currentTypes = ${JSON.stringify(meetingTypes)};
+                    let pickerTarget = null;
+
+                    function slugKey(label) {
+                        const base = (label || 'type').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'type';
+                        return base + '-' + Math.random().toString(36).slice(2, 6);
+                    }
+                    function renderTypes() {
+                        const list = document.getElementById('typesList');
+                        list.innerHTML = '';
+                        currentTypes.forEach((t, i) => {
+                            const row = document.createElement('div');
+                            row.className = 'types-row';
+                            row.innerHTML = '<button type="button" class="ti-icon" data-i="' + i + '" title="Velg ikon">' + (t.icon || '·') + '</button>'
+                                + '<input type="text" data-i="' + i + '" value="' + (t.label || '').replace(/"/g, '&quot;') + '" placeholder="Navn">'
+                                + '<button type="button" class="ti-del" data-i="' + i + '" title="Slett">🗑️</button>';
+                            list.appendChild(row);
+                        });
+                        list.querySelectorAll('.ti-icon').forEach(b => b.onclick = () => openIconPicker(parseInt(b.dataset.i, 10)));
+                        list.querySelectorAll('input[type=text]').forEach(inp => inp.oninput = () => { currentTypes[parseInt(inp.dataset.i, 10)].label = inp.value; });
+                        list.querySelectorAll('.ti-del').forEach(b => b.onclick = () => { currentTypes.splice(parseInt(b.dataset.i, 10), 1); renderTypes(); });
+                    }
+                    function renderIconGrid() {
+                        const grid = document.getElementById('iconGrid');
+                        grid.innerHTML = '';
+                        ICON_PALETTE.forEach(ic => {
+                            const b = document.createElement('button');
+                            b.type = 'button';
+                            b.textContent = ic;
+                            b.onclick = () => {
+                                if (pickerTarget != null && currentTypes[pickerTarget]) {
+                                    currentTypes[pickerTarget].icon = ic;
+                                    renderTypes();
+                                }
+                                closeIconPicker();
+                            };
+                            grid.appendChild(b);
+                        });
+                    }
+                    window.openTypesModal = function() {
+                        renderTypes();
+                        document.getElementById('typesModal').classList.add('open');
+                    };
+                    window.closeTypesModal = function() {
+                        document.getElementById('typesModal').classList.remove('open');
+                    };
+                    window.addType = function() {
+                        currentTypes.push({ key: slugKey('ny'), icon: '👥', label: 'Ny type' });
+                        renderTypes();
+                    };
+                    window.openIconPicker = function(i) {
+                        pickerTarget = i;
+                        document.getElementById('iconPicker').classList.add('open');
+                    };
+                    window.closeIconPicker = function() {
+                        pickerTarget = null;
+                        document.getElementById('iconPicker').classList.remove('open');
+                    };
+                    window.saveTypes = function() {
+                        const cleaned = currentTypes
+                            .map(t => ({ key: t.key || slugKey(t.label), icon: (t.icon || '').trim(), label: (t.label || '').trim() }))
+                            .filter(t => t.label);
+                        fetch('/api/meeting-types', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cleaned) })
+                            .then(r => r.json()).then(d => { if (d.ok) location.reload(); else alert('Feil ved lagring'); });
+                    };
+                    document.addEventListener('keydown', e => {
+                        if (e.key !== 'Escape') return;
+                        if (document.getElementById('iconPicker').classList.contains('open')) closeIconPicker();
+                        else if (document.getElementById('typesModal').classList.contains('open')) closeTypesModal();
+                    });
+                    renderIconGrid();
                 })();
             </script>`;
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -3765,6 +3895,40 @@ function expandAllPeople(expand) {
     }
 
     // API: list meetings (?week=YYYY-WNN, ?upcoming=N days)
+    if (pathname === '/api/meeting-types' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(loadMeetingTypes()));
+        return;
+    }
+    if (pathname === '/api/meeting-types' && req.method === 'PUT') {
+        try {
+            const data = JSON.parse(await readBody(req) || '[]');
+            if (!Array.isArray(data)) throw new Error('expected array');
+            const seenKeys = new Set();
+            const cleaned = data.map(t => {
+                let key = (t && typeof t.key === 'string') ? t.key.trim() : '';
+                const label = (t && typeof t.label === 'string') ? t.label.trim() : '';
+                const icon = (t && typeof t.icon === 'string') ? t.icon.trim() : '';
+                if (!label) return null;
+                if (!key || seenKeys.has(key)) {
+                    const base = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'type';
+                    key = base;
+                    let n = 2;
+                    while (seenKeys.has(key)) key = base + '-' + (n++);
+                }
+                seenKeys.add(key);
+                return { key, icon, label };
+            }).filter(Boolean);
+            saveMeetingTypes(cleaned);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, types: cleaned }));
+        } catch (err) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: String(err.message || err) }));
+        }
+        return;
+    }
+
     if (pathname === '/api/meetings' && req.method === 'GET') {
         const sp = new URL('http://x' + req.url).searchParams;
         let meetings = loadMeetings();
@@ -3794,7 +3958,7 @@ function expandAllPeople(expand) {
             return;
         }
         const meetings = loadMeetings();
-        const validTypes = MEETING_TYPES.map(t => t.key);
+        const validTypes = loadMeetingTypes().map(t => t.key);
         const m = {
             id: meetingId(),
             date: data.date,
@@ -3839,7 +4003,7 @@ function expandAllPeople(expand) {
         if (data.start !== undefined) m.start = data.start;
         if (data.end !== undefined) m.end = data.end;
         if (data.title !== undefined) m.title = String(data.title).trim();
-        if (data.type !== undefined && MEETING_TYPES.some(t => t.key === data.type)) m.type = data.type;
+        if (data.type !== undefined && loadMeetingTypes().some(t => t.key === data.type)) m.type = data.type;
         if (data.attendees !== undefined) m.attendees = Array.isArray(data.attendees) ? data.attendees : extractMentions(data.attendees || '');
         if (data.location !== undefined) m.location = (data.location || '').trim();
         if (data.notes !== undefined) m.notes = (data.notes || '').trim();
