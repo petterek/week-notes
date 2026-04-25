@@ -2994,8 +2994,8 @@ document.addEventListener('keydown', function(e) {
                                 ${meetingTypes.map(t => `<option value="${escapeHtml(t.key)}">${t.icon || ''} ${escapeHtml(t.label)}</option>`).join('')}
                             </select></label>
                             <label style="flex:1.2">Dato<input type="date" id="mtgDate" required></label>
-                            <label style="flex:0.8">Fra<input type="time" id="mtgStart"></label>
-                            <label style="flex:0.8">Til<input type="time" id="mtgEnd"></label>
+                            <label style="flex:0.8">Fra<input type="time" id="mtgStart" step="300"></label>
+                            <label style="flex:0.8">Til<input type="time" id="mtgEnd" step="300"></label>
                         </div>
                         <label>Deltakere (kommaseparert eller @navn)<input type="text" id="mtgAttendees" placeholder="@kari, @ola"></label>
                         <label>Sted<input type="text" id="mtgLocation" placeholder="Møterom, Teams, …"></label>
