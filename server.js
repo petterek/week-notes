@@ -253,6 +253,23 @@ function saveMeetings(meetings) {
     fs.writeFileSync(meetingsFile(), JSON.stringify(meetings, null, 2), 'utf-8');
 }
 
+const MEETING_TYPES = [
+    { key: 'meeting', label: 'Møte', icon: '👥' },
+    { key: '1on1', label: '1:1', icon: '☕' },
+    { key: 'standup', label: 'Standup', icon: '🔄' },
+    { key: 'workshop', label: 'Workshop', icon: '🛠️' },
+    { key: 'demo', label: 'Demo', icon: '🎬' },
+    { key: 'planning', label: 'Planlegging', icon: '📋' },
+    { key: 'review', label: 'Gjennomgang', icon: '🔍' },
+    { key: 'social', label: 'Sosialt', icon: '🎉' },
+    { key: 'call', label: 'Telefon', icon: '📞' },
+    { key: 'focus', label: 'Fokus', icon: '🎯' }
+];
+function meetingTypeIcon(key) {
+    const t = MEETING_TYPES.find(x => x.key === key);
+    return t ? t.icon : '';
+}
+
 function dateToIsoWeek(d) {
     // Canonical ISO 8601 week: target = Thursday of d's week
     const target = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -1863,10 +1880,13 @@ const server = http.createServer(async (req, res) => {
                     const time = m.start ? escapeHtml(m.start) + (m.end ? '–' + escapeHtml(m.end) : '') : 'Hele dagen';
                     const att = (m.attendees || []).map(a => '<a class="mention-link" data-person-key="' + escapeHtml(a) + '" href="/people#' + escapeHtml(a) + '">@' + escapeHtml(a) + '</a>').join(' ');
                     const loc = m.location ? '<span class="mtg-loc">📍 ' + escapeHtml(m.location) + '</span>' : '';
+                    const typeIcon = meetingTypeIcon(m.type);
+                    const typeLabel = (MEETING_TYPES.find(t => t.key === m.type) || {}).label || '';
+                    const typeHtml = typeIcon ? '<span class="mtg-type-icon" title="' + escapeHtml(typeLabel) + '">' + typeIcon + '</span> ' : '';
                     h += '<div class="sidebar-meeting" data-mid="' + escapeHtml(m.id) + '">'
                         + '<a class="sidebar-mtg-note" href="/meeting-note/' + encodeURIComponent(m.id) + '" title="Åpne møtenotat">📝</a>'
                         + '<div class="mtg-when"><strong>' + escapeHtml(dayLabel(m.date)) + '</strong> · ' + time + '</div>'
-                        + '<div class="mtg-title">' + linkMentions(escapeHtml(m.title)) + '</div>'
+                        + '<div class="mtg-title">' + typeHtml + linkMentions(escapeHtml(m.title)) + '</div>'
                         + (att || loc ? '<div class="mtg-meta">' + att + (att && loc ? ' · ' : '') + loc + '</div>' : '')
                         + '</div>';
                 });
@@ -2732,10 +2752,11 @@ document.addEventListener('keydown', function(e) {
                 }
                 const att = (m.attendees || []).slice(0, 3).map(a => '@' + a).join(' ');
                 const more = (m.attendees || []).length > 3 ? ' +' + ((m.attendees.length - 3)) : '';
+                const typeIcon = meetingTypeIcon(m.type);
                 return `<div class="mtg" data-mid="${escapeHtml(m.id)}" style="top:${Math.max(0, top)}px;height:${height}px">
                     <a class="mtg-note" href="/meeting-note/${encodeURIComponent(m.id)}" title="Åpne møtenotat" onclick="event.stopPropagation()">📝</a>
                     <div class="mtg-time">${escapeHtml(m.start || '')}${m.end ? '–' + escapeHtml(m.end) : ''}</div>
-                    <div class="mtg-t">${escapeHtml(m.title)}</div>
+                    <div class="mtg-t">${typeIcon ? `<span class="mtg-type-icon" title="${escapeHtml((MEETING_TYPES.find(t => t.key === m.type) || {}).label || '')}">${typeIcon}</span> ` : ''}${escapeHtml(m.title)}</div>
                     ${att ? `<div class="mtg-att">${escapeHtml(att + more)}</div>` : ''}
                     ${m.location ? `<div class="mtg-l">📍 ${escapeHtml(m.location)}</div>` : ''}
                 </div>`;
@@ -2771,6 +2792,9 @@ document.addEventListener('keydown', function(e) {
                         <input type="hidden" id="mtgId">
                         <label>Tittel<input type="text" id="mtgTitle" required autofocus></label>
                         <div class="mtg-row">
+                            <label style="flex:1">Type<select id="mtgType">
+                                ${MEETING_TYPES.map(t => `<option value="${t.key}">${t.icon} ${escapeHtml(t.label)}</option>`).join('')}
+                            </select></label>
                             <label style="flex:1.2">Dato<input type="date" id="mtgDate" required></label>
                             <label style="flex:0.8">Fra<input type="time" id="mtgStart"></label>
                             <label style="flex:0.8">Til<input type="time" id="mtgEnd"></label>
@@ -2809,6 +2833,7 @@ document.addEventListener('keydown', function(e) {
                 .mtg:hover { background:#d9e5fb; z-index:5; }
                 .mtg-time { font-weight:600; font-size:0.85em; }
                 .mtg-t { font-weight:500; line-height:1.2; }
+                .mtg-type-icon { font-size:0.95em; }
                 .mtg-att, .mtg-l { color:#4a5568; font-size:0.92em; }
                 .mtg-note { position:absolute; top:2px; right:3px; font-size:0.95em; text-decoration:none; padding:0 3px; opacity:0.55; line-height:1; border-radius:3px; }
                 .mtg-note:hover { opacity:1; background:#fffdf7; }
@@ -2839,6 +2864,7 @@ document.addEventListener('keydown', function(e) {
                             $('mtgModalTitle').textContent = 'Rediger møte';
                             $('mtgId').value = meeting.id;
                             $('mtgTitle').value = meeting.title || '';
+                            $('mtgType').value = meeting.type || 'meeting';
                             $('mtgDate').value = meeting.date || '';
                             $('mtgStart').value = meeting.start || '';
                             $('mtgEnd').value = meeting.end || '';
@@ -2849,6 +2875,7 @@ document.addEventListener('keydown', function(e) {
                         } else {
                             $('mtgModalTitle').textContent = 'Nytt møte';
                             $('mtgId').value = '';
+                            $('mtgType').value = 'meeting';
                             $('mtgDate').value = prefillDate || '';
                             $('mtgStart').value = prefillStart || '';
                             $('mtgDelete').style.display = 'none';
@@ -2886,6 +2913,7 @@ document.addEventListener('keydown', function(e) {
                         const attendees = attendeesRaw.split(/[,\\s]+/).map(s => s.replace(/^@/, '').toLowerCase()).filter(Boolean);
                         const data = {
                             title: $('mtgTitle').value.trim(),
+                            type: $('mtgType').value,
                             date: $('mtgDate').value,
                             start: $('mtgStart').value,
                             end: $('mtgEnd').value,
@@ -3766,12 +3794,14 @@ function expandAllPeople(expand) {
             return;
         }
         const meetings = loadMeetings();
+        const validTypes = MEETING_TYPES.map(t => t.key);
         const m = {
             id: meetingId(),
             date: data.date,
             start: data.start || '',
             end: data.end || '',
             title: String(data.title).trim(),
+            type: validTypes.includes(data.type) ? data.type : 'meeting',
             attendees: Array.isArray(data.attendees) ? data.attendees : extractMentions(data.attendees || ''),
             location: (data.location || '').trim(),
             notes: (data.notes || '').trim(),
@@ -3809,6 +3839,7 @@ function expandAllPeople(expand) {
         if (data.start !== undefined) m.start = data.start;
         if (data.end !== undefined) m.end = data.end;
         if (data.title !== undefined) m.title = String(data.title).trim();
+        if (data.type !== undefined && MEETING_TYPES.some(t => t.key === data.type)) m.type = data.type;
         if (data.attendees !== undefined) m.attendees = Array.isArray(data.attendees) ? data.attendees : extractMentions(data.attendees || '');
         if (data.location !== undefined) m.location = (data.location || '').trim();
         if (data.notes !== undefined) m.notes = (data.notes || '').trim();
