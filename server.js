@@ -285,6 +285,15 @@ function meetingTypeLabel(key) {
     return t ? (t.label || '') : '';
 }
 
+function getWorkHours(ctxId) {
+    const s = ctxId ? getContextSettings(ctxId) : (activeContext() ? getContextSettings(activeContext()) : {});
+    const start = /^\d{2}:\d{2}$/.test(s.workStart) ? s.workStart : '08:00';
+    const end = /^\d{2}:\d{2}$/.test(s.workEnd) ? s.workEnd : '16:00';
+    let days = Array.isArray(s.workDays) ? s.workDays.map(n => parseInt(n, 10)).filter(n => n >= 0 && n <= 6) : [0, 1, 2, 3, 4];
+    days = Array.from(new Set(days)).sort((a, b) => a - b);
+    return { start, end, days };
+}
+
 function dateToIsoWeek(d) {
     // Canonical ISO 8601 week: target = Thursday of d's week
     const target = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -2518,6 +2527,17 @@ document.addEventListener('keydown', function(e) {
                         </div>
                         <label>Beskrivelse<textarea name="description" rows="2">${escapeHtml(c.settings.description || '')}</textarea></label>
                         <label>Git-remote (origin)<input type="text" name="remote" value="${escapeHtml(c.settings.remote || '')}" placeholder="git@github.com:bruker/repo.git" spellcheck="false"></label>
+                        <div class="ctx-form-grid" style="grid-template-columns:1fr 1fr">
+                            <label>Arbeidsdag fra<input type="time" name="workStart" value="${escapeHtml(c.settings.workStart || '08:00')}" step="3600"></label>
+                            <label>Arbeidsdag til<input type="time" name="workEnd" value="${escapeHtml(c.settings.workEnd || '16:00')}" step="3600"></label>
+                        </div>
+                        <label>Arbeidsdager<span class="workdays-row">
+                            ${['Man','Tir','Ons','Tor','Fre','Lør','Søn'].map((d, i) => {
+                                const days = Array.isArray(c.settings.workDays) ? c.settings.workDays : [0,1,2,3,4];
+                                const checked = days.includes(i) ? ' checked' : '';
+                                return `<label class="wd"><input type="checkbox" name="workDays" value="${i}"${checked}> ${d}</label>`;
+                            }).join('')}
+                        </span></label>
                     </div>
                     <div class="ctx-detail-section" data-mt="${escapeHtml(c.id)}">
                         <h3>🗓️ Møtetyper</h3>
@@ -2602,6 +2622,9 @@ document.addEventListener('keydown', function(e) {
                 .ctx-detail-section .section-hint { margin: -6px 0 10px; font-size: 0.85em; color: #7a6f4d; }
                 .ctx-detail-actions { display: flex; align-items: center; gap: 12px; padding-top: 14px; border-top: 1px solid #ebe2cb; }
                 .ctx-form-grid { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }
+                .workdays-row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
+                .workdays-row .wd { display: inline-flex; align-items: center; gap: 4px; font-weight: normal; color: #3c3a30; cursor: pointer; }
+                .workdays-row .wd input { margin: 0; }
                 .ctx-active-badge { background: #1a365d; color: #fffdf7; font-size: 0.75em; padding: 4px 10px; border-radius: 10px; font-weight: 600; white-space: nowrap; }
                 .ctx-icon-lg { font-size: 2em; line-height: 1; }
                 .ctx-desc { margin-bottom: 16px; padding: 10px 14px; background: #f8f3e2; border-left: 3px solid #d6cdb6; border-radius: 4px; color: #4a5568; font-size: 0.9em; font-style: italic; }
@@ -2724,7 +2747,15 @@ document.addEventListener('keydown', function(e) {
                     e.preventDefault();
                     const id = form.getAttribute('data-form');
                     const fd = new FormData(form);
-                    const data = { name: fd.get('name'), icon: fd.get('icon') || '📁', description: fd.get('description'), remote: fd.get('remote') || '' };
+                    const data = {
+                        name: fd.get('name'),
+                        icon: fd.get('icon') || '📁',
+                        description: fd.get('description'),
+                        remote: fd.get('remote') || '',
+                        workStart: fd.get('workStart') || '08:00',
+                        workEnd: fd.get('workEnd') || '16:00',
+                        workDays: fd.getAll('workDays').map(v => parseInt(v, 10)).filter(n => n >= 0 && n <= 6)
+                    };
                     const status = document.querySelector('[data-status="' + id + '"]');
                     const types = (window.__mtState && window.__mtState[id]) || null;
                     const settingsP = fetch('/api/contexts/' + encodeURIComponent(id) + '/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).then(r => r.json());
@@ -2929,9 +2960,18 @@ document.addEventListener('keydown', function(e) {
         const prevWeek = shiftIsoWeek(week, -1);
         const nextWeek = shiftIsoWeek(week, 1);
         const HOUR_START = 0, HOUR_END = 23, HOUR_PX = 36;
+        const work = getWorkHours();
+        const [wsH, wsM] = work.start.split(':').map(n => parseInt(n, 10));
+        const [weH, weM] = work.end.split(':').map(n => parseInt(n, 10));
+        const workTop = ((wsH - HOUR_START) + (wsM || 0) / 60) * HOUR_PX;
+        const workH = Math.max(0, ((weH + (weM || 0) / 60) - (wsH + (wsM || 0) / 60)) * HOUR_PX);
         const hourLabels = [];
         for (let h = HOUR_START; h <= HOUR_END; h++) hourLabels.push(h);
-        const dayColumns = days.map(d => {
+        const dayColumns = days.map((d, i) => {
+            const isWorkDay = work.days.includes(i);
+            const workBand = isWorkDay && workH > 0
+                ? `<div class="work-band" style="top:${workTop}px;height:${workH}px"></div>`
+                : '';
             const dayMeetings = meetings.filter(m => m.date === d.iso);
             const blocks = dayMeetings.map(m => {
                 let top = 0, height = HOUR_PX;
@@ -2957,7 +2997,7 @@ document.addEventListener('keydown', function(e) {
             }).join('');
             return `<div class="cal-col${d.isToday ? ' today' : ''}" data-date="${d.iso}">
                 <div class="cal-col-head"><strong>${d.label}</strong><span>${d.dayNum}.${d.month}</span></div>
-                <div class="cal-col-body" style="height:${(HOUR_END - HOUR_START + 1) * HOUR_PX}px">${blocks}</div>
+                <div class="cal-col-body" style="height:${(HOUR_END - HOUR_START + 1) * HOUR_PX}px">${workBand}${blocks}</div>
             </div>`;
         }).join('');
         const hoursCol = `<div class="cal-hours"><div class="cal-col-head"></div><div class="cal-col-body" style="height:${(HOUR_END - HOUR_START + 1) * HOUR_PX}px">${hourLabels.map(h => `<div class="hour-line" style="top:${(h - HOUR_START) * HOUR_PX}px">${String(h).padStart(2,'0')}:00</div>`).join('')}</div></div>`;
@@ -2994,8 +3034,8 @@ document.addEventListener('keydown', function(e) {
                                 ${meetingTypes.map(t => `<option value="${escapeHtml(t.key)}">${t.icon || ''} ${escapeHtml(t.label)}</option>`).join('')}
                             </select></label>
                             <label style="flex:1.2">Dato<input type="date" id="mtgDate" required></label>
-                            <label style="flex:0.8">Fra<input type="time" id="mtgStart" step="300"></label>
-                            <label style="flex:0.8">Til<input type="time" id="mtgEnd" step="300"></label>
+                            <label style="flex:0.9">Fra<span class="time-pick"><select id="mtgStartH" class="t-h"></select><span class="t-sep">:</span><select id="mtgStartM" class="t-m"></select></span></label>
+                            <label style="flex:0.9">Til<span class="time-pick"><select id="mtgEndH" class="t-h"></select><span class="t-sep">:</span><select id="mtgEndM" class="t-m"></select></span></label>
                         </div>
                         <label>Deltakere (kommaseparert eller @navn)<input type="text" id="mtgAttendees" placeholder="@kari, @ola"></label>
                         <label>Sted<input type="text" id="mtgLocation" placeholder="Møterom, Teams, …"></label>
@@ -3055,6 +3095,7 @@ document.addEventListener('keydown', function(e) {
                 .cal-col.today .cal-col-head strong { color:#8a5a00; }
                 .cal-col-body { position:relative; cursor:crosshair; }
                 .cal-col-body:hover { background:#fbf9f4; }
+                .work-band { position:absolute; left:0; right:0; background:rgba(43,108,176,0.07); border-top:1px dashed rgba(43,108,176,0.35); border-bottom:1px dashed rgba(43,108,176,0.35); pointer-events:none; z-index:0; }
                 .cal-hours .cal-col-body { cursor:default; }
                 .cal-hours .cal-col-body:hover { background:transparent; }
                 .hour-line { position:absolute; left:0; right:0; height:0; padding:0 6px; font-size:0.7em; color:#a99a78; text-align:right; line-height:1; display:flex; align-items:center; justify-content:flex-end; }
@@ -3077,6 +3118,9 @@ document.addEventListener('keydown', function(e) {
                 #mtgForm input[type=text], #mtgForm input[type=date], #mtgForm input[type=time], #mtgForm textarea { width:100%; box-sizing:border-box; padding:7px 10px; border:1px solid #d6cdb6; border-radius:4px; font-family:inherit; font-size:0.95em; margin-top:4px; background:#fbf9f4; color:#1a202c; }
                 #mtgForm textarea { font-family: ui-monospace, monospace; font-size:0.88em; }
                 .mtg-row { display:flex; gap:10px; }
+                .time-pick { display:inline-flex; align-items:center; gap:2px; }
+                .time-pick select { padding:7px 6px; border:1px solid #d6cdb6; border-radius:4px; font-family:inherit; background:#fffdf7; }
+                .time-pick .t-sep { color:#7a6f4d; font-weight:600; }
                 .mtg-modal-actions { display:flex; align-items:center; gap:8px; margin-top:14px; }
                 .mtg-btn-save { background:#1a365d; color:#fffdf7; border:none; padding:8px 18px; border-radius:4px; cursor:pointer; font-weight:600; font-family:inherit; }
                 .mtg-btn-save:hover { background:#102542; }
@@ -3104,6 +3148,28 @@ document.addEventListener('keydown', function(e) {
                     const MEETING_TYPES = ${JSON.stringify(meetingTypes)};
                     const modal = document.getElementById('mtgModal');
                     const $ = id => document.getElementById(id);
+                    function fillTimeSelects() {
+                        const hOpts = [];
+                        for (let h = 0; h < 24; h++) hOpts.push('<option value="' + String(h).padStart(2, '0') + '">' + String(h).padStart(2, '0') + '</option>');
+                        const mOpts = [];
+                        for (let m = 0; m < 60; m += 5) mOpts.push('<option value="' + String(m).padStart(2, '0') + '">' + String(m).padStart(2, '0') + '</option>');
+                        ['mtgStartH', 'mtgEndH'].forEach(id => { $(id).innerHTML = hOpts.join(''); });
+                        ['mtgStartM', 'mtgEndM'].forEach(id => { $(id).innerHTML = mOpts.join(''); });
+                    }
+                    function setTime(prefix, val) {
+                        if (!val) { $(prefix + 'H').value = ''; $(prefix + 'M').value = ''; return; }
+                        const [h, m] = val.split(':');
+                        $(prefix + 'H').value = (h || '00').padStart(2, '0');
+                        const mi = Math.round(parseInt(m || '0', 10) / 5) * 5;
+                        $(prefix + 'M').value = String(Math.min(55, mi)).padStart(2, '0');
+                    }
+                    function getTime(prefix) {
+                        const h = $(prefix + 'H').value;
+                        const m = $(prefix + 'M').value;
+                        if (!h || !m) return '';
+                        return h + ':' + m;
+                    }
+                    fillTimeSelects();
                     function openModal(meeting, prefillDate, prefillStart) {
                         $('mtgForm').reset();
                         if (meeting) {
@@ -3112,8 +3178,8 @@ document.addEventListener('keydown', function(e) {
                             $('mtgTitle').value = meeting.title || '';
                             $('mtgType').value = meeting.type || 'meeting';
                             $('mtgDate').value = meeting.date || '';
-                            $('mtgStart').value = meeting.start || '';
-                            $('mtgEnd').value = meeting.end || '';
+                            setTime('mtgStart', meeting.start || '');
+                            setTime('mtgEnd', meeting.end || '');
                             $('mtgAttendees').value = (meeting.attendees || []).map(a => '@' + a).join(', ');
                             $('mtgLocation').value = meeting.location || '';
                             $('mtgNotes').value = meeting.notes || '';
@@ -3123,7 +3189,8 @@ document.addEventListener('keydown', function(e) {
                             $('mtgId').value = '';
                             $('mtgType').value = 'meeting';
                             $('mtgDate').value = prefillDate || '';
-                            $('mtgStart').value = prefillStart || '';
+                            setTime('mtgStart', prefillStart || '');
+                            setTime('mtgEnd', '');
                             $('mtgDelete').style.display = 'none';
                         }
                         modal.classList.add('open');
@@ -3219,8 +3286,8 @@ document.addEventListener('keydown', function(e) {
                             title: $('mtgTitle').value.trim(),
                             type: $('mtgType').value,
                             date: $('mtgDate').value,
-                            start: $('mtgStart').value,
-                            end: $('mtgEnd').value,
+                            start: getTime('mtgStart'),
+                            end: getTime('mtgEnd'),
                             attendees,
                             location: $('mtgLocation').value.trim(),
                             notes: $('mtgNotes').value
