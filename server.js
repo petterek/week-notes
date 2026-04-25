@@ -2639,7 +2639,7 @@ document.addEventListener('keydown', function(e) {
                 .icon-trigger:hover { background: #f0e8d4; }
                 .icon-current { font-size: 1.5em; line-height: 1; }
                 .icon-caret { font-size: 0.75em; color: #7a6f4d; }
-                .icon-grid { display: none; position: absolute; top: calc(100% + 6px); left: 0; background: #fffdf7; border: 1px solid #d6cdb6; border-radius: 6px; box-shadow: 0 8px 24px rgba(26,54,93,0.12); padding: 6px; z-index: 1000; grid-template-columns: repeat(5, 1fr); gap: 4px; width: 220px; }
+                .icon-grid { display: none; position: absolute; top: calc(100% + 6px); right: 0; background: #fffdf7; border: 1px solid #d6cdb6; border-radius: 6px; box-shadow: 0 8px 24px rgba(26,54,93,0.12); padding: 6px; z-index: 1000; grid-template-columns: repeat(5, 1fr); gap: 4px; width: 220px; }
                 .icon-picker.open .icon-grid { display: grid; }
                 .icon-option { background: none; border: 1px solid transparent; border-radius: 4px; padding: 4px; font-size: 1.4em; line-height: 1; cursor: pointer; }
                 .icon-option:hover { background: #f0e8d4; }
