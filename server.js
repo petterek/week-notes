@@ -226,6 +226,16 @@ function saveTasks(tasks) {
 }
 
 function loadPeople() {
+    try {
+        const all = JSON.parse(fs.readFileSync(peopleFile(), 'utf-8'));
+        return Array.isArray(all) ? all.filter(p => !p.deleted) : [];
+    }
+    catch { return []; }
+}
+
+function loadAllPeople() {
+    // Includes tombstoned (deleted:true) entries; used by syncMentions
+    // to avoid auto-recreating people that the user explicitly deleted.
     try { return JSON.parse(fs.readFileSync(peopleFile(), 'utf-8')); }
     catch { return []; }
 }
@@ -288,7 +298,7 @@ function extractMentions(text) {
 }
 
 function syncMentions(...texts) {
-    const people = loadPeople();
+    const people = loadAllPeople();
     let changed = false;
     texts.flat().forEach(text => {
         extractMentions(text).forEach(rawName => {
@@ -3967,7 +3977,7 @@ function expandAllPeople(expand) {
         req.on('end', () => {
             try {
                 const data = JSON.parse(body);
-                const people = loadPeople();
+                const people = loadAllPeople();
                 const idx = people.findIndex(p => p.id === peopleUpdateMatch[1]);
                 if (idx === -1) { res.writeHead(404); res.end(JSON.stringify({ ok: false })); return; }
                 const person = people[idx];
@@ -3992,14 +4002,17 @@ function expandAllPeople(expand) {
     }
 
     if (peopleUpdateMatch && req.method === 'DELETE') {
-        const people = loadPeople();
+        const people = loadAllPeople();
         const idx = people.findIndex(p => p.id === peopleUpdateMatch[1]);
         if (idx === -1) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: false, error: 'Not found' }));
             return;
         }
-        people.splice(idx, 1);
+        // Tombstone instead of removing, so syncMentions does not recreate
+        // the person from existing @-references in notes/tasks.
+        people[idx].deleted = true;
+        people[idx].deletedAt = new Date().toISOString();
         savePeople(people);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true }));
