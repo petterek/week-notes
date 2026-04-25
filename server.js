@@ -287,11 +287,24 @@ function meetingTypeLabel(key) {
 
 function getWorkHours(ctxId) {
     const s = ctxId ? getContextSettings(ctxId) : (getActiveContext() ? getContextSettings(getActiveContext()) : {});
-    const start = /^\d{2}:\d{2}$/.test(s.workStart) ? s.workStart : '08:00';
-    const end = /^\d{2}:\d{2}$/.test(s.workEnd) ? s.workEnd : '16:00';
-    let days = Array.isArray(s.workDays) ? s.workDays.map(n => parseInt(n, 10)).filter(n => n >= 0 && n <= 6) : [0, 1, 2, 3, 4];
-    days = Array.from(new Set(days)).sort((a, b) => a - b);
-    return { start, end, days };
+    const reTime = /^\d{2}:\d{2}$/;
+    // New format: workHours = array of length 7 (0=Mon..6=Sun), each {start,end} or null
+    if (Array.isArray(s.workHours) && s.workHours.length === 7) {
+        return {
+            hours: s.workHours.map(h => {
+                if (h && reTime.test(h.start) && reTime.test(h.end)) return { start: h.start, end: h.end };
+                return null;
+            })
+        };
+    }
+    // Backward-compat: derive from old workStart/workEnd/workDays
+    const start = reTime.test(s.workStart) ? s.workStart : '08:00';
+    const end = reTime.test(s.workEnd) ? s.workEnd : '16:00';
+    const daysArr = Array.isArray(s.workDays) ? s.workDays.map(n => parseInt(n, 10)).filter(n => n >= 0 && n <= 6) : [0, 1, 2, 3, 4];
+    const days = new Set(daysArr);
+    const hours = [];
+    for (let i = 0; i < 7; i++) hours.push(days.has(i) ? { start, end } : null);
+    return { hours };
 }
 
 function getDefaultMeetingMinutes(ctxId) {
@@ -2540,18 +2553,30 @@ document.addEventListener('keydown', function(e) {
                         </div>
                         <label>Beskrivelse<textarea name="description" rows="2">${escapeHtml(c.settings.description || '')}</textarea></label>
                         <label>Git-remote (origin)<input type="text" name="remote" value="${escapeHtml(c.settings.remote || '')}" placeholder="git@github.com:bruker/repo.git" spellcheck="false"></label>
-                        <div class="ctx-form-grid" style="grid-template-columns:1fr 1fr">
-                            <label>Arbeidsdag fra<input type="time" name="workStart" value="${escapeHtml(c.settings.workStart || '08:00')}" step="3600"></label>
-                            <label>Arbeidsdag til<input type="time" name="workEnd" value="${escapeHtml(c.settings.workEnd || '16:00')}" step="3600"></label>
-                        </div>
                         <label>Standard møtelengde (minutter)<input type="number" name="defaultMeetingMinutes" value="${escapeHtml(String(c.settings.defaultMeetingMinutes || 60))}" min="5" max="600" step="5"></label>
-                        <label>Arbeidsdager<span class="workdays-row">
-                            ${['Man','Tir','Ons','Tor','Fre','Lør','Søn'].map((d, i) => {
-                                const days = Array.isArray(c.settings.workDays) ? c.settings.workDays : [0,1,2,3,4];
-                                const checked = days.includes(i) ? ' checked' : '';
-                                return `<label class="wd"><input type="checkbox" name="workDays" value="${i}"${checked}> ${d}</label>`;
-                            }).join('')}
-                        </span></label>
+                        <fieldset class="workhours-block">
+                            <legend>Arbeidstid pr. dag</legend>
+                            ${(function(){
+                                const labels = ['Mandag','Tirsdag','Onsdag','Torsdag','Fredag','Lørdag','Søndag'];
+                                const wh = getWorkHours(c.id).hours;
+                                const hourOpts = (sel) => Array.from({length:24},(_,h)=>{const v=String(h).padStart(2,'0');return `<option value="${v}"${sel===v?' selected':''}>${v}</option>`;}).join('');
+                                const minOpts = (sel) => Array.from({length:12},(_,k)=>{const v=String(k*5).padStart(2,'0');return `<option value="${v}"${sel===v?' selected':''}>${v}</option>`;}).join('');
+                                return labels.map((lbl, i) => {
+                                    const day = wh[i];
+                                    const on = !!day;
+                                    const sH = on ? day.start.slice(0,2) : '08';
+                                    const sM = on ? day.start.slice(3,5) : '00';
+                                    const eH = on ? day.end.slice(0,2) : '16';
+                                    const eM = on ? day.end.slice(3,5) : '00';
+                                    return `<div class="wh-row${on?' on':''}">
+                                        <label class="wh-on"><input type="checkbox" name="wh-on-${i}"${on?' checked':''}> ${lbl}</label>
+                                        <span class="time-pick"><select name="wh-sH-${i}" class="t-h">${hourOpts(sH)}</select><span class="t-sep">:</span><select name="wh-sM-${i}" class="t-m">${minOpts(sM)}</select></span>
+                                        <span class="wh-dash">–</span>
+                                        <span class="time-pick"><select name="wh-eH-${i}" class="t-h">${hourOpts(eH)}</select><span class="t-sep">:</span><select name="wh-eM-${i}" class="t-m">${minOpts(eM)}</select></span>
+                                    </div>`;
+                                }).join('');
+                            })()}
+                        </fieldset>
                     </div>
                     <div class="ctx-detail-section" data-mt="${escapeHtml(c.id)}">
                         <h3>🗓️ Møtetyper</h3>
@@ -2636,9 +2661,13 @@ document.addEventListener('keydown', function(e) {
                 .ctx-detail-section .section-hint { margin: -6px 0 10px; font-size: 0.85em; color: #7a6f4d; }
                 .ctx-detail-actions { display: flex; align-items: center; gap: 12px; padding-top: 14px; border-top: 1px solid #ebe2cb; }
                 .ctx-form-grid { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }
-                .workdays-row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
-                .workdays-row .wd { display: inline-flex; align-items: center; gap: 4px; font-weight: normal; color: #3c3a30; cursor: pointer; }
-                .workdays-row .wd input { margin: 0; }
+                .workhours-block { border:1px solid #ebe2cb; border-radius:6px; padding:8px 14px 12px; margin-top:6px; background:#fffdf7; }
+                .workhours-block legend { font-size:0.85em; color:#7a6f4d; padding:0 6px; }
+                .wh-row { display:flex; align-items:center; gap:10px; padding:4px 0; }
+                .wh-row .wh-on { display:flex; align-items:center; gap:6px; min-width:120px; font-weight:normal; color:#3c3a30; cursor:pointer; }
+                .wh-row .wh-on input { margin:0; }
+                .wh-row:not(.on) .time-pick, .wh-row:not(.on) .wh-dash { opacity:0.4; }
+                .wh-dash { color:#7a6f4d; }
                 .ctx-active-badge { background: #1a365d; color: #fffdf7; font-size: 0.75em; padding: 4px 10px; border-radius: 10px; font-weight: 600; white-space: nowrap; }
                 .ctx-icon-lg { font-size: 2em; line-height: 1; }
                 .ctx-desc { margin-bottom: 16px; padding: 10px 14px; background: #f8f3e2; border-left: 3px solid #d6cdb6; border-radius: 4px; color: #4a5568; font-size: 0.9em; font-style: italic; }
@@ -2766,10 +2795,15 @@ document.addEventListener('keydown', function(e) {
                         icon: fd.get('icon') || '📁',
                         description: fd.get('description'),
                         remote: fd.get('remote') || '',
-                        workStart: fd.get('workStart') || '08:00',
-                        workEnd: fd.get('workEnd') || '16:00',
-                        workDays: fd.getAll('workDays').map(v => parseInt(v, 10)).filter(n => n >= 0 && n <= 6),
-                        defaultMeetingMinutes: parseInt(fd.get('defaultMeetingMinutes'), 10) || 60
+                        defaultMeetingMinutes: parseInt(fd.get('defaultMeetingMinutes'), 10) || 60,
+                        workHours: Array.from({length:7},(_,i)=>{
+                            if(!fd.get('wh-on-'+i)) return null;
+                            const sH = fd.get('wh-sH-'+i)||'08';
+                            const sM = fd.get('wh-sM-'+i)||'00';
+                            const eH = fd.get('wh-eH-'+i)||'16';
+                            const eM = fd.get('wh-eM-'+i)||'00';
+                            return { start: sH+':'+sM, end: eH+':'+eM };
+                        })
                     };
                     const status = document.querySelector('[data-status="' + id + '"]');
                     const types = (window.__mtState && window.__mtState[id]) || null;
@@ -2782,6 +2816,11 @@ document.addEventListener('keydown', function(e) {
                         else { status.textContent = '✗ ' + (s.error || t.error); status.style.color = '#c53030'; }
                     });
                 }));
+                document.querySelectorAll('.wh-row .wh-on input').forEach(cb => {
+                    cb.addEventListener('change', () => {
+                        cb.closest('.wh-row').classList.toggle('on', cb.checked);
+                    });
+                });
                 (function() {
                     const ICON_GROUPS = [
                         { label: 'Personer', icons: ['👥','🤝','👋','🙌','👀','🗣️','💬','🗨️'] },
@@ -2976,17 +3015,18 @@ document.addEventListener('keydown', function(e) {
         const nextWeek = shiftIsoWeek(week, 1);
         const HOUR_START = 0, HOUR_END = 23, HOUR_PX = 36;
         const work = getWorkHours();
-        const [wsH, wsM] = work.start.split(':').map(n => parseInt(n, 10));
-        const [weH, weM] = work.end.split(':').map(n => parseInt(n, 10));
-        const workTop = ((wsH - HOUR_START) + (wsM || 0) / 60) * HOUR_PX;
-        const workH = Math.max(0, ((weH + (weM || 0) / 60) - (wsH + (wsM || 0) / 60)) * HOUR_PX);
         const hourLabels = [];
         for (let h = HOUR_START; h <= HOUR_END; h++) hourLabels.push(h);
         const dayColumns = days.map((d, i) => {
-            const isWorkDay = work.days.includes(i);
-            const workBand = isWorkDay && workH > 0
-                ? `<div class="work-band" style="top:${workTop}px;height:${workH}px"></div>`
-                : '';
+            const wh = work.hours[i];
+            let workBand = '';
+            if (wh) {
+                const [wsH, wsM] = wh.start.split(':').map(n => parseInt(n, 10));
+                const [weH, weM] = wh.end.split(':').map(n => parseInt(n, 10));
+                const workTop = ((wsH - HOUR_START) + (wsM || 0) / 60) * HOUR_PX;
+                const workH = Math.max(0, ((weH + (weM || 0) / 60) - (wsH + (wsM || 0) / 60)) * HOUR_PX);
+                if (workH > 0) workBand = `<div class="work-band" style="top:${workTop}px;height:${workH}px"></div>`;
+            }
             const dayMeetings = meetings.filter(m => m.date === d.iso);
             const blocks = dayMeetings.map(m => {
                 let top = 0, height = HOUR_PX;
