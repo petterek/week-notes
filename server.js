@@ -117,6 +117,34 @@ function peopleFile() { return path.join(dataDir(), 'people.json'); }
 function resultsFile() { return path.join(dataDir(), 'results.json'); }
 
 // --- Git per context ---
+function checkExternalTools() {
+    const required = [
+        { cmd: 'git', test: 'git --version', why: 'each context is a git repo (commit/push/pull)' }
+    ];
+    const optional = [
+        { cmd: 'gh', test: 'gh --version', why: 'fetch GitHub auth token (otherwise set GH_TOKEN env var)' }
+    ];
+    const missing = [];
+    for (const t of required) {
+        try { execSync(t.test, { stdio: 'ignore' }); }
+        catch { missing.push(t); }
+    }
+    if (missing.length) {
+        console.error('\n❌ Required tools are missing:');
+        for (const t of missing) console.error(`   - ${t.cmd}  (${t.why})`);
+        console.error('\nInstall them and try again. Aborting.\n');
+        process.exit(1);
+    }
+    for (const t of optional) {
+        try { execSync(t.test, { stdio: 'ignore' }); }
+        catch { console.warn(`⚠️  Optional tool not found: ${t.cmd}  (${t.why})`); }
+    }
+    try {
+        const v = execSync('git --version', { encoding: 'utf-8' }).trim();
+        console.log(`✓ ${v}`);
+    } catch {}
+}
+
 function git(cwd, args) {
     return execSync(`git ${args}`, { cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
 }
@@ -3674,6 +3702,7 @@ function initMentionAutocomplete(el) {
 
 server.listen(PORT, () => {
     console.log(`Weeks server running at http://localhost:${PORT}/`);
+    checkExternalTools();
     try { ensureAllContextsInitialised(); } catch (e) { console.error('ctx init', e.message); }
     console.log('Press Ctrl+C to stop');
 });

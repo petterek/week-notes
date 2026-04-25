@@ -51,6 +51,18 @@ Push remains manual — pull happens automatically on switch.
 
 ## 🚀 Quick start
 
+### Requirements
+
+| Tool       | Required? | Why                                                          |
+|------------|-----------|--------------------------------------------------------------|
+| **Node.js** ≥ 18 | ✅ yes | Runs the server                                              |
+| **git**          | ✅ yes | Each context is a git repo (init / commit / push / pull)     |
+| **gh** ([GitHub CLI](https://cli.github.com/)) | ⚪ optional | Used to fetch a GitHub token for week summaries; falls back to `GH_TOKEN` env var if missing |
+
+The server checks for these on startup and refuses to start if `git` is missing.
+
+### Install & run
+
 ```bash
 git clone git@github.com:petterek/week-notes.git
 cd week-notes
