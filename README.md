@@ -67,7 +67,9 @@ The server checks for these on startup and refuses to start if `git` is missing.
 git clone git@github.com:petterek/week-notes.git
 cd week-notes
 npm install
-./run.sh        # starts the server on port 3001 in the background
+./run.sh                # default port 3001
+./run.sh -p 8080        # custom port
+PORT=8080 ./run.sh      # via env var
 ```
 
 Open <http://localhost:3001/>.

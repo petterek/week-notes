@@ -5,7 +5,7 @@ const path = require('path');
 const { marked } = require('marked');
 const { execSync } = require('child_process');
 
-const PORT = 3001;
+const PORT = parseInt(process.env.PORT, 10) || 3001;
 const CONTEXTS_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const ACTIVE_FILE = path.join(CONTEXTS_DIR, '.active');
 

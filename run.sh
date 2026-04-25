@@ -3,6 +3,30 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+usage() {
+  cat <<EOF
+Usage: $0 [-p PORT] [-h]
+  -p PORT   Port to run on (default: 3001, or \$PORT env var)
+  -h        Show this help
+EOF
+}
+
+PORT="${PORT:-3001}"
+
+while getopts ":p:h" opt; do
+  case "$opt" in
+    p) PORT="$OPTARG" ;;
+    h) usage; exit 0 ;;
+    \?) echo "Unknown option: -$OPTARG" >&2; usage; exit 1 ;;
+    :)  echo "Option -$OPTARG requires an argument" >&2; usage; exit 1 ;;
+  esac
+done
+
+if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+  echo "Error: invalid port '$PORT'" >&2
+  exit 1
+fi
+
 if ! command -v node &>/dev/null; then
   echo "Error: node is not installed" >&2
   exit 1
@@ -14,7 +38,6 @@ if [ ! -d node_modules ]; then
 fi
 
 PROCESS_NAME="weeks-presentation-server"
-PORT=3001
 
 if [ -f .server.pid ]; then
   EXISTING_PID=$(cat .server.pid)
@@ -30,6 +53,6 @@ if command -v lsof &>/dev/null && lsof -iTCP:"$PORT" -sTCP:LISTEN &>/dev/null; t
   exit 1
 fi
 
-(exec -a "$PROCESS_NAME" node server.js) &
+(exec -a "$PROCESS_NAME" env PORT="$PORT" node server.js) &
 echo $! > .server.pid
-echo "Server started in background (PID: $!, name: $PROCESS_NAME)"
+echo "Server started in background (PID: $!, name: $PROCESS_NAME, port: $PORT)"
