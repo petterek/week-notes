@@ -8,6 +8,29 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ---
 
+## 📜 Changelog
+
+### 2026-04-26
+- Calendar uses the full page width
+- Click an upcoming-meeting card on the home page to jump to the calendar week and pulse-highlight the meeting
+- Configurable default meeting length per context (used to prefill the end time)
+- Per-context working hours (start/end + weekdays) rendered as a band on the calendar
+- Meeting time picker uses hour/minute selects with 5-minute increments
+- Calendar shows all 24 hours
+- `+ Nytt møte` button and right-click type menu on the calendar
+
+### 2026-04-25
+- New: meetings calendar with week view + upcoming list on home
+- Per-context meeting types with grouped 96-icon emoji picker
+- Master/detail `/settings` layout (full-width)
+- People: inactivate, delete with tombstones, mention autocomplete in meeting modal
+- Calendar polish: 24h grid, aligned hour labels, meeting note shortcut
+- In-app help: `❓ Hjelp` button renders `help.md`
+- Configurable server port (`-p` / `PORT`), startup tool checks
+- Initial README, MIT licence stated explicitly
+
+---
+
 ## ✨ Features
 
 ### Weekly notes
