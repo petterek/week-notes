@@ -586,7 +586,7 @@ function noteModalHtml() {
     return '<div id="noteModal" class="page-modal" onclick="if(event.target===this)closeNoteModal()"><div class="page-modal-card"><h3>📓 Notat</h3><p id="noteTaskText" style="color:#4a5568;margin-bottom:12px;font-weight:600"></p><textarea id="noteText" rows="5" placeholder="Skriv notat her..."></textarea><div class="page-modal-actions"><button class="page-modal-btn cancel" onclick="closeNoteModal()">Avbryt</button><button class="page-modal-btn blue" onclick="saveNote()">💾 Lagre</button></div></div></div>';
 }
 
-const CONTEXT_ICONS = ['💼','⛳','🏠','📚','✈️','🎨','🎵','🎮','🧪','🔬','💡','🌱','🏃','🐾','🍳','☕','📷','✍️','🛒','💰','🏥','📅','📁','⭐','🚀'];
+const CONTEXT_ICONS = ['💼','⛳','🏌️','🏠','📚','✈️','🎨','🎵','🎮','🧪','🔬','💡','🌱','🏃','🐾','🍳','☕','📷','✍️','🛒','💰','🏥','📅','📁','⭐','🚀'];
 
 function iconPickerHtml(name, current, pickerId, inputId) {
     const safeCurrent = escapeHtml(current || '📁');
@@ -2722,7 +2722,7 @@ document.addEventListener('keydown', function(e) {
                     });
                 }));
                 (function() {
-                    const ICON_PALETTE = ['👥','☕','🔄','🛠️','🎬','📋','🔍','🎉','📞','🎯','💬','📅','📊','📈','📉','💡','🧠','🎓','📚','🖥️','💻','📱','📝','✏️','📎','📌','📍','🚀','⚡','🔥','⭐','🌟','✨','🏆','🎖️','🥇','🎁','🎈','🍰','☎️','📨','📧','📤','📥','🔔','🔕','✅','☑️','❌','⚠️','❓','❗','🟢','🟡','🔴','🔵','⏰','⏳','⌛','🗓️','🤝','👋','👀','🙌'];
+                    const ICON_PALETTE = ['👥','☕','🔄','🛠️','🎬','📋','🔍','🎉','📞','🎯','💬','📅','📊','📈','📉','💡','🧠','🎓','📚','🖥️','💻','📱','📝','✏️','📎','📌','📍','🚀','⚡','🔥','⭐','🌟','✨','🏆','🎖️','🥇','🎁','🎈','🍰','☎️','📨','📧','📤','📥','🔔','🔕','✅','☑️','❌','⚠️','❓','❗','🟢','🟡','🔴','🔵','⏰','⏳','⌛','🗓️','🤝','👋','👀','🙌','🏌️','⛳','🏃','🚴'];
                     window.__mtState = {};
                     let pickerCtx = null, pickerIdx = null;
                     function slugKey(label) {
@@ -3146,7 +3146,7 @@ document.addEventListener('keydown', function(e) {
             </script>
             <script>
                 (function(){
-                    const ICON_PALETTE = ['👥','☕','🔄','🛠️','🎬','📋','🔍','🎉','📞','🎯','💬','📅','📊','📈','📉','💡','🧠','🎓','📚','🖥️','💻','📱','📝','✏️','📎','📌','📍','🚀','⚡','🔥','⭐','🌟','✨','🏆','🎖️','🥇','🎁','🎈','🍰','☎️','📨','📧','📤','📥','🔔','🔕','✅','☑️','❌','⚠️','❓','❗','🟢','🟡','🔴','🔵','⏰','⏳','⌛','🗓️','🤝','👋','👀','🙌'];
+                    const ICON_PALETTE = ['👥','☕','🔄','🛠️','🎬','📋','🔍','🎉','📞','🎯','💬','📅','📊','📈','📉','💡','🧠','🎓','📚','🖥️','💻','📱','📝','✏️','📎','📌','📍','🚀','⚡','🔥','⭐','🌟','✨','🏆','🎖️','🥇','🎁','🎈','🍰','☎️','📨','📧','📤','📥','🔔','🔕','✅','☑️','❌','⚠️','❓','❗','🟢','🟡','🔴','🔵','⏰','⏳','⌛','🗓️','🤝','👋','👀','🙌','🏌️','⛳','🏃','🚴'];
                     let currentTypes = ${JSON.stringify(meetingTypes)};
                     let pickerTarget = null;
 
