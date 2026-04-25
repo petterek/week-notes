@@ -732,7 +732,9 @@ function pageHtml(title, body, extraNavLinks) {
         .row-note-btn.empty { opacity: 0.3; }
         .row-note-body { margin: 1px 0 6px 26px; font-size: 0.82em; color: #7a6f4d; background: transparent; }
         .sidebar-meetings { display: flex; flex-direction: column; gap: 8px; }
-        .sidebar-meeting { padding: 8px 10px; background: #fffdf7; border: 1px solid #ebe2cb; border-left: 3px solid #2b6cb0; border-radius: 4px; font-size: 0.85em; cursor: pointer; transition: background 0.1s; }
+        .sidebar-meeting { position: relative; padding: 8px 10px; background: #fffdf7; border: 1px solid #ebe2cb; border-left: 3px solid #2b6cb0; border-radius: 4px; font-size: 0.85em; cursor: pointer; transition: background 0.1s; }
+        .sidebar-meeting .sidebar-mtg-note { position: absolute; top: 6px; right: 6px; text-decoration: none; padding: 2px 5px; border-radius: 3px; opacity: 0.55; font-size: 0.95em; line-height: 1; }
+        .sidebar-meeting .sidebar-mtg-note:hover { opacity: 1; background: #f0e8d4; }
         .sidebar-meeting:hover { background: #f8f3e2; }
         .sidebar-meeting .mtg-when { color: #4a5568; font-size: 0.85em; margin-bottom: 2px; }
         .sidebar-meeting .mtg-when strong { color: #1a365d; font-weight: 600; }
@@ -1852,6 +1854,7 @@ const server = http.createServer(async (req, res) => {
                     const att = (m.attendees || []).map(a => '<a class="mention-link" data-person-key="' + escapeHtml(a) + '" href="/people#' + escapeHtml(a) + '">@' + escapeHtml(a) + '</a>').join(' ');
                     const loc = m.location ? '<span class="mtg-loc">📍 ' + escapeHtml(m.location) + '</span>' : '';
                     h += '<div class="sidebar-meeting" data-mid="' + escapeHtml(m.id) + '">'
+                        + '<a class="sidebar-mtg-note" href="/meeting-note/' + encodeURIComponent(m.id) + '" title="Åpne møtenotat">📝</a>'
                         + '<div class="mtg-when"><strong>' + escapeHtml(dayLabel(m.date)) + '</strong> · ' + time + '</div>'
                         + '<div class="mtg-title">' + linkMentions(escapeHtml(m.title)) + '</div>'
                         + (att || loc ? '<div class="mtg-meta">' + att + (att && loc ? ' · ' : '') + loc + '</div>' : '')
