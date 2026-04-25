@@ -2928,7 +2928,7 @@ document.addEventListener('keydown', function(e) {
         const meetings = loadMeetings().filter(m => m.date >= days[0].iso && m.date <= days[6].iso);
         const prevWeek = shiftIsoWeek(week, -1);
         const nextWeek = shiftIsoWeek(week, 1);
-        const HOUR_START = 7, HOUR_END = 20, HOUR_PX = 48;
+        const HOUR_START = 0, HOUR_END = 23, HOUR_PX = 36;
         const hourLabels = [];
         for (let h = HOUR_START; h <= HOUR_END; h++) hourLabels.push(h);
         const dayColumns = days.map(d => {
@@ -3100,7 +3100,7 @@ document.addEventListener('keydown', function(e) {
             </style>
             <script>
                 (function(){
-                    const HOUR_PX = ${HOUR_PX}, HOUR_START = ${HOUR_START};
+                    const HOUR_PX = ${HOUR_PX}, HOUR_START = ${HOUR_START}, HOUR_END = ${HOUR_END};
                     const MEETING_TYPES = ${JSON.stringify(meetingTypes)};
                     const modal = document.getElementById('mtgModal');
                     const $ = id => document.getElementById(id);
@@ -3139,7 +3139,7 @@ document.addEventListener('keydown', function(e) {
                         const now = new Date();
                         let hh = now.getHours();
                         if (date !== today) hh = 9;
-                        else hh = Math.min(Math.max(hh, HOUR_START), HOUR_START + 11);
+                        else hh = Math.min(Math.max(hh, HOUR_START), HOUR_END - 1);
                         openModal(null, date, String(hh).padStart(2, '0') + ':00');
                     };
                     document.querySelectorAll('.cal-col-body').forEach(body => {
@@ -3149,7 +3149,7 @@ document.addEventListener('keydown', function(e) {
                             if (!col) return;
                             const rect = body.getBoundingClientRect();
                             const y = e.clientY - rect.top;
-                            const hour = Math.max(HOUR_START, Math.min(HOUR_START + 12, HOUR_START + Math.floor(y / HOUR_PX)));
+                            const hour = Math.max(HOUR_START, Math.min(HOUR_END, HOUR_START + Math.floor(y / HOUR_PX)));
                             const date = col.getAttribute('data-date');
                             openModal(null, date, String(hour).padStart(2,'0') + ':00');
                         });
@@ -3160,7 +3160,7 @@ document.addEventListener('keydown', function(e) {
                             e.preventDefault();
                             const rect = body.getBoundingClientRect();
                             const y = e.clientY - rect.top;
-                            const hour = Math.max(HOUR_START, Math.min(HOUR_START + 12, HOUR_START + Math.floor(y / HOUR_PX)));
+                            const hour = Math.max(HOUR_START, Math.min(HOUR_END, HOUR_START + Math.floor(y / HOUR_PX)));
                             const date = col.getAttribute('data-date');
                             const start = String(hour).padStart(2, '0') + ':00';
                             showTypeMenu(e.clientX, e.clientY, date, start);
