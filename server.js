@@ -265,16 +265,16 @@ const DEFAULT_MEETING_TYPES = [
     { key: 'call', label: 'Telefon', icon: '📞' },
     { key: 'focus', label: 'Fokus', icon: '🎯' }
 ];
-function meetingTypesFile() { return path.join(dataDir(), 'meeting-types.json'); }
-function loadMeetingTypes() {
+function meetingTypesFile(ctxId) { return path.join(CONTEXTS_DIR, ctxId || getActiveContext(), 'meeting-types.json'); }
+function loadMeetingTypes(ctxId) {
     try {
-        const arr = JSON.parse(fs.readFileSync(meetingTypesFile(), 'utf-8'));
+        const arr = JSON.parse(fs.readFileSync(meetingTypesFile(ctxId), 'utf-8'));
         if (Array.isArray(arr)) return arr.filter(t => t && t.key);
     } catch {}
     return DEFAULT_MEETING_TYPES.slice();
 }
-function saveMeetingTypes(types) {
-    fs.writeFileSync(meetingTypesFile(), JSON.stringify(types, null, 2), 'utf-8');
+function saveMeetingTypes(types, ctxId) {
+    fs.writeFileSync(meetingTypesFile(ctxId), JSON.stringify(types, null, 2), 'utf-8');
 }
 function meetingTypeIcon(key) {
     const t = loadMeetingTypes().find(x => x.key === key);
@@ -2486,6 +2486,12 @@ document.addEventListener('keydown', function(e) {
                     <label>Ikon${iconPickerHtml('icon', c.settings.icon || '📁', 'pick-' + c.id)}</label>
                     <label>Beskrivelse<textarea name="description" rows="2">${escapeHtml(c.settings.description || '')}</textarea></label>
                     <label>Git-remote (origin)<input type="text" name="remote" value="${escapeHtml(c.settings.remote || '')}" placeholder="git@github.com:bruker/repo.git" spellcheck="false"></label>
+                    <div class="mt-section" data-mt="${escapeHtml(c.id)}">
+                        <div class="mt-section-head">Møtetyper</div>
+                        <div class="mt-list" data-mt-list="${escapeHtml(c.id)}"></div>
+                        <button type="button" class="btn-cancel mt-add" data-mt-add="${escapeHtml(c.id)}" style="margin-top:6px">+ Ny type</button>
+                        <script type="application/json" data-mt-init="${escapeHtml(c.id)}">${JSON.stringify(loadMeetingTypes(c.id)).replace(/</g, '\\u003c')}</script>
+                    </div>
                     <div class="ctx-edit-actions">
                         <button type="submit" class="btn-primary">💾 Lagre</button>
                         <button type="button" class="btn-cancel" data-cancel="${escapeHtml(c.id)}">Avbryt</button>
@@ -2541,6 +2547,21 @@ document.addEventListener('keydown', function(e) {
                 .git-dot.off { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #c8b88f; margin-right: 4px; }
                 .ctx-edit-form { display: none; margin-top: 14px; padding-top: 14px; border-top: 1px dashed #d6cdb6; }
                 .ctx-card.editing .ctx-edit-form { display: block; }
+                .mt-section { margin: 14px 0; padding: 10px 12px; background: #fbf9f4; border: 1px solid #ebe2cb; border-radius: 6px; }
+                .mt-section-head { font-size: 0.8em; color: #4a5568; font-weight: 600; margin-bottom: 8px; }
+                .mt-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+                .mt-row .mt-icon { width: 36px; height: 36px; font-size: 1.3em; cursor: pointer; background: #fffdf7; border: 1px solid #d6cdb6; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 0; }
+                .mt-row .mt-icon:hover { background: #f0e8d4; }
+                .mt-row input[type=text] { flex: 1; padding: 6px 8px; border: 1px solid #d6cdb6; border-radius: 4px; font-family: inherit; font-size: 0.9em; background: #fffdf7; color: #1a202c; margin: 0; }
+                .mt-row .mt-del { background: #fff5f5; color: #c53030; border: 1px solid #fed7d7; padding: 5px 9px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 0.85em; }
+                .mt-row .mt-del:hover { background: #fed7d7; }
+                .mt-icon-picker { display: none; position: fixed; inset: 0; background: rgba(26,32,44,0.55); z-index: 1100; align-items: center; justify-content: center; }
+                .mt-icon-picker.open { display: flex; }
+                .mt-icon-picker-card { background: #fffdf7; border: 1px solid #d6cdb6; border-radius: 8px; padding: 16px 20px; }
+                .mt-icon-picker-card h4 { margin: 0 0 10px; }
+                .mt-icon-grid { display: grid; grid-template-columns: repeat(8, 42px); gap: 6px; }
+                .mt-icon-grid button { width: 42px; height: 42px; font-size: 1.5em; background: #fbf9f4; border: 1px solid #ebe2cb; border-radius: 4px; cursor: pointer; padding: 0; line-height: 1; }
+                .mt-icon-grid button:hover { background: #f0e8d4; transform: scale(1.1); }
                 .ctx-edit-form label { display: block; margin-bottom: 10px; font-size: 0.8em; color: #4a5568; font-weight: 600; }
                 .ctx-edit-form input[type=text], .ctx-edit-form textarea { width: 100%; padding: 6px 8px; border: 1px solid #d6cdb6; border-radius: 4px; font-family: inherit; font-size: 0.9em; margin-top: 4px; background: #fbf9f4; color: #1a202c; }
                 .ctx-edit-form .icon-input { width: 70px; font-size: 1.4em; text-align: center; }
@@ -2567,6 +2588,13 @@ document.addEventListener('keydown', function(e) {
                 .icon-option:hover { background: #f0e8d4; }
                 .icon-option.selected { background: #ebf2fa; border-color: #1a365d; }
             </style>
+
+            <div id="mtIconPicker" class="mt-icon-picker" onclick="if(event.target===this)this.classList.remove('open')">
+                <div class="mt-icon-picker-card">
+                    <h4>Velg ikon</h4>
+                    <div id="mtIconGrid" class="mt-icon-grid"></div>
+                </div>
+            </div>
 
             <script>
                 document.querySelectorAll('.icon-picker').forEach(picker => {
@@ -2630,12 +2658,77 @@ document.addEventListener('keydown', function(e) {
                     const fd = new FormData(form);
                     const data = { name: fd.get('name'), icon: fd.get('icon') || '📁', description: fd.get('description'), remote: fd.get('remote') || '' };
                     const status = document.querySelector('[data-status="' + id + '"]');
-                    fetch('/api/contexts/' + encodeURIComponent(id) + '/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
-                        .then(r => r.json()).then(d => {
-                            if (d.ok) { status.textContent = '✓ Lagret'; setTimeout(() => location.reload(), 600); }
-                            else { status.textContent = '✗ ' + d.error; status.style.color = '#c53030'; }
-                        });
+                    const types = (window.__mtState && window.__mtState[id]) || null;
+                    const settingsP = fetch('/api/contexts/' + encodeURIComponent(id) + '/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).then(r => r.json());
+                    const typesP = types
+                        ? fetch('/api/contexts/' + encodeURIComponent(id) + '/meeting-types', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(types) }).then(r => r.json())
+                        : Promise.resolve({ ok: true });
+                    Promise.all([settingsP, typesP]).then(([s, t]) => {
+                        if (s.ok && t.ok) { status.textContent = '✓ Lagret'; setTimeout(() => location.reload(), 600); }
+                        else { status.textContent = '✗ ' + (s.error || t.error); status.style.color = '#c53030'; }
+                    });
                 }));
+                (function() {
+                    const ICON_PALETTE = ['👥','☕','🔄','🛠️','🎬','📋','🔍','🎉','📞','🎯','💬','📅','📊','📈','📉','💡','🧠','🎓','📚','🖥️','💻','📱','📝','✏️','📎','📌','📍','🚀','⚡','🔥','⭐','🌟','✨','🏆','🎖️','🥇','🎁','🎈','🍰','☎️','📨','📧','📤','📥','🔔','🔕','✅','☑️','❌','⚠️','❓','❗','🟢','🟡','🔴','🔵','⏰','⏳','⌛','🗓️','🤝','👋','👀','🙌'];
+                    window.__mtState = {};
+                    let pickerCtx = null, pickerIdx = null;
+                    function slugKey(label) {
+                        const base = (label || 'type').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'type';
+                        return base + '-' + Math.random().toString(36).slice(2, 6);
+                    }
+                    function renderList(ctxId) {
+                        const list = document.querySelector('[data-mt-list="' + ctxId + '"]');
+                        const types = window.__mtState[ctxId];
+                        list.innerHTML = '';
+                        types.forEach((t, i) => {
+                            const row = document.createElement('div');
+                            row.className = 'mt-row';
+                            row.innerHTML = '<button type="button" class="mt-icon" data-i="' + i + '" title="Velg ikon">' + (t.icon || '·') + '</button>'
+                                + '<input type="text" data-i="' + i + '" value="' + (t.label || '').replace(/"/g, '&quot;') + '" placeholder="Navn">'
+                                + '<button type="button" class="mt-del" data-i="' + i + '" title="Slett">🗑️</button>';
+                            list.appendChild(row);
+                        });
+                        list.querySelectorAll('.mt-icon').forEach(b => b.onclick = () => openPicker(ctxId, parseInt(b.dataset.i, 10)));
+                        list.querySelectorAll('input[type=text]').forEach(inp => inp.oninput = () => { types[parseInt(inp.dataset.i, 10)].label = inp.value; });
+                        list.querySelectorAll('.mt-del').forEach(b => b.onclick = () => { types.splice(parseInt(b.dataset.i, 10), 1); renderList(ctxId); });
+                    }
+                    function openPicker(ctxId, idx) {
+                        pickerCtx = ctxId; pickerIdx = idx;
+                        document.getElementById('mtIconPicker').classList.add('open');
+                    }
+                    function renderPickerGrid() {
+                        const grid = document.getElementById('mtIconGrid');
+                        grid.innerHTML = '';
+                        ICON_PALETTE.forEach(ic => {
+                            const b = document.createElement('button');
+                            b.type = 'button';
+                            b.textContent = ic;
+                            b.onclick = () => {
+                                if (pickerCtx != null && window.__mtState[pickerCtx] && window.__mtState[pickerCtx][pickerIdx]) {
+                                    window.__mtState[pickerCtx][pickerIdx].icon = ic;
+                                    renderList(pickerCtx);
+                                }
+                                document.getElementById('mtIconPicker').classList.remove('open');
+                            };
+                            grid.appendChild(b);
+                        });
+                    }
+                    document.querySelectorAll('[data-mt-init]').forEach(s => {
+                        const ctxId = s.getAttribute('data-mt-init');
+                        try { window.__mtState[ctxId] = JSON.parse(s.textContent); }
+                        catch { window.__mtState[ctxId] = []; }
+                        renderList(ctxId);
+                    });
+                    document.querySelectorAll('[data-mt-add]').forEach(b => b.onclick = () => {
+                        const ctxId = b.getAttribute('data-mt-add');
+                        window.__mtState[ctxId].push({ key: slugKey('ny'), icon: '👥', label: 'Ny type' });
+                        renderList(ctxId);
+                    });
+                    renderPickerGrid();
+                    document.addEventListener('keydown', e => {
+                        if (e.key === 'Escape') document.getElementById('mtIconPicker').classList.remove('open');
+                    });
+                })();
                 document.getElementById('newCtxForm').addEventListener('submit', e => {
                     e.preventDefault();
                     const data = {
@@ -4066,6 +4159,53 @@ function expandAllPeople(expand) {
     }
 
     // API: read/update context settings
+    const ctxMeetingTypesMatch = pathname.match(/^\/api\/contexts\/([^/]+)\/meeting-types$/);
+    if (ctxMeetingTypesMatch && req.method === 'GET') {
+        const id = safeName(ctxMeetingTypesMatch[1]);
+        if (!listContexts().includes(id)) { res.writeHead(404); res.end('[]'); return; }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(loadMeetingTypes(id)));
+        return;
+    }
+    if (ctxMeetingTypesMatch && req.method === 'PUT') {
+        const id = safeName(ctxMeetingTypesMatch[1]);
+        if (!listContexts().includes(id)) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'context not found' }));
+            return;
+        }
+        let body = '';
+        req.on('data', c => body += c);
+        req.on('end', () => {
+            try {
+                const data = JSON.parse(body || '[]');
+                if (!Array.isArray(data)) throw new Error('expected array');
+                const seenKeys = new Set();
+                const cleaned = data.map(t => {
+                    let key = (t && typeof t.key === 'string') ? t.key.trim() : '';
+                    const label = (t && typeof t.label === 'string') ? t.label.trim() : '';
+                    const icon = (t && typeof t.icon === 'string') ? t.icon.trim() : '';
+                    if (!label) return null;
+                    if (!key || seenKeys.has(key)) {
+                        const base = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'type';
+                        key = base;
+                        let n = 2;
+                        while (seenKeys.has(key)) key = base + '-' + (n++);
+                    }
+                    seenKeys.add(key);
+                    return { key, icon, label };
+                }).filter(Boolean);
+                saveMeetingTypes(cleaned, id);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: true, types: cleaned }));
+            } catch (e) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: String(e.message || e) }));
+            }
+        });
+        return;
+    }
+
     const ctxSettingsMatch = pathname.match(/^\/api\/contexts\/([^/]+)\/settings$/);
     if (ctxSettingsMatch && req.method === 'GET') {
         const id = safeName(ctxSettingsMatch[1]);
