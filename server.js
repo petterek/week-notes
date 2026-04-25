@@ -2968,6 +2968,7 @@ document.addEventListener('keydown', function(e) {
                 <h1 style="margin:0">📅 Kalender · Uke ${week.split('-W')[1]}</h1>
                 <span style="color:#a99a78">${escapeHtml(dateRange)}</span>
                 <div style="margin-left:auto;display:flex;gap:6px">
+                    <button type="button" class="cal-nav-btn cal-add-btn" onclick="newMeeting()" title="Nytt møte">+ Nytt møte</button>
                     <button type="button" class="cal-nav-btn" onclick="openTypesModal()" title="Rediger møtetyper">✏️ Typer</button>
                     <a href="/calendar/${prevWeek}" class="cal-nav-btn">‹ Forrige</a>
                     <a href="/calendar" class="cal-nav-btn">I dag</a>
@@ -2978,6 +2979,7 @@ document.addEventListener('keydown', function(e) {
                 ${hoursCol}
                 ${dayColumns}
             </div>
+            <div id="calCtxMenu" class="cal-ctx-menu"></div>
             <div id="mtgModal" class="mtg-modal" onclick="if(event.target===this)closeMtgModal()">
                 <div class="mtg-modal-card">
                     <div class="mtg-modal-head">
@@ -3034,8 +3036,16 @@ document.addEventListener('keydown', function(e) {
             </div>
             <style>
                 .cal-toolbar { display:flex; align-items:center; gap:14px; margin-bottom:14px; }
-                .cal-nav-btn { background:#fffdf7; border:1px solid #d6cdb6; padding:6px 12px; border-radius:4px; text-decoration:none; color:#1a365d; font-size:0.9em; }
+                .cal-nav-btn { background:#fffdf7; border:1px solid #d6cdb6; padding:6px 12px; border-radius:4px; text-decoration:none; color:#1a365d; font-size:0.9em; cursor:pointer; font-family:inherit; }
                 .cal-nav-btn:hover { background:#f0e8d4; text-decoration:none; }
+                .cal-add-btn { background:#1a365d; color:#fffdf7; border-color:#1a365d; font-weight:600; }
+                .cal-add-btn:hover { background:#102542; color:#fffdf7; }
+                .cal-ctx-menu { display:none; position:fixed; background:#fffdf7; border:1px solid #d6cdb6; border-radius:6px; box-shadow:0 8px 24px rgba(26,54,93,0.18); padding:4px; z-index:1200; min-width:180px; }
+                .cal-ctx-menu.open { display:block; }
+                .cal-ctx-menu .cm-h { font-size:0.7em; font-weight:600; color:#7a6f4d; text-transform:uppercase; letter-spacing:0.08em; padding:6px 10px 4px; }
+                .cal-ctx-menu .cm-item { display:flex; align-items:center; gap:10px; width:100%; background:none; border:none; padding:7px 10px; border-radius:4px; cursor:pointer; font-family:inherit; font-size:0.9em; color:#1a365d; text-align:left; }
+                .cal-ctx-menu .cm-item:hover { background:#f0e8d4; }
+                .cal-ctx-menu .cm-item .cm-icon { font-size:1.15em; }
                 .cal-grid { display:grid; grid-template-columns: 56px repeat(7, 1fr); gap:0; background:#fffdf7; border:1px solid #d6cdb6; border-radius:6px; overflow:hidden; }
                 .cal-col, .cal-hours { border-right:1px solid #ebe2cb; }
                 .cal-col:last-child { border-right:none; }
@@ -3119,6 +3129,18 @@ document.addEventListener('keydown', function(e) {
                         setTimeout(() => $('mtgTitle').focus(), 50);
                     }
                     window.closeMtgModal = function(){ modal.classList.remove('open'); };
+                    window.newMeeting = function() {
+                        const cols = document.querySelectorAll('.cal-col[data-date]');
+                        if (!cols.length) { openModal(null, '', ''); return; }
+                        const dates = Array.from(cols).map(c => c.getAttribute('data-date'));
+                        const today = new Date().toISOString().slice(0, 10);
+                        const date = dates.includes(today) ? today : dates[0];
+                        const now = new Date();
+                        let hh = now.getHours();
+                        if (date !== today) hh = 9;
+                        else hh = Math.min(Math.max(hh, HOUR_START), HOUR_START + 11);
+                        openModal(null, date, String(hh).padStart(2, '0') + ':00');
+                    };
                     document.querySelectorAll('.cal-col-body').forEach(body => {
                         body.addEventListener('click', e => {
                             if (e.target.closest('.mtg')) return;
@@ -3130,6 +3152,52 @@ document.addEventListener('keydown', function(e) {
                             const date = col.getAttribute('data-date');
                             openModal(null, date, String(hour).padStart(2,'0') + ':00');
                         });
+                        body.addEventListener('contextmenu', e => {
+                            if (e.target.closest('.mtg')) return;
+                            const col = body.closest('.cal-col');
+                            if (!col) return;
+                            e.preventDefault();
+                            const rect = body.getBoundingClientRect();
+                            const y = e.clientY - rect.top;
+                            const hour = Math.max(HOUR_START, Math.min(HOUR_START + 12, HOUR_START + Math.floor(y / HOUR_PX)));
+                            const date = col.getAttribute('data-date');
+                            const start = String(hour).padStart(2, '0') + ':00';
+                            showTypeMenu(e.clientX, e.clientY, date, start);
+                        });
+                    });
+                    const ctxMenu = document.getElementById('calCtxMenu');
+                    function showTypeMenu(x, y, date, start) {
+                        ctxMenu.innerHTML = '';
+                        const h = document.createElement('div');
+                        h.className = 'cm-h';
+                        h.textContent = 'Nytt møte · type';
+                        ctxMenu.appendChild(h);
+                        currentTypes.forEach(t => {
+                            const b = document.createElement('button');
+                            b.type = 'button';
+                            b.className = 'cm-item';
+                            b.innerHTML = '<span class="cm-icon">' + (t.icon || '👥') + '</span><span>' + (t.label || t.key) + '</span>';
+                            b.onclick = () => {
+                                hideTypeMenu();
+                                openModal(null, date, start);
+                                document.getElementById('mtgType').value = t.key;
+                            };
+                            ctxMenu.appendChild(b);
+                        });
+                        ctxMenu.style.left = '0px';
+                        ctxMenu.style.top = '0px';
+                        ctxMenu.classList.add('open');
+                        const w = ctxMenu.offsetWidth, h2 = ctxMenu.offsetHeight;
+                        const vw = window.innerWidth, vh = window.innerHeight;
+                        ctxMenu.style.left = Math.min(x, vw - w - 8) + 'px';
+                        ctxMenu.style.top = Math.min(y, vh - h2 - 8) + 'px';
+                    }
+                    function hideTypeMenu() { ctxMenu.classList.remove('open'); }
+                    document.addEventListener('click', e => {
+                        if (!ctxMenu.contains(e.target)) hideTypeMenu();
+                    });
+                    document.addEventListener('keydown', e => {
+                        if (e.key === 'Escape') hideTypeMenu();
                     });
                     document.querySelectorAll('.mtg').forEach(el => {
                         el.addEventListener('click', e => {
