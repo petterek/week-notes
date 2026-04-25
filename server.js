@@ -286,12 +286,18 @@ function meetingTypeLabel(key) {
 }
 
 function getWorkHours(ctxId) {
-    const s = ctxId ? getContextSettings(ctxId) : (activeContext() ? getContextSettings(activeContext()) : {});
+    const s = ctxId ? getContextSettings(ctxId) : (getActiveContext() ? getContextSettings(getActiveContext()) : {});
     const start = /^\d{2}:\d{2}$/.test(s.workStart) ? s.workStart : '08:00';
     const end = /^\d{2}:\d{2}$/.test(s.workEnd) ? s.workEnd : '16:00';
     let days = Array.isArray(s.workDays) ? s.workDays.map(n => parseInt(n, 10)).filter(n => n >= 0 && n <= 6) : [0, 1, 2, 3, 4];
     days = Array.from(new Set(days)).sort((a, b) => a - b);
     return { start, end, days };
+}
+
+function getDefaultMeetingMinutes(ctxId) {
+    const s = ctxId ? getContextSettings(ctxId) : (getActiveContext() ? getContextSettings(getActiveContext()) : {});
+    const n = parseInt(s.defaultMeetingMinutes, 10);
+    return n > 0 && n <= 600 ? n : 60;
 }
 
 function dateToIsoWeek(d) {
@@ -2531,6 +2537,7 @@ document.addEventListener('keydown', function(e) {
                             <label>Arbeidsdag fra<input type="time" name="workStart" value="${escapeHtml(c.settings.workStart || '08:00')}" step="3600"></label>
                             <label>Arbeidsdag til<input type="time" name="workEnd" value="${escapeHtml(c.settings.workEnd || '16:00')}" step="3600"></label>
                         </div>
+                        <label>Standard møtelengde (minutter)<input type="number" name="defaultMeetingMinutes" value="${escapeHtml(String(c.settings.defaultMeetingMinutes || 60))}" min="5" max="600" step="5"></label>
                         <label>Arbeidsdager<span class="workdays-row">
                             ${['Man','Tir','Ons','Tor','Fre','Lør','Søn'].map((d, i) => {
                                 const days = Array.isArray(c.settings.workDays) ? c.settings.workDays : [0,1,2,3,4];
@@ -2754,7 +2761,8 @@ document.addEventListener('keydown', function(e) {
                         remote: fd.get('remote') || '',
                         workStart: fd.get('workStart') || '08:00',
                         workEnd: fd.get('workEnd') || '16:00',
-                        workDays: fd.getAll('workDays').map(v => parseInt(v, 10)).filter(n => n >= 0 && n <= 6)
+                        workDays: fd.getAll('workDays').map(v => parseInt(v, 10)).filter(n => n >= 0 && n <= 6),
+                        defaultMeetingMinutes: parseInt(fd.get('defaultMeetingMinutes'), 10) || 60
                     };
                     const status = document.querySelector('[data-status="' + id + '"]');
                     const types = (window.__mtState && window.__mtState[id]) || null;
@@ -3145,9 +3153,17 @@ document.addEventListener('keydown', function(e) {
             <script>
                 (function(){
                     const HOUR_PX = ${HOUR_PX}, HOUR_START = ${HOUR_START}, HOUR_END = ${HOUR_END};
+                    const DEFAULT_MTG_MIN = ${getDefaultMeetingMinutes()};
                     const MEETING_TYPES = ${JSON.stringify(meetingTypes)};
                     const modal = document.getElementById('mtgModal');
                     const $ = id => document.getElementById(id);
+                    function addMinutesToTime(t, mins) {
+                        if (!t) return '';
+                        const [h, m] = t.split(':').map(n => parseInt(n, 10));
+                        let total = h * 60 + (m || 0) + mins;
+                        total = Math.max(0, Math.min(24 * 60 - 1, total));
+                        return String(Math.floor(total / 60)).padStart(2, '0') + ':' + String(total % 60).padStart(2, '0');
+                    }
                     function fillTimeSelects() {
                         const hOpts = [];
                         for (let h = 0; h < 24; h++) hOpts.push('<option value="' + String(h).padStart(2, '0') + '">' + String(h).padStart(2, '0') + '</option>');
@@ -3190,7 +3206,7 @@ document.addEventListener('keydown', function(e) {
                             $('mtgType').value = 'meeting';
                             $('mtgDate').value = prefillDate || '';
                             setTime('mtgStart', prefillStart || '');
-                            setTime('mtgEnd', '');
+                            setTime('mtgEnd', prefillStart ? addMinutesToTime(prefillStart, DEFAULT_MTG_MIN) : '');
                             $('mtgDelete').style.display = 'none';
                         }
                         modal.classList.add('open');
