@@ -2470,68 +2470,132 @@ document.addEventListener('keydown', function(e) {
             }
             return `<div class="git-row">${parts.join('')}</div>`;
         };
-        const list = all.map(c => `
-            <div class="ctx-card${c.active ? ' active' : ''}" data-id="${escapeHtml(c.id)}">
-                <div class="ctx-card-head">
+        const railItem = (c) => `
+            <button type="button" class="ctx-rail-item${c.active ? ' is-active' : ''}${c.id === cur.id ? ' selected' : ''}" data-target="${escapeHtml(c.id)}">
+                <span class="ctx-rail-icon">${escapeHtml(c.settings.icon || '📁')}</span>
+                <span class="ctx-rail-text">
+                    <span class="ctx-rail-name">${escapeHtml(c.settings.name || c.id)}</span>
+                    <span class="ctx-rail-id">${escapeHtml(c.id)}</span>
+                </span>
+                ${c.active ? '<span class="ctx-rail-badge">●</span>' : ''}
+            </button>`;
+        const detailPane = (c) => `
+            <div class="ctx-detail${c.id === cur.id ? ' visible' : ''}" data-detail="${escapeHtml(c.id)}">
+                <div class="ctx-detail-head">
                     <span class="ctx-icon-lg">${escapeHtml(c.settings.icon || '📁')}</span>
-                    <strong>${escapeHtml(c.settings.name || c.id)}</strong>
-                    <span class="ctx-id">${escapeHtml(c.id)}</span>
-                    ${c.active ? '<span class="ctx-active-badge">Aktiv</span>' : `<button class="btn-switch" data-switch="${escapeHtml(c.id)}">Bytt til</button>`}
-                    <button class="btn-edit" data-edit="${escapeHtml(c.id)}">✏️ Rediger</button>
+                    <div style="flex:1;min-width:0">
+                        <h2 style="margin:0">${escapeHtml(c.settings.name || c.id)}</h2>
+                        <div class="ctx-id">${escapeHtml(c.id)}</div>
+                    </div>
+                    ${c.active
+                        ? '<span class="ctx-active-badge">Aktiv kontekst</span>'
+                        : `<button type="button" class="btn-primary" data-switch="${escapeHtml(c.id)}">Bytt til</button>`}
                 </div>
                 ${c.settings.description ? `<div class="ctx-desc">${escapeHtml(c.settings.description)}</div>` : ''}
-                ${formatGitStatus(c)}
+                <div class="ctx-detail-section">
+                    <h3>📦 Status</h3>
+                    ${formatGitStatus(c)}
+                </div>
                 <form class="ctx-edit-form" data-form="${escapeHtml(c.id)}">
-                    <label>Navn<input type="text" name="name" value="${escapeHtml(c.settings.name || '')}" required></label>
-                    <label>Ikon${iconPickerHtml('icon', c.settings.icon || '📁', 'pick-' + c.id)}</label>
-                    <label>Beskrivelse<textarea name="description" rows="2">${escapeHtml(c.settings.description || '')}</textarea></label>
-                    <label>Git-remote (origin)<input type="text" name="remote" value="${escapeHtml(c.settings.remote || '')}" placeholder="git@github.com:bruker/repo.git" spellcheck="false"></label>
-                    <div class="mt-section" data-mt="${escapeHtml(c.id)}">
-                        <div class="mt-section-head">Møtetyper</div>
+                    <div class="ctx-detail-section">
+                        <h3>📝 Generelt</h3>
+                        <div class="ctx-form-grid">
+                            <label>Navn<input type="text" name="name" value="${escapeHtml(c.settings.name || '')}" required></label>
+                            <label>Ikon${iconPickerHtml('icon', c.settings.icon || '📁', 'pick-' + c.id)}</label>
+                        </div>
+                        <label>Beskrivelse<textarea name="description" rows="2">${escapeHtml(c.settings.description || '')}</textarea></label>
+                        <label>Git-remote (origin)<input type="text" name="remote" value="${escapeHtml(c.settings.remote || '')}" placeholder="git@github.com:bruker/repo.git" spellcheck="false"></label>
+                    </div>
+                    <div class="ctx-detail-section" data-mt="${escapeHtml(c.id)}">
+                        <h3>🗓️ Møtetyper</h3>
+                        <p class="section-hint">Definerer kategorier for møter i kalenderen i denne konteksten.</p>
                         <div class="mt-list" data-mt-list="${escapeHtml(c.id)}"></div>
-                        <button type="button" class="btn-cancel mt-add" data-mt-add="${escapeHtml(c.id)}" style="margin-top:6px">+ Ny type</button>
+                        <button type="button" class="btn-cancel mt-add" data-mt-add="${escapeHtml(c.id)}" style="margin-top:8px">+ Ny type</button>
                         <script type="application/json" data-mt-init="${escapeHtml(c.id)}">${JSON.stringify(loadMeetingTypes(c.id)).replace(/</g, '\\u003c')}</script>
                     </div>
-                    <div class="ctx-edit-actions">
-                        <button type="submit" class="btn-primary">💾 Lagre</button>
-                        <button type="button" class="btn-cancel" data-cancel="${escapeHtml(c.id)}">Avbryt</button>
+                    <div class="ctx-detail-actions">
+                        <button type="submit" class="btn-primary">💾 Lagre endringer</button>
                         <span class="settings-status" data-status="${escapeHtml(c.id)}"></span>
                     </div>
                 </form>
-            </div>`).join('');
+            </div>`;
+        const newPane = `
+            <div class="ctx-detail" data-detail="__new">
+                <div class="ctx-detail-head">
+                    <span class="ctx-icon-lg">➕</span>
+                    <div style="flex:1"><h2 style="margin:0">Ny kontekst</h2><div class="ctx-id">Opprett en ny isolert arbeidsmiljø</div></div>
+                </div>
+                <form id="newCtxForm" class="ctx-edit-form">
+                    <div class="ctx-detail-section">
+                        <div class="ctx-form-grid">
+                            <label>Navn<input type="text" id="newName" placeholder="f.eks. Privat" required></label>
+                            <label>Ikon${iconPickerHtml('icon', '📁', 'pick-new', 'newIcon')}</label>
+                        </div>
+                        <label>Beskrivelse<textarea id="newDescription" rows="2"></textarea></label>
+                        <label>Git-remote (valgfritt)<input type="text" id="newRemote" placeholder="git@github.com:bruker/repo.git" spellcheck="false"></label>
+                    </div>
+                    <div class="ctx-detail-actions">
+                        <button type="submit" class="btn-primary">➕ Opprett</button>
+                        <span id="newCtxStatus" class="settings-status"></span>
+                    </div>
+                </form>
+            </div>`;
         const emptyBanner = all.length === 0
-            ? `<div style="background:#fff7e0;border:1px solid #f0d589;color:#8a5a00;padding:14px 16px;border-radius:8px;margin:16px 0">👋 Ingen kontekster ennå. Opprett din første kontekst nedenfor for å komme i gang.</div>`
+            ? `<div style="background:#fff7e0;border:1px solid #f0d589;color:#8a5a00;padding:14px 16px;border-radius:8px;margin:16px 0">👋 Ingen kontekster ennå. Klikk «Ny kontekst» til venstre for å komme i gang.</div>`
             : '';
         const body = `
             <h1>⚙️ Kontekster</h1>
-            <p style="color:#718096">Hver kontekst har sine egne notater, oppgaver, personer og resultater. Data er fullstendig isolert mellom kontekster.</p>
+            <p style="color:#718096;margin-bottom:18px">Hver kontekst har sine egne notater, oppgaver, personer, møter og resultater. Data er fullstendig isolert mellom kontekster.</p>
             ${emptyBanner}
-            ${all.length > 0 ? `<h2>Tilgjengelige kontekster</h2>
-            <div class="ctx-list">${list}</div>` : ''}
-
-            <h2 style="margin-top:32px">Ny kontekst</h2>
-            <form id="newCtxForm" class="settings-form">
-                <label>Navn<input type="text" id="newName" placeholder="f.eks. Privat" required></label>
-                <label>Ikon${iconPickerHtml('icon', '📁', 'pick-new', 'newIcon')}</label>
-                <label>Beskrivelse<textarea id="newDescription" rows="2"></textarea></label>
-                <label>Git-remote (valgfritt)<input type="text" id="newRemote" placeholder="git@github.com:bruker/repo.git" spellcheck="false"></label>
-                <button type="submit" class="btn-primary">➕ Opprett kontekst</button>
-                <span id="newCtxStatus" class="settings-status"></span>
-            </form>
+            <div class="ctx-page">
+                <aside class="ctx-rail">
+                    ${all.map(railItem).join('')}
+                    <button type="button" class="ctx-rail-item ctx-rail-new" data-target="__new">
+                        <span class="ctx-rail-icon">➕</span>
+                        <span class="ctx-rail-text"><span class="ctx-rail-name">Ny kontekst</span><span class="ctx-rail-id">opprett ny</span></span>
+                    </button>
+                </aside>
+                <section class="ctx-pane">
+                    ${all.map(detailPane).join('')}
+                    ${newPane}
+                </section>
+            </div>
 
             <style>
-                .ctx-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; margin: 16px 0; }
-                .ctx-card { background: #fffdf7; border: 1px solid #d6cdb6; border-radius: 8px; padding: 14px 16px; }
-                .ctx-card.active { border-color: #1a365d; box-shadow: 0 0 0 2px rgba(26,54,93,0.15); }
-                .ctx-card-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-                .ctx-card-head .ctx-id { color: #a99a78; font-family: ui-monospace, monospace; font-size: 0.8em; }
-                .ctx-active-badge { margin-left: auto; background: #1a365d; color: #fffdf7; font-size: 0.75em; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
-                .btn-switch, .btn-edit { background: #f0e8d4; border: 1px solid #d6cdb6; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 0.85em; color: #1a365d; }
-                .btn-switch { margin-left: auto; }
-                .btn-switch:hover, .btn-edit:hover { background: #e6dec5; }
-                .ctx-card.active .btn-edit { margin-left: auto; }
-                .ctx-desc { margin-top: 8px; color: #4a5568; font-size: 0.9em; }
-                .git-row { margin-top: 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 0.82em; color: #4a5568; }
+                .ctx-page { display: grid; grid-template-columns: 260px 1fr; gap: 24px; align-items: start; }
+                @media (max-width: 760px) { .ctx-page { grid-template-columns: 1fr; } }
+                .ctx-rail { display: flex; flex-direction: column; gap: 4px; padding: 6px; background: #fffdf7; border: 1px solid #d6cdb6; border-radius: 8px; position: sticky; top: 16px; }
+                .ctx-rail-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: none; border: 1px solid transparent; border-radius: 6px; cursor: pointer; font-family: inherit; text-align: left; color: #1a365d; }
+                .ctx-rail-item:hover { background: #f8f3e2; }
+                .ctx-rail-item.selected { background: #ebf2fa; border-color: #b9c8e0; }
+                .ctx-rail-item.is-active.selected { background: #e6efff; border-color: #1a365d; }
+                .ctx-rail-icon { font-size: 1.4em; flex-shrink: 0; }
+                .ctx-rail-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+                .ctx-rail-name { font-weight: 600; font-size: 0.95em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                .ctx-rail-id { font-family: ui-monospace, monospace; font-size: 0.72em; color: #a99a78; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                .ctx-rail-badge { color: #1a365d; font-size: 1.2em; line-height: 1; }
+                .ctx-rail-new { border-top: 1px dashed #d6cdb6; border-radius: 0; margin-top: 6px; padding-top: 12px; color: #4a5568; }
+                .ctx-rail-new .ctx-rail-name { color: #4a5568; }
+
+                .ctx-pane { min-width: 0; }
+                .ctx-detail { display: none; background: #fffdf7; border: 1px solid #d6cdb6; border-radius: 8px; padding: 22px 26px; }
+                .ctx-detail.visible { display: block; }
+                .ctx-detail-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid #ebe2cb; }
+                .ctx-detail-head .ctx-id { color: #a99a78; font-family: ui-monospace, monospace; font-size: 0.8em; margin-top: 2px; }
+                .ctx-detail-section { margin-bottom: 22px; }
+                .ctx-detail-section:last-child { margin-bottom: 0; }
+                .ctx-detail-section h3 { margin: 0 0 10px; font-size: 0.95em; color: #1a365d; font-weight: 600; }
+                .ctx-detail-section .section-hint { margin: -6px 0 10px; font-size: 0.85em; color: #7a6f4d; }
+                .ctx-detail-actions { display: flex; align-items: center; gap: 12px; padding-top: 14px; border-top: 1px solid #ebe2cb; }
+                .ctx-form-grid { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }
+                .ctx-active-badge { background: #1a365d; color: #fffdf7; font-size: 0.75em; padding: 4px 10px; border-radius: 10px; font-weight: 600; white-space: nowrap; }
+                .ctx-icon-lg { font-size: 2em; line-height: 1; }
+                .ctx-desc { margin-bottom: 16px; padding: 10px 14px; background: #f8f3e2; border-left: 3px solid #d6cdb6; border-radius: 4px; color: #4a5568; font-size: 0.9em; font-style: italic; }
+                .ctx-edit-form label { display: block; font-size: 0.8em; color: #4a5568; font-weight: 600; margin-bottom: 12px; }
+                .ctx-edit-form input[type=text], .ctx-edit-form textarea { width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid #d6cdb6; border-radius: 4px; font-family: inherit; font-size: 0.93em; margin-top: 4px; background: #fbf9f4; color: #1a202c; }
+                .ctx-edit-form .icon-input { width: 70px; font-size: 1.4em; text-align: center; }
+
+                .git-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 0.85em; color: #4a5568; }
                 .git-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 10px; font-weight: 600; font-size: 0.95em; border: 1px solid transparent; }
                 .git-pill.clean { background: #e6f4ea; color: #1e6b3a; border-color: #b6dec0; }
                 .git-pill.dirty { background: #fef0c7; color: #8a5a00; border-color: #f0d589; }
@@ -2545,15 +2609,13 @@ document.addEventListener('keydown', function(e) {
                 .git-last code { background: #f0e8d4; padding: 1px 5px; border-radius: 3px; font-size: 0.95em; color: #1a365d; }
                 .git-when { color: #a99a78; font-weight: 400; }
                 .git-dot.off { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #c8b88f; margin-right: 4px; }
-                .ctx-edit-form { display: none; margin-top: 14px; padding-top: 14px; border-top: 1px dashed #d6cdb6; }
-                .ctx-card.editing .ctx-edit-form { display: block; }
-                .mt-section { margin: 14px 0; padding: 10px 12px; background: #fbf9f4; border: 1px solid #ebe2cb; border-radius: 6px; }
-                .mt-section-head { font-size: 0.8em; color: #4a5568; font-weight: 600; margin-bottom: 8px; }
-                .mt-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-                .mt-row .mt-icon { width: 36px; height: 36px; font-size: 1.3em; cursor: pointer; background: #fffdf7; border: 1px solid #d6cdb6; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 0; }
+
+                .mt-list { display: flex; flex-direction: column; gap: 6px; }
+                .mt-row { display: flex; align-items: center; gap: 8px; }
+                .mt-row .mt-icon { width: 38px; height: 38px; font-size: 1.3em; cursor: pointer; background: #fbf9f4; border: 1px solid #d6cdb6; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 0; }
                 .mt-row .mt-icon:hover { background: #f0e8d4; }
-                .mt-row input[type=text] { flex: 1; padding: 6px 8px; border: 1px solid #d6cdb6; border-radius: 4px; font-family: inherit; font-size: 0.9em; background: #fffdf7; color: #1a202c; margin: 0; }
-                .mt-row .mt-del { background: #fff5f5; color: #c53030; border: 1px solid #fed7d7; padding: 5px 9px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 0.85em; }
+                .mt-row input[type=text] { flex: 1; padding: 7px 10px; margin: 0; }
+                .mt-row .mt-del { background: #fff5f5; color: #c53030; border: 1px solid #fed7d7; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 0.85em; }
                 .mt-row .mt-del:hover { background: #fed7d7; }
                 .mt-icon-picker { display: none; position: fixed; inset: 0; background: rgba(26,32,44,0.55); z-index: 1100; align-items: center; justify-content: center; }
                 .mt-icon-picker.open { display: flex; }
@@ -2562,23 +2624,15 @@ document.addEventListener('keydown', function(e) {
                 .mt-icon-grid { display: grid; grid-template-columns: repeat(8, 42px); gap: 6px; }
                 .mt-icon-grid button { width: 42px; height: 42px; font-size: 1.5em; background: #fbf9f4; border: 1px solid #ebe2cb; border-radius: 4px; cursor: pointer; padding: 0; line-height: 1; }
                 .mt-icon-grid button:hover { background: #f0e8d4; transform: scale(1.1); }
-                .ctx-edit-form label { display: block; margin-bottom: 10px; font-size: 0.8em; color: #4a5568; font-weight: 600; }
-                .ctx-edit-form input[type=text], .ctx-edit-form textarea { width: 100%; padding: 6px 8px; border: 1px solid #d6cdb6; border-radius: 4px; font-family: inherit; font-size: 0.9em; margin-top: 4px; background: #fbf9f4; color: #1a202c; }
-                .ctx-edit-form .icon-input { width: 70px; font-size: 1.4em; text-align: center; }
-                .ctx-edit-actions { display: flex; align-items: center; gap: 10px; }
-                .btn-cancel { background: none; border: 1px solid #d6cdb6; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-family: inherit; color: #7a6f4d; }
-                .btn-cancel:hover { background: #f0e8d4; }
-                .settings-form { background: #fffdf7; border: 1px solid #d6cdb6; border-radius: 8px; padding: 18px 20px; max-width: 560px; }
-                .settings-form label { display: block; margin-bottom: 14px; font-size: 0.85em; color: #4a5568; font-weight: 600; }
-                .settings-form input[type=text], .settings-form textarea { width: 100%; padding: 8px 10px; border: 1px solid #d6cdb6; border-radius: 4px; font-family: inherit; font-size: 0.95em; margin-top: 4px; background: #fbf9f4; color: #1a202c; }
-                .settings-form .icon-input { width: 80px; font-size: 1.6em; text-align: center; padding: 4px 8px; }
-                .settings-form .icon-hint { display: inline-block; margin-left: 12px; color: #a99a78; font-size: 0.8em; font-weight: 400; vertical-align: middle; }
-                .ctx-icon-lg { font-size: 1.6em; line-height: 1; }
+
                 .btn-primary { background: #1a365d; color: #fffdf7; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 0.95em; font-weight: 600; }
                 .btn-primary:hover { background: #102542; }
-                .settings-status { margin-left: 4px; font-size: 0.85em; color: #2f855a; }
+                .btn-cancel { background: none; border: 1px solid #d6cdb6; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-family: inherit; color: #7a6f4d; font-size: 0.9em; }
+                .btn-cancel:hover { background: #f0e8d4; }
+                .settings-status { font-size: 0.85em; color: #2f855a; }
+
                 .icon-picker { position: relative; display: inline-block; margin-top: 4px; }
-                .icon-trigger { display: inline-flex; align-items: center; gap: 8px; background: #fbf9f4; border: 1px solid #d6cdb6; border-radius: 4px; padding: 4px 10px; cursor: pointer; font-family: inherit; }
+                .icon-trigger { display: inline-flex; align-items: center; gap: 8px; background: #fbf9f4; border: 1px solid #d6cdb6; border-radius: 4px; padding: 6px 10px; cursor: pointer; font-family: inherit; }
                 .icon-trigger:hover { background: #f0e8d4; }
                 .icon-current { font-size: 1.5em; line-height: 1; }
                 .icon-caret { font-size: 0.75em; color: #7a6f4d; }
@@ -2597,6 +2651,12 @@ document.addEventListener('keydown', function(e) {
             </div>
 
             <script>
+                document.querySelectorAll('.ctx-rail-item').forEach(b => b.addEventListener('click', () => {
+                    const target = b.getAttribute('data-target');
+                    document.querySelectorAll('.ctx-rail-item.selected').forEach(x => x.classList.remove('selected'));
+                    b.classList.add('selected');
+                    document.querySelectorAll('.ctx-detail').forEach(d => d.classList.toggle('visible', d.getAttribute('data-detail') === target));
+                }));
                 document.querySelectorAll('.icon-picker').forEach(picker => {
                     const trigger = picker.querySelector('[data-icon-trigger]');
                     const hidden = picker.querySelector('input[type="hidden"]');
@@ -2643,14 +2703,6 @@ document.addEventListener('keydown', function(e) {
                     const id = b.getAttribute('data-switch');
                     fetch('/api/contexts/switch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
                         .then(r => r.json()).then(d => { if (d.ok) location.reload(); else alert(d.error); });
-                }));
-                document.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => {
-                    const id = b.getAttribute('data-edit');
-                    document.querySelector('.ctx-card[data-id="' + id + '"]').classList.toggle('editing');
-                }));
-                document.querySelectorAll('[data-cancel]').forEach(b => b.addEventListener('click', () => {
-                    const id = b.getAttribute('data-cancel');
-                    document.querySelector('.ctx-card[data-id="' + id + '"]').classList.remove('editing');
                 }));
                 document.querySelectorAll('form[data-form]').forEach(form => form.addEventListener('submit', e => {
                     e.preventDefault();
