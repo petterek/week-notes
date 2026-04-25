@@ -42,7 +42,9 @@ PROCESS_NAME="weeks-presentation-server"
 if [ -f .server.pid ]; then
   EXISTING_PID=$(cat .server.pid)
   if [ -n "$EXISTING_PID" ] && kill -0 "$EXISTING_PID" 2>/dev/null; then
+    EXISTING_PORT=$(lsof -Pan -p "$EXISTING_PID" -iTCP -sTCP:LISTEN 2>/dev/null | awk 'NR==2 {sub(/.*:/,"",$9); print $9}')
     echo "Server is already running (PID: $EXISTING_PID)"
+    [ -n "$EXISTING_PORT" ] && echo "  → http://localhost:$EXISTING_PORT/"
     exit 0
   fi
   rm -f .server.pid
@@ -55,4 +57,5 @@ fi
 
 (exec -a "$PROCESS_NAME" env PORT="$PORT" node server.js) &
 echo $! > .server.pid
-echo "Server started in background (PID: $!, name: $PROCESS_NAME, port: $PORT)"
+echo "Server started in background (PID: $!, name: $PROCESS_NAME)"
+echo "  → http://localhost:$PORT/"
