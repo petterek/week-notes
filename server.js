@@ -4137,9 +4137,16 @@ function initMentionAutocomplete(el) {
             dropdown.appendChild(item);
         });
         const rect = el.getBoundingClientRect();
-        dropdown.style.top = (rect.bottom + window.scrollY + 4) + 'px';
-        dropdown.style.left = rect.left + 'px';
         document.body.appendChild(dropdown);
+        const ddRect = dropdown.getBoundingClientRect();
+        const vh = window.innerHeight;
+        let top = rect.bottom + 4;
+        // If we'd overflow the viewport bottom, place above the field instead
+        if (top + ddRect.height > vh - 8) {
+            top = Math.max(8, rect.top - ddRect.height - 4);
+        }
+        dropdown.style.top = top + 'px';
+        dropdown.style.left = Math.max(8, rect.left) + 'px';
         setActive(0);
     }
 
