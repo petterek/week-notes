@@ -2625,6 +2625,8 @@ document.addEventListener('keydown', function(e) {
                 .mt-icon-grid { display: grid; grid-template-columns: repeat(8, 42px); gap: 6px; max-height: 70vh; overflow-y: auto; }
                 .mt-icon-grid button { width: 42px; height: 42px; font-size: 1.5em; background: #fbf9f4; border: 1px solid #ebe2cb; border-radius: 4px; cursor: pointer; padding: 0; line-height: 1; }
                 .mt-icon-grid button:hover { background: #f0e8d4; transform: scale(1.1); }
+                .mt-icon-grid .mt-grp-label { grid-column: 1 / -1; font-size: 0.72em; font-weight: 600; color: #7a6f4d; text-transform: uppercase; letter-spacing: 0.08em; padding: 6px 2px 2px; border-bottom: 1px solid #ebe2cb; }
+                .mt-icon-grid .mt-grp-label:first-child { padding-top: 0; }
 
                 .btn-primary { background: #1a365d; color: #fffdf7; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 0.95em; font-weight: 600; }
                 .btn-primary:hover { background: #102542; }
@@ -2722,7 +2724,19 @@ document.addEventListener('keydown', function(e) {
                     });
                 }));
                 (function() {
-                    const ICON_PALETTE = ['👥','🤝','👋','🙌','👀','🗣️','💬','🗨️','📞','☎️','📱','📧','📨','📤','📥','🔔','📋','📝','✏️','📎','📌','📍','📅','🗓️','📊','📈','📉','🎯','🧠','💡','🔍','⚖️','🖥️','💻','🛠️','🔧','⚙️','🧪','🔬','🚀','⏰','⏳','⌛','🟢','🟡','🔴','🔵','⚡','🎉','🎊','🎁','🎈','🍰','🏆','🎖️','🥇','🎬','📷','📹','🎤','🎵','🎓','📚','☕','🍕','🍔','🍱','🍷','🍺','🥂','🍻','🥗','⚽','🏀','🏈','⚾','🎾','🏐','🏉','⛳','🏌️','🏓','🏸','🥊','🏃','🚴','🏊','🧗','✅','❌','❓','❗','⚠️','⭐','🌟','✨'];
+                    const ICON_GROUPS = [
+                        { label: 'Personer', icons: ['👥','🤝','👋','🙌','👀','🗣️','💬','🗨️'] },
+                        { label: 'Kommunikasjon', icons: ['📞','☎️','📱','📧','📨','📤','📥','🔔'] },
+                        { label: 'Dokumenter', icons: ['📋','📝','✏️','📎','📌','📍','📅','🗓️'] },
+                        { label: 'Planlegging', icons: ['📊','📈','📉','🎯','🧠','💡','🔍','⚖️'] },
+                        { label: 'Arbeid', icons: ['🖥️','💻','🛠️','🔧','⚙️','🧪','🔬','🚀'] },
+                        { label: 'Tid & status', icons: ['⏰','⏳','⌛','🟢','🟡','🔴','🔵','⚡'] },
+                        { label: 'Feiring', icons: ['🎉','🎊','🎁','🎈','🍰','🏆','🎖️','🥇'] },
+                        { label: 'Media & læring', icons: ['🎬','📷','📹','🎤','🎵','🎓','📚','☕'] },
+                        { label: 'Mat & drikke', icons: ['🍕','🍔','🍱','🍷','🍺','🥂','🍻','🥗'] },
+                        { label: 'Sport', icons: ['⚽','🏀','🏈','⚾','🎾','🏐','🏉','⛳','🏌️','🏓','🏸','🥊','🏃','🚴','🏊','🧗'] },
+                        { label: 'Annet', icons: ['✅','❌','❓','❗','⚠️','⭐','🌟','✨'] }
+                    ];
                     window.__mtState = {};
                     let pickerCtx = null, pickerIdx = null;
                     function slugKey(label) {
@@ -2752,18 +2766,24 @@ document.addEventListener('keydown', function(e) {
                     function renderPickerGrid() {
                         const grid = document.getElementById('mtIconGrid');
                         grid.innerHTML = '';
-                        ICON_PALETTE.forEach(ic => {
-                            const b = document.createElement('button');
-                            b.type = 'button';
-                            b.textContent = ic;
-                            b.onclick = () => {
-                                if (pickerCtx != null && window.__mtState[pickerCtx] && window.__mtState[pickerCtx][pickerIdx]) {
-                                    window.__mtState[pickerCtx][pickerIdx].icon = ic;
-                                    renderList(pickerCtx);
-                                }
-                                document.getElementById('mtIconPicker').classList.remove('open');
-                            };
-                            grid.appendChild(b);
+                        ICON_GROUPS.forEach(grp => {
+                            const h = document.createElement('div');
+                            h.className = 'mt-grp-label';
+                            h.textContent = grp.label;
+                            grid.appendChild(h);
+                            grp.icons.forEach(ic => {
+                                const b = document.createElement('button');
+                                b.type = 'button';
+                                b.textContent = ic;
+                                b.onclick = () => {
+                                    if (pickerCtx != null && window.__mtState[pickerCtx] && window.__mtState[pickerCtx][pickerIdx]) {
+                                        window.__mtState[pickerCtx][pickerIdx].icon = ic;
+                                        renderList(pickerCtx);
+                                    }
+                                    document.getElementById('mtIconPicker').classList.remove('open');
+                                };
+                                grid.appendChild(b);
+                            });
                         });
                     }
                     document.querySelectorAll('[data-mt-init]').forEach(s => {
@@ -3052,6 +3072,8 @@ document.addEventListener('keydown', function(e) {
                 .icon-grid { display:grid; grid-template-columns: repeat(8, 42px); gap:6px; max-height:70vh; overflow-y:auto; }
                 .icon-grid button { width:42px; height:42px; font-size:1.5em; background:#fbf9f4; border:1px solid #ebe2cb; border-radius:4px; cursor:pointer; padding:0; line-height:1; }
                 .icon-grid button:hover { background:#f0e8d4; transform:scale(1.1); }
+                .icon-grid .ig-grp-label { grid-column: 1 / -1; font-size:0.72em; font-weight:600; color:#7a6f4d; text-transform:uppercase; letter-spacing:0.08em; padding:6px 2px 2px; border-bottom:1px solid #ebe2cb; }
+                .icon-grid .ig-grp-label:first-child { padding-top:0; }
             </style>
             <script>
                 (function(){
@@ -3146,7 +3168,19 @@ document.addEventListener('keydown', function(e) {
             </script>
             <script>
                 (function(){
-                    const ICON_PALETTE = ['👥','🤝','👋','🙌','👀','🗣️','💬','🗨️','📞','☎️','📱','📧','📨','📤','📥','🔔','📋','📝','✏️','📎','📌','📍','📅','🗓️','📊','📈','📉','🎯','🧠','💡','🔍','⚖️','🖥️','💻','🛠️','🔧','⚙️','🧪','🔬','🚀','⏰','⏳','⌛','🟢','🟡','🔴','🔵','⚡','🎉','🎊','🎁','🎈','🍰','🏆','🎖️','🥇','🎬','📷','📹','🎤','🎵','🎓','📚','☕','🍕','🍔','🍱','🍷','🍺','🥂','🍻','🥗','⚽','🏀','🏈','⚾','🎾','🏐','🏉','⛳','🏌️','🏓','🏸','🥊','🏃','🚴','🏊','🧗','✅','❌','❓','❗','⚠️','⭐','🌟','✨'];
+                    const ICON_GROUPS = [
+                        { label: 'Personer', icons: ['👥','🤝','👋','🙌','👀','🗣️','💬','🗨️'] },
+                        { label: 'Kommunikasjon', icons: ['📞','☎️','📱','📧','📨','📤','📥','🔔'] },
+                        { label: 'Dokumenter', icons: ['📋','📝','✏️','📎','📌','📍','📅','🗓️'] },
+                        { label: 'Planlegging', icons: ['📊','📈','📉','🎯','🧠','💡','🔍','⚖️'] },
+                        { label: 'Arbeid', icons: ['🖥️','💻','🛠️','🔧','⚙️','🧪','🔬','🚀'] },
+                        { label: 'Tid & status', icons: ['⏰','⏳','⌛','🟢','🟡','🔴','🔵','⚡'] },
+                        { label: 'Feiring', icons: ['🎉','🎊','🎁','🎈','🍰','🏆','🎖️','🥇'] },
+                        { label: 'Media & læring', icons: ['🎬','📷','📹','🎤','🎵','🎓','📚','☕'] },
+                        { label: 'Mat & drikke', icons: ['🍕','🍔','🍱','🍷','🍺','🥂','🍻','🥗'] },
+                        { label: 'Sport', icons: ['⚽','🏀','🏈','⚾','🎾','🏐','🏉','⛳','🏌️','🏓','🏸','🥊','🏃','🚴','🏊','🧗'] },
+                        { label: 'Annet', icons: ['✅','❌','❓','❗','⚠️','⭐','🌟','✨'] }
+                    ];
                     let currentTypes = ${JSON.stringify(meetingTypes)};
                     let pickerTarget = null;
 
@@ -3172,18 +3206,24 @@ document.addEventListener('keydown', function(e) {
                     function renderIconGrid() {
                         const grid = document.getElementById('iconGrid');
                         grid.innerHTML = '';
-                        ICON_PALETTE.forEach(ic => {
-                            const b = document.createElement('button');
-                            b.type = 'button';
-                            b.textContent = ic;
-                            b.onclick = () => {
-                                if (pickerTarget != null && currentTypes[pickerTarget]) {
-                                    currentTypes[pickerTarget].icon = ic;
-                                    renderTypes();
-                                }
-                                closeIconPicker();
-                            };
-                            grid.appendChild(b);
+                        ICON_GROUPS.forEach(grp => {
+                            const h = document.createElement('div');
+                            h.className = 'ig-grp-label';
+                            h.textContent = grp.label;
+                            grid.appendChild(h);
+                            grp.icons.forEach(ic => {
+                                const b = document.createElement('button');
+                                b.type = 'button';
+                                b.textContent = ic;
+                                b.onclick = () => {
+                                    if (pickerTarget != null && currentTypes[pickerTarget]) {
+                                        currentTypes[pickerTarget].icon = ic;
+                                        renderTypes();
+                                    }
+                                    closeIconPicker();
+                                };
+                                grid.appendChild(b);
+                            });
                         });
                     }
                     window.openTypesModal = function() {
