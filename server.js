@@ -1121,7 +1121,7 @@ function contextSwitcherHtml() {
         ? `<button type="button" class="ctx-item ctx-commit-btn" id="ctxCommitBtn" data-active="${escapeHtml(active)}">💾 Commit endringer i «${escapeHtml(cur.name || active)}»</button>`
         : '';
     const sep = (items || commitBtn) ? '<div class="ctx-sep"></div>' : '';
-    return `<div class="ctx-switcher">
+    return `<ctx-switcher class="ctx-switcher">
         <button type="button" class="ctx-trigger" id="ctxTrigger" title="Bytt kontekst"><span class="ctx-icon">${curIcon}</span><span class="ctx-name">${curLabel}</span><span class="ctx-caret">▾</span></button>
         <div class="ctx-menu" id="ctxMenu">
             ${items}
@@ -1129,7 +1129,7 @@ function contextSwitcherHtml() {
             ${commitBtn}
             <a class="ctx-item ctx-link" href="/settings">⚙️ Administrer kontekster</a>
         </div>
-    </div>`;
+    </ctx-switcher>`;
 }
 
 const THEMES = ['paper', 'dark', 'nerd', 'solarized-light', 'nord', 'forest', 'ocean'];
@@ -1256,21 +1256,19 @@ function navLinksHtml(extra) {
                 ${extra || ''}`;
 }
 
-function navbarHtml(extraNavLinks) {
-    return `<nav class="navbar">
-        <div class="nav-inner">
-            <a href="/" class="nav-brand">Ukenotater</a>
-            ${contextSwitcherHtml()}
-            <div class="nav-links">
-                ${navLinksHtml(extraNavLinks)}
-            </div>
-            <span id="navClock" class="nav-clock"></span>
+function navbarHtml(extraNavLinks, opts) {
+    var fixed = opts && opts.fixed ? ' fixed' : '';
+    return `<app-navbar${fixed}>
+        <a slot="brand" href="/" class="nav-brand">Ukenotater</a>
+        <span slot="switcher">${contextSwitcherHtml()}</span>
+        <div slot="links" class="nav-links">
+            ${navLinksHtml(extraNavLinks)}
         </div>
-    </nav>`;
+    </app-navbar>`;
 }
 
 function pageHtml(title, body, extraNavLinks) {
-    const nav = navbarHtml(extraNavLinks);
+    const nav = navbarHtml(extraNavLinks, { fixed: true });
     const theme = getActiveTheme();
     return `<!DOCTYPE html>
 <html lang="no">
@@ -1279,12 +1277,16 @@ function pageHtml(title, body, extraNavLinks) {
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>${title}</title>
     <link id="themeStylesheet" rel="stylesheet" href="/themes/${theme}.css">
+    <script defer src="/components/nav-meta.js"></script>
+    <script defer src="/components/app-navbar.js"></script>
+    <script defer src="/components/ctx-switcher.js"></script>
+    <script defer src="/components/help-modal.js"></script>
+    <script defer src="/components/person-tip.js"></script>
+    <script defer src="/components/note-card.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         body { font-family: var(--font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif); font-size: var(--font-size, 16px); max-width: 1100px; margin: 0 auto; padding: 20px; padding-top: 70px; line-height: 1.6; color: var(--text-strong); background: var(--bg); }
         input, textarea, select, button { font-family: inherit; font-size: inherit; }
-        .navbar { position: fixed; top: 0; left: 0; right: 0; background: var(--bg); z-index: 900; border-bottom: 1px solid var(--border-soft); }
-        .nav-inner { padding: 0 24px; display: flex; align-items: center; gap: 14px; height: 46px; }
         .nav-brand { color: var(--accent); font-family: Georgia, "Times New Roman", serif; font-weight: 700; font-size: 1.1em; text-decoration: none; letter-spacing: -0.01em; }
         .nav-brand:hover { text-decoration: none; color: var(--accent-strong); }
         .nav-links { display: flex; gap: 4px; }
@@ -1305,7 +1307,7 @@ function pageHtml(title, body, extraNavLinks) {
         .ctx-item.active { background: #ebf2fa; font-weight: 600; }
         .ctx-sep { height: 1px; background: var(--border-soft); margin: 4px 0; }
         .ctx-link { color: #2a4365; }
-        .nav-clock { margin-left: auto; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.85em; color: var(--text-muted-warm); opacity: 0.65; letter-spacing: 0.02em; }
+        .nav-meta { margin-left: auto; }
         h1 { color: var(--accent); border-bottom: 1px solid var(--border-soft); padding-bottom: 10px; font-family: Georgia, "Times New Roman", serif; font-weight: 400; letter-spacing: -0.01em; }
         h2 { color: #2a4365; }
         a { color: #2b6cb0; text-decoration: none; }
@@ -1450,7 +1452,7 @@ function pageHtml(title, body, extraNavLinks) {
         #globalSearchModal .gs-hint { color: #a0998a; font-size: 0.8em; margin-top: 6px; }
     </style>
 </head>
-<body>${nav}${body}<div id="personTip"></div><div id="helpModal" class="page-modal" onclick="if(event.target===this)this.style.display='none'"><div class="page-modal-card" style="max-width:780px;max-height:85vh;display:flex;flex-direction:column"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:12px"><h3 style="margin:0">❓ Hjelp</h3><button onclick="document.getElementById('helpModal').style.display='none'" style="background:none;border:none;font-size:1.3em;cursor:pointer;color:#718096">✕</button></div><div id="helpContent" class="md-content" style="overflow-y:auto;flex:1;padding:4px 4px 4px 0">Laster…</div></div></div><script>(function(){var btn=document.getElementById('helpBtn');var modal=document.getElementById('helpModal');var loaded=false;if(!btn||!modal)return;btn.addEventListener('click',function(e){e.preventDefault();modal.style.display='flex';if(loaded)return;fetch('/help.md').then(function(r){return r.text();}).then(function(md){document.getElementById('helpContent').innerHTML=window.marked?marked.parse(md):'<pre>'+md.replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];})+'</pre>';loaded=true;}).catch(function(){document.getElementById('helpContent').textContent='Kunne ikke laste hjelp.';});});document.addEventListener('keydown',function(e){if(e.key==='Escape'&&modal.style.display==='flex')modal.style.display='none';});})();</script><script>document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaKey)return;var link=document.querySelector('.nav-links a[data-key="'+e.key.toLowerCase()+'"]');if(link){e.preventDefault();window.location.href=link.href;}});(function(){var t=document.getElementById('ctxTrigger');var sw=t&&t.parentElement;if(!t)return;t.addEventListener('click',function(e){e.stopPropagation();sw.classList.toggle('open');});document.addEventListener('click',function(e){if(!sw.contains(e.target))sw.classList.remove('open');});sw.querySelectorAll('.ctx-item[data-id]').forEach(function(b){b.addEventListener('click',function(){var id=b.getAttribute('data-id');fetch('/api/contexts/switch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})}).then(function(r){return r.json();}).then(function(d){if(d.ok)location.reload();else alert('Kunne ikke bytte kontekst: '+d.error);});});});var cb=document.getElementById('ctxCommitBtn');if(cb)cb.addEventListener('click',function(e){e.stopPropagation();var id=cb.getAttribute('data-active');var msg=prompt('Commit-melding (valgfritt):','');if(msg===null)return;cb.textContent='⏳ Committer...';fetch('/api/contexts/'+encodeURIComponent(id)+'/commit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})}).then(function(r){return r.json();}).then(function(d){if(d.ok){cb.textContent=d.committed?'✓ Committet':'Ingen endringer';setTimeout(function(){sw.classList.remove('open');},1200);}else{cb.textContent='✗ '+d.error;}});});})();(function tick(){var c=document.getElementById('navClock');if(c)c.textContent=new Date().toLocaleTimeString('nb-NO',{hour:'2-digit',minute:'2-digit',second:'2-digit'});setTimeout(tick,1000)})();(function(){var tip=document.getElementById('personTip');var peopleCache=null;var companiesCache=null;var loadPromise=null;function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}function loadAll(){if(peopleCache&&companiesCache)return Promise.resolve();if(loadPromise)return loadPromise;loadPromise=Promise.all([fetch('/api/people').then(function(r){return r.json();}).catch(function(){return [];}),fetch('/api/companies').then(function(r){return r.json();}).catch(function(){return [];})]).then(function(arr){peopleCache=arr[0]||[];companiesCache=arr[1]||[];});return loadPromise;}function findPerson(key){if(!key||!peopleCache)return null;return peopleCache.find(function(p){return (p.key&&p.key===key)||(p.name&&p.name.toLowerCase()===key);});}function findCompany(key){if(!key||!companiesCache)return null;return companiesCache.find(function(c){return c.key===key;});}function renderPerson(p,key){if(!p){return '<div class="pt-missing">Ingen oppføring for @'+esc(key)+'</div>';}var name=p.firstName?(p.lastName?p.firstName+' '+p.lastName:p.firstName):(p.name||key);var html='<div class="pt-name">'+esc(name)+'</div>';if(p.title)html+='<div class="pt-title">'+esc(p.title)+'</div>';var primaryKey=p.primaryCompanyKey;if(primaryKey){var c=findCompany(primaryKey);if(c)html+='<div class="pt-row">🏢 '+esc(c.name||primaryKey)+'</div>';}if(p.email)html+='<div class="pt-row">✉️ '+esc(p.email)+'</div>';if(p.phone)html+='<div class="pt-row">📞 '+esc(p.phone)+'</div>';if(p.notes){var n=p.notes.length>140?p.notes.slice(0,140)+'…':p.notes;html+='<div class="pt-notes">'+esc(n)+'</div>';}return html;}function renderCompany(c,key){if(!c){return '<div class="pt-missing">Ingen oppføring for @'+esc(key)+'</div>';}var html='<div class="pt-name">🏢 '+esc(c.name||key)+'</div>';if(c.url)html+='<div class="pt-row">🔗 '+esc(c.url)+'</div>';if(c.address)html+='<div class="pt-row">📍 '+esc(c.address)+'</div>';if(c.orgnr)html+='<div class="pt-row">Org.nr: '+esc(c.orgnr)+'</div>';if(c.notes){var n=c.notes.length>140?c.notes.slice(0,140)+'…':c.notes;html+='<div class="pt-notes">'+esc(n)+'</div>';}return html;}function position(ev){var r=18,vw=window.innerWidth,vh=window.innerHeight;var w=tip.offsetWidth,h=tip.offsetHeight;var x=ev.clientX+r,y=ev.clientY+r;if(x+w>vw-8)x=ev.clientX-w-r;if(y+h>vh-8)y=ev.clientY-h-r;if(x<8)x=8;if(y<8)y=8;tip.style.left=x+'px';tip.style.top=y+'px';}var current=null;document.addEventListener('mouseover',function(e){var a=e.target.closest&&e.target.closest('.mention-link');if(!a)return;current=a;var compKey=a.getAttribute('data-company-key');var key=compKey||a.getAttribute('data-person-key')||a.textContent.trim().toLowerCase();loadAll().then(function(){if(current!==a)return;var html;if(compKey){html=renderCompany(findCompany(compKey),compKey);}else{var c=findCompany(key);html=c?renderCompany(c,key):renderPerson(findPerson(key),key);}tip.innerHTML=html;tip.classList.add('visible');position(e);});});document.addEventListener('mousemove',function(e){if(tip.classList.contains('visible')&&e.target.closest&&e.target.closest('.mention-link'))position(e);});document.addEventListener('mouseout',function(e){var a=e.target.closest&&e.target.closest('.mention-link');if(!a)return;var to=e.relatedTarget;if(to&&to.closest&&to.closest('.mention-link')===a)return;current=null;tip.classList.remove('visible');});})();</script><div id="globalSearchModal" class="page-modal" onclick="if(event.target===this)window.__closeGlobalSearch&&window.__closeGlobalSearch()"><div class="gs-card"><div class="gs-input-row"><input id="gsInput" class="gs-input" type="text" placeholder="Søk i notater, oppgaver, møter, personer, resultater…" autocomplete="off" /><button class="gs-close" onclick="window.__closeGlobalSearch&&window.__closeGlobalSearch()" title="Lukk (Esc)">✕</button></div><div id="gsResults" class="gs-results"></div><div class="gs-hint">↵ åpne første · Esc lukk · Ctrl+K eller / for å søke fra hvor som helst</div></div></div><script>(function(){
+<body>${nav}${body}<person-tip></person-tip><help-modal></help-modal><script>document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaKey)return;var link=document.querySelector('.nav-links a[data-key="'+e.key.toLowerCase()+'"]');if(link){e.preventDefault();window.location.href=link.href;}});</script><div id="globalSearchModal" class="page-modal" onclick="if(event.target===this)window.__closeGlobalSearch&&window.__closeGlobalSearch()"><div class="gs-card"><div class="gs-input-row"><input id="gsInput" class="gs-input" type="text" placeholder="Søk i notater, oppgaver, møter, personer, resultater…" autocomplete="off" /><button class="gs-close" onclick="window.__closeGlobalSearch&&window.__closeGlobalSearch()" title="Lukk (Esc)">✕</button></div><div id="gsResults" class="gs-results"></div><div class="gs-hint">↵ åpne første · Esc lukk · Ctrl+K eller / for å søke fra hvor som helst</div></div></div><script>(function(){
     var modal = document.getElementById('globalSearchModal');
     var input = document.getElementById('gsInput');
     var resultsEl = document.getElementById('gsResults');
@@ -1910,22 +1912,24 @@ function editorPageHtml(week, file, content) {
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>${title}</title>
     <link id="themeStylesheet" rel="stylesheet" href="/themes/${getActiveTheme()}.css">
+    <script defer src="/components/nav-meta.js"></script>
+    <script defer src="/components/app-navbar.js"></script>
+    <script defer src="/components/ctx-switcher.js"></script>
+    <script defer src="/components/help-modal.js"></script>
+    <script defer src="/components/person-tip.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: var(--font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif); font-size: var(--font-size, 16px); color: var(--text-strong); height: 100vh; display: flex; flex-direction: column; background: var(--bg); }
         input, textarea, select, button { font-family: inherit; font-size: inherit; }
 
-        /* Navbar */
-        .navbar { background: var(--bg); border-bottom: 1px solid var(--border-soft); flex-shrink: 0; }
-        .navbar .nav-inner { display: flex; align-items: center; gap: 14px; padding: 0 24px; height: 46px; }
-        .navbar .nav-brand { color: var(--accent); font-family: Georgia, "Times New Roman", serif; font-weight: 700; font-size: 1.1em; text-decoration: none; letter-spacing: -0.01em; }
-        .navbar .nav-brand:hover { color: var(--accent-strong); }
-        .navbar .nav-links { display: flex; gap: 4px; }
-        .navbar .nav-links a { color: var(--text); opacity: 0.65; text-decoration: none; padding: 6px 10px; border-radius: 4px; font-size: 0.9em; display: inline-flex; align-items: center; gap: 6px; transition: opacity 0.15s, background 0.15s; }
-        .navbar .nav-links a:hover { opacity: 1; background: var(--surface-alt); color: var(--accent); }
-        .navbar .nav-links kbd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.72em; background: var(--surface-alt); color: var(--text-muted-warm); border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px; letter-spacing: 0.02em; opacity: 0.85; }
-        .navbar .nav-clock { margin-left: auto; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.85em; color: var(--text-muted-warm); opacity: 0.65; letter-spacing: 0.02em; }
+        /* Navbar slotted content (shell is in <app-navbar> shadow DOM) */
+        .nav-brand { color: var(--accent); font-family: Georgia, "Times New Roman", serif; font-weight: 700; font-size: 1.1em; text-decoration: none; letter-spacing: -0.01em; }
+        .nav-brand:hover { color: var(--accent-strong); }
+        .nav-links { display: flex; gap: 4px; }
+        .nav-links a { color: var(--text); opacity: 0.65; text-decoration: none; padding: 6px 10px; border-radius: 4px; font-size: 0.9em; display: inline-flex; align-items: center; gap: 6px; transition: opacity 0.15s, background 0.15s; }
+        .nav-links a:hover { opacity: 1; background: var(--surface-alt); color: var(--accent); }
+        .nav-links kbd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.72em; background: var(--surface-alt); color: var(--text-muted-warm); border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px; letter-spacing: 0.02em; opacity: 0.85; }
 
         /* Context switcher */
         .ctx-switcher { position: relative; }
@@ -2290,13 +2294,6 @@ Note: Husk å nevne tidsplanen.
             if (ok) window.location.href = '/';
         }
 
-        // Clock
-        (function tick() {
-            var now = new Date();
-            document.getElementById('navClock').textContent = now.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            setTimeout(tick, 1000);
-        })();
-
         async function deleteNote() {
             var file = fileName.value.trim();
             if (!file) return;
@@ -2530,32 +2527,15 @@ Note: Husk å nevne tidsplanen.
             });
         })();
     </script>
-    <div id="helpModal" class="page-modal" onclick="if(event.target===this)this.style.display='none'" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2000;align-items:center;justify-content:center"><div style="background:var(--bg);color:var(--text-strong);border:1px solid var(--border);border-radius:10px;padding:18px 20px;width:min(780px,92vw);max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.3)"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:12px"><h3 style="margin:0">❓ Hjelp</h3><button onclick="document.getElementById('helpModal').style.display='none'" style="background:none;border:none;font-size:1.3em;cursor:pointer;color:var(--text-muted)">✕</button></div><div id="helpContent" style="overflow-y:auto;flex:1;padding:4px 4px 4px 0">Laster…</div></div></div>
+    <help-modal></help-modal>
     <script>
-        (function(){
-            var btn=document.getElementById('helpBtn');
-            var modal=document.getElementById('helpModal');
-            var loaded=false;
-            if(!btn||!modal)return;
-            btn.addEventListener('click',function(e){
-                e.preventDefault();
-                modal.style.display='flex';
-                if(loaded)return;
-                fetch('/help.md').then(function(r){return r.text();}).then(function(md){
-                    document.getElementById('helpContent').innerHTML=window.marked?marked.parse(md):'<pre>'+md.replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];})+'</pre>';
-                    loaded=true;
-                }).catch(function(){document.getElementById('helpContent').textContent='Kunne ikke laste hjelp.';});
-            });
-            document.addEventListener('keydown',function(e){if(e.key==='Escape'&&modal.style.display==='flex')modal.style.display='none';});
-        })();
         (function(){
             var sb=document.getElementById('navSearchBtn');
             if(!sb)return;
             sb.addEventListener('click',function(e){e.preventDefault();window.location.href='/?gs=1';});
         })();
-        (function tick(){var c=document.getElementById('navClock');if(c)c.textContent=new Date().toLocaleTimeString('nb-NO',{hour:'2-digit',minute:'2-digit',second:'2-digit'});setTimeout(tick,1000)})();
     </script>
-    <script>document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaKey)return;var link=document.querySelector('.nav-links a[data-key="'+e.key.toLowerCase()+'"]');if(link&&link.getAttribute('href')&&link.getAttribute('href')!=='#'){e.preventDefault();window.location.href=link.href;}});(function(){var t=document.getElementById('ctxTrigger');var sw=t&&t.parentElement;if(!t)return;t.addEventListener('click',function(e){e.stopPropagation();sw.classList.toggle('open');});document.addEventListener('click',function(e){if(!sw.contains(e.target))sw.classList.remove('open');});sw.querySelectorAll('.ctx-item[data-id]').forEach(function(b){b.addEventListener('click',function(){var id=b.getAttribute('data-id');fetch('/api/contexts/switch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})}).then(function(r){return r.json();}).then(function(d){if(d.ok)location.href='/';else alert('Kunne ikke bytte: '+d.error);});});});var cb=document.getElementById('ctxCommitBtn');if(cb)cb.addEventListener('click',function(e){e.stopPropagation();var id=cb.getAttribute('data-active');var msg=prompt('Commit-melding (valgfritt):','');if(msg===null)return;cb.textContent='⏳ Committer...';fetch('/api/contexts/'+encodeURIComponent(id)+'/commit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})}).then(function(r){return r.json();}).then(function(d){if(d.ok){cb.textContent=d.committed?'✓ Committet':'Ingen endringer';setTimeout(function(){sw.classList.remove('open');},1200);}else{cb.textContent='✗ '+d.error;}});});})();</script>
+    <script>document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaKey)return;var link=document.querySelector('.nav-links a[data-key="'+e.key.toLowerCase()+'"]');if(link&&link.getAttribute('href')&&link.getAttribute('href')!=='#'){e.preventDefault();window.location.href=link.href;}});</script>
 </body>
 </html>`;
 }
@@ -3069,21 +3049,7 @@ const server = http.createServer(async (req, res) => {
                     notesHtml += '<p class="empty-quiet">Ingen notater denne uken</p>';
                 } else {
                     noteFiles.forEach(f => {
-                        const name = f.replace('.md', '');
-                        const editHref = `/editor/${week}/${encodeURIComponent(f)}`;
-                        const filePath = path.join(dataDir(), week, f);
-                        const noteMeta = getNoteMeta(week, f);
-                        const typeIcons = { note: '📝', meeting: '🤝', task: '🎯', presentation: '🎤', other: '📌' };
-                        const typeIcon = typeIcons[noteMeta.type] || '📄';
-                        const pinIcon = noteMeta.pinned ? '<span title="Festet">📌</span> ' : '';
-                        const presentBtn = noteMeta.type === 'presentation' ? `<button type="button" class="note-icon-btn" onclick="openPresentation('${week}','${encodeURIComponent(f)}')" title="Presenter ${escapeHtml(name)}">🎤</button>` : '';
-                        let raw = '';
-                        try { raw = fs.readFileSync(filePath, 'utf-8'); } catch {}
-                        const snippet = linkMentions(escapeHtml(noteSnippet(raw, 220)));
-                        notesHtml += `<div class="note-card" data-note-card="${week}/${encodeURIComponent(f)}">
-                            <div class="note-h"><span>${pinIcon}${typeIcon} ${escapeHtml(name)}</span><span class="note-actions"><button type="button" class="note-icon-btn" onclick="openNoteViewModal('${week}','${encodeURIComponent(f)}')" title="Vis ${escapeHtml(name)}">👁️</button>${presentBtn}<a href="${editHref}" title="Rediger ${escapeHtml(name)}">✏️</a><button type="button" class="note-icon-btn note-del" onclick="deleteNoteFromHome('${week}','${encodeURIComponent(f)}','${escapeHtml(name).replace(/'/g, "\\'")}')" title="Slett ${escapeHtml(name)}">🗑️</button></span></div>
-                            ${snippet ? `<div class="note-body">${snippet}</div>` : ''}
-                        </div>`;
+                        notesHtml += `<note-card note="${week}/${encodeURIComponent(f)}"></note-card>`;
                     });
                 }
 
@@ -7871,6 +7837,33 @@ activateTab(initialParams.tab || 'people');
         return;
     }
 
+    // API: note card data (name, type, pinned, presentationStyle, snippet HTML)
+    const cardMatch = pathname.match(/^\/api\/notes\/([^/]+)\/(.+)\/card$/);
+    if (cardMatch && req.method === 'GET') {
+        const [, week, fileEnc] = cardMatch;
+        const file = decodeURIComponent(fileEnc);
+        const meta = getNoteMeta(week, file);
+        const filePath = path.join(dataDir(), week, file);
+        let raw = '';
+        try { raw = fs.readFileSync(filePath, 'utf-8'); } catch {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'not found' }));
+            return;
+        }
+        const name = file.replace(/\.md$/, '');
+        const snippet = linkMentions(escapeHtml(noteSnippet(raw, 220)));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            ok: true,
+            week, file, name,
+            type: meta.type || 'note',
+            pinned: !!meta.pinned,
+            presentationStyle: meta.presentationStyle || null,
+            snippet,
+        }));
+        return;
+    }
+
     // API: toggle pin
     const pinMatch = pathname.match(/^\/api\/notes\/([^/]+)\/(.+)\/pin$/);
     if (pinMatch && req.method === 'PUT') {
@@ -7895,6 +7888,20 @@ activateTab(initialParams.tab || 'people');
         } catch {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Filen finnes ikke' }));
+        }
+        return;
+    }
+
+    // Web components (served from components/)
+    if (pathname.startsWith('/components/') && pathname.endsWith('.js')) {
+        const slug = pathname.slice('/components/'.length);
+        if (slug.includes('/') || slug.includes('..')) { res.writeHead(400); res.end('Bad'); return; }
+        try {
+            const data = fs.readFileSync(path.join(__dirname, 'components', slug));
+            res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache' });
+            res.end(data);
+        } catch (e) {
+            res.writeHead(404); res.end('Not found');
         }
         return;
     }

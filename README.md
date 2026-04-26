@@ -11,8 +11,15 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 ## 📜 Changelog
 
 ### 2026-04-26
+- `<note-card note="WEEK/file.md">` web component (`components/note-card.js`) — self-loading note summary card. Fetches `/api/notes/<week>/<file>/card` for type/pin/snippet and renders the markup; action buttons call existing globals (`openNoteViewModal`, `openPresentation`, `deleteNoteFromHome`) when present, otherwise dispatch `note-card:*` events. Home weekly view emits one `<note-card>` tag per note instead of inline markup.
+- `<ctx-switcher>` web component (`components/ctx-switcher.js`) — owns the navbar context dropdown handlers (toggle, click-outside-close, switch-context, commit). Removed inline IIFEs from both the home shell and editor.
+- `<help-modal>` web component (`components/help-modal.js`) — lazy-loads `/help.md` on first open, listens for `#helpBtn` clicks and the `help:open` custom event, handles Escape. Replaces the duplicated help-modal markup + IIFE in `pageHtml` and editor.
+- `<person-tip>` web component (`components/person-tip.js`) — singleton hover tooltip for `.mention-link`. Loads people + companies once and renders the appropriate card (person or company) with edge-aware positioning.
+- `<app-navbar>` web component (`components/app-navbar.js`) — wraps the navbar shell (height, background, border, optional `fixed` positioning) in shadow DOM with named slots (`brand`, `switcher`, `links`, `meta`). Slotted children stay in light DOM so existing CSS/JS (context switcher, alt-key shortcuts, mention tooltip on links) keep working unchanged.
+- `<nav-meta>` web component (`components/nav-meta.js`) — encapsulates the navbar's date / ISO-week / clock display in shadow DOM. Served from `/components/<name>.js`. Replaces three inline ticker scripts.
+- Date and ISO week now displayed next to the clock in the navbar on every page.
 - run.sh: remember last-used port in `.server.port` (gitignored); restart without `-p` reuses it. Explicit `-p` or `$PORT` overrides. Falls back to 3001 when no record.
-- Navbar extracted to a single `navbarHtml()` component shared by `pageHtml` and the editor page. Editor now shows the full link set (Kalender, Søk, Hjelp) and wires them up — markdown-help modal renamed to `mdHelpModal` to free the global id; Søk navigates to `/?gs=1` which auto-opens the search modal on home.
+- Navbar extracted to a single `navbarHtml()` component shared by `pageHtml` and the editor page.
 - People page expanded into tabbed directory: **Personer / Selskaper / Steder**. People + companies share the `@kortnavn` namespace and are both `@`-mentionable; places are picked from a dropdown.
 - Companies (`🏢`): full CRUD with name, org.nr, web, address, notes. `@key` mentions render as company pills with their own tooltip. Company cards list members (people with this as primary or secondary relation) plus referenced meetings, results, tasks and notes.
 - People gained two separate company relation fields: `primaryCompanyKey` (single, optional — "Hovedselskap") and `extraCompanyKeys[]` (additional). Edit modal has a dropdown for primary plus a checkbox list for extras (auto-deduped vs primary).
