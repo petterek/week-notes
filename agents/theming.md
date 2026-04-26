@@ -9,7 +9,7 @@ all pages while that context is active.
 | --- | --- | --- |
 | `paper` | Papir | Warm cream paper, navy accents (default) |
 | `dark` | Mørk | Slate background with soft blue accent |
-| `sepia` | Sepia | Warm browns |
+| `nerd` | Nerd | Black background, green phosphor terminal vibe (monospace) |
 | `solarized-light` | Solarized Light | Cream + cyan |
 | `nord` | Nord | Cool arctic blue/grey |
 | `forest` | Skog | Greens and earth |

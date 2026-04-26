@@ -1,0 +1,22 @@
+/* Nerd — classic terminal: black background, green phosphor text */
+:root {
+    --bg: #000000;
+    --surface: #0a0f0a;
+    --surface-alt: #0f1a0f;
+    --surface-head: #0c150c;
+    --border: #1f3a1f;
+    --border-soft: #163016;
+    --border-faint: #112011;
+    --text: #33ff33;
+    --text-strong: #5cff5c;
+    --text-muted: #2acc2a;
+    --text-muted-warm: #28b828;
+    --text-subtle: #1e8a1e;
+    --accent: #00ff41;
+    --accent-strong: #7cff7c;
+    --accent-soft: #0f2a0f;
+}
+
+body, input, textarea, select, button {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', Consolas, 'Courier New', monospace;
+}

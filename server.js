@@ -850,11 +850,11 @@ function contextSwitcherHtml() {
     </div>`;
 }
 
-const THEMES = ['paper', 'dark', 'sepia', 'solarized-light', 'nord', 'forest', 'ocean'];
+const THEMES = ['paper', 'dark', 'nerd', 'solarized-light', 'nord', 'forest', 'ocean'];
 const THEME_LABELS = {
     'paper': 'Papir',
     'dark': 'Mørk',
-    'sepia': 'Sepia',
+    'nerd': 'Nerd',
     'solarized-light': 'Solarized Light',
     'nord': 'Nord',
     'forest': 'Skog',
@@ -3085,11 +3085,11 @@ document.addEventListener('keydown', function(e) {
                 .theme-dark .theme-line { background:#7faaff; }
                 .theme-dark .theme-line-2 { background:#cbd5e0; }
                 .theme-dark .theme-line-3 { background:#889bb1; }
-                .theme-sepia .theme-preview { background:#f9f1de; }
-                .theme-sepia .theme-bar { background:#ede0bb; border-bottom:1px solid #d2bf91; }
-                .theme-sepia .theme-line { background:#8b4513; }
-                .theme-sepia .theme-line-2 { background:#6e5a3a; }
-                .theme-sepia .theme-line-3 { background:#8b7548; }
+                .theme-nerd .theme-preview { background:#000000; }
+                .theme-nerd .theme-bar { background:#0c150c; border-bottom:1px solid #1f3a1f; }
+                .theme-nerd .theme-line { background:#00ff41; }
+                .theme-nerd .theme-line-2 { background:#33ff33; }
+                .theme-nerd .theme-line-3 { background:#1e8a1e; }
                 .theme-solarized-light .theme-preview { background:#fff9eb; }
                 .theme-solarized-light .theme-bar { background:#f4ecd0; border-bottom:1px solid #e0dac4; }
                 .theme-solarized-light .theme-line { background:#268bd2; }

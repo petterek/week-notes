@@ -11,7 +11,7 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 ## 📜 Changelog
 
 ### 2026-04-26
-- Theming: each context picks one of seven themes — paper, dark, sepia, solarized-light, nord, forest, ocean — selectable from `/settings`. Themes live as small CSS files in `themes/`.
+- Theming: each context picks one of seven themes — paper, dark, nerd, solarized-light, nord, forest, ocean — selectable from `/settings`. Themes live as small CSS files in `themes/`.
 - Calendar: drag a meeting to move it (across days too), drag the bottom edge to resize — snaps to 5-minute increments
 - Calendar: red "now" line on today's column, auto-updating every minute
 - Calendar: timestamped task/note/result activity markers on the day they were saved/completed, with toolbar chips to toggle each kind
