@@ -99,7 +99,11 @@ no server-side change needed unless validation is required.
   icon:'📁'}` on read failure, so a missing file won't crash.
 - `setContextSettings` rejects unknown ids (`!listContexts().includes(safe)`).
 - When the user changes `remote`, `setContextSettings` syncs the
-  `origin` URL on the per-context git repo.
+  `origin` URL on the per-context git repo, then triggers
+  `gitPullInitial(dir)` to pull existing content from the new remote
+  (uses `--allow-unrelated-histories` so the local "Init kontekst"
+  commit can be merged with whatever's on origin). Same flow runs in
+  `createContext` when a remote is supplied at creation time.
 - The active-context dropdown lives in EVERY page's navbar via the
   global body script — adding a context doesn't refresh open tabs.
 - If no contexts exist, all paths except `/settings` and assets

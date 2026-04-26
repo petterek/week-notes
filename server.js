@@ -91,6 +91,8 @@ function createContext(rawName, settings) {
     // Configure remote if supplied
     if ((cfg.remote || '').trim() && gitIsRepo(dir)) {
         try { git(dir, `remote add origin "${String(cfg.remote).replace(/"/g, '\\"')}"`); } catch (e) { console.error('git remote add failed', e.message); }
+        const r = gitPullInitial(dir);
+        if (!r.ok) console.error('initial git pull failed for', safe, r.error);
     }
     return safe;
 }
@@ -114,6 +116,8 @@ function setContextSettings(name, data) {
         try { current = git(dir, 'remote get-url origin').trim(); } catch {}
         if (desired && desired !== current) {
             try { git(dir, current ? `remote set-url origin "${desired.replace(/"/g, '\\"')}"` : `remote add origin "${desired.replace(/"/g, '\\"')}"`); } catch (e) { console.error('git remote set failed', e.message); }
+            const r = gitPullInitial(dir);
+            if (!r.ok) console.error('initial git pull failed for', safe, r.error);
         } else if (!desired && current) {
             try { git(dir, 'remote remove origin'); } catch {}
         }
@@ -214,6 +218,32 @@ function gitGetRemote(dir) {
     if (!gitIsRepo(dir)) return null;
     try { return git(dir, 'remote get-url origin').trim() || null; }
     catch { return null; }
+}
+
+function gitPullInitial(dir) {
+    if (!gitIsRepo(dir)) return { ok: false, error: 'Ikke et git-repo' };
+    if (!gitGetRemote(dir)) return { ok: false, error: 'Ingen remote konfigurert' };
+    try {
+        const cp = require('child_process');
+        cp.execSync('git fetch origin 2>&1', { cwd: dir, encoding: 'utf-8', timeout: 60000 });
+        let branch = '';
+        try { branch = git(dir, 'symbolic-ref --short refs/remotes/origin/HEAD').trim().replace(/^origin\//, ''); } catch {}
+        if (!branch) {
+            const heads = (() => { try { return git(dir, 'branch -r'); } catch { return ''; } });
+            const list = heads().split('\n').map(s => s.trim());
+            if (list.includes('origin/main')) branch = 'main';
+            else if (list.includes('origin/master')) branch = 'master';
+            else {
+                const first = list.find(b => b.startsWith('origin/') && !b.includes('->'));
+                if (first) branch = first.replace(/^origin\//, '');
+            }
+        }
+        if (!branch) return { ok: false, error: 'Fant ingen branch på origin' };
+        const out = cp.execSync(`git pull origin ${branch} --allow-unrelated-histories --no-edit --no-rebase 2>&1`, { cwd: dir, encoding: 'utf-8', timeout: 60000 });
+        return { ok: true, output: out.trim() };
+    } catch (e) {
+        return { ok: false, error: (e.stdout || '') + (e.stderr || '') || e.message };
+    }
 }
 
 function gitPush(dir) {
