@@ -11,6 +11,10 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 ## 📜 Changelog
 
 ### 2026-04-26
+- Results: `/results` page now has a **➕ Nytt resultat** button to create free-form results not tied to a task. New `POST /api/results` endpoint backs it.
+- Results: fixed bug where markdown links in task notes (`[text](url)`) were treated as result entries — extractor now uses negative-lookahead for `(`.
+- Results: `/results` page restyled to use theme variables instead of hardcoded colors (`white`, `#2b6cb0`, `#ebf8ff`, …); proper dark/forest/nord rendering. People rendered as `mention-link` with hover-tooltip and `/people#<key>` anchor. Within-week sort now `created` desc.
+- Help and `agents/results.md` updated with the two creation paths.
 - Fixed: home page now correctly highlights and expands the current week. The internal `getCurrentYearWeek()` helper was producing a non-canonical format (`2026-17`) that never matched the canonical week-folder format (`2026-W17`), so the "active" week was silently treated as a regular older week. Aliased to `dateToIsoWeek(new Date())`.
 - Git tab: new "📥 Pull fra remote" button on contexts with a remote — runs `git pull --ff-only`, refuses to run if there are uncommitted changes
 - New `scripts/seed-dummy.js` — creates two demo contexts (Demo Jobb / Demo Hjem) with people, tasks, meetings, results and notes for testing/showcase

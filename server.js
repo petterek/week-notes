@@ -640,7 +640,9 @@ function saveResults(results) {
 function extractResults(noteText) {
     if (!noteText) return { results: [], cleanNote: noteText || '' };
     const extracted = [];
-    const clean = noteText.replace(/\[([^\]]+)\]/g, (_, inner) => {
+    // Match [text] but not [text](...) — that's a markdown link.
+    // Use a sticky-ish regex with negative-lookahead for the opening paren.
+    const clean = noteText.replace(/\[([^\]]+)\](?!\()/g, (_, inner) => {
         const trimmed = inner.trim();
         if (trimmed) extracted.push(trimmed);
         return trimmed; // keep the text, just remove the brackets
@@ -3307,7 +3309,7 @@ const server = http.createServer(async (req, res) => {
 
     // Results page
     if (pathname === '/results') {
-        const results = loadResults().sort((a, b) => b.created.localeCompare(a.created));
+        const results = loadResults().sort((a, b) => (b.created || '').localeCompare(a.created || ''));
         const people = loadPeople();
 
         const byWeek = {};
@@ -3316,46 +3318,87 @@ const server = http.createServer(async (req, res) => {
             byWeek[r.week].push(r);
         });
         const weeks = Object.keys(byWeek).sort((a, b) => b.localeCompare(a));
+        const currentWeek = getCurrentYearWeek();
 
-        let body = '<h1>⚖️ Resultater</h1>';
+        let body = '<div class="results-page">';
+        body += `<div class="results-head">
+            <h1>⚖️ Resultater</h1>
+            <button class="btn-primary" id="newResultBtn">➕ Nytt resultat</button>
+        </div>`;
+        body += '<p class="results-hint">Tips: Skriv <code>[beslutning]</code> i et oppgavenotat for å lage et resultat knyttet til en oppgave.</p>';
 
         if (results.length === 0) {
-            body += '<p style="color:#718096;font-style:italic">Ingen resultater ennå. Skriv <code>[beslutning]</code> i et oppgavenotat for å opprette et resultat.</p>';
+            body += '<p class="empty-quiet" style="margin-top:24px">Ingen resultater ennå. Klikk <strong>➕ Nytt resultat</strong> for å legge til, eller skriv <code>[beslutning]</code> i et oppgavenotat.</p>';
         } else {
             weeks.forEach(week => {
-                body += `<div style="margin-bottom:32px">`;
-                body += `<h2 style="color:var(--accent);font-size:1em;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid var(--border-soft)">Uke ${week}</h2>`;
-                byWeek[week].forEach(r => {
-                    const linkedPeople = (r.people || []).map(name => {
-                        const p = people.find(p => p.name === name || p.key === name.toLowerCase());
-                        const display = p ? (p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : p.name) : name;
-                        return `<a href="/people" style="color:#2b6cb0;text-decoration:none;background:#ebf8ff;border-radius:4px;padding:1px 6px;font-size:0.8em">${escapeHtml(display)}</a>`;
-                    }).join(' ');
-                    const rJson = JSON.stringify(r).replace(/'/g, '&#39;');
+                const weekNum = (week || '').split('-W')[1] || week;
+                const isCurrent = week === currentWeek;
+                body += `<section class="results-week">`;
+                body += `<h2 class="results-week-h">Uke ${escapeHtml(weekNum)}${isCurrent ? ' <span class="pill live">aktiv</span>' : ''}</h2>`;
+                byWeek[week]
+                    .slice()
+                    .sort((a, b) => (b.created || '').localeCompare(a.created || ''))
+                    .forEach(r => {
+                        const linkedPeople = (r.people || []).map(name => {
+                            const key = String(name).toLowerCase();
+                            const p = people.find(p => (p.key && p.key === key) || (p.name && p.name.toLowerCase() === key));
+                            const display = p ? (p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : p.name) : name;
+                            return `<a class="mention-link result-person" data-person-key="${escapeHtml(key)}" href="/people#${encodeURIComponent(key)}">@${escapeHtml(display)}</a>`;
+                        }).join(' ');
+                        const rJson = JSON.stringify(r).replace(/'/g, '&#39;').replace(/</g, '\\u003c');
 
-                    body += `<div style="background:white;border:1px solid var(--border-soft);border-left:4px solid #2b6cb0;border-radius:8px;padding:14px 18px;margin-bottom:10px">`;
-                    body += `<div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px">`;
-                    body += `<span style="flex:1;font-size:1em;color:var(--text-strong)">⚖️ ${linkMentions(escapeHtml(r.text))}</span>`;
-                    body += `<button onclick='openEditResult(${rJson})' title="Rediger" style="background:none;border:none;cursor:pointer;font-size:1em;color:#718096;padding:2px 6px;border-radius:4px" onmouseover="this.style.background='#f5efe1'" onmouseout="this.style.background='none'">✏️</button>`;
-                    body += `<button onclick="deleteResult('${r.id}')" title="Slett" style="background:none;border:none;cursor:pointer;font-size:1em;color:#e53e3e;padding:2px 6px;border-radius:4px" onmouseover="this.style.background='#fff5f5'" onmouseout="this.style.background='none'">✕</button>`;
-                    body += `</div>`;
-                    body += `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:0.82em;color:#718096">`;
-                    if (r.taskText) body += `<span>📌 <a href="/tasks" style="color:var(--text-muted);text-decoration:none">${escapeHtml(r.taskText)}</a></span>`;
-                    if (linkedPeople) body += `<span>${linkedPeople}</span>`;
-                    body += `<span style="margin-left:auto">${r.created.slice(0, 10)}</span>`;
-                    body += `</div></div>`;
-                });
-                body += `</div>`;
+                        body += `<article class="result-card">
+                            <div class="result-row">
+                                <span class="result-text">⚖️ ${linkMentions(escapeHtml(r.text))}</span>
+                                <button class="result-act result-edit" onclick='openEditResult(${rJson})' title="Rediger">✏️</button>
+                                <button class="result-act result-del" onclick="deleteResult('${escapeHtml(r.id)}')" title="Slett">✕</button>
+                            </div>
+                            <div class="result-meta">
+                                ${r.taskText ? `<span class="result-task">📌 <a href="/tasks">${escapeHtml(r.taskText)}</a></span>` : ''}
+                                ${linkedPeople ? `<span class="result-people">${linkedPeople}</span>` : ''}
+                                <span class="result-date">${r.created ? r.created.slice(0, 10) : ''}</span>
+                            </div>
+                        </article>`;
+                    });
+                body += `</section>`;
             });
         }
+        body += '</div>';
 
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(pageHtml('Resultater', body + `
+        body += `
+<style>
+.results-page { max-width: 920px; }
+.results-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 8px; flex-wrap: wrap; }
+.results-head h1 { margin: 0; }
+.results-hint { color: var(--text-subtle); font-size: 0.85em; margin: 0 0 24px; }
+.results-hint code { background: var(--surface-alt); padding: 1px 6px; border-radius: 3px; }
+.results-week { margin-bottom: 32px; }
+.results-week-h { color: var(--accent); font-size: 0.95em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 10px; padding-bottom: 6px; border-bottom: 2px solid var(--border-soft); display: flex; align-items: center; gap: 10px; }
+.results-week-h .pill.live { font-size: 0.7em; }
+.result-card { background: var(--surface); border: 1px solid var(--border-soft); border-left: 4px solid var(--accent); border-radius: 8px; padding: 14px 18px; margin-bottom: 10px; }
+.result-row { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+.result-text { flex: 1; font-size: 1em; color: var(--text-strong); line-height: 1.45; }
+.result-act { background: none; border: none; cursor: pointer; font-size: 1em; padding: 2px 6px; border-radius: 4px; font-family: inherit; color: var(--text-muted); }
+.result-act:hover { background: var(--surface-head); }
+.result-del { color: #c53030; }
+.result-del:hover { background: #fff5f5; }
+.result-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 0.82em; color: var(--text-subtle); }
+.result-task a { color: var(--text-muted); text-decoration: none; }
+.result-task a:hover { text-decoration: underline; }
+.result-person { font-size: 0.85em; }
+.result-date { margin-left: auto; }
+
+#newResultModal .nr-form { display: flex; flex-direction: column; gap: 12px; }
+#newResultModal label { font-size: 0.85em; font-weight: 600; color: var(--text-muted); }
+#newResultModal textarea, #newResultModal input { display: block; width: 100%; margin-top: 4px; }
+</style>`;
+
+        body += `
 <div id="editResultModal" class="page-modal" onclick="if(event.target===this)closeEditResult()">
   <div class="page-modal-card" style="max-width:560px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
       <h3 style="margin:0">✏️ Rediger resultat</h3>
-      <button onclick="closeEditResult()" style="background:none;border:none;font-size:1.3em;cursor:pointer;color:#718096">✕</button>
+      <button onclick="closeEditResult()" style="background:none;border:none;font-size:1.3em;cursor:pointer;color:var(--text-subtle)">✕</button>
     </div>
     <input type="hidden" id="editResultId" />
     <div style="display:flex;flex-direction:column;gap:12px">
@@ -3369,6 +3412,22 @@ const server = http.createServer(async (req, res) => {
     </div>
   </div>
 </div>
+<div id="newResultModal" class="page-modal" onclick="if(event.target===this)closeNewResult()">
+  <div class="page-modal-card" style="max-width:560px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <h3 style="margin:0">➕ Nytt resultat</h3>
+      <button onclick="closeNewResult()" style="background:none;border:none;font-size:1.3em;cursor:pointer;color:var(--text-subtle)">✕</button>
+    </div>
+    <div class="nr-form">
+      <label>Tekst<textarea id="newResultText" rows="3" placeholder="Hva ble besluttet eller oppnådd?"></textarea></label>
+      <label>Uke<input type="text" id="newResultWeek" value="${escapeHtml(currentWeek)}" placeholder="${escapeHtml(currentWeek)}" /></label>
+    </div>
+    <div class="page-modal-actions" style="margin-top:20px">
+      <button class="page-modal-btn cancel" onclick="closeNewResult()">Avbryt</button>
+      <button class="page-modal-btn blue" style="padding:8px 20px" onclick="saveNewResult()">💾 Lagre</button>
+    </div>
+  </div>
+</div>
 <script>
 function openEditResult(r) {
     document.getElementById('editResultId').value = r.id;
@@ -3377,9 +3436,7 @@ function openEditResult(r) {
     modal.style.display = 'flex';
     setTimeout(() => document.getElementById('editResultText').focus(), 50);
 }
-function closeEditResult() {
-    document.getElementById('editResultModal').style.display = 'none';
-}
+function closeEditResult() { document.getElementById('editResultModal').style.display = 'none'; }
 function saveEditResult() {
     const id = document.getElementById('editResultId').value;
     const text = document.getElementById('editResultText').value.trim();
@@ -3392,13 +3449,40 @@ function deleteResult(id) {
     fetch('/api/results/' + id, { method: 'DELETE' })
         .then(r => r.json()).then(r => { if (r.ok) location.reload(); });
 }
+function openNewResult() {
+    document.getElementById('newResultText').value = '';
+    const modal = document.getElementById('newResultModal');
+    modal.style.display = 'flex';
+    setTimeout(() => {
+        const ta = document.getElementById('newResultText');
+        ta.focus();
+        if (window.initMentionAutocomplete) window.initMentionAutocomplete(ta);
+    }, 50);
+}
+function closeNewResult() { document.getElementById('newResultModal').style.display = 'none'; }
+function saveNewResult() {
+    const text = document.getElementById('newResultText').value.trim();
+    const week = document.getElementById('newResultWeek').value.trim();
+    if (!text) return;
+    fetch('/api/results', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, week }) })
+        .then(r => r.json()).then(r => { if (r.ok) location.reload(); else alert(r.error || 'Feil'); });
+}
+document.getElementById('newResultBtn').addEventListener('click', openNewResult);
 document.addEventListener('keydown', function(e) {
-    if (document.getElementById('editResultModal').style.display === 'flex') {
+    const editOpen = document.getElementById('editResultModal').style.display === 'flex';
+    const newOpen = document.getElementById('newResultModal').style.display === 'flex';
+    if (editOpen) {
         if (e.key === 'Escape') closeEditResult();
-        if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') saveEditResult();
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) saveEditResult();
+    } else if (newOpen) {
+        if (e.key === 'Escape') closeNewResult();
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) saveNewResult();
     }
 });
-</script>`));
+</script>`;
+
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(pageHtml('Resultater', body));
         return;
     }
 
@@ -6099,6 +6183,29 @@ function expandAllPeople(expand) {
         if (week) results = results.filter(r => r.week === week);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(results));
+        return;
+    }
+
+    // API: create a free-form result (not tied to a task)
+    if (pathname === '/api/results' && req.method === 'POST') {
+        const data = JSON.parse(await readBody(req) || '{}');
+        const text = String(data.text || '').trim();
+        if (!text) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'text required' })); return; }
+        const week = String(data.week || '').trim() || getCurrentYearWeek();
+        const people = extractMentions(text);
+        const all = loadResults();
+        const r = {
+            id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+            text,
+            week,
+            people,
+            created: new Date().toISOString()
+        };
+        all.push(r);
+        saveResults(all);
+        try { syncMentions(text); } catch {}
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, result: r }));
         return;
     }
 

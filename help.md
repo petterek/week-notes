@@ -47,6 +47,21 @@ Møter har en **type** (møte, 1-på-1, standup, workshop osv.) som vises som et
 
 Møtetyper konfigureres per kontekst på `/settings` under "Møtetyper". Velg ikoner fra det grupperte ikonpaletten (Personer, Kommunikasjon, Dokumenter, Sport, …).
 
+## Resultater
+
+Resultater er korte utsagn om utfall, beslutninger eller leveranser knyttet til en uke. De vises på `/results`, i hjemskjermens uke-sidekort, og inkluderes i ukentlige AI-oppsummeringer.
+
+To måter å lage resultater på:
+
+1. **Fra et oppgavenotat** (knyttet til oppgaven) — skriv `[teksten]` i firkantparenteser i notatet til en oppgave. Hver firkantparentes blir et eget resultat. Markdown-lenker (`[tekst](url)`) regnes ikke som resultater.
+
+   Eksempel:
+   > Vi diskuterte arkitektur-valget. [Bestemt: gå for PostgreSQL] — alle på laget enige.
+
+2. **Manuelt** (frittstående) — klikk **➕ Nytt resultat** på `/results`, skriv tekst og velg uke. Disse er ikke knyttet til en oppgave.
+
+`@navn`-omtaler i et resultat huskes som "involverte personer" og vises som lenker til personkortet.
+
 ## Personer
 
 Personer kan refereres med `@kortnavn` i notater. Ved hover vises et tooltip med navn, tittel og kontaktinfo.
