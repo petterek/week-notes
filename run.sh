@@ -6,21 +6,35 @@ cd "$(dirname "$0")"
 usage() {
   cat <<EOF
 Usage: $0 [-p PORT] [-h]
-  -p PORT   Port to run on (default: 3001, or \$PORT env var)
+  -p PORT   Port to run on (default: last-used port from .server.port,
+            else 3001, or \$PORT env var)
   -h        Show this help
 EOF
 }
 
-PORT="${PORT:-3001}"
+PORT_FILE=".server.port"
+DEFAULT_PORT=3001
+EXPLICIT_PORT=""
+
+if [ -n "${PORT:-}" ]; then EXPLICIT_PORT="$PORT"; fi
 
 while getopts ":p:h" opt; do
   case "$opt" in
-    p) PORT="$OPTARG" ;;
+    p) EXPLICIT_PORT="$OPTARG" ;;
     h) usage; exit 0 ;;
     \?) echo "Unknown option: -$OPTARG" >&2; usage; exit 1 ;;
     :)  echo "Option -$OPTARG requires an argument" >&2; usage; exit 1 ;;
   esac
 done
+
+if [ -n "$EXPLICIT_PORT" ]; then
+  PORT="$EXPLICIT_PORT"
+elif [ -f "$PORT_FILE" ] && [[ "$(cat "$PORT_FILE" 2>/dev/null)" =~ ^[0-9]+$ ]]; then
+  PORT="$(cat "$PORT_FILE")"
+  echo "Using last-used port $PORT (from $PORT_FILE)"
+else
+  PORT="$DEFAULT_PORT"
+fi
 
 if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
   echo "Error: invalid port '$PORT'" >&2
@@ -124,5 +138,6 @@ fi
 
 (exec -a "$PROCESS_NAME" env PORT="$PORT" node server.js) &
 echo $! > .server.pid
+echo "$PORT" > "$PORT_FILE"
 echo "Server started in background (PID: $!, name: $PROCESS_NAME)"
 echo "  → http://localhost:$PORT/"

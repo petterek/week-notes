@@ -1,6 +1,7 @@
 # App-specific
 data/
 .server.pid
+.server.port
 weeks-app.zip
 
 # Logs
