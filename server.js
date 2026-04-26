@@ -898,23 +898,6 @@ function pageHtml(title, body, extraNavLinks) {
     <link rel="stylesheet" href="/themes/${theme}.css">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
-        :root {
-            --bg: #fbf9f4;
-            --surface: #fffdf7;
-            --surface-alt: #f0e8d4;
-            --surface-head: #f8f3e2;
-            --border: #d6cdb6;
-            --border-soft: #e8e2d2;
-            --border-faint: #ebe2cb;
-            --text: #3c3a30;
-            --text-strong: #1a202c;
-            --text-muted: #4a5568;
-            --text-muted-warm: #7a6f4d;
-            --text-subtle: #a99a78;
-            --accent: #1a365d;
-            --accent-strong: #102542;
-            --accent-soft: #f0e8d4;
-        }
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; max-width: 1100px; margin: 0 auto; padding: 20px; padding-top: 70px; line-height: 1.6; color: var(--text-strong); background: var(--bg); }
         .navbar { position: fixed; top: 0; left: 0; right: 0; background: var(--bg); z-index: 900; border-bottom: 1px solid var(--border-soft); }
         .nav-inner { padding: 0 24px; display: flex; align-items: center; gap: 14px; height: 46px; }

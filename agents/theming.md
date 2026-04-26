@@ -29,11 +29,13 @@ all pages while that context is active.
 
 ## Files
 
-- `themes/<slug>.css` — one file per theme, defines `:root { --bg, … }`
-  overrides. They are tiny (≈15 variables each).
-- `server.js` defines the same variables inline in `pageHtml()` as the
-  paper-default fallback so a page renders correctly even if the
-  themed file is unavailable.
+- `themes/<slug>.css` — one file per theme, defines `:root { --bg, … }`.
+  These files own the CSS variable values. They are tiny (≈15
+  variables each).
+- The variables are referenced by `var(--xxx)` in the inline CSS that
+  `pageHtml()` emits. The inline CSS does **not** redefine them — if
+  it did, it would override the linked theme file because the inline
+  `<style>` comes after the `<link>` (same specificity → later wins).
 
 ## CSS variables
 
@@ -93,9 +95,10 @@ keep their semantic meaning across all themes.
   PUT must include all fields you want to keep. The settings form
   already gathers everything; ad-hoc curl calls will clobber other
   fields.
-- The inline `:root` defaults inside `pageHtml()` are paper colors. If
-  the linked theme file fails to load, the page falls back to paper —
-  not the previously selected theme.
+- **Don't redefine the theme variables in the inline `<style>`.** The
+  inline block in `pageHtml()` comes *after* the `<link rel="stylesheet">`
+  in the document, so any `:root { --bg: … }` there would override the
+  themed value. Variable values live in `themes/<slug>.css` only.
 - The themes' CSS files are cached for 5 minutes (`Cache-Control:
   max-age=300`). If you tweak a theme file in development, hard-reload
   to bypass the cache.
