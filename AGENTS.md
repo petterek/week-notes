@@ -208,8 +208,10 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3001/settings
 - **Never push without an explicit user instruction.** Stage and commit
   freely; wait for "push", "send it", "ship it" or similar before
   `git push`.
-- README has a `## 📜 Changelog` section above Features. Update it for
-  notable changes when the user asks for a README refresh.
+- **Always update the README changelog before pushing.** README has a
+  `## 📜 Changelog` section above Features; add a bullet under the
+  current date for every notable change being shipped, then include
+  the README update in the push.
 
 ---
 
