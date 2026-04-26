@@ -151,7 +151,24 @@ no server-side change needed unless validation is required.
     `invalid` validation failure.
   - `setContextSettings` reverts the `origin` URL change and throws
     so the bad remote never gets persisted to `settings.json`.
-  All three surface the error via 400 from the API endpoints.
+  All three surface the error via 400 from the API endpoints. When
+  the server returns `{ ok:false, needsConfirm:true, error }` the
+  client (welcome + settings forms) shows a confirm dialog and, on
+  yes, retries the same request with `force: true` (or `__force`
+  on the settings PUT). On force-success the marker is written and
+  committed locally (no auto-push).
+- **Disconnect** — `disconnectContext(id)` (and `POST /api/contexts/:id/disconnect`):
+  1. Requires the context to have a remote and be a git repo.
+  2. Stages all pending changes and commits if dirty.
+  3. Pushes `HEAD` to `origin` (throws on failure — nothing is destroyed).
+  4. Records `{ id, name, icon, remote, disconnectedAt }` in
+     `data/.disconnected.json` (URL memory, gitignored via `data/`).
+  5. Clears `.active` if it pointed at this context.
+  6. `rm -rf` the working tree.
+  Surfaced as a "🔌 Koble fra" button on each context's settings
+  detail (only shown when a remote is configured). Endpoints
+  `GET /api/contexts/disconnected` and `DELETE /api/contexts/disconnected/:id`
+  read/forget the URL memory.
 - The active-context dropdown lives in EVERY page's navbar via the
   global body script — adding a context doesn't refresh open tabs.
 - If no contexts exist, all paths except `/settings` and assets

@@ -96,7 +96,8 @@ function pullContextRemote(name) {
     }
 }
 
-function createContext(rawName, settings) {
+function createContext(rawName, settings, opts) {
+    const force = !!(opts && opts.force);
     const safe = safeName(rawName);
     if (!safe) throw new Error('Ugyldig kontekstnavn');
     const dir = path.join(CONTEXTS_DIR, safe);
@@ -109,18 +110,30 @@ function createContext(rawName, settings) {
     // Configure remote if supplied
     if ((cfg.remote || '').trim() && gitIsRepo(dir)) {
         try { git(dir, `remote add origin "${String(cfg.remote).replace(/"/g, '\\"')}"`); } catch (e) { console.error('git remote add failed', e.message); }
-        const r = gitPullInitial(dir);
+        const r = gitPullInitial(dir, { force });
         if (!r.ok && r.invalid) {
-            // Bad remote — roll back the whole context creation.
+            const err = new Error(r.error);
+            err.needsConfirm = true;
+            // Roll back the whole context creation; user can retry with force.
             try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
-            throw new Error(r.error);
+            throw err;
         }
         if (!r.ok) console.error('initial git pull failed for', safe, r.error);
+        // If we pulled into a remote that lacked the marker but user forced it,
+        // (re)write the marker and commit it locally so the next push adds it.
+        if (force) {
+            writeMarker(dir);
+            try {
+                git(dir, `add "${WEEK_NOTES_MARKER}"`);
+                git(dir, `commit -m "Mark as week-notes context" --no-verify`);
+            } catch {}
+        }
     }
     return safe;
 }
 
-function cloneContext(remoteUrl, rawName) {
+function cloneContext(remoteUrl, rawName, opts) {
+    const force = !!(opts && opts.force);
     const url = String(remoteUrl || '').trim();
     if (!url) throw new Error('Mangler remote-URL');
     let safe = safeName(rawName);
@@ -140,15 +153,25 @@ function cloneContext(remoteUrl, rawName) {
     try { git(dir, `config user.email "ukenotater@local"`); } catch {}
     try { git(dir, `config user.name "Ukenotater"`); } catch {}
     // Validate this is actually a week-notes repo before keeping the clone.
-    if (!fs.existsSync(path.join(dir, WEEK_NOTES_MARKER))) {
+    const hasMarker = fs.existsSync(path.join(dir, WEEK_NOTES_MARKER));
+    if (!hasMarker && !force) {
         try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
-        throw new Error('Remote er ikke en week-notes repo (mangler .week-notes-fil)');
+        const err = new Error('Remote er ikke en week-notes repo (mangler .week-notes-fil)');
+        err.needsConfirm = true;
+        throw err;
     }
     let cfg = {};
     try { cfg = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf-8')); } catch {}
     cfg = Object.assign({ name: cfg.name || rawName || safe, icon: cfg.icon || '📁', description: cfg.description || '' }, cfg, { remote: url });
     fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify(cfg, null, 2));
     writeMarker(dir);
+    if (!hasMarker && force) {
+        // User confirmed; commit the marker so the next push includes it.
+        try {
+            git(dir, `add "${WEEK_NOTES_MARKER}"`);
+            git(dir, `commit -m "Mark as week-notes context" --no-verify`);
+        } catch {}
+    }
     return safe;
 }
 
@@ -158,7 +181,68 @@ function getContextSettings(name) {
     catch { return { name: safe, icon: '📁' }; }
 }
 
-function setContextSettings(name, data) {
+const DISCONNECTED_FILE = path.join(CONTEXTS_DIR, '.disconnected.json');
+function loadDisconnected() {
+    try {
+        const arr = JSON.parse(fs.readFileSync(DISCONNECTED_FILE, 'utf-8'));
+        return Array.isArray(arr) ? arr : [];
+    } catch { return []; }
+}
+function saveDisconnected(arr) {
+    try { fs.mkdirSync(CONTEXTS_DIR, { recursive: true }); } catch {}
+    try { fs.writeFileSync(DISCONNECTED_FILE, JSON.stringify(arr, null, 2)); }
+    catch (e) { console.error('saveDisconnected failed', e.message); }
+}
+
+function disconnectContext(name) {
+    const safe = safeName(name);
+    if (!listContexts().includes(safe)) throw new Error('Kontekst finnes ikke');
+    const dir = path.join(CONTEXTS_DIR, safe);
+    const cfg = getContextSettings(safe);
+    const remote = String(cfg.remote || '').trim();
+    if (!remote) throw new Error('Konteksten har ingen remote — kan ikke koble fra trygt');
+    if (!gitIsRepo(dir)) throw new Error('Konteksten er ikke et git-repo');
+    // Commit any pending changes
+    try {
+        if (gitIsDirty(dir)) {
+            git(dir, 'add -A');
+            try { git(dir, `commit -m "Disconnect from week-notes (${new Date().toISOString()})" --no-verify`); } catch {}
+        }
+    } catch (e) { throw new Error('Klarte ikke å committe lokale endringer: ' + e.message); }
+    // Push to origin so nothing is lost
+    try {
+        require('child_process').execSync('git push origin HEAD 2>&1', { cwd: dir, encoding: 'utf-8', timeout: 60000 });
+    } catch (e) {
+        throw new Error('git push feilet: ' + ((e.stdout || '') + (e.stderr || '') || e.message));
+    }
+    // Remember the URL before destroying the dir
+    const list = loadDisconnected().filter(d => d.id !== safe);
+    list.push({
+        id: safe,
+        name: cfg.name || safe,
+        icon: cfg.icon || '📁',
+        remote: remote,
+        disconnectedAt: new Date().toISOString()
+    });
+    saveDisconnected(list);
+    // If this is the active context, clear it so a reload picks another
+    try {
+        const active = (function(){ try { return fs.readFileSync(ACTIVE_FILE, 'utf-8').trim(); } catch { return ''; } })();
+        if (active === safe) { try { fs.unlinkSync(ACTIVE_FILE); } catch {} }
+    } catch {}
+    // Remove the working tree
+    try { fs.rmSync(dir, { recursive: true, force: true }); }
+    catch (e) { throw new Error('Klarte ikke å slette mappen: ' + e.message); }
+    return { id: safe, remote };
+}
+
+function forgetDisconnected(id) {
+    const safe = safeName(id);
+    saveDisconnected(loadDisconnected().filter(d => d.id !== safe));
+}
+
+function setContextSettings(name, data, opts) {
+    const force = !!(opts && opts.force);
     const safe = safeName(name);
     if (!listContexts().includes(safe)) throw new Error('Kontekst finnes ikke');
     const dir = path.join(CONTEXTS_DIR, safe);
@@ -172,13 +256,22 @@ function setContextSettings(name, data) {
         if (desired && desired !== current) {
             const hadRemote = !!current;
             try { git(dir, hadRemote ? `remote set-url origin "${desired.replace(/"/g, '\\"')}"` : `remote add origin "${desired.replace(/"/g, '\\"')}"`); } catch (e) { console.error('git remote set failed', e.message); }
-            const r = gitPullInitial(dir);
+            const r = gitPullInitial(dir, { force });
             if (!r.ok && r.invalid) {
                 // Roll back the remote change so settings stay consistent with git config.
                 try { git(dir, hadRemote ? `remote set-url origin "${current.replace(/"/g, '\\"')}"` : 'remote remove origin'); } catch {}
-                throw new Error(r.error);
+                const err = new Error(r.error);
+                err.needsConfirm = true;
+                throw err;
             }
             if (!r.ok) console.error('initial git pull failed for', safe, r.error);
+            if (force) {
+                writeMarker(dir);
+                try {
+                    git(dir, `add "${WEEK_NOTES_MARKER}"`);
+                    git(dir, `commit -m "Mark as week-notes context" --no-verify`);
+                } catch {}
+            }
         } else if (!desired && current) {
             try { git(dir, 'remote remove origin'); } catch {}
         }
@@ -290,7 +383,8 @@ function gitRemoteHasFile(dir, branch, file) {
     } catch { return false; }
 }
 
-function gitPullInitial(dir) {
+function gitPullInitial(dir, opts) {
+    const force = !!(opts && opts.force);
     if (!gitIsRepo(dir)) return { ok: false, error: 'Ikke et git-repo' };
     if (!gitGetRemote(dir)) return { ok: false, error: 'Ingen remote konfigurert' };
     try {
@@ -311,7 +405,7 @@ function gitPullInitial(dir) {
         // Empty remote (no branches yet) — treat as a fresh push target, skip pull.
         if (!branch) return { ok: true, output: 'remote er tom — ingen pull nødvendig', empty: true };
         // Validate that this is actually a week-notes repo (must have .week-notes marker at root).
-        if (!gitRemoteHasFile(dir, branch, WEEK_NOTES_MARKER)) {
+        if (!force && !gitRemoteHasFile(dir, branch, WEEK_NOTES_MARKER)) {
             return { ok: false, invalid: true, error: 'Remote er ikke en week-notes repo (mangler .week-notes på origin/' + branch + ')' };
         }
         const out = cp.execSync(`git pull origin ${branch} --allow-unrelated-histories --no-edit --no-rebase 2>&1`, { cwd: dir, encoding: 'utf-8', timeout: 60000 });
@@ -2470,35 +2564,55 @@ const server = http.createServer(async (req, res) => {
     document.getElementById('newCtxForm').addEventListener('submit', function (e) {
         e.preventDefault();
         var s = document.getElementById('newCtxStatus');
-        setStatus(s, '⏳ Oppretter…', false);
-        fetch('/api/contexts', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                name: document.getElementById('newName').value,
-                icon: document.getElementById('newIcon').value || '📁',
-                description: document.getElementById('newDescription').value,
-                remote: document.getElementById('newRemote').value
-            })
-        }).then(function (r) { return r.json(); }).then(function (d) {
-            if (d.ok) { setStatus(s, '✓ Opprettet — laster…', false); setTimeout(function () { location.href = '/'; }, 600); }
-            else setStatus(s, '✗ ' + d.error, true);
+        function send(force) {
+            setStatus(s, force ? '⏳ Oppretter (bekreftet)…' : '⏳ Oppretter…', false);
+            return fetch('/api/contexts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: document.getElementById('newName').value,
+                    icon: document.getElementById('newIcon').value || '📁',
+                    description: document.getElementById('newDescription').value,
+                    remote: document.getElementById('newRemote').value,
+                    force: !!force
+                })
+            }).then(function (r) { return r.json(); });
+        }
+        send(false).then(function (d) {
+            if (d.ok) { setStatus(s, '✓ Opprettet — laster…', false); setTimeout(function () { location.href = '/'; }, 600); return; }
+            if (d.needsConfirm && confirm(d.error + '\n\nVil du opprette .week-notes-fil og fortsette?')) {
+                return send(true).then(function (d2) {
+                    if (d2.ok) { setStatus(s, '✓ Opprettet — laster…', false); setTimeout(function () { location.href = '/'; }, 600); }
+                    else setStatus(s, '✗ ' + d2.error, true);
+                });
+            }
+            setStatus(s, '✗ ' + d.error, true);
         }).catch(function (err) { setStatus(s, '✗ ' + err, true); });
     });
     document.getElementById('cloneCtxForm').addEventListener('submit', function (e) {
         e.preventDefault();
         var s = document.getElementById('cloneCtxStatus');
-        setStatus(s, '⏳ Kloner…', false);
-        fetch('/api/contexts/clone', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                remote: document.getElementById('cloneRemote').value,
-                name: document.getElementById('cloneName').value
-            })
-        }).then(function (r) { return r.json(); }).then(function (d) {
-            if (d.ok) { setStatus(s, '✓ Klonet — laster…', false); setTimeout(function () { location.href = '/'; }, 600); }
-            else setStatus(s, '✗ ' + d.error, true);
+        function send(force) {
+            setStatus(s, force ? '⏳ Kloner (bekreftet)…' : '⏳ Kloner…', false);
+            return fetch('/api/contexts/clone', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    remote: document.getElementById('cloneRemote').value,
+                    name: document.getElementById('cloneName').value,
+                    force: !!force
+                })
+            }).then(function (r) { return r.json(); });
+        }
+        send(false).then(function (d) {
+            if (d.ok) { setStatus(s, '✓ Klonet — laster…', false); setTimeout(function () { location.href = '/'; }, 600); return; }
+            if (d.needsConfirm && confirm(d.error + '\n\nVil du opprette .week-notes-fil og fortsette?')) {
+                return send(true).then(function (d2) {
+                    if (d2.ok) { setStatus(s, '✓ Klonet — laster…', false); setTimeout(function () { location.href = '/'; }, 600); }
+                    else setStatus(s, '✗ ' + d2.error, true);
+                });
+            }
+            setStatus(s, '✗ ' + d.error, true);
         }).catch(function (err) { setStatus(s, '✗ ' + err, true); });
     });
 })();
@@ -3262,6 +3376,7 @@ document.addEventListener('keydown', function(e) {
                     <div class="ctx-detail-actions">
                         <button type="submit" class="btn-primary">💾 Lagre endringer</button>
                         <span class="settings-status" data-status="${escapeHtml(c.id)}"></span>
+                        ${(c.settings.remote || '').trim() ? `<button type="button" class="btn-disconnect" data-disconnect="${escapeHtml(c.id)}" data-name="${escapeHtml(c.settings.name || c.id)}" title="Commit, push og fjern lokal mappe (URL huskes)">🔌 Koble fra</button>` : ''}
                     </div>
                 </form>
             </div>`;
@@ -3482,6 +3597,9 @@ document.addEventListener('keydown', function(e) {
                 .btn-primary:hover { background: var(--accent-strong); }
                 .btn-cancel { background: none; border: 1px solid var(--border); padding: 6px 12px; border-radius: 4px; cursor: pointer; font-family: inherit; color: var(--text-muted-warm); font-size: 0.9em; }
                 .btn-cancel:hover { background: var(--surface-alt); }
+                .btn-disconnect { background: none; border: 1px solid #f5b7b7; color: #c53030; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 0.9em; margin-left: auto; }
+                .btn-disconnect:hover { background: #fff5f5; border-color: #e53e3e; }
+                .ctx-detail-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
                 .settings-status { font-size: 0.85em; color: #2f855a; }
 
                 .icon-picker { position: relative; display: inline-block; margin-top: 4px; }
@@ -3617,15 +3735,38 @@ document.addEventListener('keydown', function(e) {
                     };
                     const status = document.querySelector('[data-status="' + id + '"]');
                     const types = (window.__mtState && window.__mtState[id]) || null;
-                    const settingsP = fetch('/api/contexts/' + encodeURIComponent(id) + '/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).then(r => r.json());
+                    function putSettings(force) {
+                        const body = Object.assign({}, data, force ? { __force: true } : {});
+                        return fetch('/api/contexts/' + encodeURIComponent(id) + '/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
+                    }
                     const typesP = types
                         ? fetch('/api/contexts/' + encodeURIComponent(id) + '/meeting-types', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(types) }).then(r => r.json())
                         : Promise.resolve({ ok: true });
-                    Promise.all([settingsP, typesP]).then(([s, t]) => {
-                        if (s.ok && t.ok) { status.textContent = '✓ Lagret'; setTimeout(() => location.reload(), 600); }
-                        else { status.textContent = '✗ ' + (s.error || t.error); status.style.color = '#c53030'; }
+                    Promise.all([putSettings(false), typesP]).then(([s, t]) => {
+                        if (s.ok && t.ok) { status.textContent = '✓ Lagret'; setTimeout(() => location.reload(), 600); return; }
+                        if (s.needsConfirm && t.ok && confirm(s.error + '\n\nVil du opprette .week-notes-fil og fortsette?')) {
+                            return putSettings(true).then(s2 => {
+                                if (s2.ok) { status.textContent = '✓ Lagret'; setTimeout(() => location.reload(), 600); }
+                                else { status.textContent = '✗ ' + s2.error; status.style.color = '#c53030'; }
+                            });
+                        }
+                        status.textContent = '✗ ' + (s.error || t.error); status.style.color = '#c53030';
                     });
                 }));
+                document.querySelectorAll('button[data-disconnect]').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const id = btn.getAttribute('data-disconnect');
+                        const name = btn.getAttribute('data-name') || id;
+                        if (!confirm('Koble fra "' + name + '"?\n\nDette vil:\n  • commit\'e alle endringer\n  • push\'e til origin\n  • slette den lokale mappen\n\nGit-URLen huskes lokalt så du kan klone den tilbake senere.')) return;
+                        const status = document.querySelector('[data-status="' + id + '"]');
+                        if (status) { status.textContent = '⏳ Kobler fra…'; status.style.color = ''; }
+                        fetch('/api/contexts/' + encodeURIComponent(id) + '/disconnect', { method: 'POST' })
+                            .then(r => r.json()).then(d => {
+                                if (d.ok) { if (status) status.textContent = '✓ Koblet fra'; setTimeout(() => location.href = '/settings', 600); }
+                                else if (status) { status.textContent = '✗ ' + d.error; status.style.color = '#c53030'; }
+                            }).catch(err => { if (status) { status.textContent = '✗ ' + err; status.style.color = '#c53030'; } });
+                    });
+                });
                 document.querySelectorAll('.wh-day .wh-on input').forEach(cb => {
                     cb.addEventListener('change', () => {
                         cb.closest('.wh-day').classList.toggle('on', cb.checked);
@@ -3760,33 +3901,53 @@ document.addEventListener('keydown', function(e) {
                 })();
                 document.getElementById('newCtxForm').addEventListener('submit', e => {
                     e.preventDefault();
-                    const data = {
-                        name: document.getElementById('newName').value,
-                        icon: document.getElementById('newIcon').value || '📁',
-                        description: document.getElementById('newDescription').value,
-                        remote: document.getElementById('newRemote').value
-                    };
-                    fetch('/api/contexts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
-                        .then(r => r.json()).then(d => {
-                            const s = document.getElementById('newCtxStatus');
-                            if (d.ok) { s.textContent = '✓ Opprettet'; setTimeout(() => location.reload(), 600); }
-                            else { s.textContent = '✗ ' + d.error; s.style.color = '#c53030'; }
-                        });
+                    const s = document.getElementById('newCtxStatus');
+                    s.style.color = '';
+                    function send(force) {
+                        s.textContent = force ? '⏳ Oppretter (bekreftet)…' : '⏳ Oppretter…';
+                        const data = {
+                            name: document.getElementById('newName').value,
+                            icon: document.getElementById('newIcon').value || '📁',
+                            description: document.getElementById('newDescription').value,
+                            remote: document.getElementById('newRemote').value,
+                            force: !!force
+                        };
+                        return fetch('/api/contexts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).then(r => r.json());
+                    }
+                    send(false).then(d => {
+                        if (d.ok) { s.textContent = '✓ Opprettet'; setTimeout(() => location.reload(), 600); return; }
+                        if (d.needsConfirm && confirm(d.error + '\n\nVil du opprette .week-notes-fil og fortsette?')) {
+                            return send(true).then(d2 => {
+                                if (d2.ok) { s.textContent = '✓ Opprettet'; setTimeout(() => location.reload(), 600); }
+                                else { s.textContent = '✗ ' + d2.error; s.style.color = '#c53030'; }
+                            });
+                        }
+                        s.textContent = '✗ ' + d.error; s.style.color = '#c53030';
+                    });
                 });
                 document.getElementById('cloneCtxForm').addEventListener('submit', e => {
                     e.preventDefault();
                     const s = document.getElementById('cloneCtxStatus');
                     s.style.color = '';
-                    s.textContent = '⏳ Kloner…';
-                    const data = {
-                        remote: document.getElementById('cloneRemote').value,
-                        name: document.getElementById('cloneName').value
-                    };
-                    fetch('/api/contexts/clone', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
-                        .then(r => r.json()).then(d => {
-                            if (d.ok) { s.textContent = '✓ Klonet'; setTimeout(() => location.reload(), 600); }
-                            else { s.textContent = '✗ ' + d.error; s.style.color = '#c53030'; }
-                        }).catch(err => { s.textContent = '✗ ' + err; s.style.color = '#c53030'; });
+                    function send(force) {
+                        s.textContent = force ? '⏳ Kloner (bekreftet)…' : '⏳ Kloner…';
+                        const data = {
+                            remote: document.getElementById('cloneRemote').value,
+                            name: document.getElementById('cloneName').value,
+                            force: !!force
+                        };
+                        return fetch('/api/contexts/clone', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).then(r => r.json());
+                    }
+                    send(false).then(d => {
+                        if (d.ok) { s.textContent = '✓ Klonet'; setTimeout(() => location.reload(), 600); return; }
+                        if (d.needsConfirm && confirm(d.error + '\n\nVil du opprette .week-notes-fil og fortsette?')) {
+                            return send(true).then(d2 => {
+                                if (d2.ok) { s.textContent = '✓ Klonet'; setTimeout(() => location.reload(), 600); }
+                                else { s.textContent = '✗ ' + d2.error; s.style.color = '#c53030'; }
+                            });
+                        }
+                        s.textContent = '✗ ' + d.error; s.style.color = '#c53030';
+                    }).catch(err => { s.textContent = '✗ ' + err; s.style.color = '#c53030'; });
                 });
             </script>
         `;
@@ -5542,6 +5703,39 @@ function expandAllPeople(expand) {
         return;
     }
 
+    // API: list previously-disconnected contexts (URL memory only)
+    if (pathname === '/api/contexts/disconnected' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(loadDisconnected()));
+        return;
+    }
+    // API: forget a disconnected entry
+    const forgetMatch = pathname.match(/^\/api\/contexts\/disconnected\/([^/]+)$/);
+    if (forgetMatch && req.method === 'DELETE') {
+        try {
+            forgetDisconnected(forgetMatch[1]);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true }));
+        } catch (e) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: String(e.message || e) }));
+        }
+        return;
+    }
+    // API: disconnect (commit + push + remove + remember url)
+    const disconnectMatch = pathname.match(/^\/api\/contexts\/([^/]+)\/disconnect$/);
+    if (disconnectMatch && req.method === 'POST') {
+        try {
+            const result = disconnectContext(disconnectMatch[1]);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, id: result.id, remote: result.remote }));
+        } catch (e) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: String(e.message || e) }));
+        }
+        return;
+    }
+
     // API: switch active context
     if (pathname === '/api/contexts/switch' && req.method === 'POST') {
         let body = '';
@@ -5572,14 +5766,14 @@ function expandAllPeople(expand) {
         req.on('data', c => body += c);
         req.on('end', () => {
             try {
-                const { name, icon, description, remote } = JSON.parse(body || '{}');
+                const { name, icon, description, remote, force } = JSON.parse(body || '{}');
                 if (!name) throw new Error('Mangler navn');
-                const id = createContext(name, { name, icon: icon || '📁', description: description || '', remote: remote || '' });
+                const id = createContext(name, { name, icon: icon || '📁', description: description || '', remote: remote || '' }, { force: !!force });
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ ok: true, id }));
             } catch (e) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: false, error: String(e.message || e) }));
+                res.end(JSON.stringify({ ok: false, error: String(e.message || e), needsConfirm: !!e.needsConfirm }));
             }
         });
         return;
@@ -5591,13 +5785,13 @@ function expandAllPeople(expand) {
         req.on('data', c => body += c);
         req.on('end', () => {
             try {
-                const { remote, name } = JSON.parse(body || '{}');
-                const id = cloneContext(remote, name);
+                const { remote, name, force } = JSON.parse(body || '{}');
+                const id = cloneContext(remote, name, { force: !!force });
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ ok: true, id }));
             } catch (e) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: false, error: String(e.message || e) }));
+                res.end(JSON.stringify({ ok: false, error: String(e.message || e), needsConfirm: !!e.needsConfirm }));
             }
         });
         return;
@@ -5667,12 +5861,14 @@ function expandAllPeople(expand) {
         req.on('end', () => {
             try {
                 const data = JSON.parse(body || '{}');
-                setContextSettings(id, data);
+                const force = !!data.__force;
+                delete data.__force;
+                setContextSettings(id, data, { force });
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ ok: true }));
             } catch (e) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: false, error: String(e.message || e) }));
+                res.end(JSON.stringify({ ok: false, error: String(e.message || e), needsConfirm: !!e.needsConfirm }));
             }
         });
         return;
