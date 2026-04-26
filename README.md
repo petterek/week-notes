@@ -11,6 +11,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 ## 📜 Changelog
 
 ### 2026-04-26
+- `<upcoming-meetings days="14">`, `<week-results week="...">`, `<week-completed week="...">` web components — finish moving the home sidebar widgets into self-loading custom elements. Each fetches its data via `/api/*` (cached per-page through a shared `components/_shared.js` helper), renders the same markup as before and bubbles `mention-clicked` for `@`-links so the page-level handler can navigate.
+- `<open-tasks>` web component — replaces the inline open-tasks sidebar markup. Fetches `/api/tasks` + `/api/people` + `/api/companies`, renders heading + rows, calls `window.showCommentModal` / `window.openNoteModal` when present, otherwise dispatches `open-tasks:*` events. `@`-mentions emit a bubbling `mention-clicked` event handled at page level so navigation logic stays out of the component.
+- All web components now use `var(--*)` theme variables exclusively; removed the few remaining hardcoded colors (`#2b6cb0`, `#a0aec0`, `#c53030`).
 - `<note-card note="WEEK/file.md">` web component (`components/note-card.js`) — self-loading note summary card. Fetches `/api/notes/<week>/<file>/card` for type/pin/snippet and renders the markup; action buttons call existing globals (`openNoteViewModal`, `openPresentation`, `deleteNoteFromHome`) when present, otherwise dispatch `note-card:*` events. Home weekly view emits one `<note-card>` tag per note instead of inline markup.
 - `<ctx-switcher>` web component (`components/ctx-switcher.js`) — owns the navbar context dropdown handlers (toggle, click-outside-close, switch-context, commit). Removed inline IIFEs from both the home shell and editor.
 - `<help-modal>` web component (`components/help-modal.js`) — lazy-loads `/help.md` on first open, listens for `#helpBtn` clicks and the `help:open` custom event, handles Escape. Replaces the duplicated help-modal markup + IIFE in `pageHtml` and editor.

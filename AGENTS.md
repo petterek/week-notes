@@ -141,6 +141,42 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3001/settings
 - For JSON-in-script blocks, `.replace(/</g, '\\u003c')` to avoid
   closing the parent `<script>` tag.
 
+### Theming / CSS variables
+- **All components and styles must use CSS variables** so they adhere
+  to the active theme. Themes live in `themes/*.css` and define
+  `--bg`, `--surface`, `--surface-alt`, `--surface-head`, `--border`,
+  `--border-soft`, `--border-faint`, `--text`, `--text-strong`,
+  `--text-muted`, `--text-muted-warm`, `--text-subtle`, `--accent`,
+  `--accent-strong`, `--accent-soft`, `--text-on-accent`.
+- Never hardcode colors (`#c53030`, `#a0aec0`, `white`, etc.) in CSS,
+  inline styles, or shadow-DOM `<style>` blocks. Always use a theme
+  variable, optionally with a fallback for SSR-safety:
+  `color: var(--accent, #2a4365);`
+- If you need a color that no theme variable covers, **add a new
+  variable to every theme in `themes/*.css`** before using it.
+- CSS custom properties pierce shadow DOM, so web components can use
+  the same variables without redefining them.
+
+### Web components
+- Components live in `components/<name>.js` and are loaded via
+  `<script defer src="/components/<name>.js">` from the relevant
+  `<head>` in `server.js`. The `/components/*.js` static route serves
+  them with a slug-safety check.
+- Custom elements default to `display: inline`. If a component is
+  meant to be a block (e.g. card or list), add a global rule like
+  `note-card { display: block; }` next to its other CSS in
+  `server.js`, or set it in `:host { display: block; }` for shadow-DOM
+  components.
+- Markup uses backtick template literals, not string concatenation.
+- Components stay decoupled from page logic by **emitting CustomEvents**
+  (e.g. `mention-clicked`, `note-card:view`, `open-tasks:toggle`) and
+  letting the host page decide what to do. Default link navigation is
+  `preventDefault`'d inside the component; the host page has a single
+  `mention-clicked` listener in `pageHtml` body that does
+  `window.location.href = detail.href`.
+- Slotted children stay in light DOM so existing global CSS / JS
+  selectors keep working (used by `<app-navbar>` and `<ctx-switcher>`).
+
 ### Markdown / mentions
 - `@person` mentions are rendered server-side via `linkMentions(...)`.
 - Person tooltips are wired up by the global script in `<body>`.

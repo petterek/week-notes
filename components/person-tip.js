@@ -21,7 +21,7 @@
             .pt-title { color: var(--text-muted, #888); font-style: italic; margin-bottom: 4px; }
             .pt-row { color: var(--text-muted-warm, #718096); font-size: 0.9em; }
             .pt-notes { color: var(--text-muted, #888); margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-soft, #ddd); white-space: pre-wrap; }
-            .pt-missing { color: #a0aec0; font-style: italic; }
+            .pt-missing { color: var(--text-subtle); font-style: italic; }
         </style>
         <div class="tip"></div>
     `;

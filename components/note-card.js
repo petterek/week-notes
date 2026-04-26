@@ -58,7 +58,7 @@
 
         _renderError(msg) {
             this.classList.add('note-card');
-            this.innerHTML = `<div class="note-body" style="color:#c53030">${esc(msg)}</div>`;
+            this.innerHTML = `<div class="note-body" style="color:var(--text-subtle)">${esc(msg)}</div>`;
         }
 
         _render(week, fileEnc, d) {

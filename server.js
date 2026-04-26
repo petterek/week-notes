@@ -1283,6 +1283,11 @@ function pageHtml(title, body, extraNavLinks) {
     <script defer src="/components/help-modal.js"></script>
     <script defer src="/components/person-tip.js"></script>
     <script defer src="/components/note-card.js"></script>
+    <script defer src="/components/_shared.js"></script>
+    <script defer src="/components/open-tasks.js"></script>
+    <script defer src="/components/upcoming-meetings.js"></script>
+    <script defer src="/components/week-results.js"></script>
+    <script defer src="/components/week-completed.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         body { font-family: var(--font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif); font-size: var(--font-size, 16px); max-width: 1100px; margin: 0 auto; padding: 20px; padding-top: 70px; line-height: 1.6; color: var(--text-strong); background: var(--bg); }
@@ -1391,6 +1396,9 @@ function pageHtml(title, body, extraNavLinks) {
         .h-week .meta { font-style: italic; color: var(--text-subtle); font-size: 0.55em; margin-left: auto; font-family: -apple-system, sans-serif; }
         .sidebar-tasks { margin: 0; }
         .sidebar-task + .sidebar-task { border-top: 1px dotted #e0d8c4; }
+        open-tasks, upcoming-meetings, week-results, week-completed { display: block; }
+        .upcoming-cal-link { margin-top: 8px; }
+        .upcoming-cal-link a { font-size: 0.85em; color: var(--accent); }
         .row { display: flex; align-items: center; gap: 10px; padding: 7px 0; font-size: 0.93em; color: var(--text); }
         .row .row-text { flex: 1; min-width: 0; }
         .row.done { color: var(--text-subtle); text-decoration: line-through; }
@@ -1401,7 +1409,7 @@ function pageHtml(title, body, extraNavLinks) {
         .row-note-btn.empty { opacity: 0.3; }
         .row-note-body { margin: 1px 0 6px 26px; font-size: 0.82em; color: var(--text-muted-warm); background: transparent; }
         .sidebar-meetings { display: flex; flex-direction: column; gap: 8px; }
-        .sidebar-meeting { position: relative; padding: 8px 10px; background: var(--surface); border: 1px solid var(--border-faint); border-left: 3px solid #2b6cb0; border-radius: 4px; font-size: 0.85em; cursor: pointer; transition: background 0.1s; }
+        .sidebar-meeting { position: relative; padding: 8px 10px; background: var(--surface); border: 1px solid var(--border-faint); border-left: 3px solid var(--accent); border-radius: 4px; font-size: 0.85em; cursor: pointer; transition: background 0.1s; }
         .sidebar-meeting .sidebar-mtg-note { position: absolute; top: 6px; right: 6px; text-decoration: none; padding: 2px 5px; border-radius: 3px; opacity: 0.55; font-size: 0.95em; line-height: 1; }
         .sidebar-meeting .sidebar-mtg-note:hover { opacity: 1; background: var(--surface-alt); }
         .sidebar-meeting:hover { background: var(--surface-head); }
@@ -1453,7 +1461,7 @@ function pageHtml(title, body, extraNavLinks) {
         #globalSearchModal .gs-hint { color: #a0998a; font-size: 0.8em; margin-top: 6px; }
     </style>
 </head>
-<body>${nav}${body}<person-tip></person-tip><help-modal></help-modal><script>document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaKey)return;var link=document.querySelector('.nav-links a[data-key="'+e.key.toLowerCase()+'"]');if(link){e.preventDefault();window.location.href=link.href;}});</script><div id="globalSearchModal" class="page-modal" onclick="if(event.target===this)window.__closeGlobalSearch&&window.__closeGlobalSearch()"><div class="gs-card"><div class="gs-input-row"><input id="gsInput" class="gs-input" type="text" placeholder="Søk i notater, oppgaver, møter, personer, resultater…" autocomplete="off" /><button class="gs-close" onclick="window.__closeGlobalSearch&&window.__closeGlobalSearch()" title="Lukk (Esc)">✕</button></div><div id="gsResults" class="gs-results"></div><div class="gs-hint">↵ åpne første · Esc lukk · Ctrl+K eller / for å søke fra hvor som helst</div></div></div><script>(function(){
+<body>${nav}${body}<person-tip></person-tip><help-modal></help-modal><script>document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaKey)return;var link=document.querySelector('.nav-links a[data-key="'+e.key.toLowerCase()+'"]');if(link){e.preventDefault();window.location.href=link.href;}});document.addEventListener('mention-clicked',function(e){var d=e.detail||{};if(d.href)window.location.href=d.href;});</script><div id="globalSearchModal" class="page-modal" onclick="if(event.target===this)window.__closeGlobalSearch&&window.__closeGlobalSearch()"><div class="gs-card"><div class="gs-input-row"><input id="gsInput" class="gs-input" type="text" placeholder="Søk i notater, oppgaver, møter, personer, resultater…" autocomplete="off" /><button class="gs-close" onclick="window.__closeGlobalSearch&&window.__closeGlobalSearch()" title="Lukk (Esc)">✕</button></div><div id="gsResults" class="gs-results"></div><div class="gs-hint">↵ åpne første · Esc lukk · Ctrl+K eller / for å søke fra hvor som helst</div></div></div><script>(function(){
     var modal = document.getElementById('globalSearchModal');
     var input = document.getElementById('gsInput');
     var resultsEl = document.getElementById('gsResults');
@@ -2931,70 +2939,13 @@ const server = http.createServer(async (req, res) => {
 
         const savedSummaries = {};
 
-        // Build sidebar: open tasks (global)
-        const openTasks = tasks.filter(t => !t.done);
+        // Build sidebar: open tasks (handled by <open-tasks> web component)
         const currentWeek = getCurrentYearWeek();
 
         let sidebar = '<aside class="task-sidebar"><div class="task-sidebar-inner">';
-        sidebar += '<h3 class="side-h">Åpne oppgaver · ' + openTasks.length + '</h3>';
-        if (openTasks.length === 0) {
-            sidebar += '<p class="empty-quiet">Ingen åpne oppgaver</p>';
-        } else {
-            sidebar += '<div class="sidebar-tasks">';
-            openTasks.forEach(t => {
-                const noteIndicator = t.note ? `<button onclick="openNoteModal('${t.id}')" class="row-note-btn" title="Rediger notat">📓</button>` : `<button onclick="openNoteModal('${t.id}')" class="row-note-btn empty" title="Legg til notat">📓</button>`;
-                const noteDiv = t.note ? `<div class="md-content row-note-body">${linkMentions(marked(t.note))}</div>` : '';
-                const weekShort = t.week ? 'U' + t.week.split('-')[1] : '';
-                const weekBadge = weekShort ? `<span class="pill" title="Opprettet uke ${t.week}">${weekShort}</span>` : '';
-                sidebar += `<div class="sidebar-task"><div class="row"><input type="checkbox" data-taskid="${t.id}" data-tasktext="${escapeHtml(t.text)}" onchange="showCommentModal(this)" /><span class="row-text">${linkMentions(escapeHtml(t.text))}</span>${weekBadge}${noteIndicator}</div>${noteDiv}</div>`;
-            });
-            sidebar += '</div>';
-        }
+        sidebar += '<open-tasks></open-tasks>';
+        sidebar += '<upcoming-meetings days="14"></upcoming-meetings>';
         sidebar += '</div></aside>';
-
-        // Replace closing tag — augment with upcoming meetings section before </aside>
-        sidebar = sidebar.replace('</aside>', (function(){
-            const meetings = loadMeetings();
-            const today = new Date();
-            const todayStr = today.toISOString().slice(0,10);
-            const cutoff = new Date(today.getTime() + 14 * 86400000).toISOString().slice(0,10);
-            const upcoming = meetings
-                .filter(m => m.date >= todayStr && m.date <= cutoff)
-                .sort((a,b) => (a.date + (a.start || '')).localeCompare(b.date + (b.start || '')))
-                .slice(0, 12);
-            const dayLabel = (iso) => {
-                const d = new Date(iso + 'T00:00:00Z');
-                const t = today; t.setUTCHours(0,0,0,0);
-                const days = Math.round((d - Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate())) / 86400000);
-                if (days === 0) return 'I dag';
-                if (days === 1) return 'I morgen';
-                const wkd = ['søn','man','tir','ons','tor','fre','lør'][d.getUTCDay()];
-                return wkd + ' ' + String(d.getUTCDate()).padStart(2, '0') + '.' + String(d.getUTCMonth() + 1).padStart(2, '0');
-            };
-            let h = '<h3 class="side-h" style="margin-top:18px">📅 Kommende møter · ' + upcoming.length + '</h3>';
-            if (upcoming.length === 0) {
-                h += '<p class="empty-quiet">Ingen møter de neste 14 dagene. <a href="/calendar">Legg til</a></p>';
-            } else {
-                h += '<div class="sidebar-meetings">';
-                upcoming.forEach(m => {
-                    const time = m.start ? escapeHtml(m.start) + (m.end ? '–' + escapeHtml(m.end) : '') : 'Hele dagen';
-                    const att = (m.attendees || []).map(a => '<a class="mention-link" data-person-key="' + escapeHtml(a) + '" href="/people#' + escapeHtml(a) + '">@' + escapeHtml(a) + '</a>').join(' ');
-                    const loc = m.location ? '<span class="mtg-loc">📍 ' + escapeHtml(m.location) + '</span>' : '';
-                    const typeIcon = meetingTypeIcon(m.type);
-                    const typeLabel = meetingTypeLabel(m.type);
-                    const typeHtml = typeIcon ? '<span class="mtg-type-icon" title="' + escapeHtml(typeLabel) + '">' + typeIcon + '</span> ' : '';
-                    h += '<div class="sidebar-meeting" data-mid="' + escapeHtml(m.id) + '" data-cal-href="/calendar/' + escapeHtml(dateToIsoWeek(new Date(m.date + 'T00:00:00Z'))) + '#m-' + encodeURIComponent(m.id) + '" title="Åpne i kalender">'
-                        + '<a class="sidebar-mtg-note" href="/meeting-note/' + encodeURIComponent(m.id) + '" title="Åpne møtenotat">📝</a>'
-                        + '<div class="mtg-when"><strong>' + escapeHtml(dayLabel(m.date)) + '</strong> · ' + time + '</div>'
-                        + '<div class="mtg-title">' + typeHtml + linkMentions(escapeHtml(m.title)) + '</div>'
-                        + (att || loc ? '<div class="mtg-meta">' + att + (att && loc ? ' · ' : '') + loc + '</div>' : '')
-                        + '</div>';
-                });
-                h += '</div>';
-                h += '<div style="margin-top:8px"><a href="/calendar" style="font-size:0.85em;color:#2b6cb0">Åpne kalender →</a></div>';
-            }
-            return h + '</aside>';
-        })());
 
         let body = '<div class="home-layout">' + sidebar + '<main class="home-main">';
         body += '<div id="weekList">';
@@ -3054,27 +3005,8 @@ const server = http.createServer(async (req, res) => {
                     });
                 }
 
-                // Build side column (results + completed)
-                let sideHtml = `<h3 class="sec-h">Resultater <span class="c">${weekResults.length}</span></h3>`;
-                if (weekResults.length === 0) {
-                    sideHtml += '<p class="empty-quiet">Ingen resultater</p>';
-                } else {
-                    weekResults.forEach(r => {
-                        const dShort = r.created ? r.created.slice(8, 10) + '.' + r.created.slice(5, 7) : '';
-                        sideHtml += `<div class="result">${linkMentions(escapeHtml(r.text))}<div class="meta"><span>${r.people && r.people.length > 0 ? r.people.map(p => '@' + escapeHtml(p)).join(', ') : ''}</span><span>${dShort}</span></div></div>`;
-                    });
-                }
-                sideHtml += `<h3 class="sec-h">Fullført <span class="c">${weekCompleted.length}</span></h3>`;
-                if (weekCompleted.length === 0) {
-                    sideHtml += '<p class="empty-quiet">Ingen fullførte oppgaver</p>';
-                } else {
-                    sideHtml += '<div class="sidebar-tasks">';
-                    weekCompleted.forEach(t => {
-                        const dShort = t.completedAt ? t.completedAt.slice(8, 10) + '.' + t.completedAt.slice(5, 7) : '';
-                        sideHtml += `<div class="row done"><input type="checkbox" checked data-taskid="${t.id}" data-tasktext="${escapeHtml(t.text)}" onchange="undoComplete(this)" /><span class="row-text">${linkMentions(escapeHtml(t.text))}</span>${dShort ? `<span class="when">${dShort}</span>` : ''}</div>`;
-                    });
-                    sideHtml += '</div>';
-                }
+                // Build side column (results + completed) — handled by web components
+                const sideHtml = `<week-results week="${week}"></week-results><week-completed week="${week}"></week-completed>`;
 
                 if (isCurrent) {
                     // Current week: only render notes inline; results+completed go in the right sidebar
@@ -3361,7 +3293,9 @@ const server = http.createServer(async (req, res) => {
             if (!card) return;
             if (e.target.closest('a, button')) return;
             const href = card.getAttribute('data-cal-href');
-            if (href) window.location.href = href;
+            // <upcoming-meetings> handles its own internal cards; this is the
+            // fallback for any legacy server-rendered .sidebar-meeting cards.
+            if (href && !card.closest('upcoming-meetings')) window.location.href = href;
         });
         </script>`;
 
