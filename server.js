@@ -2953,6 +2953,7 @@ document.addEventListener('keydown', function(e) {
                     </div>
                     </div>
                     <div class="ctx-tab-panel" data-panel="meetings">
+                    <div class="ctx-meetings-grid">
                     <div class="ctx-detail-section">
                         <h3>🗓️ Møter</h3>
                         <label>Standard møtelengde (minutter)<input type="number" name="defaultMeetingMinutes" value="${escapeHtml(String(c.settings.defaultMeetingMinutes || 60))}" min="5" max="600" step="5"></label>
@@ -2986,6 +2987,7 @@ document.addEventListener('keydown', function(e) {
                         <div class="mt-list" data-mt-list="${escapeHtml(c.id)}"></div>
                         <button type="button" class="btn-cancel mt-add" data-mt-add="${escapeHtml(c.id)}" style="margin-top:8px">+ Ny type</button>
                         <script type="application/json" data-mt-init="${escapeHtml(c.id)}">${JSON.stringify(loadMeetingTypes(c.id)).replace(/</g, '\\u003c')}</script>
+                    </div>
                     </div>
                     </div>
                     <div class="ctx-tab-panel" data-panel="git">
@@ -3077,6 +3079,9 @@ document.addEventListener('keydown', function(e) {
                 .ctx-tab-btn.is-active { color:var(--accent); border-bottom-color:var(--accent); font-weight:600; }
                 .ctx-tab-panel { display:none; }
                 .ctx-tab-panel.is-active { display:block; }
+                .ctx-meetings-grid { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap:24px; align-items:start; }
+                .ctx-meetings-grid .ctx-detail-section { margin-bottom: 0; }
+                @media (max-width: 980px) { .ctx-meetings-grid { grid-template-columns: 1fr; } }
                 .ctx-detail-section .section-hint { margin: -6px 0 10px; font-size: 0.85em; color: var(--text-muted-warm); }
                 .ctx-detail-actions { display: flex; align-items: center; gap: 12px; padding-top: 14px; border-top: 1px solid var(--border-faint); }
                 .ctx-form-grid { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }
