@@ -2973,9 +2973,11 @@ document.addEventListener('keydown', function(e) {
                                     const eM = on ? day.end.slice(3,5) : '00';
                                     return `<div class="wh-row${on?' on':''}">
                                         <label class="wh-on"><input type="checkbox" name="wh-on-${i}"${on?' checked':''}> ${lbl}</label>
-                                        <span class="time-pick"><select name="wh-sH-${i}" class="t-h">${hourOpts(sH)}</select><span class="t-sep">:</span><select name="wh-sM-${i}" class="t-m">${minOpts(sM)}</select></span>
-                                        <span class="wh-dash">–</span>
-                                        <span class="time-pick"><select name="wh-eH-${i}" class="t-h">${hourOpts(eH)}</select><span class="t-sep">:</span><select name="wh-eM-${i}" class="t-m">${minOpts(eM)}</select></span>
+                                        <span class="wh-times">
+                                            <span class="time-pick"><select name="wh-sH-${i}" class="t-h">${hourOpts(sH)}</select><span class="t-sep">:</span><select name="wh-sM-${i}" class="t-m">${minOpts(sM)}</select></span>
+                                            <span class="wh-dash">→</span>
+                                            <span class="time-pick"><select name="wh-eH-${i}" class="t-h">${hourOpts(eH)}</select><span class="t-sep">:</span><select name="wh-eM-${i}" class="t-m">${minOpts(eM)}</select></span>
+                                        </span>
                                     </div>`;
                                 }).join('');
                             })()}
@@ -3085,7 +3087,7 @@ document.addEventListener('keydown', function(e) {
                 .ctx-detail-section .section-hint { margin: -6px 0 10px; font-size: 0.85em; color: var(--text-muted-warm); }
                 .ctx-detail-actions { display: flex; align-items: center; gap: 12px; padding-top: 14px; border-top: 1px solid var(--border-faint); }
                 .ctx-form-grid { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }
-                .workhours-block { border:1px solid var(--border-faint); border-radius:6px; padding:8px 14px 12px; margin-top:6px; background:var(--surface); }
+                .workhours-block { border:1px solid var(--border-faint); border-radius:8px; padding:14px 16px 16px; margin-top:6px; background:var(--surface); }
                 .workhours-block legend { font-size:0.85em; color:var(--text-muted-warm); padding:0 6px; }
                 .theme-block { border:1px solid var(--border-faint); border-radius:6px; padding:10px 14px 14px; margin-top:6px; background:var(--surface); }
                 .theme-block legend { font-size:0.85em; color:var(--text-muted-warm); padding:0 6px; }
@@ -3138,11 +3140,16 @@ document.addEventListener('keydown', function(e) {
                 .theme-ocean .theme-line { background:#0a6b8a; }
                 .theme-ocean .theme-line-2 { background:#4a6878; }
                 .theme-ocean .theme-line-3 { background:#6a8090; }
-                .wh-row { display:flex; align-items:center; gap:10px; padding:4px 0; }
-                .wh-row .wh-on { display:flex; align-items:center; gap:6px; min-width:120px; font-weight:normal; color:var(--text); cursor:pointer; }
-                .wh-row .wh-on input { margin:0; }
-                .wh-row:not(.on) .time-pick, .wh-row:not(.on) .wh-dash { opacity:0.4; }
-                .wh-dash { color:var(--text-muted-warm); }
+                .wh-row { display:grid; grid-template-columns: 130px 1fr; align-items:center; gap:14px; padding:8px 12px; border-radius:6px; border:1px solid transparent; background:transparent; transition: background 0.12s, border-color 0.12s; }
+                .wh-row + .wh-row { margin-top:4px; }
+                .wh-row.on { background:var(--surface-alt); border-color:var(--border-faint); }
+                .wh-row .wh-on { display:flex; align-items:center; gap:8px; font-weight:500; color:var(--text); cursor:pointer; user-select:none; }
+                .wh-row .wh-on input { margin:0; accent-color:var(--accent); width:15px; height:15px; cursor:pointer; }
+                .wh-row .wh-times { display:flex; align-items:center; gap:8px; }
+                .wh-row:not(.on) .wh-on { color:var(--text-subtle); }
+                .wh-row:not(.on) .wh-times { display:none; }
+                .wh-row:not(.on)::after { content:"Fri"; color:var(--text-subtle); font-size:0.85em; font-style:italic; letter-spacing:0.04em; }
+                .wh-dash { color:var(--text-muted-warm); font-weight:500; }
                 .ctx-active-badge { background: var(--accent); color: var(--surface); font-size: 0.75em; padding: 4px 10px; border-radius: 10px; font-weight: 600; white-space: nowrap; }
                 .ctx-icon-lg { font-size: 2em; line-height: 1; }
                 .ctx-desc { margin-bottom: 16px; padding: 10px 14px; background: var(--surface-head); border-left: 3px solid var(--border); border-radius: 4px; color: var(--text-muted); font-size: 0.9em; font-style: italic; }
@@ -3766,9 +3773,11 @@ document.addEventListener('keydown', function(e) {
                 .mtg-row-times { align-items:flex-end; gap:10px; margin-bottom:12px; }
                 .mtg-row-times > label { flex:0 0 auto; margin-bottom:0; }
                 .mtg-time-arrow { color:var(--text-subtle); padding-bottom:9px; font-size:1.1em; }
-                .time-pick { display:inline-flex; align-items:center; gap:2px; margin-top:5px; }
-                .time-pick select { width:auto; margin-top:0; padding:8px 22px 8px 10px; background-color:var(--surface); }
-                .time-pick .t-sep { color:var(--text-muted-warm); font-weight:600; padding:0 1px; }
+                .time-pick { display:inline-flex; align-items:center; gap:0; margin-top:0; background:var(--surface); border:1px solid var(--border-soft); border-radius:5px; padding:2px 4px; }
+                .time-pick select { width:auto; margin-top:0; padding:4px 18px 4px 6px; background-color:transparent; border:none; box-shadow:none; font-variant-numeric:tabular-nums; font-weight:500; color:var(--text-strong); cursor:pointer; }
+                .time-pick select:focus { outline:none; box-shadow:none; }
+                .time-pick:focus-within { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-soft); }
+                .time-pick .t-sep { color:var(--text-muted-warm); font-weight:600; padding:0; }
                 .mtg-modal-actions { display:flex; align-items:center; gap:8px; margin:18px -26px -20px; padding:14px 22px; border-top:1px solid var(--border-faint); background:var(--bg); border-radius:0 0 10px 10px; }
                 .mtg-btn-save { background:#b8956b; color:var(--surface); border:1px solid #a07e54; padding:8px 18px; border-radius:5px; cursor:pointer; font-weight:600; font-family:inherit; box-shadow:0 1px 2px rgba(60,58,48,0.15); }
                 .mtg-btn-save:hover { background:#a07e54; }
