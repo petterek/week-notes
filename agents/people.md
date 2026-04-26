@@ -17,9 +17,11 @@ app.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/people` | Directory page |
+| GET | `/people` | Directory page (filter, sort, expand-all, "Ny person", deep-link `#<key>`) |
 | GET | `/api/people` | List (excludes tombstones) |
-| PUT | `/api/people/:key` | Update / create / inactivate / delete |
+| POST | `/api/people` | Create person (`firstName` required; auto-generates unique `key`) |
+| PUT | `/api/people/:id` | Update fields (firstName, lastName, title, email, phone, notes, inactive) |
+| DELETE | `/api/people/:id` | Tombstone (sets `deleted: true`, not removed) |
 
 ## Mention pipeline
 
@@ -37,24 +39,50 @@ app.
 
 - Home page: hover any `@name` for a tooltip card.
 - Editor / task / comment / meeting modals: autocomplete on `@`.
-- People page: full edit modal with save/inactivate/delete buttons.
+- People page: card per person with foldable details. Each card lists
+  matching **Oppgaver**, **Møter**, **Resultater**, **Notater** with
+  deep links. Top toolbar has search filter, sort, expand/collapse,
+  "Vis inaktive" toggle, and a `➕ Ny person` button (opens modal that
+  POSTs to `/api/people`). Person cards have stable anchors `#<key>`
+  for deep linking from `mention-link` elsewhere.
+
+## Reference detection
+
+For each person on `/people`, the server scans:
+- `tasks.json` — `text` and `note`
+- All `*.md` notes under every `YYYY-WNN/` folder
+- `meetings.json` — `attendees[]`, plus `extractMentions` of
+  `title`/`notes`/`location`
+- `results.json` — `people[]`, plus `extractMentions` of `text`
+
+Mentions are matched by **key** (lowercase, the actual `@key` syntax),
+NOT by display name. Pre-extraction is done once and reused for every
+person to keep page render fast.
 
 ## Code map
 
 - Backend: `loadPeople`, `loadAllPeople` (includes tombstones),
-  `savePeople`, `syncMentions`, `linkMentions` in `server.js`.
-- `/people` page route (~line 3497).
-- Edit modal: `saveEditPerson()` (~line 3661).
+  `savePeople`, `syncMentions`, `extractMentions`, `linkMentions` in
+  `server.js`.
+- `/people` page route + `POST /api/people` + `PUT /api/people/:id` +
+  `DELETE /api/people/:id` in `server.js`.
+- Edit & New-person modals on `/people`: `openEditPerson()`,
+  `saveEditPerson()`, `deleteEditPerson()`, `openNewPerson()`,
+  `saveNewPerson()`.
 
 ## Conventions
 
 - Use `loadPeople()` for UI (excludes tombstones).
-- Use `loadAllPeople()` only inside `syncMentions` so tombstones are
-  honored.
-- When deleting from the UI, set `deleted: true`, don't splice the
+- Use `loadAllPeople()` only inside `syncMentions`, the create POST,
+  and PUT/DELETE handlers so tombstones are honored.
+- When deleting from the UI, set `deleted: true` — don't splice the
   array. The mention pipeline checks for tombstones.
-- Person key is lowercase, single-word. Multiple-word names get
-  `firstName`/`lastName` separately.
+- Person `key` is lowercase, single-word. POST `/api/people`
+  auto-derives it from `firstName` and dedupes against existing live
+  keys (appends last initial, then a counter).
+- Use **theme CSS variables** (`var(--surface)`, `var(--accent)`,
+  `var(--text-muted)`, etc) — never hardcoded hex colors.
+- Reference matching is **always by key**, never by full display name.
 
 ## Gotchas
 
@@ -64,3 +92,9 @@ app.
   to refresh tooltips.
 - Mention autocomplete may need re-init when modals show new inputs
   (e.g. comment modal, meeting modal).
+- `PUT /api/people/:id` re-derives `key` from `firstName` on every
+  edit. If you rename a person whose old key is referenced from
+  notes/tasks, those references go stale. Prefer renaming in
+  `firstName` only when the key wouldn't change.
+- The route uses **person `id`** (not `key`) — both POST/PUT/DELETE
+  identifiers come from the canonical `id` field.

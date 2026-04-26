@@ -68,10 +68,12 @@ Personer kan refereres med `@kortnavn` i notater. Ved hover vises et tooltip med
 
 På `/people` kan du:
 
-- Opprette nye personer
-- Redigere kontaktinfo og notater
+- Opprette nye personer direkte med **➕ Ny person** — fyll inn fornavn (påkrevd) og eventuelt etternavn, tittel, kontaktinfo og notat. `@kortnavn` blir generert automatisk fra fornavnet.
+- Redigere kontaktinfo og notater (klikk ✏️)
 - **Inaktivere** personer (skjules fra autocomplete men tas vare på)
 - **Slette** personer (gjøres til gravstein så de ikke gjenoppstår fra eksisterende `@`-referanser)
+
+Hvert personkort kan utvides til å vise alle steder personen er nevnt: **Oppgaver**, **Møter**, **Resultater** og **Notater** — med direktelenker til hver kilde. Bruk søkefeltet og sortering på toppen for å finne personer raskt.
 
 ## Notater
 

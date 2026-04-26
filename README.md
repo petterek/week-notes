@@ -11,6 +11,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 ## 📜 Changelog
 
 ### 2026-04-26
+- People: `/people` overhauled. Reference detection now matches by `@key` (lowercase) instead of full display name, so all references that previously showed `0 ref.` are correctly counted. Person cards now also surface **Møter** and **Resultater** with deep links (in addition to Oppgaver and Notater).
+- People: new **➕ Ny person** button on `/people` opens a modal that lets you create a person directly without going via an `@`-mention. Auto-generates a unique lowercase key from the first name. New `POST /api/people` endpoint.
+- People: full restyle to use theme variables (was hardcoded `white`, `#a0aec0`, `#2b6cb0`, …); proper dark/forest/nord rendering. Person cards anchor on `#<key>` for deep linking; navigating to `/people#anna` expands and scrolls to that person.
 - Results: `/results` page now has a **➕ Nytt resultat** button to create free-form results not tied to a task. New `POST /api/results` endpoint backs it.
 - Results: fixed bug where markdown links in task notes (`[text](url)`) were treated as result entries — extractor now uses negative-lookahead for `(`.
 - Results: `/results` page restyled to use theme variables instead of hardcoded colors (`white`, `#2b6cb0`, `#ebf8ff`, …); proper dark/forest/nord rendering. People rendered as `mention-link` with hover-tooltip and `/people#<key>` anchor. Within-week sort now `created` desc.

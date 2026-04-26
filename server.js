@@ -5391,112 +5391,206 @@ document.addEventListener('keydown', function(e) {
     if (pathname === '/people') {
         const people = loadPeople().sort((a, b) => a.name.localeCompare(b.name, 'nb'));
         const tasks = loadTasks();
+        const meetings = loadMeetings();
+        const results = loadResults();
         const weeks = getWeekDirs();
 
-        let body = '<h1>👥 Personer</h1>';
+        // Pre-compute mentions per text body so we don't re-extract for every person.
+        const taskRefs = tasks.map(t => ({ t, mentions: new Set([...extractMentions(t.text), ...extractMentions(t.note || '')]) }));
+        const noteRefs = [];
+        weeks.forEach(week => {
+            getMdFiles(week).forEach(file => {
+                try {
+                    const content = fs.readFileSync(path.join(dataDir(), week, file), 'utf-8');
+                    noteRefs.push({ week, file, mentions: new Set(extractMentions(content)) });
+                } catch {}
+            });
+        });
+        const meetingRefs = meetings.map(m => {
+            const set = new Set([...(m.attendees || []).map(a => String(a).toLowerCase()), ...extractMentions(m.title || ''), ...extractMentions(m.notes || ''), ...extractMentions(m.location || '')]);
+            return { m, mentions: set };
+        });
+        const resultRefs = results.map(r => {
+            const set = new Set([...(r.people || []).map(p => String(p).toLowerCase()), ...extractMentions(r.text || '')]);
+            return { r, mentions: set };
+        });
+
+        let body = '<div class="people-page">';
+        body += `<div class="people-head">
+            <h1>👥 Personer</h1>
+            <button class="btn-primary" id="newPersonBtn">➕ Ny person</button>
+        </div>`;
+
+        body += `<div class="people-toolbar">
+            <input id="peopleFilter" type="text" placeholder="🔍 Filter på navn, tittel, e-post..." oninput="applyPeopleFilter()" />
+            <select id="peopleSort" onchange="applyPeopleFilter()">
+                <option value="name-asc">Navn A–Å</option>
+                <option value="name-desc">Navn Å–A</option>
+                <option value="refs-desc">Flest referanser</option>
+                <option value="refs-asc">Færrest referanser</option>
+            </select>
+            <button class="btn-ghost" onclick="expandAllPeople(true)" title="Utvid alle">⇣ Utvid</button>
+            <button class="btn-ghost" onclick="expandAllPeople(false)" title="Skjul alle">⇡ Skjul</button>
+            <label class="show-inactive"><input id="showInactive" type="checkbox" onchange="applyPeopleFilter()" /> Vis inaktive</label>
+            <span id="peopleCount" class="people-count"></span>
+        </div>`;
 
         if (people.length === 0) {
-            body += '<p style="color:#718096;font-style:italic">Ingen personer registrert ennå. Bruk @navn i notater eller oppgaver.</p>';
+            body += '<p class="empty-quiet" style="margin-top:20px">Ingen personer registrert ennå. Klikk <strong>➕ Ny person</strong> for å legge til, eller bruk <code>@navn</code> i et notat.</p>';
         } else {
-            body += `<div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
-                <input id="peopleFilter" type="text" placeholder="🔍 Filter på navn, tittel, e-post..." oninput="applyPeopleFilter()" style="flex:1;min-width:220px;padding:8px 12px;border:2px solid var(--border-soft);border-radius:8px;font-size:0.95em;outline:none" />
-                <select id="peopleSort" onchange="applyPeopleFilter()" style="padding:8px 12px;border:2px solid var(--border-soft);border-radius:8px;font-size:0.95em;outline:none;background:white;cursor:pointer">
-                    <option value="name-asc">Navn A–Å</option>
-                    <option value="name-desc">Navn Å–A</option>
-                    <option value="refs-desc">Flest referanser</option>
-                    <option value="refs-asc">Færrest referanser</option>
-                </select>
-                <button onclick="expandAllPeople(true)" title="Utvid alle" style="padding:8px 12px;border:1px solid var(--border-soft);background:white;border-radius:8px;cursor:pointer;color:var(--text-muted);font-size:0.9em">⇣ Utvid</button>
-                <button onclick="expandAllPeople(false)" title="Skjul alle" style="padding:8px 12px;border:1px solid var(--border-soft);background:white;border-radius:8px;cursor:pointer;color:var(--text-muted);font-size:0.9em">⇡ Skjul</button>
-                <label style="display:flex;align-items:center;gap:6px;font-size:0.85em;color:var(--text-muted);cursor:pointer;padding:8px 6px"><input id="showInactive" type="checkbox" onchange="applyPeopleFilter()" /> Vis inaktive</label>
-                <span id="peopleCount" style="font-size:0.85em;color:#718096"></span>
-            </div>
-            <div id="peopleList">`;
+            body += '<div id="peopleList">';
             people.forEach(person => {
-                const pattern = new RegExp('(?:^|[\\s\\n(])@' + person.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![a-zA-ZæøåÆØÅ0-9_-])', 'i');
+                const key = (person.key || (person.name || '').toLowerCase()).toLowerCase();
+                const matches = (m) => m.has(key);
 
-                // Find matching tasks
-                const mentionedTasks = tasks.filter(t =>
-                    pattern.test(t.text) || pattern.test(t.note || '')
-                );
+                const mentionedTasks = taskRefs.filter(x => matches(x.mentions)).map(x => x.t);
+                const mentionedNotes = noteRefs.filter(x => matches(x.mentions));
+                const mentionedMeetings = meetingRefs.filter(x => matches(x.mentions)).map(x => x.m);
+                const mentionedResults = resultRefs.filter(x => matches(x.mentions)).map(x => x.r);
 
-                // Find matching notes
-                const mentionedNotes = [];
-                weeks.forEach(week => {
-                    getMdFiles(week).forEach(file => {
-                        try {
-                            const content = fs.readFileSync(path.join(dataDir(), week, file), 'utf-8');
-                            if (pattern.test(content)) mentionedNotes.push({ week, file });
-                        } catch {}
-                    });
-                });
-
-                const total = mentionedTasks.length + mentionedNotes.length;
+                const total = mentionedTasks.length + mentionedNotes.length + mentionedMeetings.length + mentionedResults.length;
                 const personJson = JSON.stringify(person).replace(/'/g, '&#39;');
                 const displayName = person.firstName
                     ? (person.lastName ? `${person.firstName} ${person.lastName}` : person.firstName)
                     : person.name;
-                const searchBlob = [displayName, person.name, person.title, person.email, person.phone, person.notes].filter(Boolean).join(' ').toLowerCase();
-                body += `<div class="person-card${person.inactive ? ' inactive' : ''}" data-name="${escapeHtml(displayName.toLowerCase())}" data-refs="${total}" data-inactive="${person.inactive ? '1' : '0'}" data-search="${escapeHtml(searchBlob)}" style="margin-bottom:8px;background:white;border-radius:8px;border:1px solid var(--border-soft);overflow:hidden${person.inactive ? ';opacity:0.55' : ''}">`;
-                body += `<div class="person-header" onclick="togglePerson(this)" style="padding:8px 14px;background:var(--surface);display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none">`;
-                body += `<span class="person-chev" style="font-size:0.7em;color:#a0aec0;transition:transform 0.15s;display:inline-block;width:10px">▶</span>`;
-                body += `<span style="font-size:1.1em">${person.inactive ? '👻' : '👤'}</span>`;
-                body += `<div style="flex:1;min-width:0;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">`;
-                body += `<span style="font-weight:600;color:var(--accent)${person.inactive ? ';text-decoration:line-through' : ''}">${escapeHtml(displayName)}</span>`;
-                body += `<span style="font-size:0.8em;color:#a0aec0">@${escapeHtml(person.name)}</span>`;
-                if (person.inactive) body += `<span style="font-size:0.75em;background:#edf2f7;color:var(--text-muted);padding:1px 8px;border-radius:10px;font-weight:500">inaktiv</span>`;
-                if (person.title) body += `<span style="font-size:0.82em;color:var(--text-muted)">· ${escapeHtml(person.title)}</span>`;
+                const searchBlob = [displayName, person.name, person.key, person.title, person.email, person.phone, person.notes].filter(Boolean).join(' ').toLowerCase();
+                const inactiveCls = person.inactive ? ' inactive' : '';
+
+                body += `<div class="person-card${inactiveCls}" id="p-${escapeHtml(key)}" data-name="${escapeHtml(displayName.toLowerCase())}" data-refs="${total}" data-inactive="${person.inactive ? '1' : '0'}" data-search="${escapeHtml(searchBlob)}">`;
+                body += `<div class="person-header" onclick="togglePerson(this)">`;
+                body += `<span class="person-chev">▶</span>`;
+                body += `<span class="person-icon">${person.inactive ? '👻' : '👤'}</span>`;
+                body += `<div class="person-name-wrap">`;
+                body += `<span class="person-name">${escapeHtml(displayName)}</span>`;
+                body += `<span class="person-handle">@${escapeHtml(person.key || person.name)}</span>`;
+                if (person.inactive) body += `<span class="person-badge">inaktiv</span>`;
+                if (person.title) body += `<span class="person-title">· ${escapeHtml(person.title)}</span>`;
                 body += `</div>`;
-                body += `<span style="font-size:0.8em;color:#718096;white-space:nowrap">${total} ref.</span>`;
-                body += `<button onclick='event.stopPropagation();openEditPerson(${personJson})' title="Rediger person" style="background:none;border:none;cursor:pointer;font-size:1em;padding:2px 6px;border-radius:4px;color:var(--text-muted)" onmouseover="this.style.background='var(--border-soft)'" onmouseout="this.style.background='none'">✏️</button>`;
+                body += `<span class="person-refs">${total} ref.</span>`;
+                body += `<button class="person-edit-btn" onclick='event.stopPropagation();openEditPerson(${personJson})' title="Rediger person">✏️</button>`;
                 body += `</div>`;
-                body += `<div class="person-details" style="display:none">`;
+                body += `<div class="person-details">`;
                 if (person.email || person.phone) {
-                    body += `<div style="padding:8px 18px;background:#f5efe1;border-top:1px solid var(--border-soft);display:flex;gap:20px;font-size:0.85em;color:var(--text-muted)">`;
-                    if (person.email) body += `<span>📧 <a href="mailto:${escapeHtml(person.email)}" style="color:#2b6cb0">${escapeHtml(person.email)}</a></span>`;
+                    body += `<div class="person-contact">`;
+                    if (person.email) body += `<span>📧 <a href="mailto:${escapeHtml(person.email)}">${escapeHtml(person.email)}</a></span>`;
                     if (person.phone) body += `<span>📞 ${escapeHtml(person.phone)}</span>`;
                     body += `</div>`;
                 }
                 if (person.notes) {
-                    body += `<div style="padding:8px 18px;background:#fffbf0;border-top:1px solid var(--border-soft);font-size:0.85em;color:var(--text-muted);font-style:italic">${escapeHtml(person.notes)}</div>`;
+                    body += `<div class="person-notes">${escapeHtml(person.notes)}</div>`;
                 }
 
+                const sectionH = (label, count) => `<div class="person-section-h">${label} <span class="c">${count}</span></div>`;
+
                 if (mentionedTasks.length > 0) {
-                    body += `<div style="padding:10px 18px;border-top:1px solid #f5efe1"><div style="font-size:0.75em;font-weight:600;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em">Oppgaver</div>`;
+                    body += `<div class="person-section">${sectionH('Oppgaver', mentionedTasks.length)}`;
                     mentionedTasks.forEach(t => {
                         const icon = t.done ? '✅' : '☐';
-                        const style = t.done ? 'text-decoration:line-through;color:#a0aec0' : 'color:#2d3748';
-                        body += `<div style="padding:3px 0;font-size:0.88em"><a href="/tasks" style="text-decoration:none;${style}">${icon} ${linkMentions(escapeHtml(t.text))}</a></div>`;
+                        const cls = t.done ? 'task-done' : '';
+                        body += `<div class="person-ref"><a class="${cls}" href="/tasks">${icon} ${linkMentions(escapeHtml(t.text))}</a></div>`;
                     });
                     body += `</div>`;
                 }
 
+                if (mentionedMeetings.length > 0) {
+                    body += `<div class="person-section">${sectionH('Møter', mentionedMeetings.length)}`;
+                    mentionedMeetings
+                        .slice()
+                        .sort((a, b) => (b.date + (b.start || '')).localeCompare(a.date + (a.start || '')))
+                        .forEach(m => {
+                            const icon = meetingTypeIcon(m.type) || '📅';
+                            const wk = dateToIsoWeek(new Date(m.date + 'T00:00:00Z'));
+                            body += `<div class="person-ref"><a href="/calendar/${escapeHtml(wk)}#m-${encodeURIComponent(m.id)}">${icon} ${linkMentions(escapeHtml(m.title))} <span class="ref-when">${escapeHtml(m.date)}${m.start ? ' ' + escapeHtml(m.start) : ''}</span></a></div>`;
+                        });
+                    body += `</div>`;
+                }
+
+                if (mentionedResults.length > 0) {
+                    body += `<div class="person-section">${sectionH('Resultater', mentionedResults.length)}`;
+                    mentionedResults
+                        .slice()
+                        .sort((a, b) => (b.created || '').localeCompare(a.created || ''))
+                        .forEach(r => {
+                            body += `<div class="person-ref"><a href="/results">⚖️ ${linkMentions(escapeHtml(r.text))} <span class="ref-when">${escapeHtml(r.week || '')}</span></a></div>`;
+                        });
+                    body += `</div>`;
+                }
+
                 if (mentionedNotes.length > 0) {
-                    body += `<div style="padding:10px 18px;border-top:1px solid #f5efe1"><div style="font-size:0.75em;font-weight:600;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em">Notater</div>`;
+                    body += `<div class="person-section">${sectionH('Notater', mentionedNotes.length)}`;
                     mentionedNotes.forEach(({ week, file }) => {
                         const name = file.replace('.md', '');
-                        body += `<div style="padding:3px 0;font-size:0.88em"><a href="/editor/${week}/${encodeURIComponent(file)}" style="color:#2b6cb0;text-decoration:none">📝 ${escapeHtml(name)} <span style="color:#a0aec0;font-size:0.85em">${week}</span></a></div>`;
+                        body += `<div class="person-ref"><a href="/editor/${escapeHtml(week)}/${encodeURIComponent(file)}">📝 ${escapeHtml(name)} <span class="ref-when">${escapeHtml(week)}</span></a></div>`;
                     });
                     body += `</div>`;
                 }
 
                 if (total === 0) {
-                    body += `<div style="padding:10px 18px;border-top:1px solid #f5efe1;font-size:0.88em;color:#a0aec0;font-style:italic">Ingen referanser funnet.</div>`;
+                    body += `<div class="person-empty">Ingen referanser funnet.</div>`;
                 }
-                body += `</div>`;
+                body += `</div>`; // person-details
 
-                body += `</div>`;
+                body += `</div>`; // person-card
             });
             body += `</div>`;
         }
+        body += `</div>`; // .people-page
 
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(pageHtml('Personer', body + `
+        body += `
+<style>
+.people-page { max-width: 1100px; }
+.people-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; flex-wrap: wrap; }
+.people-head h1 { margin: 0; }
+.people-toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+.people-toolbar input[type=text] { flex: 1; min-width: 220px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.95em; outline: none; background: var(--surface); color: var(--text); font-family: inherit; }
+.people-toolbar input[type=text]:focus { border-color: var(--accent); }
+.people-toolbar select { padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.95em; outline: none; background: var(--surface); color: var(--text); cursor: pointer; font-family: inherit; }
+.people-toolbar .btn-ghost { padding: 8px 12px; border: 1px solid var(--border); background: var(--surface); border-radius: 8px; cursor: pointer; color: var(--text-muted); font-size: 0.9em; font-family: inherit; }
+.people-toolbar .btn-ghost:hover { background: var(--surface-head); border-color: var(--accent); }
+.people-toolbar .show-inactive { display: flex; align-items: center; gap: 6px; font-size: 0.85em; color: var(--text-muted); cursor: pointer; padding: 8px 6px; }
+.people-count { font-size: 0.85em; color: var(--text-subtle); margin-left: auto; }
+
+.person-card { margin-bottom: 8px; background: var(--surface); border-radius: 8px; border: 1px solid var(--border-soft); overflow: hidden; }
+.person-card.inactive { opacity: 0.55; }
+.person-header { padding: 8px 14px; background: var(--surface-head); display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+.person-chev { font-size: 0.7em; color: var(--text-subtle); transition: transform 0.15s; display: inline-block; width: 10px; }
+.person-icon { font-size: 1.1em; }
+.person-name-wrap { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.person-name { font-weight: 600; color: var(--accent); }
+.person-card.inactive .person-name { text-decoration: line-through; }
+.person-handle { font-size: 0.8em; color: var(--text-subtle); }
+.person-badge { font-size: 0.75em; background: var(--surface-alt); color: var(--text-muted); padding: 1px 8px; border-radius: 10px; font-weight: 500; }
+.person-title { font-size: 0.82em; color: var(--text-muted); }
+.person-refs { font-size: 0.8em; color: var(--text-subtle); white-space: nowrap; }
+.person-edit-btn { background: none; border: none; cursor: pointer; font-size: 1em; padding: 2px 6px; border-radius: 4px; color: var(--text-muted); }
+.person-edit-btn:hover { background: var(--border-soft); }
+.person-details { display: none; }
+.person-contact { padding: 8px 18px; background: var(--surface-alt); border-top: 1px solid var(--border-soft); display: flex; gap: 20px; flex-wrap: wrap; font-size: 0.85em; color: var(--text-muted); }
+.person-contact a { color: var(--accent); text-decoration: none; }
+.person-contact a:hover { text-decoration: underline; }
+.person-notes { padding: 8px 18px; background: var(--surface-head); border-top: 1px solid var(--border-soft); font-size: 0.85em; color: var(--text-muted); font-style: italic; white-space: pre-wrap; }
+.person-section { padding: 10px 18px; border-top: 1px solid var(--border-faint); }
+.person-section-h { font-size: 0.75em; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+.person-section-h .c { display: inline-block; min-width: 18px; padding: 0 6px; margin-left: 4px; background: var(--surface-alt); color: var(--text-muted); border-radius: 9px; font-size: 0.95em; text-align: center; }
+.person-ref { padding: 3px 0; font-size: 0.88em; }
+.person-ref a { color: var(--text); text-decoration: none; }
+.person-ref a:hover { text-decoration: underline; color: var(--accent); }
+.person-ref a.task-done { text-decoration: line-through; color: var(--text-subtle); }
+.person-ref .ref-when { font-size: 0.85em; color: var(--text-subtle); margin-left: 6px; }
+.person-empty { padding: 10px 18px; border-top: 1px solid var(--border-faint); font-size: 0.88em; color: var(--text-subtle); font-style: italic; }
+
+#newPersonModal .np-form { display: flex; flex-direction: column; gap: 12px; }
+#newPersonModal label { font-size: 0.85em; font-weight: 600; color: var(--text-muted); }
+#newPersonModal input, #newPersonModal textarea { display: block; width: 100%; margin-top: 4px; }
+#newPersonModal .np-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+</style>`;
+
+        body += `
 <div id="editPersonModal" class="page-modal" onclick="if(event.target===this)closeEditPerson()">
   <div class="page-modal-card" style="max-width:480px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
       <h3 style="margin:0">✏️ Rediger person</h3>
-      <button onclick="closeEditPerson()" style="background:none;border:none;font-size:1.3em;cursor:pointer;color:#718096">✕</button>
+      <button onclick="closeEditPerson()" style="background:none;border:none;font-size:1.3em;cursor:pointer;color:var(--text-subtle)">✕</button>
     </div>
     <input type="hidden" id="editPersonId" />
     <div style="display:flex;flex-direction:column;gap:12px">
@@ -5532,10 +5626,31 @@ document.addEventListener('keydown', function(e) {
     </div>
   </div>
 </div>
+<div id="newPersonModal" class="page-modal" onclick="if(event.target===this)closeNewPerson()">
+  <div class="page-modal-card" style="max-width:480px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <h3 style="margin:0">➕ Ny person</h3>
+      <button onclick="closeNewPerson()" style="background:none;border:none;font-size:1.3em;cursor:pointer;color:var(--text-subtle)">✕</button>
+    </div>
+    <div class="np-form">
+      <div class="np-grid">
+        <label>Fornavn *<input id="newPersonFirstName" type="text" placeholder="Ole" /></label>
+        <label>Etternavn<input id="newPersonLastName" type="text" placeholder="Hansen" /></label>
+      </div>
+      <label>Tittel<input id="newPersonTitle" type="text" /></label>
+      <label>E-post<input id="newPersonEmail" type="email" /></label>
+      <label>Telefon<input id="newPersonPhone" type="tel" /></label>
+      <label>Notat<textarea id="newPersonNotes" rows="3"></textarea></label>
+    </div>
+    <div class="page-modal-actions" style="margin-top:20px">
+      <button class="page-modal-btn cancel" onclick="closeNewPerson()">Avbryt</button>
+      <button class="page-modal-btn blue" style="padding:8px 20px" onclick="saveNewPerson()">💾 Lagre</button>
+    </div>
+  </div>
+</div>
 <script>
 function openEditPerson(p) {
     document.getElementById('editPersonId').value = p.id;
-    // Support legacy single-name people: try to split on space
     const firstName = p.firstName || (p.name && !p.lastName ? p.name.split(' ')[0] : p.name) || '';
     const lastName = p.lastName || (p.name && p.name.includes(' ') && !p.firstName ? p.name.split(' ').slice(1).join(' ') : '') || '';
     document.getElementById('editPersonFirstName').value = firstName;
@@ -5549,16 +5664,13 @@ function openEditPerson(p) {
     modal.style.display = 'flex';
     setTimeout(() => document.getElementById('editPersonFirstName').focus(), 50);
 }
-function closeEditPerson() {
-    document.getElementById('editPersonModal').style.display = 'none';
-}
+function closeEditPerson() { document.getElementById('editPersonModal').style.display = 'none'; }
 function saveEditPerson() {
     const id = document.getElementById('editPersonId').value;
     const firstName = document.getElementById('editPersonFirstName').value.trim();
     const lastName = document.getElementById('editPersonLastName').value.trim();
     const data = {
-        firstName,
-        lastName,
+        firstName, lastName,
         title: document.getElementById('editPersonTitle').value.trim(),
         email: document.getElementById('editPersonEmail').value.trim(),
         phone: document.getElementById('editPersonPhone').value.trim(),
@@ -5576,12 +5688,41 @@ function deleteEditPerson() {
     const name = (firstName + ' ' + lastName).trim() || 'denne personen';
     if (!confirm('Slette ' + name + '?\\n\\nDette fjerner kun selve oppføringen. @-referanser i notater og oppgaver beholdes som tekst.')) return;
     fetch('/api/people/' + id, { method: 'DELETE' })
-        .then(r => r.json()).then(r => { if (r.ok) location.reload(); else alert('Feil ved sletting'); })
-        .catch(() => alert('Nettverksfeil'));
+        .then(r => r.json()).then(r => { if (r.ok) location.reload(); else alert('Feil ved sletting'); });
 }
+function openNewPerson() {
+    ['newPersonFirstName','newPersonLastName','newPersonTitle','newPersonEmail','newPersonPhone','newPersonNotes'].forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('newPersonModal').style.display = 'flex';
+    setTimeout(() => document.getElementById('newPersonFirstName').focus(), 50);
+}
+function closeNewPerson() { document.getElementById('newPersonModal').style.display = 'none'; }
+function saveNewPerson() {
+    const firstName = document.getElementById('newPersonFirstName').value.trim();
+    if (!firstName) { alert('Fornavn er påkrevd'); return; }
+    const data = {
+        firstName,
+        lastName: document.getElementById('newPersonLastName').value.trim(),
+        title: document.getElementById('newPersonTitle').value.trim(),
+        email: document.getElementById('newPersonEmail').value.trim(),
+        phone: document.getElementById('newPersonPhone').value.trim(),
+        notes: document.getElementById('newPersonNotes').value.trim()
+    };
+    fetch('/api/people', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+        .then(r => r.json()).then(r => {
+            if (r.ok) location.reload();
+            else alert('Feil: ' + (r.error || 'kunne ikke opprette'));
+        });
+}
+const _newBtn = document.getElementById('newPersonBtn'); if (_newBtn) _newBtn.addEventListener('click', openNewPerson);
+
 document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') closeEditPerson();
-    if (e.key === 'Enter' && document.getElementById('editPersonModal').style.display === 'flex' && e.target.tagName !== 'TEXTAREA') saveEditPerson();
+    const editOpen = document.getElementById('editPersonModal').style.display === 'flex';
+    const newOpen = document.getElementById('newPersonModal').style.display === 'flex';
+    if (e.key === 'Escape') { closeEditPerson(); closeNewPerson(); }
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        if (editOpen) saveEditPerson();
+        else if (newOpen) saveNewPerson();
+    }
 });
 
 function applyPeopleFilter() {
@@ -5602,7 +5743,6 @@ function applyPeopleFilter() {
         if (match) visible++;
     });
     cards.sort((a, b) => {
-        // Always push inactive to the bottom, regardless of sort field
         const ai = a.dataset.inactive === '1' ? 1 : 0;
         const bi = b.dataset.inactive === '1' ? 1 : 0;
         if (ai !== bi) return ai - bi;
@@ -5623,8 +5763,8 @@ function togglePerson(header) {
     const card = header.closest('.person-card');
     const details = card.querySelector('.person-details');
     const chev = header.querySelector('.person-chev');
-    const open = details.style.display !== 'none';
-    details.style.display = open ? 'none' : '';
+    const open = details.style.display !== 'none' && details.style.display !== '';
+    details.style.display = open ? 'none' : 'block';
     if (chev) chev.style.transform = open ? '' : 'rotate(90deg)';
 }
 
@@ -5632,11 +5772,28 @@ function expandAllPeople(expand) {
     document.querySelectorAll('#peopleList .person-card').forEach(card => {
         const details = card.querySelector('.person-details');
         const chev = card.querySelector('.person-chev');
-        details.style.display = expand ? '' : 'none';
+        details.style.display = expand ? 'block' : 'none';
         if (chev) chev.style.transform = expand ? 'rotate(90deg)' : '';
     });
 }
-</script>`));
+
+// If URL has #key, scroll to and expand that person.
+(function(){
+    const h = (location.hash || '').replace(/^#/, '');
+    if (!h) return;
+    const card = document.getElementById('p-' + h);
+    if (card) {
+        const details = card.querySelector('.person-details');
+        const chev = card.querySelector('.person-chev');
+        if (details) details.style.display = 'block';
+        if (chev) chev.style.transform = 'rotate(90deg)';
+        card.scrollIntoView({ block: 'center' });
+    }
+})();
+</script>`;
+
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(pageHtml('Personer', body));
         return;
     }
 
@@ -6235,6 +6392,46 @@ function expandAllPeople(expand) {
     if (pathname === '/api/people' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(loadPeople()));
+        return;
+    }
+
+    // API: create person directly (without needing an @-mention first)
+    if (pathname === '/api/people' && req.method === 'POST') {
+        try {
+            const data = JSON.parse(await readBody(req) || '{}');
+            const firstName = String(data.firstName || '').trim();
+            if (!firstName) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'firstName is required' })); return; }
+            const lastName = String(data.lastName || '').trim();
+            const all = loadAllPeople();
+            // Generate a unique lowercase key from firstName (or firstName+last initial on collision)
+            const baseKey = firstName.toLowerCase().replace(/\s+/g, '');
+            let key = baseKey;
+            const liveKeys = new Set(all.filter(p => !p.deleted).map(p => p.key));
+            if (liveKeys.has(key) && lastName) {
+                key = (firstName + lastName.charAt(0)).toLowerCase().replace(/\s+/g, '');
+            }
+            let n = 2;
+            while (liveKeys.has(key)) { key = baseKey + n; n++; }
+            const person = {
+                id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+                key,
+                name: firstName,
+                firstName,
+                lastName,
+                title: String(data.title || '').trim(),
+                email: String(data.email || '').trim(),
+                phone: String(data.phone || '').trim(),
+                notes: String(data.notes || '').trim(),
+                created: new Date().toISOString()
+            };
+            all.push(person);
+            savePeople(all);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, person }));
+        } catch (err) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: String(err.message || err) }));
+        }
         return;
     }
 
