@@ -895,7 +895,7 @@ function pageHtml(title, body, extraNavLinks) {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>${title}</title>
-    <link rel="stylesheet" href="/themes/${theme}.css">
+    <link id="themeStylesheet" rel="stylesheet" href="/themes/${theme}.css">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; max-width: 1100px; margin: 0 auto; padding: 20px; padding-top: 70px; line-height: 1.6; color: var(--text-strong); background: var(--bg); }
@@ -3238,6 +3238,15 @@ document.addEventListener('keydown', function(e) {
                         if (!e.target.matches('input[name="theme"]')) return;
                         grid.querySelectorAll('.theme-swatch').forEach(s => s.classList.remove('is-selected'));
                         e.target.closest('.theme-swatch').classList.add('is-selected');
+                        // Live preview only on the active context's form (the
+                        // page's stylesheet reflects whichever context is active)
+                        const form = grid.closest('form[data-form]');
+                        const detail = grid.closest('.ctx-detail');
+                        const isActive = detail && detail.querySelector('.ctx-active-badge');
+                        if (isActive) {
+                            const link = document.getElementById('themeStylesheet');
+                            if (link) link.href = '/themes/' + e.target.value + '.css';
+                        }
                     });
                 });
                 document.querySelectorAll('form[data-form]').forEach(form => form.addEventListener('submit', e => {
