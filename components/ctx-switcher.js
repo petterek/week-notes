@@ -21,58 +21,61 @@
             if (this._wired) return;
             this._wired = true;
 
-            var self = this;
-            var trigger = this.querySelector('.ctx-trigger');
+            const trigger = this.querySelector('.ctx-trigger');
             if (!trigger) return;
 
-            this._onTrigger = function (e) {
+            trigger.addEventListener('click', (e) => {
                 e.stopPropagation();
-                self.classList.toggle('open');
+                this.classList.toggle('open');
+            });
+
+            this._onDocClick = (e) => {
+                if (!this.contains(e.target)) this.classList.remove('open');
             };
-            this._onDocClick = function (e) {
-                if (!self.contains(e.target)) self.classList.remove('open');
-            };
-            trigger.addEventListener('click', this._onTrigger);
             document.addEventListener('click', this._onDocClick);
 
-            this.querySelectorAll('.ctx-item[data-id]').forEach(function (b) {
-                b.addEventListener('click', function () {
-                    var id = b.getAttribute('data-id');
-                    fetch('/api/contexts/switch', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ id: id })
-                    })
-                        .then(function (r) { return r.json(); })
-                        .then(function (d) {
-                            if (d.ok) location.reload();
-                            else alert('Kunne ikke bytte kontekst: ' + d.error);
+            this.querySelectorAll('.ctx-item[data-id]').forEach((b) => {
+                b.addEventListener('click', async () => {
+                    const id = b.getAttribute('data-id');
+                    try {
+                        const r = await fetch('/api/contexts/switch', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ id }),
                         });
+                        const d = await r.json();
+                        if (d.ok) location.reload();
+                        else alert(`Kunne ikke bytte kontekst: ${d.error}`);
+                    } catch (e) {
+                        alert(`Kunne ikke bytte kontekst: ${e.message || e}`);
+                    }
                 });
             });
 
-            var cb = this.querySelector('#ctxCommitBtn');
+            const cb = this.querySelector('#ctxCommitBtn');
             if (cb) {
-                cb.addEventListener('click', function (e) {
+                cb.addEventListener('click', async (e) => {
                     e.stopPropagation();
-                    var id = cb.getAttribute('data-active');
-                    var msg = prompt('Commit-melding (valgfritt):', '');
+                    const id = cb.getAttribute('data-active');
+                    const msg = prompt('Commit-melding (valgfritt):', '');
                     if (msg === null) return;
                     cb.textContent = '⏳ Committer...';
-                    fetch('/api/contexts/' + encodeURIComponent(id) + '/commit', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ message: msg })
-                    })
-                        .then(function (r) { return r.json(); })
-                        .then(function (d) {
-                            if (d.ok) {
-                                cb.textContent = d.committed ? '✓ Committet' : 'Ingen endringer';
-                                setTimeout(function () { self.classList.remove('open'); }, 1200);
-                            } else {
-                                cb.textContent = '✗ ' + d.error;
-                            }
+                    try {
+                        const r = await fetch(`/api/contexts/${encodeURIComponent(id)}/commit`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ message: msg }),
                         });
+                        const d = await r.json();
+                        if (d.ok) {
+                            cb.textContent = d.committed ? '✓ Committet' : 'Ingen endringer';
+                            setTimeout(() => this.classList.remove('open'), 1200);
+                        } else {
+                            cb.textContent = `✗ ${d.error}`;
+                        }
+                    } catch (err) {
+                        cb.textContent = `✗ ${err.message || err}`;
+                    }
                 });
             }
         }
