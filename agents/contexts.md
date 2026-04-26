@@ -81,19 +81,26 @@ read by `getWorkHours()` if `workHours` is missing.
 
 ## First-run welcome screen
 
-When `listContexts().length === 0`, the `/settings` route renders a
-dedicated **welcome page** instead of the rail+detail layout. It has:
+When `listContexts().length === 0`, the no-context guard at the top
+of the request handler redirects every non-allowed path to
+`/welcome` (a standalone HTML page, NOT pageHtml-wrapped). That page:
 
-- Hero with project tagline.
-- 4-card feature grid (notes, tasks/results, people/meetings, isolation).
-- Two side-by-side cards: "Ny tom kontekst" (full create form) and
-  "Klon fra remote" (URL + optional name).
+- Lives entirely on the `/welcome` route in `server.js` and pulls
+  styles from a real file at the repo root: `welcome.css`, served by
+  the `/welcome.css` route.
+- Has no navbar, no context switcher, no global search. Just hero +
+  feature grid + two onboarding cards (Ny tom kontekst / Klon fra
+  remote). Forms POST to `/api/contexts` and `/api/contexts/clone`.
+- Loads the `paper` theme stylesheet so the design tokens
+  (`--surface`, `--accent`, etc.) used in `welcome.css` resolve. The
+  CSS also has hard-coded fallbacks so it still renders without a
+  theme.
+- On success the form redirects to `/` (the no-context guard has
+  cleared because a context now exists).
 
-Both cards reuse the same form IDs (`newCtxForm`, `cloneCtxForm`) and
-submit handlers as the regular settings page, so the JS at the bottom
-of the route is shared. The no-context guard at the top of the
-request handler redirects every other path to `/settings` so users
-can't get stuck on a route that needs a `dataDir()`.
+The regular `/settings` page no longer has any "empty state" branch —
+it always renders the rail+detail layout. If you ever land there
+with zero contexts the guard sends you to `/welcome` first.
 
 ## Adding a new per-context setting (recipe)
 

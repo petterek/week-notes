@@ -2308,16 +2308,155 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const pathname = decodeURIComponent(url.pathname);
 
-    // Guard: if no contexts exist, force the user onto /settings to create one
+    // Guard: if no contexts exist, force the user onto the welcome page
     if (listContexts().length === 0) {
-        const allowed = pathname === '/settings'
+        const allowed = pathname === '/welcome'
+            || pathname === '/welcome.css'
+            || pathname.startsWith('/themes/')
             || pathname.startsWith('/api/contexts')
             || pathname === '/_layouts' || pathname === '/_layouts.html';
         if (!allowed) {
-            res.writeHead(302, { Location: '/settings' });
+            res.writeHead(302, { Location: '/welcome' });
             res.end();
             return;
         }
+    }
+
+    // Welcome page (first-run, no contexts yet) — its own minimal HTML+CSS
+    if (pathname === '/welcome.css') {
+        fs.readFile(path.join(__dirname, 'welcome.css'), (err, data) => {
+            if (err) { res.writeHead(404); res.end(); return; }
+            res.writeHead(200, { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'public, max-age=60' });
+            res.end(data);
+        });
+        return;
+    }
+    if (pathname === '/welcome') {
+        const theme = 'paper';
+        const html = `<!doctype html>
+<html lang="nb"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Velkommen — Ukenotater</title>
+<link rel="stylesheet" href="/themes/${theme}.css">
+<link rel="stylesheet" href="/welcome.css">
+</head><body>
+<div class="welcome-shell">
+    <header class="welcome-hero">
+        <div class="welcome-hero__emoji">📒</div>
+        <h1 class="welcome-hero__title">Velkommen til Ukenotater</h1>
+        <p class="welcome-hero__tagline">Strukturerte ukentlige notater, oppgaver, personer, møter og resultater — i isolerte kontekster.</p>
+    </header>
+
+    <section class="welcome-features">
+        <div class="welcome-features__item">
+            <div class="welcome-features__icon">📅</div>
+            <h3>Ukenotater</h3>
+            <p>Frittflytende markdown-notater organisert per ISO-uke (YYYY-WNN).</p>
+        </div>
+        <div class="welcome-features__item">
+            <div class="welcome-features__icon">✅</div>
+            <h3>Oppgaver &amp; resultater</h3>
+            <p>Oppgaver med ukekobling, og en resultatlogg som binder alt sammen.</p>
+        </div>
+        <div class="welcome-features__item">
+            <div class="welcome-features__icon">👥</div>
+            <h3>Personer &amp; møter</h3>
+            <p>CRM-light og kalender med møtetyper per kontekst.</p>
+        </div>
+        <div class="welcome-features__item">
+            <div class="welcome-features__icon">🔒</div>
+            <h3>Isolerte kontekster</h3>
+            <p>Hver kontekst er sitt eget git-repo under <code>data/&lt;navn&gt;/</code>.</p>
+        </div>
+    </section>
+
+    <h2 class="welcome-section-heading">Kom i gang — opprett din første kontekst</h2>
+    <p class="welcome-section-sub">Velg én av to måter:</p>
+
+    <div class="welcome-cards">
+        <article class="welcome-card">
+            <header class="welcome-card__head">
+                <span class="welcome-card__icon">➕</span>
+                <div><h3>Ny tom kontekst</h3><p>Start fra blanke ark. Du kan koble til en git-remote senere.</p></div>
+            </header>
+            <form id="newCtxForm">
+                <div class="welcome-card__grid">
+                    <label>Navn<input type="text" id="newName" placeholder="f.eks. Privat" required></label>
+                    <label>Ikon<span class="welcome-icon-pick"><input type="text" id="newIcon" value="📁" maxlength="4"></span></label>
+                </div>
+                <label>Beskrivelse<textarea id="newDescription" rows="2"></textarea></label>
+                <label>Git-remote (valgfritt)<input type="text" id="newRemote" placeholder="git@github.com:bruker/repo.git" spellcheck="false"></label>
+                <div class="welcome-card__actions">
+                    <button type="submit">➕ Opprett</button>
+                    <span id="newCtxStatus" class="welcome-status"></span>
+                </div>
+            </form>
+        </article>
+
+        <article class="welcome-card">
+            <header class="welcome-card__head">
+                <span class="welcome-card__icon">📥</span>
+                <div><h3>Klon fra remote</h3><p>Hent en eksisterende kontekst fra et git-repo (f.eks. backup eller annen maskin).</p></div>
+            </header>
+            <form id="cloneCtxForm">
+                <label>Git-remote<input type="text" id="cloneRemote" placeholder="git@github.com:bruker/repo.git" spellcheck="false" required></label>
+                <label>Navn (valgfritt — utledes fra repo-URLen)<input type="text" id="cloneName" placeholder="overstyr utledet navn" spellcheck="false"></label>
+                <div class="welcome-card__actions">
+                    <button type="submit">📥 Klon</button>
+                    <span id="cloneCtxStatus" class="welcome-status"></span>
+                </div>
+            </form>
+        </article>
+    </div>
+</div>
+
+<script>
+(function () {
+    function setStatus(el, text, isError) {
+        el.textContent = text;
+        el.classList.toggle('error', !!isError);
+    }
+    document.getElementById('newCtxForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var s = document.getElementById('newCtxStatus');
+        setStatus(s, '⏳ Oppretter…', false);
+        fetch('/api/contexts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: document.getElementById('newName').value,
+                icon: document.getElementById('newIcon').value || '📁',
+                description: document.getElementById('newDescription').value,
+                remote: document.getElementById('newRemote').value
+            })
+        }).then(function (r) { return r.json(); }).then(function (d) {
+            if (d.ok) { setStatus(s, '✓ Opprettet — laster…', false); setTimeout(function () { location.href = '/'; }, 600); }
+            else setStatus(s, '✗ ' + d.error, true);
+        }).catch(function (err) { setStatus(s, '✗ ' + err, true); });
+    });
+    document.getElementById('cloneCtxForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var s = document.getElementById('cloneCtxStatus');
+        setStatus(s, '⏳ Kloner…', false);
+        fetch('/api/contexts/clone', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                remote: document.getElementById('cloneRemote').value,
+                name: document.getElementById('cloneName').value
+            })
+        }).then(function (r) { return r.json(); }).then(function (d) {
+            if (d.ok) { setStatus(s, '✓ Klonet — laster…', false); setTimeout(function () { location.href = '/'; }, 600); }
+            else setStatus(s, '✗ ' + d.error, true);
+        }).catch(function (err) { setStatus(s, '✗ ' + err, true); });
+    });
+})();
+</script>
+</body></html>`;
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(html);
+        return;
     }
 
     // Theme stylesheets
@@ -3077,7 +3216,7 @@ document.addEventListener('keydown', function(e) {
                 </form>
             </div>`;
         const newPane = `
-            <div class="ctx-detail${all.length === 0 ? ' visible' : ''}" data-detail="__new">
+            <div class="ctx-detail" data-detail="__new">
                 <div class="ctx-detail-head">
                     <span class="ctx-icon-lg">➕</span>
                     <div style="flex:1"><h2 style="margin:0">Ny kontekst</h2><div class="ctx-id">Opprett en ny isolert arbeidsmiljø</div></div>
@@ -3116,113 +3255,7 @@ document.addEventListener('keydown', function(e) {
                 </form>
             </div>`;
         const emptyBanner = '';
-        const welcomeBody = all.length === 0 ? `
-            <div class="welcome-page">
-                <div class="welcome-hero">
-                    <div class="welcome-emoji">📒</div>
-                    <h1 class="welcome-title">Velkommen til Ukenotater</h1>
-                    <p class="welcome-tagline">Strukturerte ukentlige notater, oppgaver, personer, møter og resultater — i isolerte kontekster.</p>
-                </div>
-
-                <div class="welcome-features">
-                    <div class="welcome-feature">
-                        <div class="welcome-feature-icon">📅</div>
-                        <h3>Ukenotater</h3>
-                        <p>Frittflytende markdown-notater organisert per ISO-uke (YYYY-WNN).</p>
-                    </div>
-                    <div class="welcome-feature">
-                        <div class="welcome-feature-icon">✅</div>
-                        <h3>Oppgaver &amp; resultater</h3>
-                        <p>Oppgaver med ukekobling, og en resultatlogg som binder alt sammen.</p>
-                    </div>
-                    <div class="welcome-feature">
-                        <div class="welcome-feature-icon">👥</div>
-                        <h3>Personer &amp; møter</h3>
-                        <p>CRM-light og kalender med møtetyper per kontekst.</p>
-                    </div>
-                    <div class="welcome-feature">
-                        <div class="welcome-feature-icon">🔒</div>
-                        <h3>Isolerte kontekster</h3>
-                        <p>Hver kontekst er sitt eget git-repo under <code>data/&lt;navn&gt;/</code> og holdes adskilt.</p>
-                    </div>
-                </div>
-
-                <h2 class="welcome-step-heading">Kom i gang — opprett din første kontekst</h2>
-                <p class="welcome-step-sub">Velg én av to måter:</p>
-
-                <div class="welcome-cards">
-                    <div class="welcome-card">
-                        <div class="welcome-card-head">
-                            <span class="welcome-card-icon">➕</span>
-                            <div><h3>Ny tom kontekst</h3><p>Start fra blanke ark. Du kan koble til en git-remote senere.</p></div>
-                        </div>
-                        <form id="newCtxForm">
-                            <div class="ctx-form-grid">
-                                <label>Navn<input type="text" id="newName" placeholder="f.eks. Privat" required></label>
-                                <label>Ikon${iconPickerHtml('icon', '📁', 'pick-new', 'newIcon')}</label>
-                            </div>
-                            <label>Beskrivelse<textarea id="newDescription" rows="2"></textarea></label>
-                            <label>Git-remote (valgfritt)<input type="text" id="newRemote" placeholder="git@github.com:bruker/repo.git" spellcheck="false"></label>
-                            <div class="welcome-card-actions">
-                                <button type="submit" class="btn-primary">➕ Opprett</button>
-                                <span id="newCtxStatus" class="settings-status"></span>
-                            </div>
-                        </form>
-                    </div>
-
-                    <div class="welcome-card">
-                        <div class="welcome-card-head">
-                            <span class="welcome-card-icon">📥</span>
-                            <div><h3>Klon fra remote</h3><p>Hent en eksisterende kontekst fra et git-repo (f.eks. backup eller annen maskin).</p></div>
-                        </div>
-                        <form id="cloneCtxForm">
-                            <label>Git-remote<input type="text" id="cloneRemote" placeholder="git@github.com:bruker/repo.git" spellcheck="false" required></label>
-                            <label>Navn (valgfritt — utledes fra repo-URLen)<input type="text" id="cloneName" placeholder="overstyr utledet navn" spellcheck="false"></label>
-                            <div class="welcome-card-actions">
-                                <button type="submit" class="btn-primary">📥 Klon</button>
-                                <span id="cloneCtxStatus" class="settings-status"></span>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            </div>
-
-            <style>
-                body:has(.welcome-page) { max-width: 980px; padding-top: 24px; }
-                body:has(.welcome-page) .navbar { display: none; }
-                .welcome-page { padding: 16px 0 32px; }
-                .welcome-hero { text-align: center; padding: 32px 16px 28px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 24px; }
-                .welcome-emoji { font-size: 3.4em; line-height: 1; margin-bottom: 8px; }
-                .welcome-title { margin: 0 0 8px 0; font-size: 1.8em; }
-                .welcome-tagline { margin: 0; color: var(--text-subtle); font-size: 1.05em; max-width: 640px; margin-left: auto; margin-right: auto; }
-
-                .welcome-features { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 32px; }
-                .welcome-feature { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
-                .welcome-feature-icon { font-size: 1.6em; margin-bottom: 6px; }
-                .welcome-feature h3 { margin: 0 0 4px 0; font-size: 1em; }
-                .welcome-feature p { margin: 0; color: var(--text-subtle); font-size: 0.9em; line-height: 1.4; }
-
-                .welcome-step-heading { margin: 0 0 4px 0; }
-                .welcome-step-sub { margin: 0 0 16px 0; color: var(--text-subtle); }
-
-                .welcome-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-                @media (max-width: 760px) { .welcome-cards { grid-template-columns: 1fr; } }
-                .welcome-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px 22px; border-left: 4px solid var(--accent); }
-                .welcome-card-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--border-faint); }
-                .welcome-card-icon { font-size: 1.8em; line-height: 1; flex-shrink: 0; }
-                .welcome-card-head h3 { margin: 0 0 2px 0; font-size: 1.1em; }
-                .welcome-card-head p { margin: 0; color: var(--text-subtle); font-size: 0.9em; }
-                .welcome-card form { display: flex; flex-direction: column; gap: 12px; }
-                .welcome-card label { display: flex; flex-direction: column; gap: 5px; font-size: 0.88em; font-weight: 600; color: var(--text-strong); }
-                .welcome-card input[type="text"], .welcome-card textarea { padding: 10px 12px; border: 2px solid var(--border); border-radius: 6px; background: #ffffff; color: var(--text-strong); font-family: inherit; font-size: 0.95em; transition: border-color 0.15s, box-shadow 0.15s; }
-                .welcome-card input[type="text"]:hover, .welcome-card textarea:hover { border-color: var(--text-muted); }
-                .welcome-card input[type="text"]:focus, .welcome-card textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(80,120,180,0.18); }
-                .welcome-card .ctx-form-grid { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
-                .welcome-card-actions { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
-            </style>
-        ` : '';
-
-        const body = welcomeBody || `
+        const body = `
             <h1>⚙️ Kontekster</h1>
             <p style="color:#718096;margin-bottom:18px">Hver kontekst har sine egne notater, oppgaver, personer, møter og resultater. Data er fullstendig isolert mellom kontekster.</p>
             ${emptyBanner}
@@ -3263,11 +3296,6 @@ document.addEventListener('keydown', function(e) {
                 .ctx-rail-new:first-of-type { border-top: 1px dashed var(--border); border-radius: 0; margin-top: 6px; padding-top: 12px; }
                 .ctx-rail-new + .ctx-rail-new { margin-top: 0; padding-top: 10px; }
                 .ctx-rail-new .ctx-rail-name { color: var(--text-muted); }
-
-                .ctx-empty-hero { display: flex; align-items: center; gap: 18px; background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 10px; padding: 20px 24px; margin: 16px 0 24px; }
-                .ctx-empty-icon { font-size: 2.6em; flex-shrink: 0; }
-                .ctx-empty-text h2 { margin: 0 0 4px 0; font-size: 1.2em; }
-                .ctx-empty-text p { margin: 0; color: var(--text-subtle); }
 
                 .ctx-pane { min-width: 0; }
                 .ctx-detail { display: none; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 22px 26px; }
