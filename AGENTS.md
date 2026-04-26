@@ -46,6 +46,7 @@ Stack:
 │   ├── git.md
 │   ├── presentations.md
 │   ├── help.md
+│   ├── themes.md
 │   └── search-and-summarize.md
 ├── help.md            # in-app help, served at /help.md and rendered in a modal
 ├── run.sh             # start helper (checks if already running)

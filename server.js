@@ -1086,11 +1086,105 @@ const THEME_LABELS = {
     'forest': 'Skog',
     'ocean': 'Hav'
 };
+const THEME_VAR_NAMES = [
+    'bg', 'surface', 'surface-alt', 'surface-head',
+    'border', 'border-soft', 'border-faint',
+    'text', 'text-strong', 'text-muted', 'text-muted-warm', 'text-subtle',
+    'accent', 'accent-strong', 'accent-soft',
+    'font-family', 'font-size'
+];
+const CUSTOM_THEMES_DIR = path.join(CONTEXTS_DIR, '_themes');
+function safeThemeId(s) {
+    return String(s || '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
+}
+function parseThemeCss(content) {
+    const out = { name: '', vars: {} };
+    const nameMatch = content.match(/\/\*\s*name:\s*([^*\n]+?)\s*\*\//i);
+    if (nameMatch) out.name = nameMatch[1].trim();
+    else {
+        // fallback: first /* ... */ comment up to first em-dash or end
+        const m = content.match(/\/\*\s*([^*\n]+?)\s*\*\//);
+        if (m) out.name = m[1].split(/\s+—\s+/)[0].trim();
+    }
+    for (const v of THEME_VAR_NAMES) {
+        const re = new RegExp('--' + v.replace(/-/g, '\\-') + ':\\s*([^;]+?);', 'i');
+        const mm = content.match(re);
+        if (mm) out.vars[v] = mm[1].trim();
+    }
+    return out;
+}
+function readBuiltinTheme(id) {
+    try {
+        const file = path.join(__dirname, 'themes', id + '.css');
+        const css = fs.readFileSync(file, 'utf-8');
+        const parsed = parseThemeCss(css);
+        return { id, name: parsed.name || THEME_LABELS[id] || id, builtin: true, vars: parsed.vars };
+    } catch { return null; }
+}
+function readCustomTheme(id) {
+    try {
+        const file = path.join(CUSTOM_THEMES_DIR, id + '.css');
+        const css = fs.readFileSync(file, 'utf-8');
+        const parsed = parseThemeCss(css);
+        return { id, name: parsed.name || id, builtin: false, vars: parsed.vars };
+    } catch { return null; }
+}
+function listCustomThemes() {
+    try {
+        return fs.readdirSync(CUSTOM_THEMES_DIR)
+            .filter(f => f.endsWith('.css'))
+            .map(f => f.slice(0, -4))
+            .map(readCustomTheme)
+            .filter(Boolean)
+            .sort((a, b) => a.name.localeCompare(b.name, 'nb'));
+    } catch { return []; }
+}
+function listBuiltinThemes() {
+    return THEMES.map(readBuiltinTheme).filter(Boolean);
+}
+function listAllThemes() {
+    return [...listBuiltinThemes(), ...listCustomThemes()];
+}
+function findTheme(id) {
+    return listAllThemes().find(t => t.id === id) || null;
+}
+function themeCssFor(name, vars) {
+    const lines = THEME_VAR_NAMES
+        .filter(v => vars[v] != null && String(vars[v]).trim() !== '')
+        .map(v => `    --${v}: ${String(vars[v]).trim()};`);
+    return `/* name: ${String(name || '').replace(/\*\//g, '')} */\n:root {\n${lines.join('\n')}\n}\n`;
+}
+function writeCustomTheme(id, name, vars) {
+    const safe = safeThemeId(id);
+    if (!safe) throw new Error('Ugyldig tema-id');
+    if (THEMES.includes(safe)) throw new Error('Kan ikke overskrive innebygd tema');
+    try { fs.mkdirSync(CUSTOM_THEMES_DIR, { recursive: true }); } catch {}
+    fs.writeFileSync(path.join(CUSTOM_THEMES_DIR, safe + '.css'), themeCssFor(name, vars));
+    return safe;
+}
+function deleteCustomTheme(id) {
+    const safe = safeThemeId(id);
+    if (!safe || THEMES.includes(safe)) throw new Error('Kan ikke slette innebygd tema');
+    try { fs.unlinkSync(path.join(CUSTOM_THEMES_DIR, safe + '.css')); } catch {}
+}
+function uniqueThemeId(base) {
+    let id = safeThemeId(base) || 'tema';
+    let n = 2;
+    while (THEMES.includes(id) || fs.existsSync(path.join(CUSTOM_THEMES_DIR, id + '.css'))) {
+        id = safeThemeId(base) + '-' + (n++);
+    }
+    return id;
+}
+function isValidThemeId(t) {
+    if (THEMES.includes(t)) return true;
+    if (!safeThemeId(t)) return false;
+    return fs.existsSync(path.join(CUSTOM_THEMES_DIR, safeThemeId(t) + '.css'));
+}
 function getActiveTheme() {
     const ctx = getActiveContext();
     if (!ctx) return 'paper';
     const t = (getContextSettings(ctx) || {}).theme;
-    return THEMES.includes(t) ? t : 'paper';
+    return isValidThemeId(t) ? t : 'paper';
 }
 
 function pageHtml(title, body, extraNavLinks) {
@@ -1124,7 +1218,8 @@ function pageHtml(title, body, extraNavLinks) {
     <link id="themeStylesheet" rel="stylesheet" href="/themes/${theme}.css">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; max-width: 1100px; margin: 0 auto; padding: 20px; padding-top: 70px; line-height: 1.6; color: var(--text-strong); background: var(--bg); }
+        body { font-family: var(--font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif); font-size: var(--font-size, 16px); max-width: 1100px; margin: 0 auto; padding: 20px; padding-top: 70px; line-height: 1.6; color: var(--text-strong); background: var(--bg); }
+        input, textarea, select, button { font-family: inherit; font-size: inherit; }
         .navbar { position: fixed; top: 0; left: 0; right: 0; background: var(--bg); z-index: 900; border-bottom: 1px solid var(--border-soft); }
         .nav-inner { padding: 0 24px; display: flex; align-items: center; gap: 14px; height: 46px; }
         .nav-brand { color: var(--accent); font-family: Georgia, "Times New Roman", serif; font-weight: 700; font-size: 1.1em; text-decoration: none; letter-spacing: -0.01em; }
@@ -1749,7 +1844,8 @@ function editorPageHtml(week, file, content) {
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--text-strong); height: 100vh; display: flex; flex-direction: column; background: var(--bg); }
+        body { font-family: var(--font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif); font-size: var(--font-size, 16px); color: var(--text-strong); height: 100vh; display: flex; flex-direction: column; background: var(--bg); }
+        input, textarea, select, button { font-family: inherit; font-size: inherit; }
         .navbar { display: flex; align-items: center; gap: 14px; padding: 0 24px; height: 46px; background: var(--bg); border-bottom: 1px solid var(--border-soft); flex-shrink: 0; }
         .navbar .nav-brand { color: var(--accent); font-family: Georgia, "Times New Roman", serif; font-weight: 700; font-size: 1.1em; text-decoration: none; letter-spacing: -0.01em; }
         .navbar .nav-brand:hover { color: var(--accent-strong); }
@@ -2681,14 +2777,16 @@ const server = http.createServer(async (req, res) => {
         return;
     }
 
-    // Theme stylesheets
+    // Theme stylesheets — built-ins from themes/, custom from data/_themes/
     if (pathname.startsWith('/themes/') && pathname.endsWith('.css')) {
         const slug = pathname.slice('/themes/'.length, -'.css'.length);
-        if (!/^[a-z0-9-]+$/.test(slug)) { res.writeHead(404); res.end('Bad theme'); return; }
-        const file = path.join(__dirname, 'themes', slug + '.css');
+        if (!/^[a-z0-9_-]+$/.test(slug)) { res.writeHead(404); res.end('Bad theme'); return; }
+        const builtin = path.join(__dirname, 'themes', slug + '.css');
+        const custom = path.join(CUSTOM_THEMES_DIR, slug + '.css');
+        const file = fs.existsSync(builtin) ? builtin : custom;
         fs.readFile(file, (err, data) => {
             if (err) { res.writeHead(404); res.end('Theme not found'); return; }
-            res.writeHead(200, { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'public, max-age=300' });
+            res.writeHead(200, { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'no-cache' });
             res.end(data);
         });
         return;
@@ -3290,7 +3388,290 @@ document.addEventListener('keydown', function(e) {
         return;
     }
 
-    // People page
+    // Theme builder page
+    if (pathname === '/themes') {
+        const themes = listAllThemes();
+        const activeTheme = getActiveTheme();
+        const colorVars = ['bg', 'surface', 'surface-alt', 'surface-head', 'border', 'border-soft', 'border-faint', 'text', 'text-strong', 'text-muted', 'text-muted-warm', 'text-subtle', 'accent', 'accent-strong', 'accent-soft'];
+        const VAR_LABELS = {
+            'bg': 'Bakgrunn', 'surface': 'Overflate', 'surface-alt': 'Overflate (alt)', 'surface-head': 'Overflate (header)',
+            'border': 'Kantlinje', 'border-soft': 'Kantlinje (myk)', 'border-faint': 'Kantlinje (lys)',
+            'text': 'Tekst', 'text-strong': 'Tekst (sterk)', 'text-muted': 'Tekst (dempet)', 'text-muted-warm': 'Tekst (dempet varm)', 'text-subtle': 'Tekst (subtil)',
+            'accent': 'Aksent', 'accent-strong': 'Aksent (sterk)', 'accent-soft': 'Aksent (myk)',
+            'font-family': 'Skrifttype', 'font-size': 'Skriftstørrelse'
+        };
+        const body = `
+            <div class="th-page">
+                <aside class="th-rail">
+                    <h2>🎨 Temaer</h2>
+                    <div class="th-list" id="thList">
+                        ${themes.map(t => {
+                            const v = t.vars || {};
+                            const previewStyle = [
+                                v['surface'] && `--p-surface:${v['surface']}`,
+                                v['surface-head'] && `--p-head:${v['surface-head']}`,
+                                v['border'] && `--p-border:${v['border']}`,
+                                v['accent'] && `--p-accent:${v['accent']}`,
+                                v['text-muted'] && `--p-muted:${v['text-muted']}`,
+                                v['text-subtle'] && `--p-subtle:${v['text-subtle']}`,
+                            ].filter(Boolean).join(';');
+                            return `<button type="button" class="th-rail-item${t.id === activeTheme ? ' active' : ''}" data-id="${escapeHtml(t.id)}"${previewStyle ? ` style="${previewStyle}"` : ''}>
+                                <span class="th-rail-preview">
+                                    <span class="th-rail-bar"></span>
+                                    <span class="th-rail-body"><span class="th-rail-line l1"></span><span class="th-rail-line l2"></span><span class="th-rail-line l3"></span></span>
+                                </span>
+                                <span class="th-rail-name">${escapeHtml(t.name || t.id)}${t.builtin ? '' : ' <span class="th-tag">tilpasset</span>'}</span>
+                            </button>`;
+                        }).join('')}
+                    </div>
+                    <p class="th-rail-hint">Klikk et tema for å se det. Innebygde temaer er låst — klone for å redigere.</p>
+                </aside>
+                <main class="th-detail" id="thDetail">
+                    <div class="th-empty">Velg et tema fra listen til venstre.</div>
+                </main>
+            </div>
+            <style>
+                body:has(.th-page) { max-width: none; padding: 70px 20px 20px; }
+                .th-page { display: grid; grid-template-columns: 280px 1fr; gap: 20px; align-items: start; }
+                .th-rail { position: sticky; top: 80px; background: var(--surface); border: 1px solid var(--border-faint); border-radius: 8px; padding: 14px; max-height: calc(100vh - 100px); overflow-y: auto; }
+                .th-rail h2 { margin: 0 0 12px; font-size: 1.05em; color: var(--accent); }
+                .th-list { display: flex; flex-direction: column; gap: 6px; }
+                .th-rail-item { display: flex; align-items: center; gap: 10px; padding: 8px; background: var(--bg); border: 1px solid var(--border-faint); border-radius: 6px; cursor: pointer; font-family: inherit; text-align: left; transition: border-color 0.12s, background 0.12s; }
+                .th-rail-item:hover { border-color: var(--border); }
+                .th-rail-item.active { border-color: var(--accent); background: var(--accent-soft); }
+                .th-rail-item.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+                .th-rail-preview { display: flex; flex-direction: column; width: 48px; height: 36px; border-radius: 4px; overflow: hidden; border: 1px solid rgba(0,0,0,0.08); flex-shrink: 0; background: var(--p-surface, var(--surface)); }
+                .th-rail-bar { height: 8px; background: var(--p-head, var(--p-surface, var(--surface-head))); border-bottom: 1px solid var(--p-border, var(--border-faint)); }
+                .th-rail-body { flex: 1; padding: 4px; display: flex; flex-direction: column; gap: 2px; }
+                .th-rail-line { height: 3px; border-radius: 1px; }
+                .th-rail-line.l1 { width: 80%; background: var(--p-accent, var(--accent)); }
+                .th-rail-line.l2 { width: 60%; background: var(--p-muted, var(--text-muted)); }
+                .th-rail-line.l3 { width: 40%; background: var(--p-subtle, var(--text-subtle)); }
+                .th-rail-name { flex: 1; font-size: 0.9em; font-weight: 600; color: var(--text); }
+                .th-tag { display: inline-block; font-size: 0.7em; font-weight: 500; color: var(--text-subtle); background: var(--surface-alt); padding: 1px 6px; border-radius: 8px; margin-left: 4px; }
+                .th-rail-hint { font-size: 0.78em; color: var(--text-subtle); margin-top: 12px; line-height: 1.4; }
+                .th-detail { background: var(--surface); border: 1px solid var(--border-faint); border-radius: 8px; padding: 20px 24px; min-height: 400px; }
+                .th-empty { text-align: center; color: var(--text-subtle); padding: 60px 20px; font-style: italic; }
+                .th-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+                .th-head h3 { margin: 0; flex: 1; min-width: 200px; }
+                .th-name-input { font-size: 1.1em; font-weight: 600; padding: 6px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text-strong); font-family: inherit; flex: 1; min-width: 200px; }
+                .th-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+                .th-btn { padding: 7px 14px; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--text-strong); cursor: pointer; font-family: inherit; font-size: 0.9em; font-weight: 600; }
+                .th-btn:hover { border-color: var(--accent); }
+                .th-btn.primary { background: var(--accent); color: var(--surface); border-color: var(--accent); }
+                .th-btn.primary:hover { background: var(--accent-strong); }
+                .th-btn.danger { color: #c53030; border-color: #f5b8b8; }
+                .th-btn.danger:hover { background: #fff5f5; border-color: #c53030; }
+                .th-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+                .th-vars { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px 16px; margin: 16px 0 24px; }
+                .th-var { display: flex; flex-direction: column; gap: 4px; }
+                .th-var label { font-size: 0.78em; color: var(--text-muted); font-weight: 600; }
+                .th-color-row { display: flex; align-items: center; gap: 6px; }
+                .th-color-row input[type=color] { width: 40px; height: 32px; padding: 0; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; background: var(--bg); }
+                .th-color-row input[type=text] { flex: 1; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text-strong); font-family: monospace; font-size: 0.85em; }
+                .th-var input[type=text]:not(.th-name-input), .th-var input[type=number] { padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text-strong); font-family: inherit; font-size: 0.9em; }
+                .th-section-title { font-size: 0.85em; color: var(--text-muted-warm); text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 10px; font-weight: 700; }
+                .th-preview-pane { border: 1px solid var(--border-faint); border-radius: 8px; padding: 18px; margin-top: 8px; }
+                .th-preview-pane .pv-card { background: var(--pv-surface); color: var(--pv-text); border: 1px solid var(--pv-border); border-radius: 6px; padding: 14px 18px; font-family: var(--pv-font-family); font-size: var(--pv-font-size, 16px); }
+                .th-preview-pane .pv-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--pv-border-soft); }
+                .th-preview-pane .pv-title { color: var(--pv-text-strong); font-weight: 700; flex: 1; }
+                .th-preview-pane .pv-accent { color: var(--pv-accent); font-weight: 600; }
+                .th-preview-pane .pv-muted { color: var(--pv-text-muted); font-size: 0.9em; }
+                .th-preview-pane .pv-subtle { color: var(--pv-text-subtle); font-size: 0.85em; font-style: italic; margin-top: 6px; }
+                .th-preview-pane .pv-btn { background: var(--pv-accent); color: var(--pv-surface); border: none; padding: 5px 12px; border-radius: 4px; font-family: inherit; font-size: 0.85em; font-weight: 600; cursor: pointer; }
+                .th-preview-pane .pv-pill { display: inline-block; background: var(--pv-accent-soft); color: var(--pv-accent-strong); padding: 2px 8px; border-radius: 8px; font-size: 0.78em; font-weight: 600; margin-left: 6px; }
+                .th-preview-pane .pv-bg { background: var(--pv-bg); padding: 10px; border-radius: 6px; margin-top: 10px; }
+            </style>
+            <script>
+                (function () {
+                    const COLOR_VARS = ${JSON.stringify(colorVars)};
+                    const VAR_LABELS = ${JSON.stringify(VAR_LABELS).replace(/</g, '\\u003c')};
+                    const ACTIVE = ${JSON.stringify(activeTheme)};
+                    let currentId = null;
+                    let currentTheme = null;
+                    const list = document.getElementById('thList');
+                    const detail = document.getElementById('thDetail');
+                    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+                    function isHexColor(s) { return /^#[0-9a-fA-F]{3,8}$/.test(String(s || '').trim()); }
+                    function load() {
+                        return fetch('/api/themes').then(r => r.json());
+                    }
+                    function selectId(id) {
+                        list.querySelectorAll('.th-rail-item').forEach(b => b.classList.toggle('selected', b.getAttribute('data-id') === id));
+                        load().then(themes => {
+                            const t = themes.find(x => x.id === id);
+                            if (!t) return;
+                            currentId = id;
+                            currentTheme = t;
+                            render(t);
+                        });
+                    }
+                    function render(t) {
+                        const v = t.vars || {};
+                        const builtin = t.builtin;
+                        const colorRows = COLOR_VARS.map(name => {
+                            const val = v[name] || '';
+                            const safeVal = isHexColor(val) ? val : '#888888';
+                            return '<div class="th-var">'
+                                + '<label>' + esc(VAR_LABELS[name] || name) + ' <code style="opacity:0.5">--' + name + '</code></label>'
+                                + '<div class="th-color-row">'
+                                + '<input type="color" data-var="' + name + '" data-kind="color" value="' + esc(safeVal) + '"' + (builtin ? ' disabled' : '') + '>'
+                                + '<input type="text" data-var="' + name + '" data-kind="text" value="' + esc(val) + '"' + (builtin ? ' disabled' : '') + '>'
+                                + '</div></div>';
+                        }).join('');
+                        const fontFamilyVal = v['font-family'] || '';
+                        const fontSizeVal = String(v['font-size'] || '').replace(/px$/i, '') || '16';
+                        detail.innerHTML = ''
+                            + '<div class="th-head">'
+                            + '<input type="text" class="th-name-input" id="thName" value="' + esc(t.name || t.id) + '"' + (builtin ? ' disabled' : '') + '>'
+                            + '<div class="th-actions">'
+                            + (builtin
+                                ? '<button class="th-btn primary" id="thClone">📋 Klone</button>'
+                                : '<button class="th-btn primary" id="thSave">💾 Lagre</button>'
+                                + '<button class="th-btn" id="thClone">📋 Klone</button>'
+                                + '<button class="th-btn danger" id="thDelete">🗑️ Slett</button>')
+                            + '<button class="th-btn" id="thApply">✅ Sett som tema</button>'
+                            + '</div></div>'
+                            + (builtin ? '<p class="pv-muted" style="margin:0 0 14px;color:var(--text-subtle);font-style:italic">Innebygde temaer er låst. Klone for å lage en redigerbar versjon.</p>' : '')
+                            + '<h4 class="th-section-title">Farger</h4>'
+                            + '<div class="th-vars">' + colorRows + '</div>'
+                            + '<h4 class="th-section-title">Skrift</h4>'
+                            + '<div class="th-vars">'
+                            + '<div class="th-var"><label>Skrifttype <code style="opacity:0.5">--font-family</code></label><input type="text" data-var="font-family" data-kind="font" value="' + esc(fontFamilyVal) + '"' + (builtin ? ' disabled' : '') + '></div>'
+                            + '<div class="th-var"><label>Skriftstørrelse (px) <code style="opacity:0.5">--font-size</code></label><input type="number" data-var="font-size" data-kind="fontsize" min="10" max="32" step="1" value="' + esc(fontSizeVal) + '"' + (builtin ? ' disabled' : '') + '></div>'
+                            + '</div>'
+                            + '<h4 class="th-section-title">Forhåndsvisning</h4>'
+                            + '<div class="th-preview-pane" id="thPreview"></div>';
+                        wireInputs();
+                        renderPreview();
+                        const apply = document.getElementById('thApply');
+                        if (apply) apply.addEventListener('click', applyTheme);
+                        const clone = document.getElementById('thClone');
+                        if (clone) clone.addEventListener('click', cloneTheme);
+                        const save = document.getElementById('thSave');
+                        if (save) save.addEventListener('click', saveTheme);
+                        const del = document.getElementById('thDelete');
+                        if (del) del.addEventListener('click', deleteTheme);
+                    }
+                    function gatherVars() {
+                        const vars = Object.assign({}, currentTheme.vars || {});
+                        detail.querySelectorAll('input[data-var]').forEach(inp => {
+                            const name = inp.getAttribute('data-var');
+                            const kind = inp.getAttribute('data-kind');
+                            if (kind === 'text' || kind === 'font') {
+                                if (inp.value.trim()) vars[name] = inp.value.trim();
+                            } else if (kind === 'fontsize') {
+                                if (inp.value) vars[name] = inp.value + 'px';
+                            }
+                            // 'color' inputs are mirrored into the text input via wireInputs, so ignore here
+                        });
+                        return vars;
+                    }
+                    function wireInputs() {
+                        detail.querySelectorAll('input[data-var]').forEach(inp => {
+                            const kind = inp.getAttribute('data-kind');
+                            if (kind === 'color') {
+                                inp.addEventListener('input', () => {
+                                    const txt = detail.querySelector('input[data-kind=text][data-var="' + inp.getAttribute('data-var') + '"]');
+                                    if (txt) txt.value = inp.value;
+                                    renderPreview();
+                                });
+                            } else if (kind === 'text') {
+                                inp.addEventListener('input', () => {
+                                    const col = detail.querySelector('input[data-kind=color][data-var="' + inp.getAttribute('data-var') + '"]');
+                                    if (col && isHexColor(inp.value)) col.value = inp.value;
+                                    renderPreview();
+                                });
+                            } else {
+                                inp.addEventListener('input', renderPreview);
+                            }
+                        });
+                        const nameInp = document.getElementById('thName');
+                        if (nameInp) nameInp.addEventListener('input', renderPreview);
+                    }
+                    function renderPreview() {
+                        const v = gatherVars();
+                        const pv = document.getElementById('thPreview');
+                        if (!pv) return;
+                        const kv = {
+                            'pv-bg': v['bg'], 'pv-surface': v['surface'], 'pv-border': v['border'], 'pv-border-soft': v['border-soft'],
+                            'pv-text': v['text'], 'pv-text-strong': v['text-strong'], 'pv-text-muted': v['text-muted'], 'pv-text-subtle': v['text-subtle'],
+                            'pv-accent': v['accent'], 'pv-accent-strong': v['accent-strong'], 'pv-accent-soft': v['accent-soft'],
+                            'pv-font-family': v['font-family'], 'pv-font-size': v['font-size']
+                        };
+                        const styleStr = Object.entries(kv).filter(([, val]) => val).map(([k, val]) => '--' + k + ':' + val).join(';');
+                        pv.setAttribute('style', styleStr);
+                        const nameInp = document.getElementById('thName');
+                        const name = nameInp ? nameInp.value : (currentTheme && currentTheme.name) || '';
+                        pv.innerHTML = '<div class="pv-bg"><div class="pv-card">'
+                            + '<div class="pv-head"><span class="pv-title">' + esc(name) + '</span><span class="pv-pill">aktiv</span></div>'
+                            + '<p>Hovedtekst i dette temaet. <span class="pv-accent">Aksentert tekst</span> sammen med <span class="pv-muted">dempet tekst</span>.</p>'
+                            + '<p class="pv-subtle">Subtil notat-linje, ofte brukt til metadata.</p>'
+                            + '<button class="pv-btn">Knapp</button>'
+                            + '</div></div>';
+                    }
+                    function cloneTheme() {
+                        const name = prompt('Navn på det nye temaet:', (currentTheme.name || currentId) + ' (kopi)');
+                        if (!name) return;
+                        fetch('/api/themes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ from: currentId, name: name }) })
+                            .then(r => r.json()).then(d => {
+                                if (!d.ok) { alert('Klone feilet: ' + d.error); return; }
+                                location.href = '/themes#' + d.theme.id;
+                                location.reload();
+                            });
+                    }
+                    function saveTheme() {
+                        const name = document.getElementById('thName').value.trim() || currentTheme.name;
+                        const vars = gatherVars();
+                        fetch('/api/themes/' + encodeURIComponent(currentId), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, vars: vars }) })
+                            .then(r => r.json()).then(d => {
+                                if (!d.ok) { alert('Lagring feilet: ' + d.error); return; }
+                                // Reload theme stylesheet on the page
+                                const link = document.getElementById('themeStylesheet');
+                                if (link && ACTIVE === currentId) link.href = '/themes/' + currentId + '.css?ts=' + Date.now();
+                                currentTheme = d.theme;
+                                const item = list.querySelector('.th-rail-item[data-id="' + currentId + '"] .th-rail-name');
+                                if (item) item.textContent = d.theme.name + ' tilpasset';
+                            });
+                    }
+                    function deleteTheme() {
+                        if (!confirm('Slette temaet "' + (currentTheme.name || currentId) + '"?')) return;
+                        fetch('/api/themes/' + encodeURIComponent(currentId), { method: 'DELETE' })
+                            .then(r => r.json()).then(d => {
+                                if (!d.ok) { alert('Slett feilet: ' + d.error); return; }
+                                location.href = '/themes';
+                            });
+                    }
+                    function applyTheme() {
+                        // Apply to active context via settings PUT
+                        fetch('/api/contexts').then(r => r.json()).then(d => {
+                            const active = d.active;
+                            if (!active) { alert('Ingen aktiv kontekst'); return; }
+                            const ctx = (d.contexts || []).find(c => c.id === active);
+                            const settings = Object.assign({}, ctx ? ctx.settings : {}, { theme: currentId });
+                            fetch('/api/contexts/' + encodeURIComponent(active) + '/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) })
+                                .then(r => r.json()).then(d2 => {
+                                    if (!d2.ok) { alert('Kunne ikke aktivere: ' + d2.error); return; }
+                                    const link = document.getElementById('themeStylesheet');
+                                    if (link) link.href = '/themes/' + currentId + '.css?ts=' + Date.now();
+                                    list.querySelectorAll('.th-rail-item').forEach(b => b.classList.toggle('active', b.getAttribute('data-id') === currentId));
+                                });
+                        });
+                    }
+                    list.querySelectorAll('.th-rail-item').forEach(b => {
+                        b.addEventListener('click', () => selectId(b.getAttribute('data-id')));
+                    });
+                    // Auto-select from hash, or active theme
+                    const initial = (location.hash && location.hash.slice(1)) || ACTIVE;
+                    if (initial && list.querySelector('.th-rail-item[data-id="' + initial + '"]')) selectId(initial);
+                })();
+            </script>`;
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(pageHtml('Temaer', body));
+        return;
+    }
+
+    // Settings / contexts page
     if (pathname === '/settings') {
         const active = getActiveContext();
         const all = listContexts().map(id => {
@@ -3364,10 +3745,19 @@ document.addEventListener('keydown', function(e) {
                         <fieldset class="theme-block">
                             <legend>Tema</legend>
                             <div class="theme-grid">
-                                ${THEMES.map(t => {
-                                    const selected = (c.settings.theme || 'paper') === t;
-                                    return `<label class="theme-swatch theme-${t}${selected ? ' is-selected' : ''}">
-                                        <input type="radio" name="theme" value="${escapeHtml(t)}"${selected ? ' checked' : ''}>
+                                ${listAllThemes().map(t => {
+                                    const selected = (c.settings.theme || 'paper') === t.id;
+                                    const v = t.vars || {};
+                                    const previewStyle = [
+                                        v['surface'] && `--p-surface:${v['surface']}`,
+                                        v['surface-head'] && `--p-head:${v['surface-head']}`,
+                                        v['border'] && `--p-border:${v['border']}`,
+                                        v['accent'] && `--p-accent:${v['accent']}`,
+                                        v['text-muted'] && `--p-muted:${v['text-muted']}`,
+                                        v['text-subtle'] && `--p-subtle:${v['text-subtle']}`,
+                                    ].filter(Boolean).join(';');
+                                    return `<label class="theme-swatch theme-${escapeHtml(t.id)}${selected ? ' is-selected' : ''}"${previewStyle ? ` style="${previewStyle}"` : ''}>
+                                        <input type="radio" name="theme" value="${escapeHtml(t.id)}"${selected ? ' checked' : ''}>
                                         <span class="theme-preview">
                                             <span class="theme-bar"></span>
                                             <span class="theme-body">
@@ -3376,10 +3766,11 @@ document.addEventListener('keydown', function(e) {
                                                 <span class="theme-line theme-line-3"></span>
                                             </span>
                                         </span>
-                                        <span class="theme-name">${escapeHtml(THEME_LABELS[t] || t)}</span>
+                                        <span class="theme-name">${escapeHtml(t.name || t.id)}${t.builtin ? '' : ' ✏️'}</span>
                                     </label>`;
                                 }).join('')}
                             </div>
+                            <p class="theme-builder-link"><a href="/themes">🎨 Tilpass tema →</a></p>
                         </fieldset>
                     </div>
                     </div>
@@ -3563,42 +3954,17 @@ document.addEventListener('keydown', function(e) {
                 .theme-line-2 { width:60%; }
                 .theme-line-3 { width:40%; }
                 .theme-name { text-align:center; font-size:0.78em; color:var(--text-muted-warm); margin-top:6px; font-weight:600; text-transform:none; letter-spacing:0; }
-                /* Per-swatch preview palettes (independent of currently active theme) */
-                .theme-paper .theme-preview { background:#fffdf7; }
-                .theme-paper .theme-bar { background:#f8f3e2; border-bottom:1px solid #ebe2cb; }
-                .theme-paper .theme-line { background:#1a365d; }
-                .theme-paper .theme-line-2 { background:#7a6f4d; }
-                .theme-paper .theme-line-3 { background:#a99a78; }
-                .theme-dark .theme-preview { background:#242a38; }
-                .theme-dark .theme-bar { background:#2a3145; border-bottom:1px solid #3a4358; }
-                .theme-dark .theme-line { background:#7faaff; }
-                .theme-dark .theme-line-2 { background:#cbd5e0; }
-                .theme-dark .theme-line-3 { background:#889bb1; }
-                .theme-nerd .theme-preview { background:#000000; }
-                .theme-nerd .theme-bar { background:#0c150c; border-bottom:1px solid #1f3a1f; }
-                .theme-nerd .theme-line { background:#00ff41; }
-                .theme-nerd .theme-line-2 { background:#33ff33; }
-                .theme-nerd .theme-line-3 { background:#1e8a1e; }
-                .theme-solarized-light .theme-preview { background:#fff9eb; }
-                .theme-solarized-light .theme-bar { background:#f4ecd0; border-bottom:1px solid #e0dac4; }
-                .theme-solarized-light .theme-line { background:#268bd2; }
-                .theme-solarized-light .theme-line-2 { background:#657b83; }
-                .theme-solarized-light .theme-line-3 { background:#93a1a1; }
-                .theme-nord .theme-preview { background:#3b4252; }
-                .theme-nord .theme-bar { background:#3b4252; border-bottom:1px solid #4c566a; }
-                .theme-nord .theme-line { background:#88c0d0; }
-                .theme-nord .theme-line-2 { background:#d8dee9; }
-                .theme-nord .theme-line-3 { background:#889bb1; }
-                .theme-forest .theme-preview { background:#f7f5e8; }
-                .theme-forest .theme-bar { background:#e8ecd2; border-bottom:1px solid #ccd6b3; }
-                .theme-forest .theme-line { background:#2d5a2c; }
-                .theme-forest .theme-line-2 { background:#5a6f44; }
-                .theme-forest .theme-line-3 { background:#7a8862; }
-                .theme-ocean .theme-preview { background:#f4f9fc; }
-                .theme-ocean .theme-bar { background:#d8e5ec; border-bottom:1px solid #c0d0dd; }
-                .theme-ocean .theme-line { background:#0a6b8a; }
-                .theme-ocean .theme-line-2 { background:#4a6878; }
-                .theme-ocean .theme-line-3 { background:#6a8090; }
+                .theme-builder-link { margin: 10px 4px 0; font-size: 0.85em; }
+                .theme-builder-link a { color: var(--accent); text-decoration: none; font-weight: 600; }
+                .theme-builder-link a:hover { text-decoration: underline; }
+                /* Generic per-swatch preview palette using inline --p-* custom props.
+                   Each swatch sets its own colors via inline style; built-ins and
+                   custom themes share the same renderer. */
+                .theme-swatch .theme-preview { background: var(--p-surface, var(--surface)); }
+                .theme-swatch .theme-bar { background: var(--p-head, var(--p-surface, var(--surface-head))); border-bottom: 1px solid var(--p-border, var(--border-faint)); }
+                .theme-swatch .theme-line-1 { background: var(--p-accent, var(--accent)); }
+                .theme-swatch .theme-line-2 { background: var(--p-muted, var(--text-muted)); }
+                .theme-swatch .theme-line-3 { background: var(--p-subtle, var(--text-subtle)); }
                 .wh-week { display:grid; grid-template-columns:repeat(7, minmax(0,1fr)); gap:8px; }
                 .wh-day { display:flex; flex-direction:column; align-items:center; gap:8px; padding:10px 6px 12px; border-radius:8px; border:1px solid var(--border-faint); background:transparent; transition: background 0.12s, border-color 0.12s, opacity 0.12s; }
                 .wh-day.on { background:var(--surface-alt); border-color:var(--border-soft); }
@@ -5800,6 +6166,72 @@ function expandAllPeople(expand) {
         try { syncMentions(m.title, m.notes, (m.attendees || []).map(a => '@' + a).join(' ')); } catch {}
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, meeting: m }));
+        return;
+    }
+
+    // API: list all themes (built-in + custom)
+    if (pathname === '/api/themes' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(listAllThemes()));
+        return;
+    }
+    // API: clone a theme to a new custom theme
+    if (pathname === '/api/themes' && req.method === 'POST') {
+        let body = '';
+        req.on('data', c => body += c);
+        req.on('end', () => {
+            try {
+                const { from, name } = JSON.parse(body || '{}');
+                const src = findTheme(from);
+                if (!src) throw new Error('Kildetema ikke funnet');
+                const baseName = String(name || (src.name + ' (kopi)')).trim() || 'Nytt tema';
+                const id = uniqueThemeId(baseName);
+                writeCustomTheme(id, baseName, src.vars);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: true, theme: readCustomTheme(id) }));
+            } catch (e) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: String(e.message || e) }));
+            }
+        });
+        return;
+    }
+    // API: update / delete a custom theme
+    const themeMatch = pathname.match(/^\/api\/themes\/([a-z0-9_-]+)$/);
+    if (themeMatch && req.method === 'PUT') {
+        const id = safeThemeId(themeMatch[1]);
+        if (THEMES.includes(id)) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Innebygde temaer kan ikke endres — klone først' }));
+            return;
+        }
+        let body = '';
+        req.on('data', c => body += c);
+        req.on('end', () => {
+            try {
+                const { name, vars } = JSON.parse(body || '{}');
+                if (!vars || typeof vars !== 'object') throw new Error('Mangler variabler');
+                const existing = readCustomTheme(id);
+                if (!existing) throw new Error('Tema finnes ikke');
+                writeCustomTheme(id, name || existing.name, vars);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: true, theme: readCustomTheme(id) }));
+            } catch (e) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: String(e.message || e) }));
+            }
+        });
+        return;
+    }
+    if (themeMatch && req.method === 'DELETE') {
+        try {
+            deleteCustomTheme(themeMatch[1]);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true }));
+        } catch (e) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: String(e.message || e) }));
+        }
         return;
     }
 

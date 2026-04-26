@@ -11,6 +11,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 ## 📜 Changelog
 
 ### 2026-04-26
+- Themes: new `/themes` builder — clone any theme, edit its CSS variables (colors, font-family, font-size) with color pickers + live preview, save as a custom theme in `data/_themes/` (gitignored). Built-ins are read-only.
+- Themes: per-theme `--font-family` and `--font-size` vars; `body` reads them so the entire UI rescales when you change font-size on a theme. Form controls inherit. Nerd theme runs at 14px monospace by default.
+- Settings: theme grid enumerates dynamically (built-ins + custom) with a "🎨 Tilpass tema →" link to the builder
 - Welcome screen: after creating or cloning a context, switch to it and open `/settings` instead of the home page so the new context can be configured immediately
 - Disconnected-repo memory now deduped by remote URL (read and write) so the same repo never appears twice in the known-repos picker
 - Settings: known-repos picker shown on the "Klon fra remote" pane, mirroring the welcome page

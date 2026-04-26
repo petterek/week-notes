@@ -15,4 +15,6 @@
     --accent: #88c0d0;
     --accent-strong: #a3d3e1;
     --accent-soft: #434c5e;
+    --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-size: 16px;
 }
