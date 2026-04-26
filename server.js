@@ -3214,7 +3214,8 @@ document.addEventListener('keydown', function(e) {
                 .welcome-card-head p { margin: 0; color: var(--text-subtle); font-size: 0.9em; }
                 .welcome-card form { display: flex; flex-direction: column; gap: 10px; }
                 .welcome-card label { display: flex; flex-direction: column; gap: 4px; font-size: 0.9em; color: var(--text-muted); }
-                .welcome-card input[type="text"], .welcome-card textarea { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); font-family: inherit; font-size: 0.95em; }
+                .welcome-card input[type="text"], .welcome-card textarea { padding: 9px 11px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-alt); color: var(--text-strong); font-family: inherit; font-size: 0.95em; transition: border-color 0.15s, box-shadow 0.15s; }
+                .welcome-card input[type="text"]:focus, .welcome-card textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft, rgba(80,120,180,0.2)); background: var(--surface); }
                 .welcome-card .ctx-form-grid { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
                 .welcome-card-actions { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
             </style>
