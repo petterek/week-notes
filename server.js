@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { marked } = require('marked');
 const { execSync } = require('child_process');
+const { Worker } = require('worker_threads');
 
 const PORT = parseInt(process.env.PORT, 10) || 3001;
 const CONTEXTS_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
@@ -33,7 +34,8 @@ function getActiveContext() {
     return first;
 }
 
-function setActiveContext(name) {
+function setActiveContext(name, opts) {
+    const { skipPull = false } = opts || {};
     const safe = safeName(name);
     if (!safe) throw new Error('Ugyldig kontekstnavn');
     if (!listContexts().includes(safe)) throw new Error('Kontekst finnes ikke');
@@ -49,16 +51,23 @@ function setActiveContext(name) {
         }
     } catch (e) { console.error('pre-switch commit failed', e.message); }
     fs.writeFileSync(ACTIVE_FILE, safe);
-    // Pull the target context if it has a remote configured
-    try {
-        const targetDir = path.join(CONTEXTS_DIR, safe);
-        const targetSettings = getContextSettings(safe);
-        if (gitIsRepo(targetDir) && (targetSettings.remote || '').trim()) {
-            try { git(targetDir, 'pull --ff-only --quiet'); }
-            catch (e) { console.error('git pull failed for', safe, e.message); }
-        }
-    } catch (e) { console.error('post-switch pull failed', e.message); }
+    // Pull the target context if it has a remote configured (skippable so
+    // callers can defer the network call to a background task)
+    if (!skipPull) {
+        try { pullContextRemote(safe); }
+        catch (e) { console.error('post-switch pull failed', e.message); }
+    }
     return safe;
+}
+
+function pullContextRemote(name) {
+    const safe = safeName(name);
+    const targetDir = path.join(CONTEXTS_DIR, safe);
+    const targetSettings = getContextSettings(safe);
+    if (gitIsRepo(targetDir) && (targetSettings.remote || '').trim()) {
+        try { git(targetDir, 'pull --ff-only --quiet'); }
+        catch (e) { console.error('git pull failed for', safe, e.message); }
+    }
 }
 
 function createContext(rawName, settings) {
@@ -771,6 +780,7 @@ function pageHtml(title, body, extraNavLinks) {
                 <a href="/people" data-key="p" title="Personer (Alt+P)">👥 Personer <kbd>Alt+P</kbd></a>
                 <a href="/results" data-key="r" title="Resultater (Alt+R)">⚖️ Resultater <kbd>Alt+R</kbd></a>
                 <a href="/editor" data-key="n" title="Nytt notat (Alt+N)">📝 Nytt <kbd>Alt+N</kbd></a>
+                <a href="#" id="navSearchBtn" data-key="/" title="Søk (Ctrl+K eller /)">🔎 Søk <kbd>Ctrl+K</kbd></a>
                 <a href="/settings" data-key="s" title="Innstillinger (Alt+S)">⚙️ Innstillinger <kbd>Alt+S</kbd></a>
                 <a href="#" id="helpBtn" title="Hjelp">❓ Hjelp</a>
                 ${extra}
@@ -945,9 +955,129 @@ function pageHtml(title, body, extraNavLinks) {
         #personTip .pt-row { color: #718096; font-size: 0.9em; }
         #personTip .pt-notes { color: #4a5568; margin-top: 6px; padding-top: 6px; border-top: 1px solid #e8e2d2; white-space: pre-wrap; }
         #personTip .pt-missing { color: #a0aec0; font-style: italic; }
+        #globalSearchModal .gs-card { background: #fbf9f4; border: 1px solid #e8e2d2; border-radius: 10px; padding: 18px 20px; width: min(720px, 92vw); max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+        #globalSearchModal .gs-input-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+        #globalSearchModal .gs-input { flex: 1; font-size: 1.05em; padding: 8px 12px; border: 1px solid #d6cdb6; border-radius: 6px; background: #fff; color: #1a202c; outline: none; }
+        #globalSearchModal .gs-input:focus { border-color: #ed8936; box-shadow: 0 0 0 2px rgba(237,137,54,0.18); }
+        #globalSearchModal .gs-close { background: none; border: none; font-size: 1.3em; cursor: pointer; color: #718096; }
+        #globalSearchModal .gs-results { overflow-y: auto; flex: 1; padding-right: 4px; }
+        #globalSearchModal .gs-hint { color: #a0998a; font-size: 0.8em; margin-top: 6px; }
     </style>
 </head>
-<body>${nav}${body}<div id="personTip"></div><div id="helpModal" class="page-modal" onclick="if(event.target===this)this.style.display='none'"><div class="page-modal-card" style="max-width:780px;max-height:85vh;display:flex;flex-direction:column"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:12px"><h3 style="margin:0">❓ Hjelp</h3><button onclick="document.getElementById('helpModal').style.display='none'" style="background:none;border:none;font-size:1.3em;cursor:pointer;color:#718096">✕</button></div><div id="helpContent" class="md-content" style="overflow-y:auto;flex:1;padding:4px 4px 4px 0">Laster…</div></div></div><script>(function(){var btn=document.getElementById('helpBtn');var modal=document.getElementById('helpModal');var loaded=false;if(!btn||!modal)return;btn.addEventListener('click',function(e){e.preventDefault();modal.style.display='flex';if(loaded)return;fetch('/help.md').then(function(r){return r.text();}).then(function(md){document.getElementById('helpContent').innerHTML=window.marked?marked.parse(md):'<pre>'+md.replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];})+'</pre>';loaded=true;}).catch(function(){document.getElementById('helpContent').textContent='Kunne ikke laste hjelp.';});});document.addEventListener('keydown',function(e){if(e.key==='Escape'&&modal.style.display==='flex')modal.style.display='none';});})();</script><script>document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaKey)return;var link=document.querySelector('.nav-links a[data-key="'+e.key.toLowerCase()+'"]');if(link){e.preventDefault();window.location.href=link.href;}});(function(){var t=document.getElementById('ctxTrigger');var sw=t&&t.parentElement;if(!t)return;t.addEventListener('click',function(e){e.stopPropagation();sw.classList.toggle('open');});document.addEventListener('click',function(e){if(!sw.contains(e.target))sw.classList.remove('open');});sw.querySelectorAll('.ctx-item[data-id]').forEach(function(b){b.addEventListener('click',function(){var id=b.getAttribute('data-id');fetch('/api/contexts/switch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})}).then(function(r){return r.json();}).then(function(d){if(d.ok)location.reload();else alert('Kunne ikke bytte kontekst: '+d.error);});});});var cb=document.getElementById('ctxCommitBtn');if(cb)cb.addEventListener('click',function(e){e.stopPropagation();var id=cb.getAttribute('data-active');var msg=prompt('Commit-melding (valgfritt):','');if(msg===null)return;cb.textContent='⏳ Committer...';fetch('/api/contexts/'+encodeURIComponent(id)+'/commit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})}).then(function(r){return r.json();}).then(function(d){if(d.ok){cb.textContent=d.committed?'✓ Committet':'Ingen endringer';setTimeout(function(){sw.classList.remove('open');},1200);}else{cb.textContent='✗ '+d.error;}});});})();(function tick(){var c=document.getElementById('navClock');if(c)c.textContent=new Date().toLocaleTimeString('nb-NO',{hour:'2-digit',minute:'2-digit',second:'2-digit'});setTimeout(tick,1000)})();(function(){var tip=document.getElementById('personTip');var peopleCache=null;var peoplePromise=null;function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}function loadPeople(){if(peopleCache)return Promise.resolve(peopleCache);if(peoplePromise)return peoplePromise;peoplePromise=fetch('/api/people').then(function(r){return r.json();}).then(function(d){peopleCache=d||[];return peopleCache;}).catch(function(){peopleCache=[];return peopleCache;});return peoplePromise;}function findPerson(people,key){if(!key)return null;return people.find(function(p){return (p.key&&p.key===key)||(p.name&&p.name.toLowerCase()===key);});}function render(p,key){if(!p){return '<div class="pt-missing">Ingen oppføring for @'+esc(key)+'</div>';}var name=p.firstName?(p.lastName?p.firstName+' '+p.lastName:p.firstName):(p.name||key);var html='<div class="pt-name">'+esc(name)+'</div>';if(p.title)html+='<div class="pt-title">'+esc(p.title)+'</div>';if(p.email)html+='<div class="pt-row">✉️ '+esc(p.email)+'</div>';if(p.phone)html+='<div class="pt-row">📞 '+esc(p.phone)+'</div>';if(p.notes){var n=p.notes.length>140?p.notes.slice(0,140)+'…':p.notes;html+='<div class="pt-notes">'+esc(n)+'</div>';}return html;}function position(ev){var r=18,vw=window.innerWidth,vh=window.innerHeight;var w=tip.offsetWidth,h=tip.offsetHeight;var x=ev.clientX+r,y=ev.clientY+r;if(x+w>vw-8)x=ev.clientX-w-r;if(y+h>vh-8)y=ev.clientY-h-r;if(x<8)x=8;if(y<8)y=8;tip.style.left=x+'px';tip.style.top=y+'px';}var current=null;document.addEventListener('mouseover',function(e){var a=e.target.closest&&e.target.closest('.mention-link');if(!a)return;current=a;var key=a.getAttribute('data-person-key')||a.textContent.trim().toLowerCase();loadPeople().then(function(people){if(current!==a)return;tip.innerHTML=render(findPerson(people,key),key);tip.classList.add('visible');position(e);});});document.addEventListener('mousemove',function(e){if(tip.classList.contains('visible')&&e.target.closest&&e.target.closest('.mention-link'))position(e);});document.addEventListener('mouseout',function(e){var a=e.target.closest&&e.target.closest('.mention-link');if(!a)return;var to=e.relatedTarget;if(to&&to.closest&&to.closest('.mention-link')===a)return;current=null;tip.classList.remove('visible');});})();</script></body>
+<body>${nav}${body}<div id="personTip"></div><div id="helpModal" class="page-modal" onclick="if(event.target===this)this.style.display='none'"><div class="page-modal-card" style="max-width:780px;max-height:85vh;display:flex;flex-direction:column"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:12px"><h3 style="margin:0">❓ Hjelp</h3><button onclick="document.getElementById('helpModal').style.display='none'" style="background:none;border:none;font-size:1.3em;cursor:pointer;color:#718096">✕</button></div><div id="helpContent" class="md-content" style="overflow-y:auto;flex:1;padding:4px 4px 4px 0">Laster…</div></div></div><script>(function(){var btn=document.getElementById('helpBtn');var modal=document.getElementById('helpModal');var loaded=false;if(!btn||!modal)return;btn.addEventListener('click',function(e){e.preventDefault();modal.style.display='flex';if(loaded)return;fetch('/help.md').then(function(r){return r.text();}).then(function(md){document.getElementById('helpContent').innerHTML=window.marked?marked.parse(md):'<pre>'+md.replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];})+'</pre>';loaded=true;}).catch(function(){document.getElementById('helpContent').textContent='Kunne ikke laste hjelp.';});});document.addEventListener('keydown',function(e){if(e.key==='Escape'&&modal.style.display==='flex')modal.style.display='none';});})();</script><script>document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaKey)return;var link=document.querySelector('.nav-links a[data-key="'+e.key.toLowerCase()+'"]');if(link){e.preventDefault();window.location.href=link.href;}});(function(){var t=document.getElementById('ctxTrigger');var sw=t&&t.parentElement;if(!t)return;t.addEventListener('click',function(e){e.stopPropagation();sw.classList.toggle('open');});document.addEventListener('click',function(e){if(!sw.contains(e.target))sw.classList.remove('open');});sw.querySelectorAll('.ctx-item[data-id]').forEach(function(b){b.addEventListener('click',function(){var id=b.getAttribute('data-id');fetch('/api/contexts/switch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})}).then(function(r){return r.json();}).then(function(d){if(d.ok)location.reload();else alert('Kunne ikke bytte kontekst: '+d.error);});});});var cb=document.getElementById('ctxCommitBtn');if(cb)cb.addEventListener('click',function(e){e.stopPropagation();var id=cb.getAttribute('data-active');var msg=prompt('Commit-melding (valgfritt):','');if(msg===null)return;cb.textContent='⏳ Committer...';fetch('/api/contexts/'+encodeURIComponent(id)+'/commit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})}).then(function(r){return r.json();}).then(function(d){if(d.ok){cb.textContent=d.committed?'✓ Committet':'Ingen endringer';setTimeout(function(){sw.classList.remove('open');},1200);}else{cb.textContent='✗ '+d.error;}});});})();(function tick(){var c=document.getElementById('navClock');if(c)c.textContent=new Date().toLocaleTimeString('nb-NO',{hour:'2-digit',minute:'2-digit',second:'2-digit'});setTimeout(tick,1000)})();(function(){var tip=document.getElementById('personTip');var peopleCache=null;var peoplePromise=null;function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}function loadPeople(){if(peopleCache)return Promise.resolve(peopleCache);if(peoplePromise)return peoplePromise;peoplePromise=fetch('/api/people').then(function(r){return r.json();}).then(function(d){peopleCache=d||[];return peopleCache;}).catch(function(){peopleCache=[];return peopleCache;});return peoplePromise;}function findPerson(people,key){if(!key)return null;return people.find(function(p){return (p.key&&p.key===key)||(p.name&&p.name.toLowerCase()===key);});}function render(p,key){if(!p){return '<div class="pt-missing">Ingen oppføring for @'+esc(key)+'</div>';}var name=p.firstName?(p.lastName?p.firstName+' '+p.lastName:p.firstName):(p.name||key);var html='<div class="pt-name">'+esc(name)+'</div>';if(p.title)html+='<div class="pt-title">'+esc(p.title)+'</div>';if(p.email)html+='<div class="pt-row">✉️ '+esc(p.email)+'</div>';if(p.phone)html+='<div class="pt-row">📞 '+esc(p.phone)+'</div>';if(p.notes){var n=p.notes.length>140?p.notes.slice(0,140)+'…':p.notes;html+='<div class="pt-notes">'+esc(n)+'</div>';}return html;}function position(ev){var r=18,vw=window.innerWidth,vh=window.innerHeight;var w=tip.offsetWidth,h=tip.offsetHeight;var x=ev.clientX+r,y=ev.clientY+r;if(x+w>vw-8)x=ev.clientX-w-r;if(y+h>vh-8)y=ev.clientY-h-r;if(x<8)x=8;if(y<8)y=8;tip.style.left=x+'px';tip.style.top=y+'px';}var current=null;document.addEventListener('mouseover',function(e){var a=e.target.closest&&e.target.closest('.mention-link');if(!a)return;current=a;var key=a.getAttribute('data-person-key')||a.textContent.trim().toLowerCase();loadPeople().then(function(people){if(current!==a)return;tip.innerHTML=render(findPerson(people,key),key);tip.classList.add('visible');position(e);});});document.addEventListener('mousemove',function(e){if(tip.classList.contains('visible')&&e.target.closest&&e.target.closest('.mention-link'))position(e);});document.addEventListener('mouseout',function(e){var a=e.target.closest&&e.target.closest('.mention-link');if(!a)return;var to=e.relatedTarget;if(to&&to.closest&&to.closest('.mention-link')===a)return;current=null;tip.classList.remove('visible');});})();</script><div id="globalSearchModal" class="page-modal" onclick="if(event.target===this)window.__closeGlobalSearch&&window.__closeGlobalSearch()"><div class="gs-card"><div class="gs-input-row"><input id="gsInput" class="gs-input" type="text" placeholder="Søk i notater, oppgaver, møter, personer, resultater…" autocomplete="off" /><button class="gs-close" onclick="window.__closeGlobalSearch&&window.__closeGlobalSearch()" title="Lukk (Esc)">✕</button></div><div id="gsResults" class="gs-results"></div><div class="gs-hint">↵ åpne første · Esc lukk · Ctrl+K eller / for å søke fra hvor som helst</div></div></div><script>(function(){
+    var modal = document.getElementById('globalSearchModal');
+    var input = document.getElementById('gsInput');
+    var resultsEl = document.getElementById('gsResults');
+    var btn = document.getElementById('navSearchBtn');
+    if(!modal||!input||!resultsEl) return;
+    var debounceTimer = null;
+    var lastQuery = '';
+    var lastResults = [];
+
+    function escapeHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+    function highlight(escaped, q){
+        if(!q) return escaped;
+        var re = new RegExp('('+q.replace(/[.*+?^\${}()|[\\]\\\\]/g,'\\\\$$&')+')','gi');
+        return escaped.replace(re,'<mark>$1</mark>');
+    }
+    var TYPE_META = {
+        note:    { icon:'📝', label:'Notater' },
+        task:    { icon:'✅', label:'Oppgaver' },
+        meeting: { icon:'📅', label:'Møter' },
+        person:  { icon:'👤', label:'Personer' },
+        result:  { icon:'🏁', label:'Resultater' }
+    };
+    var ORDER = ['note','task','meeting','person','result'];
+
+    function render(data, q){
+        if(!data || data.length === 0){
+            resultsEl.innerHTML = '<p style="color:#718096;font-style:italic">Ingen treff for «' + escapeHtml(q) + '»</p>';
+            return;
+        }
+        var groups = {};
+        data.forEach(function(r){ (groups[r.type] = groups[r.type] || []).push(r); });
+        var html = '<p style="color:#718096;font-size:0.9em;margin:0 0 8px">' + data.length + ' treff · '
+            + ORDER.filter(function(t){return groups[t];}).map(function(t){return TYPE_META[t].icon + ' ' + groups[t].length;}).join(' · ')
+            + '</p>';
+        ORDER.forEach(function(t){
+            if(!groups[t]) return;
+            var meta = TYPE_META[t];
+            html += '<h3 class="sr-group">' + meta.icon + ' ' + meta.label + ' <span class="sr-count">' + groups[t].length + '</span></h3>';
+            html += groups[t].map(function(r){
+                var snippet = r.snippet ? highlight(escapeHtml(r.snippet), q) : '';
+                return '<a href="' + r.href + '" class="search-result" style="display:block;text-decoration:none">'
+                    + '<div class="sr-title">' + escapeHtml(r.title || '') + '</div>'
+                    + (r.subtitle ? '<div class="sr-path">' + escapeHtml(r.subtitle) + '</div>' : '')
+                    + (snippet ? '<div class="sr-snippet">' + snippet + '</div>' : '')
+                    + '</a>';
+            }).join('');
+        });
+        resultsEl.innerHTML = html;
+    }
+
+    function doSearch(q){
+        lastQuery = q;
+        if(!q){ resultsEl.innerHTML=''; lastResults=[]; return; }
+        fetch('/api/search?q=' + encodeURIComponent(q))
+            .then(function(r){ return r.json(); })
+            .then(function(data){
+                if(lastQuery !== q) return; // stale
+                lastResults = Array.isArray(data) ? data : [];
+                render(lastResults, q);
+            })
+            .catch(function(){ resultsEl.innerHTML = '<p style="color:#c53030">Søkefeil</p>'; });
+    }
+
+    function openSearch(prefill){
+        modal.style.display = 'flex';
+        if(typeof prefill === 'string'){ input.value = prefill; }
+        setTimeout(function(){ input.focus(); input.select(); }, 0);
+        var q = input.value.trim();
+        if(q && q !== lastQuery){ doSearch(q); }
+    }
+    function closeSearch(){ modal.style.display = 'none'; }
+    window.__openGlobalSearch  = openSearch;
+    window.__closeGlobalSearch = closeSearch;
+
+    if(btn){
+        btn.addEventListener('click', function(e){ e.preventDefault(); openSearch(); });
+    }
+
+    input.addEventListener('input', function(){
+        clearTimeout(debounceTimer);
+        var q = input.value.trim();
+        if(!q){ resultsEl.innerHTML=''; lastQuery=''; lastResults=[]; return; }
+        debounceTimer = setTimeout(function(){ doSearch(q); }, 200);
+    });
+
+    input.addEventListener('keydown', function(e){
+        if(e.key === 'Enter'){
+            var first = resultsEl.querySelector('a.search-result');
+            if(first){ e.preventDefault(); window.location.href = first.getAttribute('href'); }
+        } else if(e.key === 'Escape'){
+            e.preventDefault(); closeSearch();
+        }
+    });
+
+    document.addEventListener('keydown', function(e){
+        // Ctrl+K / Cmd+K from anywhere
+        if((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'k' || e.key === 'K')){
+            e.preventDefault(); openSearch();
+            return;
+        }
+        // Esc closes
+        if(e.key === 'Escape' && modal.style.display === 'flex'){
+            e.preventDefault(); closeSearch();
+            return;
+        }
+        // "/" opens, but only when the user isn't typing somewhere
+        if(e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey){
+            var t = e.target;
+            var typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+            if(!typing){ e.preventDefault(); openSearch(); }
+        }
+    });
+})();</script></body>
 </html>`;
 }
 
@@ -1926,6 +2056,82 @@ function readBody(req) {
     });
 }
 
+// ---- Search worker (worker_threads) ----
+let searchWorker = null;
+const pendingSearches = new Map(); // requestId -> { resolve, reject, timer }
+let searchReqSeq = 0;
+
+function startSearchWorker() {
+    try {
+        searchWorker = new Worker(path.join(__dirname, 'search-worker.js'));
+    } catch (e) {
+        console.error('search-worker start failed', e.message);
+        searchWorker = null;
+        return;
+    }
+    searchWorker.on('message', (msg) => {
+        if (msg.type === 'indexed') {
+            console.log(`🔎 søkeindeks: ${msg.docCount} dok, ${msg.tokenCount} tokens (${msg.ms}ms, ${msg.trigger || 'manual'})`);
+        } else if (msg.type === 'result') {
+            const p = pendingSearches.get(msg.requestId);
+            if (p) {
+                clearTimeout(p.timer);
+                pendingSearches.delete(msg.requestId);
+                p.resolve(msg.results);
+            }
+        } else if (msg.type === 'error') {
+            if (msg.requestId != null) {
+                const p = pendingSearches.get(msg.requestId);
+                if (p) {
+                    clearTimeout(p.timer);
+                    pendingSearches.delete(msg.requestId);
+                    p.reject(new Error(msg.error));
+                }
+            } else {
+                console.error('search-worker:', msg.error);
+            }
+        }
+    });
+    searchWorker.on('error', (e) => console.error('search-worker error', e));
+    searchWorker.on('exit', (code) => {
+        console.error('search-worker exited with code', code);
+        searchWorker = null;
+        for (const [, p] of pendingSearches) { clearTimeout(p.timer); p.reject(new Error('worker died')); }
+        pendingSearches.clear();
+    });
+    reindexSearch();
+}
+
+function reindexSearch() {
+    if (!searchWorker) return;
+    try { searchWorker.postMessage({ type: 'reindex', contextDir: dataDir() }); }
+    catch (e) { console.error('reindex post failed', e.message); }
+}
+
+function searchViaWorker(q, timeoutMs = 5000) {
+    if (!searchWorker) {
+        // Fallback to in-process search if worker isn't available
+        try { return Promise.resolve(searchAll(q)); }
+        catch (e) { return Promise.reject(e); }
+    }
+    return new Promise((resolve, reject) => {
+        const requestId = ++searchReqSeq;
+        const timer = setTimeout(() => {
+            if (pendingSearches.has(requestId)) {
+                pendingSearches.delete(requestId);
+                reject(new Error('Søketid utløp'));
+            }
+        }, timeoutMs);
+        pendingSearches.set(requestId, { resolve, reject, timer });
+        try { searchWorker.postMessage({ type: 'query', q, requestId }); }
+        catch (e) {
+            clearTimeout(timer);
+            pendingSearches.delete(requestId);
+            reject(e);
+        }
+    });
+}
+
 const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const pathname = decodeURIComponent(url.pathname);
@@ -2054,8 +2260,6 @@ const server = http.createServer(async (req, res) => {
         })());
 
         let body = '<div class="home-layout">' + sidebar + '<main class="home-main">';
-        body += '<input class="search" id="searchInput" type="text" placeholder="Søk i notater…" />';
-        body += '<div id="searchResults"></div>';
         body += '<div id="weekList">';
 
         let currentSideHtml = '';
@@ -2180,72 +2384,11 @@ const server = http.createServer(async (req, res) => {
         body += '<div id="summaryModal" class="page-modal" onclick="if(event.target===this)closeSummary()"><div class="page-modal-card" style="max-width:700px;max-height:80vh;display:flex;flex-direction:column"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><h3 style="margin:0" id="summaryTitle">✨ Oppsummering</h3><button onclick="closeSummary()" style="background:none;border:none;font-size:1.3em;cursor:pointer;color:#718096">✕</button></div><div id="summaryContent" class="md-content" style="overflow-y:auto;flex:1"></div><div class="page-modal-actions"><button class="page-modal-btn cancel" onclick="closeSummary()">Lukk</button><button id="summarySaveBtn" class="page-modal-btn purple" onclick="saveSummary()">💾 Lagre</button></div></div></div>';
         body += '<div id="noteViewModal" class="page-modal" onclick="if(event.target===this)closeNoteViewModal()"><div class="page-modal-card" style="max-width:780px;max-height:85vh;display:flex;flex-direction:column"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:12px"><h3 style="margin:0" id="noteViewTitle">📄 Notat</h3><div style="display:flex;gap:8px;align-items:center"><a id="noteViewEditLink" href="#" class="page-modal-btn blue" style="text-decoration:none;font-size:0.85em">✏️ Rediger</a><button onclick="closeNoteViewModal()" style="background:none;border:none;font-size:1.3em;cursor:pointer;color:#718096">✕</button></div></div><div id="noteViewContent" class="md-content" style="overflow-y:auto;flex:1;padding:4px 4px 4px 0"></div></div></div>';
 
-        // Search script
+        // Home script (modals, mentions, summarize, etc.)
         body += `<script>
-        const searchInput = document.getElementById('searchInput');
-        const searchResults = document.getElementById('searchResults');
-        const weekList = document.getElementById('weekList');
-        let debounceTimer;
-
-        searchInput.addEventListener('input', () => {
-            clearTimeout(debounceTimer);
-            const q = searchInput.value.trim();
-            if (!q) {
-                searchResults.innerHTML = '';
-                weekList.style.display = '';
-                return;
-            }
-            debounceTimer = setTimeout(() => doSearch(q), 250);
-        });
-
-        async function doSearch(q) {
-            try {
-                const resp = await fetch('/api/search?q=' + encodeURIComponent(q));
-                const data = await resp.json();
-                if (data.length === 0) {
-                    searchResults.innerHTML = '<p style="color:#718096;font-style:italic">Ingen treff for «' + escapeHtml(q) + '»</p>';
-                } else {
-                    const TYPE_META = {
-                        note:    { icon: '📝', label: 'Notater' },
-                        task:    { icon: '✅', label: 'Oppgaver' },
-                        meeting: { icon: '📅', label: 'Møter' },
-                        person:  { icon: '👤', label: 'Personer' },
-                        result:  { icon: '🏁', label: 'Resultater' }
-                    };
-                    const groups = {};
-                    data.forEach(r => { (groups[r.type] = groups[r.type] || []).push(r); });
-                    const order = ['note', 'task', 'meeting', 'person', 'result'];
-                    let html = '<p style="color:#718096;font-size:0.9em">' + data.length + ' treff · '
-                        + order.filter(t => groups[t]).map(t => TYPE_META[t].icon + ' ' + groups[t].length).join(' · ')
-                        + '</p>';
-                    order.forEach(t => {
-                        if (!groups[t]) return;
-                        const meta = TYPE_META[t];
-                        html += '<h3 class="sr-group">' + meta.icon + ' ' + meta.label + ' <span class="sr-count">' + groups[t].length + '</span></h3>';
-                        html += groups[t].map(r => {
-                            const snippet = r.snippet ? highlightSnippet(escapeHtml(r.snippet), q) : '';
-                            return '<a href="' + r.href + '" class="search-result" style="display:block;text-decoration:none">'
-                                + '<div class="sr-title">' + escapeHtml(r.title || '') + '</div>'
-                                + (r.subtitle ? '<div class="sr-path">' + escapeHtml(r.subtitle) + '</div>' : '')
-                                + (snippet ? '<div class="sr-snippet">' + snippet + '</div>' : '')
-                                + '</a>';
-                        }).join('');
-                    });
-                    searchResults.innerHTML = html;
-                }
-                weekList.style.display = 'none';
-            } catch (e) {
-                searchResults.innerHTML = '<p style="color:red">Søkefeil</p>';
-            }
-        }
 
         function escapeHtml(s) {
             return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-        }
-
-        function highlightSnippet(escaped, q) {
-            const re = new RegExp('(' + q.replace(/[.*+?^\${}()|[\\]\\\\]/g, '\\\\$$&') + ')', 'gi');
-            return escaped.replace(re, '<mark>$$1</mark>');
         }
 
         let pendingToggleEl = null;
@@ -3945,9 +4088,21 @@ function expandAllPeople(expand) {
             res.end('[]');
             return;
         }
-        const results = searchAll(q.trim());
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(results));
+        try {
+            const results = await searchViaWorker(q.trim());
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(results));
+        } catch (e) {
+            // Last-ditch fallback to synchronous in-process search
+            try {
+                const results = searchAll(q.trim());
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(results));
+            } catch {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: e.message }));
+            }
+        }
         return;
     }
 
@@ -4568,9 +4723,15 @@ function expandAllPeople(expand) {
         req.on('end', () => {
             try {
                 const { id } = JSON.parse(body || '{}');
-                const next = setActiveContext(id);
+                // Fast path: just commit current and flip the .active pointer.
+                // The git pull and the search reindex run in the background.
+                const next = setActiveContext(id, { skipPull: true });
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ ok: true, active: next }));
+                setImmediate(() => {
+                    try { pullContextRemote(next); } catch (e) { console.error('bg pull', e.message); }
+                    reindexSearch();
+                });
             } catch (e) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ ok: false, error: String(e.message || e) }));
@@ -5054,5 +5215,6 @@ server.listen(PORT, () => {
     console.log(`Weeks server running at http://localhost:${PORT}/`);
     checkExternalTools();
     try { ensureAllContextsInitialised(); } catch (e) { console.error('ctx init', e.message); }
+    startSearchWorker();
     console.log('Press Ctrl+C to stop');
 });
