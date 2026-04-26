@@ -2330,7 +2330,7 @@ const server = http.createServer(async (req, res) => {
 
         function highlightSnippet(escaped, q) {
             const re = new RegExp('(' + q.replace(/[.*+?^\${}()|[\\]\\\\]/g, '\\\\$$&') + ')', 'gi');
-            return escaped.replace(re, '<mark>$$1</mark>');
+            return escaped.replace(re, '<mark>$1</mark>');
         }
 
         let pendingToggleEl = null;
