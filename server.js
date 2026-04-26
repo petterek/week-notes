@@ -2953,33 +2953,33 @@ document.addEventListener('keydown', function(e) {
                     </div>
                     </div>
                     <div class="ctx-tab-panel" data-panel="meetings">
-                    <div class="ctx-meetings-grid">
                     <div class="ctx-detail-section">
                         <h3>🗓️ Møter</h3>
                         <label>Standard møtelengde (minutter)<input type="number" name="defaultMeetingMinutes" value="${escapeHtml(String(c.settings.defaultMeetingMinutes || 60))}" min="5" max="600" step="5"></label>
                         <fieldset class="workhours-block">
                             <legend>Arbeidstid pr. dag</legend>
                             ${(function(){
-                                const labels = ['Mandag','Tirsdag','Onsdag','Torsdag','Fredag','Lørdag','Søndag'];
+                                const labels = ['Man','Tir','Ons','Tor','Fre','Lør','Søn'];
                                 const wh = getWorkHours(c.id).hours;
                                 const hourOpts = (sel) => Array.from({length:24},(_,h)=>{const v=String(h).padStart(2,'0');return `<option value="${v}"${sel===v?' selected':''}>${v}</option>`;}).join('');
                                 const minOpts = (sel) => Array.from({length:12},(_,k)=>{const v=String(k*5).padStart(2,'0');return `<option value="${v}"${sel===v?' selected':''}>${v}</option>`;}).join('');
-                                return labels.map((lbl, i) => {
+                                return '<div class="wh-week">' + labels.map((lbl, i) => {
                                     const day = wh[i];
                                     const on = !!day;
                                     const sH = on ? day.start.slice(0,2) : '08';
                                     const sM = on ? day.start.slice(3,5) : '00';
                                     const eH = on ? day.end.slice(0,2) : '16';
                                     const eM = on ? day.end.slice(3,5) : '00';
-                                    return `<div class="wh-row${on?' on':''}">
-                                        <label class="wh-on"><input type="checkbox" name="wh-on-${i}"${on?' checked':''}> ${lbl}</label>
-                                        <span class="wh-times">
+                                    return `<div class="wh-day${on?' on':''}">
+                                        <label class="wh-on"><input type="checkbox" name="wh-on-${i}"${on?' checked':''}><span class="wh-day-name">${lbl}</span></label>
+                                        <div class="wh-times">
                                             <span class="time-pick"><select name="wh-sH-${i}" class="t-h">${hourOpts(sH)}</select><span class="t-sep">:</span><select name="wh-sM-${i}" class="t-m">${minOpts(sM)}</select></span>
                                             <span class="wh-dash">→</span>
                                             <span class="time-pick"><select name="wh-eH-${i}" class="t-h">${hourOpts(eH)}</select><span class="t-sep">:</span><select name="wh-eM-${i}" class="t-m">${minOpts(eM)}</select></span>
-                                        </span>
+                                        </div>
+                                        <div class="wh-off-label">Fri</div>
                                     </div>`;
-                                }).join('');
+                                }).join('') + '</div>';
                             })()}
                         </fieldset>
                     </div>
@@ -2989,7 +2989,6 @@ document.addEventListener('keydown', function(e) {
                         <div class="mt-list" data-mt-list="${escapeHtml(c.id)}"></div>
                         <button type="button" class="btn-cancel mt-add" data-mt-add="${escapeHtml(c.id)}" style="margin-top:8px">+ Ny type</button>
                         <script type="application/json" data-mt-init="${escapeHtml(c.id)}">${JSON.stringify(loadMeetingTypes(c.id)).replace(/</g, '\\u003c')}</script>
-                    </div>
                     </div>
                     </div>
                     <div class="ctx-tab-panel" data-panel="git">
@@ -3081,9 +3080,6 @@ document.addEventListener('keydown', function(e) {
                 .ctx-tab-btn.is-active { color:var(--accent); border-bottom-color:var(--accent); font-weight:600; }
                 .ctx-tab-panel { display:none; }
                 .ctx-tab-panel.is-active { display:block; }
-                .ctx-meetings-grid { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap:24px; align-items:start; }
-                .ctx-meetings-grid .ctx-detail-section { margin-bottom: 0; }
-                @media (max-width: 980px) { .ctx-meetings-grid { grid-template-columns: 1fr; } }
                 .ctx-detail-section .section-hint { margin: -6px 0 10px; font-size: 0.85em; color: var(--text-muted-warm); }
                 .ctx-detail-actions { display: flex; align-items: center; gap: 12px; padding-top: 14px; border-top: 1px solid var(--border-faint); }
                 .ctx-form-grid { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }
@@ -3140,16 +3136,21 @@ document.addEventListener('keydown', function(e) {
                 .theme-ocean .theme-line { background:#0a6b8a; }
                 .theme-ocean .theme-line-2 { background:#4a6878; }
                 .theme-ocean .theme-line-3 { background:#6a8090; }
-                .wh-row { display:grid; grid-template-columns: 130px 1fr; align-items:center; gap:14px; padding:8px 12px; border-radius:6px; border:1px solid transparent; background:transparent; transition: background 0.12s, border-color 0.12s; }
-                .wh-row + .wh-row { margin-top:4px; }
-                .wh-row.on { background:var(--surface-alt); border-color:var(--border-faint); }
-                .wh-row .wh-on { display:flex; align-items:center; gap:8px; font-weight:500; color:var(--text); cursor:pointer; user-select:none; }
-                .wh-row .wh-on input { margin:0; accent-color:var(--accent); width:15px; height:15px; cursor:pointer; }
-                .wh-row .wh-times { display:flex; align-items:center; gap:8px; }
-                .wh-row:not(.on) .wh-on { color:var(--text-subtle); }
-                .wh-row:not(.on) .wh-times { display:none; }
-                .wh-row:not(.on)::after { content:"Fri"; color:var(--text-subtle); font-size:0.85em; font-style:italic; letter-spacing:0.04em; }
-                .wh-dash { color:var(--text-muted-warm); font-weight:500; }
+                .wh-week { display:grid; grid-template-columns:repeat(7, minmax(0,1fr)); gap:8px; }
+                .wh-day { display:flex; flex-direction:column; align-items:center; gap:8px; padding:10px 6px 12px; border-radius:8px; border:1px solid var(--border-faint); background:transparent; transition: background 0.12s, border-color 0.12s, opacity 0.12s; }
+                .wh-day.on { background:var(--surface-alt); border-color:var(--border-soft); }
+                .wh-day:not(.on) { opacity:0.7; }
+                .wh-on { display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none; margin:0; }
+                .wh-on input { margin:0; accent-color:var(--accent); width:15px; height:15px; cursor:pointer; }
+                .wh-day-name { font-size:0.85em; font-weight:600; color:var(--text); letter-spacing:0.04em; text-transform:uppercase; }
+                .wh-day:not(.on) .wh-day-name { color:var(--text-subtle); }
+                .wh-times { display:flex; flex-direction:column; align-items:center; gap:4px; }
+                .wh-day:not(.on) .wh-times { display:none; }
+                .wh-day.on .wh-off-label { display:none; }
+                .wh-off-label { color:var(--text-subtle); font-size:0.85em; font-style:italic; letter-spacing:0.04em; }
+                .wh-dash { color:var(--text-muted-warm); font-weight:500; line-height:1; }
+                @media (max-width: 980px) { .wh-week { grid-template-columns:repeat(4, 1fr); } }
+                @media (max-width: 560px) { .wh-week { grid-template-columns:repeat(2, 1fr); } }
                 .ctx-active-badge { background: var(--accent); color: var(--surface); font-size: 0.75em; padding: 4px 10px; border-radius: 10px; font-weight: 600; white-space: nowrap; }
                 .ctx-icon-lg { font-size: 2em; line-height: 1; }
                 .ctx-desc { margin-bottom: 16px; padding: 10px 14px; background: var(--surface-head); border-left: 3px solid var(--border); border-radius: 4px; color: var(--text-muted); font-size: 0.9em; font-style: italic; }
@@ -3324,9 +3325,9 @@ document.addEventListener('keydown', function(e) {
                         else { status.textContent = '✗ ' + (s.error || t.error); status.style.color = '#c53030'; }
                     });
                 }));
-                document.querySelectorAll('.wh-row .wh-on input').forEach(cb => {
+                document.querySelectorAll('.wh-day .wh-on input').forEach(cb => {
                     cb.addEventListener('change', () => {
-                        cb.closest('.wh-row').classList.toggle('on', cb.checked);
+                        cb.closest('.wh-day').classList.toggle('on', cb.checked);
                     });
                 });
                 (function() {
