@@ -134,6 +134,24 @@ no server-side change needed unless validation is required.
   cloned repo already has a `settings.json` it's preserved (with
   `remote` overwritten to the URL used for cloning); otherwise a
   minimal one is written.
+- **Week-notes marker** — every context has a `.week-notes` file at
+  the repo root: `{ "type": "week-notes", "version": "<git-sha>" }`
+  where the SHA is the week-notes server's HEAD commit at the time
+  the marker was written. Written by `writeMarker(dir)` in
+  `createContext` and `cloneContext`, and backfilled for legacy
+  contexts by `ensureAllContextsInitialised` on startup.
+- **Remote validation** — when a remote is supplied/changed:
+  - `gitPullInitial` fetches first, then verifies
+    `origin/<branch>:.week-notes` exists. Empty remote (no branches)
+    is allowed (fresh push target). If the marker is missing it
+    returns `{ ok:false, invalid:true, error: ... }`.
+  - `cloneContext` checks `.week-notes` exists in the cloned
+    working tree and rolls back the clone (`rm -rf dir`) if not.
+  - `createContext` rolls back the whole context (rm dir) on
+    `invalid` validation failure.
+  - `setContextSettings` reverts the `origin` URL change and throws
+    so the bad remote never gets persisted to `settings.json`.
+  All three surface the error via 400 from the API endpoints.
 - The active-context dropdown lives in EVERY page's navbar via the
   global body script — adding a context doesn't refresh open tabs.
 - If no contexts exist, all paths except `/settings` and assets

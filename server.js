@@ -10,6 +10,23 @@ const PORT = parseInt(process.env.PORT, 10) || 3001;
 const CONTEXTS_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const ACTIVE_FILE = path.join(CONTEXTS_DIR, '.active');
 
+const WEEK_NOTES_MARKER = '.week-notes';
+const WEEK_NOTES_VERSION = (() => {
+    try {
+        return require('child_process')
+            .execSync('git rev-parse HEAD', { cwd: __dirname, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] })
+            .trim();
+    } catch { return 'unknown'; }
+})();
+function writeMarker(dir) {
+    try {
+        fs.writeFileSync(
+            path.join(dir, WEEK_NOTES_MARKER),
+            JSON.stringify({ type: 'week-notes', version: WEEK_NOTES_VERSION }, null, 2) + '\n'
+        );
+    } catch (e) { console.error('writeMarker failed', e.message); }
+}
+
 function safeName(name) {
     return String(name || '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
 }
@@ -87,11 +104,17 @@ function createContext(rawName, settings) {
     fs.mkdirSync(dir, { recursive: true });
     const cfg = Object.assign({ name: rawName || safe, icon: '📁' }, settings || {});
     fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify(cfg, null, 2));
+    writeMarker(dir);
     gitInitIfNeeded(dir, cfg.name);
     // Configure remote if supplied
     if ((cfg.remote || '').trim() && gitIsRepo(dir)) {
         try { git(dir, `remote add origin "${String(cfg.remote).replace(/"/g, '\\"')}"`); } catch (e) { console.error('git remote add failed', e.message); }
         const r = gitPullInitial(dir);
+        if (!r.ok && r.invalid) {
+            // Bad remote — roll back the whole context creation.
+            try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+            throw new Error(r.error);
+        }
         if (!r.ok) console.error('initial git pull failed for', safe, r.error);
     }
     return safe;
@@ -116,10 +139,16 @@ function cloneContext(remoteUrl, rawName) {
     }
     try { git(dir, `config user.email "ukenotater@local"`); } catch {}
     try { git(dir, `config user.name "Ukenotater"`); } catch {}
+    // Validate this is actually a week-notes repo before keeping the clone.
+    if (!fs.existsSync(path.join(dir, WEEK_NOTES_MARKER))) {
+        try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+        throw new Error('Remote er ikke en week-notes repo (mangler .week-notes-fil)');
+    }
     let cfg = {};
     try { cfg = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf-8')); } catch {}
     cfg = Object.assign({ name: cfg.name || rawName || safe, icon: cfg.icon || '📁', description: cfg.description || '' }, cfg, { remote: url });
     fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify(cfg, null, 2));
+    writeMarker(dir);
     return safe;
 }
 
@@ -133,21 +162,29 @@ function setContextSettings(name, data) {
     const safe = safeName(name);
     if (!listContexts().includes(safe)) throw new Error('Kontekst finnes ikke');
     const dir = path.join(CONTEXTS_DIR, safe);
-    fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify(data, null, 2));
-    // Sync git remote with settings.remote (if any)
+    // Sync git remote with settings.remote (if any). Validate BEFORE persisting settings,
+    // so a bad remote URL doesn't get stored.
     try { gitInitIfNeeded(dir, data.name || safe); } catch {}
     if (gitIsRepo(dir)) {
         const desired = String(data.remote || '').trim();
         let current = '';
         try { current = git(dir, 'remote get-url origin').trim(); } catch {}
         if (desired && desired !== current) {
-            try { git(dir, current ? `remote set-url origin "${desired.replace(/"/g, '\\"')}"` : `remote add origin "${desired.replace(/"/g, '\\"')}"`); } catch (e) { console.error('git remote set failed', e.message); }
+            const hadRemote = !!current;
+            try { git(dir, hadRemote ? `remote set-url origin "${desired.replace(/"/g, '\\"')}"` : `remote add origin "${desired.replace(/"/g, '\\"')}"`); } catch (e) { console.error('git remote set failed', e.message); }
             const r = gitPullInitial(dir);
+            if (!r.ok && r.invalid) {
+                // Roll back the remote change so settings stay consistent with git config.
+                try { git(dir, hadRemote ? `remote set-url origin "${current.replace(/"/g, '\\"')}"` : 'remote remove origin'); } catch {}
+                throw new Error(r.error);
+            }
             if (!r.ok) console.error('initial git pull failed for', safe, r.error);
         } else if (!desired && current) {
             try { git(dir, 'remote remove origin'); } catch {}
         }
     }
+    fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify(data, null, 2));
+    if (!fs.existsSync(path.join(dir, WEEK_NOTES_MARKER))) writeMarker(dir);
     return data;
 }
 
@@ -246,6 +283,13 @@ function gitGetRemote(dir) {
     catch { return null; }
 }
 
+function gitRemoteHasFile(dir, branch, file) {
+    try {
+        require('child_process').execSync(`git cat-file -e origin/${branch}:${file}`, { cwd: dir, stdio: 'ignore' });
+        return true;
+    } catch { return false; }
+}
+
 function gitPullInitial(dir) {
     if (!gitIsRepo(dir)) return { ok: false, error: 'Ikke et git-repo' };
     if (!gitGetRemote(dir)) return { ok: false, error: 'Ingen remote konfigurert' };
@@ -264,7 +308,12 @@ function gitPullInitial(dir) {
                 if (first) branch = first.replace(/^origin\//, '');
             }
         }
-        if (!branch) return { ok: false, error: 'Fant ingen branch på origin' };
+        // Empty remote (no branches yet) — treat as a fresh push target, skip pull.
+        if (!branch) return { ok: true, output: 'remote er tom — ingen pull nødvendig', empty: true };
+        // Validate that this is actually a week-notes repo (must have .week-notes marker at root).
+        if (!gitRemoteHasFile(dir, branch, WEEK_NOTES_MARKER)) {
+            return { ok: false, invalid: true, error: 'Remote er ikke en week-notes repo (mangler .week-notes på origin/' + branch + ')' };
+        }
         const out = cp.execSync(`git pull origin ${branch} --allow-unrelated-histories --no-edit --no-rebase 2>&1`, { cwd: dir, encoding: 'utf-8', timeout: 60000 });
         return { ok: true, output: out.trim() };
     } catch (e) {
@@ -287,6 +336,7 @@ function ensureAllContextsInitialised() {
     for (const id of listContexts()) {
         const dir = path.join(CONTEXTS_DIR, id);
         gitInitIfNeeded(dir, getContextSettings(id).name || id);
+        if (!fs.existsSync(path.join(dir, WEEK_NOTES_MARKER))) writeMarker(dir);
     }
 }
 
