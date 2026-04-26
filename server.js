@@ -461,6 +461,89 @@ function deleteNoteMeta(week, file) {
     saveNotesMeta(meta);
 }
 
+// Convert a UTC ISO timestamp to local-time { date: "YYYY-MM-DD", time: "HH:MM" }.
+// Calendar grid columns are local-time, so timestamps stored as UTC ISO need
+// converting before they can be positioned on the grid.
+function isoToLocalDateTime(iso) {
+    if (!iso) return null;
+    const dt = new Date(iso);
+    if (isNaN(dt.getTime())) return null;
+    const date = dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+    const time = String(dt.getHours()).padStart(2, '0') + ':' + String(dt.getMinutes()).padStart(2, '0');
+    return { date, time };
+}
+
+// Activity items rendered on the calendar in addition to meetings: tasks
+// (completedAt if done, else created), notes (notes-meta `modified`), and
+// results (created). Filters by [startIso..endIso] inclusive (local dates).
+function getCalendarActivity(startIso, endIso) {
+    const items = [];
+
+    try {
+        const tasks = loadTasks();
+        for (const t of tasks) {
+            const ts = t.done ? (t.completedAt || t.created) : t.created;
+            const dt = isoToLocalDateTime(ts);
+            if (!dt) continue;
+            if (dt.date < startIso || dt.date > endIso) continue;
+            items.push({
+                kind: 'task',
+                id: t.id,
+                title: t.text || '(uten tittel)',
+                date: dt.date,
+                time: dt.time,
+                href: '/tasks#t-' + encodeURIComponent(t.id),
+                icon: t.done ? '✅' : '☐',
+                done: !!t.done
+            });
+        }
+    } catch {}
+
+    try {
+        const meta = loadNotesMeta();
+        for (const key of Object.keys(meta || {})) {
+            const m = meta[key];
+            if (!m) continue;
+            const ts = m.modified || (Array.isArray(m.saves) && m.saves.length ? m.saves[m.saves.length - 1] : null);
+            const dt = isoToLocalDateTime(ts);
+            if (!dt) continue;
+            if (dt.date < startIso || dt.date > endIso) continue;
+            const slash = key.indexOf('/');
+            const week = slash > 0 ? key.slice(0, slash) : '';
+            const file = slash > 0 ? key.slice(slash + 1) : key;
+            items.push({
+                kind: 'note',
+                id: key,
+                title: file.replace(/\.md$/, ''),
+                date: dt.date,
+                time: dt.time,
+                href: '/editor/' + week + '/' + encodeURIComponent(file),
+                icon: '📝'
+            });
+        }
+    } catch {}
+
+    try {
+        const results = loadResults();
+        for (const r of results) {
+            const dt = isoToLocalDateTime(r.created);
+            if (!dt) continue;
+            if (dt.date < startIso || dt.date > endIso) continue;
+            items.push({
+                kind: 'result',
+                id: r.id,
+                title: r.text || '',
+                date: dt.date,
+                time: dt.time,
+                href: '/results',
+                icon: '🏁'
+            });
+        }
+    } catch {}
+
+    return items;
+}
+
 function getWeekDirs() {
     return fs.readdirSync(dataDir(), { withFileTypes: true })
         .filter(d => d.isDirectory() && /^\d{4}-\d{1,2}$/.test(d.name))
@@ -3272,6 +3355,7 @@ document.addEventListener('keydown', function(e) {
             days.push({ iso, label: dayNames[i], dayNum: String(d.getUTCDate()).padStart(2, '0'), month: String(d.getUTCMonth() + 1).padStart(2, '0'), isToday: iso === todayStr });
         }
         const meetings = loadMeetings().filter(m => m.date >= days[0].iso && m.date <= days[6].iso);
+        const activity = getCalendarActivity(days[0].iso, days[6].iso);
         const prevWeek = shiftIsoWeek(week, -1);
         const nextWeek = shiftIsoWeek(week, 1);
         const HOUR_START = 0, HOUR_END = 23, HOUR_PX = 36;
@@ -3289,6 +3373,18 @@ document.addEventListener('keydown', function(e) {
                 if (workH > 0) workBand = `<div class="work-band" style="top:${workTop}px;height:${workH}px"></div>`;
             }
             const dayMeetings = meetings.filter(m => m.date === d.iso);
+            const dayActivity = activity.filter(a => a.date === d.iso);
+            const ACT_H = 18;
+            const activityHtml = dayActivity.map(a => {
+                const [ah, am] = a.time.split(':').map(n => parseInt(n, 10));
+                const top = ((ah - HOUR_START) + (am || 0) / 60) * HOUR_PX;
+                const titleAttr = `${a.time} · ${a.title}`;
+                return `<a class="cal-activity act-${a.kind}" href="${a.href}" style="top:${Math.max(0, top)}px;height:${ACT_H}px" title="${escapeHtml(titleAttr)}" onclick="event.stopPropagation()">
+                    <span class="cal-act-icon">${a.icon}</span>
+                    <span class="cal-act-time">${escapeHtml(a.time)}</span>
+                    <span class="cal-act-t">${escapeHtml(a.title)}</span>
+                </a>`;
+            }).join('');
             const blocks = dayMeetings.map(m => {
                 let top = 0, height = HOUR_PX;
                 if (m.start) {
@@ -3313,7 +3409,7 @@ document.addEventListener('keydown', function(e) {
             }).join('');
             return `<div class="cal-col${d.isToday ? ' today' : ''}" data-date="${d.iso}">
                 <div class="cal-col-head"><strong>${d.label}</strong><span>${d.dayNum}.${d.month}</span></div>
-                <div class="cal-col-body" style="height:${(HOUR_END - HOUR_START + 1) * HOUR_PX}px">${workBand}${blocks}</div>
+                <div class="cal-col-body" style="height:${(HOUR_END - HOUR_START + 1) * HOUR_PX}px">${workBand}${activityHtml}${blocks}</div>
             </div>`;
         }).join('');
         const hoursCol = `<div class="cal-hours"><div class="cal-col-head"></div><div class="cal-col-body" style="height:${(HOUR_END - HOUR_START + 1) * HOUR_PX}px">${hourLabels.map(h => `<div class="hour-line" style="top:${(h - HOUR_START) * HOUR_PX}px">${String(h).padStart(2,'0')}:00</div>`).join('')}</div></div>`;
@@ -3421,10 +3517,21 @@ document.addEventListener('keydown', function(e) {
                 .hour-line { position:absolute; left:0; right:0; height:0; padding:0 6px; font-size:0.7em; color:#a99a78; text-align:right; line-height:1; display:flex; align-items:center; justify-content:flex-end; }
                 .hour-line:first-child { align-items:flex-start; padding-top:2px; }
                 .cal-col-body { background-image: repeating-linear-gradient(to bottom, #ebe2cb 0, #ebe2cb 1px, transparent 1px, transparent 48px); }
-                .mtg { position:absolute; left:2px; right:2px; background:#e6efff; border:1px solid #b9c8e0; border-left:3px solid #2b6cb0; border-radius:3px; padding:3px 6px; font-size:0.78em; color:#1a365d; cursor:pointer; overflow:hidden; box-shadow:0 1px 2px rgba(26,54,93,0.1); }
+                .mtg { position:absolute; left:2px; right:2px; background:#e6efff; border:1px solid #b9c8e0; border-left:3px solid #2b6cb0; border-radius:3px; padding:3px 6px; font-size:0.78em; color:#1a365d; cursor:pointer; overflow:hidden; box-shadow:0 1px 2px rgba(26,54,93,0.1); z-index:2; }
                 .mtg.targeted { box-shadow:0 0 0 2px #f6ad55, 0 1px 4px rgba(26,54,93,0.2); animation: mtgPulse 1.6s ease-in-out 2; }
                 @keyframes mtgPulse { 0%,100% { background:#e6efff; } 50% { background:#fff3d6; } }
                 .mtg:hover { background:#d9e5fb; z-index:5; }
+                .cal-activity { position:absolute; left:2px; right:2px; display:flex; align-items:center; gap:5px; padding:0 5px; border-radius:3px; font-size:0.72em; line-height:1; color:#3c3a30; text-decoration:none; cursor:pointer; overflow:hidden; white-space:nowrap; z-index:1; background:#f4ecd6; border:1px solid #ddd0a8; border-left:3px solid #b8956b; opacity:0.85; }
+                .cal-activity:hover { opacity:1; z-index:5; background:#ffe9b3; text-decoration:none; color:#3c3a30; }
+                .cal-activity .cal-act-icon { font-size:0.95em; }
+                .cal-activity .cal-act-time { color:#7a6f4d; font-variant-numeric:tabular-nums; font-weight:600; }
+                .cal-activity .cal-act-t { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+                .cal-activity.act-task { background:#e3f1e6; border-color:#b8d8bf; border-left-color:#38a169; }
+                .cal-activity.act-task:hover { background:#cfe9d6; }
+                .cal-activity.act-note { background:#e6efff; border-color:#b9c8e0; border-left-color:#5a72a8; }
+                .cal-activity.act-note:hover { background:#d4e0fb; }
+                .cal-activity.act-result { background:#fdebd0; border-color:#f1c98a; border-left-color:#d69e2e; }
+                .cal-activity.act-result:hover { background:#fadcae; }
                 .mtg-time { font-weight:600; font-size:0.85em; }
                 .mtg-t { font-weight:500; line-height:1.2; }
                 .mtg-type-icon { font-size:0.95em; }
