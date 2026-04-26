@@ -3773,12 +3773,13 @@ document.addEventListener('keydown', function(e) {
                 .mtg-row-times { align-items:flex-end; gap:10px; margin-bottom:12px; }
                 .mtg-row-times > label { flex:0 0 auto; margin-bottom:0; }
                 .mtg-time-arrow { color:var(--text-subtle); padding-bottom:9px; font-size:1.1em; }
-                .time-pick { display:inline-flex; align-items:center; gap:0; margin-top:0; background:var(--surface); border:1px solid var(--border-soft); border-radius:6px; padding:0; overflow:hidden; transition: border-color 0.12s, box-shadow 0.12s; }
-                .time-pick select { -webkit-appearance:none; appearance:none; background:transparent; border:none; box-shadow:none; outline:none; margin:0; padding:6px 10px; font-family:ui-monospace, SFMono-Regular, Consolas, monospace; font-variant-numeric:tabular-nums; font-size:0.95em; font-weight:600; color:var(--text-strong); cursor:pointer; text-align:center; min-width:42px; transition:background 0.12s; }
-                .time-pick select:hover { background:var(--accent-soft); }
-                .time-pick select:focus { background:var(--accent-soft); }
-                .time-pick:focus-within { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-soft); }
-                .time-pick .t-sep { color:var(--text-muted-warm); font-weight:600; padding:0; pointer-events:none; }
+                .time-pick { display:inline-flex; align-items:stretch; gap:0; margin-top:0; background:var(--surface-alt); border:1px solid var(--border-soft); border-radius:8px; padding:0; overflow:hidden; transition: border-color 0.15s, box-shadow 0.15s, background 0.15s; box-shadow: inset 0 1px 0 rgba(255,255,255,0.4), 0 1px 2px rgba(0,0,0,0.04); }
+                .time-pick:hover { border-color:var(--border); }
+                .time-pick:focus-within { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft), inset 0 1px 0 rgba(255,255,255,0.4); background:var(--surface); }
+                .time-pick select { -webkit-appearance:none; appearance:none; background:transparent; border:none; box-shadow:none; outline:none; margin:0; padding:7px 10px; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric:tabular-nums; font-size:1em; font-weight:600; letter-spacing:0.02em; color:var(--text-strong); cursor:pointer; text-align:center; text-align-last:center; min-width:46px; line-height:1.1; transition:background 0.12s, color 0.12s; }
+                .time-pick select:hover { background:var(--surface); color:var(--accent); }
+                .time-pick select:focus { background:var(--surface); color:var(--accent-strong); }
+                .time-pick .t-sep { display:inline-flex; align-items:center; justify-content:center; color:var(--text-subtle); font-weight:700; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; pointer-events:none; padding:0 1px; }
                 .mtg-modal-actions { display:flex; align-items:center; gap:8px; margin:18px -26px -20px; padding:14px 22px; border-top:1px solid var(--border-faint); background:var(--bg); border-radius:0 0 10px 10px; }
                 .mtg-btn-save { background:#b8956b; color:var(--surface); border:1px solid #a07e54; padding:8px 18px; border-radius:5px; cursor:pointer; font-weight:600; font-family:inherit; box-shadow:0 1px 2px rgba(60,58,48,0.15); }
                 .mtg-btn-save:hover { background:#a07e54; }
