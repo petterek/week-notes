@@ -21,7 +21,6 @@ feature reads from.
   "icon": "💼",
   "description": "...",
   "remote": "git@github.com:user/repo.git",
-  "defaultMeetingMinutes": 60,
   "workHours": [
     { "start": "08:00", "end": "16:00" }, // Mon
     { "start": "08:00", "end": "16:00" }, // Tue
@@ -69,8 +68,8 @@ read by `getWorkHours()` if `workHours` is missing.
 - Left: list of contexts with icon, name, active badge.
 - Right: detail pane per context, organised into three tabs:
   - **Generelt** — name, icon, description, theme picker.
-  - **Møter** — default meeting length, work hours per day,
-    meeting types.
+  - **Møter** — work hours per day, meeting types (each with its
+    own default duration in minutes).
   - **Git** — git status display, git remote (origin) URL.
 - Tabs are pure HTML/CSS/JS — single `<form>` wraps all three panels
   so the bottom Save button submits everything regardless of which

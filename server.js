@@ -263,16 +263,16 @@ function saveMeetings(meetings) {
 }
 
 const DEFAULT_MEETING_TYPES = [
-    { key: 'meeting', label: 'Møte', icon: '👥' },
-    { key: '1on1', label: '1:1', icon: '☕' },
-    { key: 'standup', label: 'Standup', icon: '🔄' },
-    { key: 'workshop', label: 'Workshop', icon: '🛠️' },
-    { key: 'demo', label: 'Demo', icon: '🎬' },
-    { key: 'planning', label: 'Planlegging', icon: '📋' },
-    { key: 'review', label: 'Gjennomgang', icon: '🔍' },
-    { key: 'social', label: 'Sosialt', icon: '🎉' },
-    { key: 'call', label: 'Telefon', icon: '📞' },
-    { key: 'focus', label: 'Fokus', icon: '🎯' }
+    { key: 'meeting', label: 'Møte', icon: '👥', mins: 60 },
+    { key: '1on1', label: '1:1', icon: '☕', mins: 30 },
+    { key: 'standup', label: 'Standup', icon: '🔄', mins: 15 },
+    { key: 'workshop', label: 'Workshop', icon: '🛠️', mins: 120 },
+    { key: 'demo', label: 'Demo', icon: '🎬', mins: 60 },
+    { key: 'planning', label: 'Planlegging', icon: '📋', mins: 60 },
+    { key: 'review', label: 'Gjennomgang', icon: '🔍', mins: 60 },
+    { key: 'social', label: 'Sosialt', icon: '🎉', mins: 60 },
+    { key: 'call', label: 'Telefon', icon: '📞', mins: 30 },
+    { key: 'focus', label: 'Fokus', icon: '🎯', mins: 60 }
 ];
 function meetingTypesFile(ctxId) { return path.join(CONTEXTS_DIR, ctxId || getActiveContext(), 'meeting-types.json'); }
 function loadMeetingTypes(ctxId) {
@@ -316,7 +316,12 @@ function getWorkHours(ctxId) {
     return { hours };
 }
 
-function getDefaultMeetingMinutes(ctxId) {
+function getDefaultMeetingMinutes(ctxId, typeKey) {
+    if (typeKey) {
+        const t = loadMeetingTypes(ctxId).find(x => x.key === typeKey);
+        const tm = t && parseInt(t.mins, 10);
+        if (tm > 0 && tm <= 600) return tm;
+    }
     const s = ctxId ? getContextSettings(ctxId) : (getActiveContext() ? getContextSettings(getActiveContext()) : {});
     const n = parseInt(s.defaultMeetingMinutes, 10);
     return n > 0 && n <= 600 ? n : 60;
@@ -2954,8 +2959,7 @@ document.addEventListener('keydown', function(e) {
                     </div>
                     <div class="ctx-tab-panel" data-panel="meetings">
                     <div class="ctx-detail-section">
-                        <h3>🗓️ Møter</h3>
-                        <label>Standard møtelengde (minutter)<input type="number" name="defaultMeetingMinutes" value="${escapeHtml(String(c.settings.defaultMeetingMinutes || 60))}" min="5" max="600" step="5"></label>
+                        <h3>🗓️ Arbeidstid</h3>
                         <fieldset class="workhours-block">
                             <legend>Arbeidstid pr. dag</legend>
                             ${(function(){
@@ -3178,6 +3182,8 @@ document.addEventListener('keydown', function(e) {
                 .mt-row .mt-icon { width: 38px; height: 38px; font-size: 1.3em; cursor: pointer; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 0; }
                 .mt-row .mt-icon:hover { background: var(--surface-alt); }
                 .mt-row input[type=text] { flex: 1; padding: 7px 10px; margin: 0; }
+                .mt-row input.mt-mins { width: 64px; padding: 7px 8px; margin: 0; text-align: right; font-variant-numeric: tabular-nums; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text-strong); font-family: inherit; box-sizing: border-box; }
+                .mt-row .mt-mins-suffix { font-size: 0.82em; color: var(--text-muted-warm); margin-left: -4px; }
                 .mt-row .mt-del { background: #fff5f5; color: #c53030; border: 1px solid #fed7d7; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 0.85em; }
                 .mt-row .mt-del:hover { background: #fed7d7; }
                 .mt-icon-picker { display: none; position: fixed; inset: 0; background: rgba(26,32,44,0.55); z-index: 1100; align-items: center; justify-content: center; }
@@ -3304,7 +3310,6 @@ document.addEventListener('keydown', function(e) {
                         description: fd.get('description'),
                         remote: fd.get('remote') || '',
                         theme: fd.get('theme') || 'paper',
-                        defaultMeetingMinutes: parseInt(fd.get('defaultMeetingMinutes'), 10) || 60,
                         workHours: Array.from({length:7},(_,i)=>{
                             if(!fd.get('wh-on-'+i)) return null;
                             const sH = fd.get('wh-sH-'+i)||'08';
@@ -3357,13 +3362,20 @@ document.addEventListener('keydown', function(e) {
                         types.forEach((t, i) => {
                             const row = document.createElement('div');
                             row.className = 'mt-row';
+                            const mins = (t.mins != null && t.mins !== '') ? t.mins : 60;
                             row.innerHTML = '<button type="button" class="mt-icon" data-i="' + i + '" title="Velg ikon">' + (t.icon || '·') + '</button>'
-                                + '<input type="text" data-i="' + i + '" value="' + (t.label || '').replace(/"/g, '&quot;') + '" placeholder="Navn">'
+                                + '<input type="text" class="mt-label" data-i="' + i + '" value="' + (t.label || '').replace(/"/g, '&quot;') + '" placeholder="Navn">'
+                                + '<input type="number" class="mt-mins" data-i="' + i + '" value="' + mins + '" min="5" max="600" step="5" title="Standard lengde i minutter">'
+                                + '<span class="mt-mins-suffix">min</span>'
                                 + '<button type="button" class="mt-del" data-i="' + i + '" title="Slett">🗑️</button>';
                             list.appendChild(row);
                         });
                         list.querySelectorAll('.mt-icon').forEach(b => b.onclick = () => openPicker(ctxId, parseInt(b.dataset.i, 10)));
-                        list.querySelectorAll('input[type=text]').forEach(inp => inp.oninput = () => { types[parseInt(inp.dataset.i, 10)].label = inp.value; });
+                        list.querySelectorAll('input.mt-label').forEach(inp => inp.oninput = () => { types[parseInt(inp.dataset.i, 10)].label = inp.value; });
+                        list.querySelectorAll('input.mt-mins').forEach(inp => inp.oninput = () => {
+                            const v = parseInt(inp.value, 10);
+                            types[parseInt(inp.dataset.i, 10)].mins = (v > 0 && v <= 600) ? v : 60;
+                        });
                         list.querySelectorAll('.mt-del').forEach(b => b.onclick = () => { types.splice(parseInt(b.dataset.i, 10), 1); renderList(ctxId); });
                     }
                     function openPicker(ctxId, idx) {
@@ -3401,7 +3413,7 @@ document.addEventListener('keydown', function(e) {
                     });
                     document.querySelectorAll('[data-mt-add]').forEach(b => b.onclick = () => {
                         const ctxId = b.getAttribute('data-mt-add');
-                        window.__mtState[ctxId].push({ key: slugKey('ny'), icon: '👥', label: 'Ny type' });
+                        window.__mtState[ctxId].push({ key: slugKey('ny'), icon: '👥', label: 'Ny type', mins: 60 });
                         renderList(ctxId);
                     });
                     renderPickerGrid();
@@ -3806,8 +3818,12 @@ document.addEventListener('keydown', function(e) {
             <script>
                 (function(){
                     const HOUR_PX = ${HOUR_PX}, HOUR_START = ${HOUR_START}, HOUR_END = ${HOUR_END};
-                    const DEFAULT_MTG_MIN = ${getDefaultMeetingMinutes()};
                     const MEETING_TYPES = ${JSON.stringify(meetingTypes)};
+                    function minsForType(key) {
+                        const t = MEETING_TYPES.find(x => x.key === key);
+                        const m = t && parseInt(t.mins, 10);
+                        return (m > 0 && m <= 600) ? m : 60;
+                    }
                     const modal = document.getElementById('mtgModal');
                     const $ = id => document.getElementById(id);
                     function addMinutesToTime(t, mins) {
@@ -3839,6 +3855,11 @@ document.addEventListener('keydown', function(e) {
                         return h + ':' + m;
                     }
                     fillTimeSelects();
+                    $('mtgType').addEventListener('change', () => {
+                        if ($('mtgId').value) return;
+                        const start = getTime('mtgStart');
+                        if (start) setTime('mtgEnd', addMinutesToTime(start, minsForType($('mtgType').value)));
+                    });
                     function openModal(meeting, prefillDate, prefillStart) {
                         $('mtgForm').reset();
                         if (meeting) {
@@ -3856,10 +3877,11 @@ document.addEventListener('keydown', function(e) {
                         } else {
                             $('mtgModalTitle').textContent = 'Nytt møte';
                             $('mtgId').value = '';
-                            $('mtgType').value = 'meeting';
+                            const initialType = (MEETING_TYPES[0] && MEETING_TYPES[0].key) || 'meeting';
+                            $('mtgType').value = initialType;
                             $('mtgDate').value = prefillDate || '';
                             setTime('mtgStart', prefillStart || '');
-                            setTime('mtgEnd', prefillStart ? addMinutesToTime(prefillStart, DEFAULT_MTG_MIN) : '');
+                            setTime('mtgEnd', prefillStart ? addMinutesToTime(prefillStart, minsForType(initialType)) : '');
                             $('mtgDelete').style.display = 'none';
                         }
                         modal.classList.add('open');
@@ -5056,7 +5078,8 @@ function expandAllPeople(expand) {
                     while (seenKeys.has(key)) key = base + '-' + (n++);
                 }
                 seenKeys.add(key);
-                return { key, icon, label };
+                const mins = parseInt(t && t.mins, 10);
+                return { key, icon, label, mins: (mins > 0 && mins <= 600) ? mins : 60 };
             }).filter(Boolean);
             saveMeetingTypes(cleaned);
             res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -5245,7 +5268,8 @@ function expandAllPeople(expand) {
                         while (seenKeys.has(key)) key = base + '-' + (n++);
                     }
                     seenKeys.add(key);
-                    return { key, icon, label };
+                    const mins = parseInt(t && t.mins, 10);
+                    return { key, icon, label, mins: (mins > 0 && mins <= 600) ? mins : 60 };
                 }).filter(Boolean);
                 saveMeetingTypes(cleaned, id);
                 res.writeHead(200, { 'Content-Type': 'application/json' });
