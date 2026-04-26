@@ -11,6 +11,12 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 ## 📜 Changelog
 
 ### 2026-04-26
+- Settings: context detail split into Generelt / Møter / Git tabs; selected tab is remembered across reloads
+- Settings: Arbeidstid editor laid out horizontally as seven day cards (Man–Søn) with a polished time-picker pill
+- Settings: default meeting length is now per meeting type (with its own minutes input) rather than per context
+- Settings: meeting types reorderable by drag handle
+- Settings: clicking a theme swatch live-previews the look on the active context; persists on Save
+- Contexts: list ordered by display name
 - Theming: each context picks one of seven themes — paper, dark, nerd, solarized-light, nord, forest, ocean — selectable from `/settings`. Themes live as small CSS files in `themes/`.
 - Calendar: drag a meeting to move it (across days too), drag the bottom edge to resize — snaps to 5-minute increments
 - Calendar: red "now" line on today's column, auto-updating every minute
