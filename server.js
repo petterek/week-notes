@@ -3289,15 +3289,29 @@ document.addEventListener('keydown', function(e) {
                     fetch('/api/contexts/switch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
                         .then(r => r.json()).then(d => { if (d.ok) location.reload(); else alert(d.error); });
                 }));
-                document.querySelectorAll('.ctx-detail').forEach(detail => {
-                    detail.querySelectorAll('.ctx-tab-btn').forEach(btn => {
-                        btn.addEventListener('click', () => {
-                            const target = btn.getAttribute('data-tab');
-                            detail.querySelectorAll('.ctx-tab-btn').forEach(b => b.classList.toggle('is-active', b === btn));
-                            detail.querySelectorAll('.ctx-tab-panel').forEach(p => p.classList.toggle('is-active', p.getAttribute('data-panel') === target));
+                (function(){
+                    const TAB_KEY = 'ctxSettingsTab';
+                    const VALID = ['general','meetings','git'];
+                    function applyTab(tab) {
+                        if (!VALID.includes(tab)) tab = 'general';
+                        document.querySelectorAll('.ctx-detail').forEach(detail => {
+                            detail.querySelectorAll('.ctx-tab-btn').forEach(b => b.classList.toggle('is-active', b.getAttribute('data-tab') === tab));
+                            detail.querySelectorAll('.ctx-tab-panel').forEach(p => p.classList.toggle('is-active', p.getAttribute('data-panel') === tab));
+                        });
+                    }
+                    let saved = 'general';
+                    try { saved = localStorage.getItem(TAB_KEY) || 'general'; } catch {}
+                    applyTab(saved);
+                    document.querySelectorAll('.ctx-detail').forEach(detail => {
+                        detail.querySelectorAll('.ctx-tab-btn').forEach(btn => {
+                            btn.addEventListener('click', () => {
+                                const target = btn.getAttribute('data-tab');
+                                try { localStorage.setItem(TAB_KEY, target); } catch {}
+                                applyTab(target);
+                            });
                         });
                     });
-                });
+                })();
                 document.querySelectorAll('.theme-grid').forEach(grid => {
                     grid.addEventListener('change', e => {
                         if (!e.target.matches('input[name="theme"]')) return;
