@@ -1943,15 +1943,15 @@ function editorPageHtml(week, file, content) {
         .status { font-size: 0.82em; color: var(--text-subtle); font-style: italic; margin-left: 6px; white-space: nowrap; }
 
         /* Split pane */
-        .editor-wrap { display: flex; flex: 1; min-height: 0; }
-        .pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+        .editor-wrap { display: flex; flex: 1; min-height: 0; padding: 12px; gap: 12px; background: var(--bg); }
+        .pane { flex: 1; display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
         .pane-header { padding: 5px 14px; background: var(--surface-head); font-size: 0.78em; font-weight: 700; color: var(--text-muted-warm); border-bottom: 1px solid var(--border-soft); flex-shrink: 0; display: flex; align-items: center; gap: 8px; letter-spacing: 0.05em; text-transform: uppercase; }
         .editor-wrap textarea { flex: 1; width: 100%; border: none; resize: none; padding: 18px 22px 20vh; font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace; font-size: 0.93em; line-height: 1.65; outline: none; tab-size: 4; background: var(--surface); color: var(--text); }
-        .divider { width: 5px; background: var(--border-soft); cursor: col-resize; flex-shrink: 0; transition: background 0.15s; }
+        .divider { width: 3px; background: var(--border-soft); cursor: col-resize; flex-shrink: 0; border-radius: 3px; transition: background 0.15s; align-self: stretch; margin: 0; }
         .divider:hover, .divider.dragging { background: var(--accent); }
 
         /* Preview pane */
-        .preview { flex: 1; overflow-y: auto; padding: 22px 28px; background: var(--bg); color: var(--text); font-size: 0.95em; line-height: 1.75; }
+        .preview { flex: 1; overflow-y: auto; padding: 22px 28px; background: var(--surface); color: var(--text); font-size: 0.95em; line-height: 1.75; }
         .preview table { border-collapse: collapse; width: 100%; margin: 16px 0; }
         .preview th, .preview td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
         .preview th { background: var(--accent); color: var(--surface); font-size: 0.85em; font-weight: 600; }
