@@ -1936,9 +1936,11 @@ function editorPageHtml(week, file, content) {
         .toolbar button:active { background: var(--border-soft); }
         .toolbar button:disabled { opacity: 0.4; cursor: not-allowed; }
         .toolbar button kbd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.72em; background: rgba(0,0,0,0.05); color: var(--text-subtle); border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px; font-weight: normal; margin-left: 1px; }
-        .btn-save { background: var(--accent) !important; color: var(--surface) !important; border-color: var(--accent) !important; font-weight: 600 !important; }
+        .btn-save { background: var(--accent) !important; color: var(--text-on-accent, #fff) !important; border-color: var(--accent) !important; font-weight: 600 !important; }
         .btn-save:hover { background: var(--accent-strong) !important; border-color: var(--accent-strong) !important; }
         .btn-save kbd { background: rgba(255,255,255,0.15) !important; color: rgba(255,255,255,0.8) !important; border-color: rgba(255,255,255,0.2) !important; }
+        .btn-save-close { background: transparent !important; color: var(--accent) !important; border-color: var(--accent) !important; font-weight: 500 !important; }
+        .btn-save-close:hover { background: var(--accent-soft) !important; }
         .btn-danger:hover { color: #c53030 !important; border-color: #f5b7b7 !important; background: #fff5f5 !important; }
         .tb-sep { width: 1px; height: 20px; background: var(--border); margin: 0 2px; flex-shrink: 0; }
         .status { font-size: 0.82em; color: var(--text-subtle); font-style: italic; margin-left: 6px; white-space: nowrap; }
@@ -2050,7 +2052,7 @@ function editorPageHtml(week, file, content) {
         </div>
         <div class="tb-right">
             <button class="btn-save" id="saveBtn" onclick="save()">💾 Lagre <kbd>Ctrl+S</kbd></button>
-            <button id="saveCloseBtn" onclick="saveAndClose()">Lagre &amp; lukk <kbd>Ctrl+⇧+S</kbd></button>
+            <button id="saveCloseBtn" class="btn-save-close" onclick="saveAndClose()">Lagre &amp; lukk <kbd>Ctrl+⇧+S</kbd></button>
             <span class="tb-sep"></span>
             <button onclick="openTaskModal()">☑️ Ny oppgave</button>
             ${isNew ? '' : `<button onclick="window.open('/present/${week}/${encodeURIComponent(file)}','_blank')">🎤 Presenter</button>`}
