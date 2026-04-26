@@ -51,8 +51,13 @@ if [ -f .server.pid ]; then
 fi
 
 if command -v lsof &>/dev/null && lsof -iTCP:"$PORT" -sTCP:LISTEN &>/dev/null; then
-  echo "Error: port $PORT is already in use" >&2
-  exit 1
+  ORIG_PORT="$PORT"
+  PORT=$(node -e 'const s=require("net").createServer();s.listen(0,()=>{const p=s.address().port;s.close(()=>console.log(p));});' 2>/dev/null)
+  if ! [[ "$PORT" =~ ^[0-9]+$ ]]; then
+    echo "Error: port $ORIG_PORT is in use and no free port could be found" >&2
+    exit 1
+  fi
+  echo "Port $ORIG_PORT is in use; using free port $PORT instead"
 fi
 
 (exec -a "$PROCESS_NAME" env PORT="$PORT" node server.js) &
