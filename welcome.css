@@ -147,3 +147,75 @@ html, body {
 /* Icon picker (mirrors the one used by /settings, scoped to welcome) */
 .welcome-icon-pick { position: relative; display: inline-flex; align-items: stretch; }
 .welcome-icon-pick > input { width: 56px; padding: 10px 8px; text-align: center; font-size: 1.3em; }
+
+/* Known (previously-disconnected) repos picker */
+.welcome-known {
+    margin-top: 4px;
+    padding: 12px 14px;
+    background: var(--surface-alt, #f5efde);
+    border: 1px solid var(--border-faint, #e2dac6);
+    border-radius: 6px;
+}
+.welcome-known__label {
+    font-size: 0.85em;
+    color: var(--text-subtle, #6b6555);
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+.welcome-known__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.welcome-known__list li {
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+}
+.welcome-known__pick {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    background: var(--surface, #ffffff);
+    border: 1px solid var(--border, #d4cfbf);
+    border-radius: 5px;
+    cursor: pointer;
+    font-family: inherit;
+    text-align: left;
+    transition: background 0.12s, border-color 0.12s;
+}
+.welcome-known__pick:hover {
+    background: var(--bg, #fbf9f4);
+    border-color: var(--accent, #4a6fa5);
+}
+.welcome-known__icon { font-size: 1.3em; flex-shrink: 0; }
+.welcome-known__meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.welcome-known__meta strong { font-size: 0.95em; color: var(--text, #2d2820); }
+.welcome-known__meta span {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.8em;
+    color: var(--text-subtle, #6b6555);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.welcome-known__forget {
+    background: none;
+    border: 1px solid var(--border-faint, #e2dac6);
+    color: var(--text-subtle, #6b6555);
+    border-radius: 5px;
+    padding: 0 10px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 1em;
+}
+.welcome-known__forget:hover {
+    background: #fff5f5;
+    border-color: #f5b7b7;
+    color: #c53030;
+}

@@ -2546,6 +2546,10 @@ const server = http.createServer(async (req, res) => {
             <form id="cloneCtxForm">
                 <label>Git-remote<input type="text" id="cloneRemote" placeholder="git@github.com:bruker/repo.git" spellcheck="false" required></label>
                 <label>Navn (valgfritt — utledes fra repo-URLen)<input type="text" id="cloneName" placeholder="overstyr utledet navn" spellcheck="false"></label>
+                <div id="knownRepos" class="welcome-known" hidden>
+                    <div class="welcome-known__label">Tidligere koblet fra:</div>
+                    <ul class="welcome-known__list"></ul>
+                </div>
                 <div class="welcome-card__actions">
                     <button type="submit">📥 Klon</button>
                     <span id="cloneCtxStatus" class="welcome-status"></span>
@@ -2614,6 +2618,39 @@ const server = http.createServer(async (req, res) => {
             }
             setStatus(s, '✗ ' + d.error, true);
         }).catch(function (err) { setStatus(s, '✗ ' + err, true); });
+    });
+
+    function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+    }
+    fetch('/api/contexts/disconnected').then(function (r) { return r.json(); }).then(function (list) {
+        if (!Array.isArray(list) || list.length === 0) return;
+        var box = document.getElementById('knownRepos');
+        var ul = box.querySelector('ul');
+        ul.innerHTML = list.map(function (d) {
+            return '<li>'
+                + '<button type="button" class="welcome-known__pick" data-remote="' + escapeHtml(d.remote) + '" data-name="' + escapeHtml(d.name || d.id) + '">'
+                + '<span class="welcome-known__icon">' + escapeHtml(d.icon || '📁') + '</span>'
+                + '<span class="welcome-known__meta"><strong>' + escapeHtml(d.name || d.id) + '</strong><span>' + escapeHtml(d.remote) + '</span></span>'
+                + '</button>'
+                + '<button type="button" class="welcome-known__forget" data-forget="' + escapeHtml(d.id) + '" title="Glem denne">✕</button>'
+                + '</li>';
+        }).join('');
+        box.hidden = false;
+        ul.querySelectorAll('.welcome-known__pick').forEach(function (b) {
+            b.addEventListener('click', function () {
+                document.getElementById('cloneRemote').value = b.getAttribute('data-remote');
+                document.getElementById('cloneName').value = b.getAttribute('data-name') || '';
+                document.getElementById('cloneRemote').focus();
+            });
+        });
+        ul.querySelectorAll('.welcome-known__forget').forEach(function (b) {
+            b.addEventListener('click', function () {
+                var id = b.getAttribute('data-forget');
+                fetch('/api/contexts/disconnected/' + encodeURIComponent(id), { method: 'DELETE' })
+                    .then(function () { b.closest('li').remove(); if (!ul.children.length) box.hidden = true; });
+            });
+        });
     });
 })();
 </script>
