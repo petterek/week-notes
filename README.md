@@ -11,6 +11,7 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 ## 📜 Changelog
 
 ### 2026-04-26
+- run.sh: if the chosen port is occupied, automatically falls back to a random free port instead of failing
 - Settings: context detail split into Generelt / Møter / Git tabs; selected tab is remembered across reloads
 - Settings: Arbeidstid editor laid out horizontally as seven day cards (Man–Søn) with a polished time-picker pill
 - Settings: default meeting length is now per meeting type (with its own minutes input) rather than per context
