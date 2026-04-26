@@ -34,7 +34,19 @@ Stack:
 /home/p/migration/weeks/
 ├── server.js          # the entire backend + all HTML/CSS/JS (server-rendered)
 ├── README.md          # user-facing docs + changelog
-├── AGENTS.md          # this file
+├── AGENTS.md          # this file — start here
+├── agents/            # per-feature deep-dives (read the relevant ones)
+│   ├── notes.md
+│   ├── tasks.md
+│   ├── people.md
+│   ├── calendar.md
+│   ├── home.md
+│   ├── results.md
+│   ├── contexts.md
+│   ├── git.md
+│   ├── presentations.md
+│   ├── help.md
+│   └── search-and-summarize.md
 ├── help.md            # in-app help, served at /help.md and rendered in a modal
 ├── run.sh             # start helper (checks if already running)
 ├── package.json       # minimal — no deps in production
@@ -49,6 +61,10 @@ Stack:
 │           └── *.md             # freeform markdown notes
 └── public/            # static assets if any (mention-autocomplete.js etc)
 ```
+
+When working on a specific feature, **open the matching `agents/*.md`
+file** for storage shape, route table, code map, conventions and
+gotchas before changing code.
 
 ---
 
@@ -233,6 +249,8 @@ When you change anything that affects:
 - conventions agents must follow
 - per-context settings shape
 
-…update the relevant section here **before** committing. If you delete
-a feature, remove its mention. If you add a gotcha, write it down.
-Future-you will thank present-you.
+…update the relevant section here **and the matching `agents/*.md`
+file** before committing. If you delete a feature, remove its mention
+(and the per-feature file). If you add a new feature, add a new
+`agents/<feature>.md` and link it from the layout list above. If you
+add a gotcha, write it down. Future-you will thank present-you.
