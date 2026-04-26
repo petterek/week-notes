@@ -8,27 +8,49 @@ week as `summarize.md`.
 
 - Endpoint: `GET /api/search?q=<query>` → `[ {type, title, subtitle?,
   href, snippet}, ... ]`
-- Backend helpers:
-  - `searchSnippet(content, q, pad=60)` — extract a ±pad snippet
-    around the first match.
-  - `searchMdFiles(query)` — scans week notes, returns
-    `{week, file, snippet}` (used internally by `searchAll`).
-  - `searchAll(query)` — runs all sources and emits the unified
-    shape used by the API.
-- Sources covered:
-  - **Notes** — filename + body, snippet ±60 chars
-  - **Tasks** — `text`, `comment`, `notes` fields
+- A dedicated **`worker_threads`** worker (`search-worker.js`) holds
+  the index in memory. The main process talks to it via `postMessage`
+  and a `requestId`-keyed pending-promise map.
+- Worker protocol:
+  - `{type:'reindex', contextDir}` → worker walks the dir and
+    rebuilds the index, replies `{type:'indexed', docCount,
+    tokenCount, ms, trigger}`.
+  - `{type:'query', q, requestId}` → worker returns
+    `{type:'result', requestId, results, ms}`.
+- Index data structures (in the worker):
+  - `docs[]` — array of `{type, title, subtitle, href, body,
+    searchText}`.
+  - `invertedIndex: Map<token, Set<docIdx>>` — tokens are lowercase
+    words (Unicode `\p{L}\p{N}_`+) of length ≥ 2.
+- Query strategy:
+  - Tokenize the query the same way; if every token exists in the
+    index, intersect the postings (smallest-first) and verify
+    substring on the candidates.
+  - If any token is missing, fall back to a full scan so partial-word
+    substring queries still match.
+- Backend helpers in `server.js` (kept as an in-process fallback if
+  the worker dies):
+  - `searchSnippet`, `searchMdFiles`, `searchAll`.
+- Re-indexing:
+  - Once on server startup (after `server.listen`).
+  - After every successful `setActiveContext` (the
+    `/api/contexts/switch` handler calls `reindexSearch()`).
+  - Automatically when the worker's `fs.watch(contextDir,
+    {recursive:true})` sees a relevant file change. Debounced 200 ms.
+    Watched: `**/*.md` (week notes) and the four context-level
+    `tasks.json` / `meetings.json` / `people.json` /
+    `results.json` files. `.git/`, dotfiles, swap/tmp files are
+    ignored.
+- Sources covered (mirrors `searchAll`):
+  - **Notes** — filename + body
+  - **Tasks** — `text`, `comment`, `notes`
   - **Meetings** — `title`, `location`, `notes`, `attendees`
   - **People** — `name`, `firstName`, `lastName`, `title`, `email`,
-    `phone`, `notes`
+    `phone`, `notes` (tombstones skipped)
   - **Results** — `text`
-- The home page wires it to a debounced input. `weekList` hides while
-  search is active; `searchResults` renders matches grouped by type
-  with `<mark>` highlights.
-- Scope: only the **active** context. Cross-context search is not
-  implemented.
-- No multi-term, quoted phrases, negation, or fuzzy matching — single
-  case-insensitive substring across all sources.
+- Scope: the **active** context only.
+- Limits: query timeout in `searchViaWorker` is 5 s; if the worker is
+  unavailable we fall back to `searchAll` synchronously.
 
 ### Result shape
 
@@ -68,9 +90,17 @@ the `href` builder in `searchAll` accordingly.
 
 ## Code map
 
-- Search: `searchSnippet`, `searchMdFiles`, `searchAll` near the top
-  of `server.js`. The `/api/search` route (~line 3823). Home script
-  search wiring (`searchInput`, `doSearch`).
+- Search worker: `search-worker.js` (top-level file, separate from
+  `server.js`).
+- Worker glue in `server.js`: `startSearchWorker`, `reindexSearch`,
+  `searchViaWorker`, `pendingSearches` map. Startup hook is in the
+  `server.listen` callback. `setActiveContext` reindex call is in
+  the `/api/contexts/switch` handler.
+- In-process fallback search: `searchSnippet`, `searchMdFiles`,
+  `searchAll` near the top of `server.js`. The `/api/search` route
+  uses the worker first and falls back to `searchAll` only if both
+  the worker call and its retry fail.
+- Home script search wiring (`searchInput`, `doSearch`).
 - CSS: `.search-result`, `.sr-title`, `.sr-path`, `.sr-snippet`,
   `.sr-group`, `.sr-count`.
 - Summarize: `summarizeWeek` + `/api/summarize` route +
@@ -78,10 +108,15 @@ the `href` builder in `searchAll` accordingly.
 
 ## Conventions
 
+- Keep `searchAll` (the in-process implementation) functionally in
+  sync with the worker's `buildIndex`. They produce the same
+  result shape and cover the same sources, so adding a new
+  searchable field means updating both.
 - Result objects are unified (same keys regardless of source) so the
   frontend renderer can stay simple.
-- Keep `searchAll` defensive — wrap each source in `try/catch` so a
-  missing/bad JSON file in one area doesn't kill all results.
+- Keep `searchAll` and `buildIndex` defensive — wrap each source in
+  `try/catch` so a missing/bad JSON file in one area doesn't kill
+  all results.
 - The summary file is always named `summarize.md`. It's deliberately
   an "auto" filename so re-running overwrites cleanly.
 - Search is case-insensitive substring with snippet extraction. Don't
@@ -96,8 +131,20 @@ the `href` builder in `searchAll` accordingly.
 - Long outputs aren't paginated; they live in the modal scrollable
   area.
 - When changing data shapes (e.g. adding a new field to tasks or
-  meetings), decide whether it should be searchable and update the
-  `haystacks` array in the relevant block of `searchAll`.
+  meetings), decide whether it should be searchable and update both
+  the in-process `searchAll` block **and** the worker's
+  `buildIndex` block.
+- The worker's `fs.watch(..., {recursive:true})` requires Node ≥ 20
+  on Linux. Earlier versions silently ignore `recursive`. The
+  worker also doesn't watch directories that didn't exist at index
+  time — adding a brand-new week dir during the same session may
+  not auto-trigger if the watcher is bound only to the parent.
+  Re-indexing on context switch covers most real cases; otherwise a
+  page reload that triggers any indexed file write will pick up new
+  files.
+- The worker holds the entire searchable corpus in memory. That's
+  fine for one user with thousands of items but not for unbounded
+  growth.
 
 ## Related
 

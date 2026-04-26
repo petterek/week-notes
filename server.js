@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { marked } = require('marked');
 const { execSync } = require('child_process');
+const { Worker } = require('worker_threads');
 
 const PORT = parseInt(process.env.PORT, 10) || 3001;
 const CONTEXTS_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
@@ -1923,6 +1924,82 @@ function readBody(req) {
         req.on('data', chunk => { data += chunk; });
         req.on('end', () => resolve(data));
         req.on('error', reject);
+    });
+}
+
+// ---- Search worker (worker_threads) ----
+let searchWorker = null;
+const pendingSearches = new Map(); // requestId -> { resolve, reject, timer }
+let searchReqSeq = 0;
+
+function startSearchWorker() {
+    try {
+        searchWorker = new Worker(path.join(__dirname, 'search-worker.js'));
+    } catch (e) {
+        console.error('search-worker start failed', e.message);
+        searchWorker = null;
+        return;
+    }
+    searchWorker.on('message', (msg) => {
+        if (msg.type === 'indexed') {
+            console.log(`🔎 søkeindeks: ${msg.docCount} dok, ${msg.tokenCount} tokens (${msg.ms}ms, ${msg.trigger || 'manual'})`);
+        } else if (msg.type === 'result') {
+            const p = pendingSearches.get(msg.requestId);
+            if (p) {
+                clearTimeout(p.timer);
+                pendingSearches.delete(msg.requestId);
+                p.resolve(msg.results);
+            }
+        } else if (msg.type === 'error') {
+            if (msg.requestId != null) {
+                const p = pendingSearches.get(msg.requestId);
+                if (p) {
+                    clearTimeout(p.timer);
+                    pendingSearches.delete(msg.requestId);
+                    p.reject(new Error(msg.error));
+                }
+            } else {
+                console.error('search-worker:', msg.error);
+            }
+        }
+    });
+    searchWorker.on('error', (e) => console.error('search-worker error', e));
+    searchWorker.on('exit', (code) => {
+        console.error('search-worker exited with code', code);
+        searchWorker = null;
+        for (const [, p] of pendingSearches) { clearTimeout(p.timer); p.reject(new Error('worker died')); }
+        pendingSearches.clear();
+    });
+    reindexSearch();
+}
+
+function reindexSearch() {
+    if (!searchWorker) return;
+    try { searchWorker.postMessage({ type: 'reindex', contextDir: dataDir() }); }
+    catch (e) { console.error('reindex post failed', e.message); }
+}
+
+function searchViaWorker(q, timeoutMs = 5000) {
+    if (!searchWorker) {
+        // Fallback to in-process search if worker isn't available
+        try { return Promise.resolve(searchAll(q)); }
+        catch (e) { return Promise.reject(e); }
+    }
+    return new Promise((resolve, reject) => {
+        const requestId = ++searchReqSeq;
+        const timer = setTimeout(() => {
+            if (pendingSearches.has(requestId)) {
+                pendingSearches.delete(requestId);
+                reject(new Error('Søketid utløp'));
+            }
+        }, timeoutMs);
+        pendingSearches.set(requestId, { resolve, reject, timer });
+        try { searchWorker.postMessage({ type: 'query', q, requestId }); }
+        catch (e) {
+            clearTimeout(timer);
+            pendingSearches.delete(requestId);
+            reject(e);
+        }
     });
 }
 
@@ -3945,9 +4022,21 @@ function expandAllPeople(expand) {
             res.end('[]');
             return;
         }
-        const results = searchAll(q.trim());
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(results));
+        try {
+            const results = await searchViaWorker(q.trim());
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(results));
+        } catch (e) {
+            // Last-ditch fallback to synchronous in-process search
+            try {
+                const results = searchAll(q.trim());
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(results));
+            } catch {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: e.message }));
+            }
+        }
         return;
     }
 
@@ -4569,6 +4658,7 @@ function expandAllPeople(expand) {
             try {
                 const { id } = JSON.parse(body || '{}');
                 const next = setActiveContext(id);
+                reindexSearch();
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ ok: true, active: next }));
             } catch (e) {
@@ -5054,5 +5144,6 @@ server.listen(PORT, () => {
     console.log(`Weeks server running at http://localhost:${PORT}/`);
     checkExternalTools();
     try { ensureAllContextsInitialised(); } catch (e) { console.error('ctx init', e.message); }
+    startSearchWorker();
     console.log('Press Ctrl+C to stop');
 });
