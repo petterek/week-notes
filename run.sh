@@ -37,6 +37,44 @@ if [ ! -d node_modules ]; then
   npm install
 fi
 
+# Check whether the local checkout is behind origin and offer to pull.
+if command -v git &>/dev/null && [ -d .git ]; then
+  if git rev-parse --abbrev-ref --symbolic-full-name '@{u}' &>/dev/null; then
+    if git fetch --quiet 2>/dev/null; then
+      LOCAL=$(git rev-parse @ 2>/dev/null || echo "")
+      REMOTE=$(git rev-parse '@{u}' 2>/dev/null || echo "")
+      BASE=$(git merge-base @ '@{u}' 2>/dev/null || echo "")
+      if [ -n "$LOCAL" ] && [ -n "$REMOTE" ] && [ "$LOCAL" != "$REMOTE" ]; then
+        if [ "$LOCAL" = "$BASE" ]; then
+          BEHIND=$(git rev-list --count "$LOCAL..$REMOTE" 2>/dev/null || echo "?")
+          echo "ℹ️  $BEHIND new commit(s) on origin you don't have locally."
+          if [ -t 0 ]; then
+            read -r -p "Pull latest before starting? [Y/n] " ANSWER
+          else
+            ANSWER=""
+          fi
+          case "${ANSWER:-Y}" in
+            n|N|no|No|NO) echo "  → Skipping pull, starting current version." ;;
+            *)
+              if git pull --ff-only --quiet; then
+                echo "  → Pulled latest. New HEAD: $(git rev-parse --short HEAD)"
+              else
+                echo "  ⚠️  git pull failed (local changes?). Starting current version anyway." >&2
+              fi
+              ;;
+          esac
+        elif [ "$REMOTE" = "$BASE" ]; then
+          : # local is ahead — fine
+        else
+          echo "ℹ️  Local and origin have diverged — leaving as-is."
+        fi
+      fi
+    else
+      echo "ℹ️  Could not fetch from origin (offline?). Starting current version." >&2
+    fi
+  fi
+fi
+
 PROCESS_NAME="weeks-presentation-server"
 
 if [ -f .server.pid ]; then
