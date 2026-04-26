@@ -83,9 +83,33 @@ if [ -f .server.pid ]; then
     EXISTING_PORT=$(lsof -Pan -p "$EXISTING_PID" -iTCP -sTCP:LISTEN 2>/dev/null | awk 'NR==2 {sub(/.*:/,"",$9); print $9}')
     echo "Server is already running (PID: $EXISTING_PID)"
     [ -n "$EXISTING_PORT" ] && echo "  → http://localhost:$EXISTING_PORT/"
-    exit 0
+    if [ -t 0 ]; then
+      read -r -p "Restart it? [y/N] " ANSWER
+    else
+      ANSWER=""
+    fi
+    case "${ANSWER:-N}" in
+      y|Y|yes|Yes|YES)
+        echo "  → Stopping PID $EXISTING_PID..."
+        kill "$EXISTING_PID" 2>/dev/null || true
+        for i in 1 2 3 4 5; do
+          kill -0 "$EXISTING_PID" 2>/dev/null || break
+          sleep 1
+        done
+        if kill -0 "$EXISTING_PID" 2>/dev/null; then
+          echo "  → Force-killing PID $EXISTING_PID..."
+          kill -9 "$EXISTING_PID" 2>/dev/null || true
+          sleep 1
+        fi
+        rm -f .server.pid
+        ;;
+      *)
+        exit 0
+        ;;
+    esac
+  else
+    rm -f .server.pid
   fi
-  rm -f .server.pid
 fi
 
 if command -v lsof &>/dev/null && lsof -iTCP:"$PORT" -sTCP:LISTEN &>/dev/null; then
