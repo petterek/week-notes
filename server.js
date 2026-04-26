@@ -3372,11 +3372,16 @@ document.addEventListener('keydown', function(e) {
                         <h3>🔗 Git-remote</h3>
                         <label>Git-remote (origin)<input type="text" name="remote" value="${escapeHtml(c.settings.remote || '')}" placeholder="git@github.com:bruker/repo.git" spellcheck="false"></label>
                     </div>
+                    ${(c.settings.remote || '').trim() ? `
+                    <div class="ctx-detail-section">
+                        <h3>🔌 Koble fra</h3>
+                        <p class="section-hint">Committer alle endringer, pusher til origin og fjerner den lokale mappen. Git-URLen huskes lokalt så du kan klone den tilbake senere.</p>
+                        <button type="button" class="btn-disconnect" data-disconnect="${escapeHtml(c.id)}" data-name="${escapeHtml(c.settings.name || c.id)}">🔌 Koble fra denne konteksten</button>
+                    </div>` : ''}
                     </div>
                     <div class="ctx-detail-actions">
                         <button type="submit" class="btn-primary">💾 Lagre endringer</button>
                         <span class="settings-status" data-status="${escapeHtml(c.id)}"></span>
-                        ${(c.settings.remote || '').trim() ? `<button type="button" class="btn-disconnect" data-disconnect="${escapeHtml(c.id)}" data-name="${escapeHtml(c.settings.name || c.id)}" title="Commit, push og fjern lokal mappe (URL huskes)">🔌 Koble fra</button>` : ''}
                     </div>
                 </form>
             </div>`;
@@ -3597,7 +3602,7 @@ document.addEventListener('keydown', function(e) {
                 .btn-primary:hover { background: var(--accent-strong); }
                 .btn-cancel { background: none; border: 1px solid var(--border); padding: 6px 12px; border-radius: 4px; cursor: pointer; font-family: inherit; color: var(--text-muted-warm); font-size: 0.9em; }
                 .btn-cancel:hover { background: var(--surface-alt); }
-                .btn-disconnect { background: none; border: 1px solid #f5b7b7; color: #c53030; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 0.9em; margin-left: auto; }
+                .btn-disconnect { background: none; border: 1px solid #f5b7b7; color: #c53030; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 0.9em; }
                 .btn-disconnect:hover { background: #fff5f5; border-color: #e53e3e; }
                 .ctx-detail-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
                 .settings-status { font-size: 0.85em; color: #2f855a; }
