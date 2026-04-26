@@ -1353,6 +1353,7 @@ function pageHtml(title, body, extraNavLinks) {
         .md-content pre { background: var(--text-strong); color: var(--border-soft); padding: 16px; border-radius: 8px; overflow-x: auto; }
         .md-content pre code { background: none; color: inherit; padding: 0; }
         .note-card { padding: 10px 14px; margin-bottom: 10px; border: 1px solid var(--border-soft); border-radius: 6px; background: var(--surface); font-size: 0.93em; }
+        note-card { display: block; }
         .note-card .note-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
         .note-card .note-h a { color: var(--text-muted-warm); text-decoration: none; padding: 2px 4px; border-radius: 3px; }
         .note-card .note-h a:hover { background: var(--surface-alt); color: var(--accent); }
