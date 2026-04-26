@@ -33,8 +33,11 @@ week as `summarize.md`.
   - `searchSnippet`, `searchMdFiles`, `searchAll`.
 - Re-indexing:
   - Once on server startup (after `server.listen`).
-  - After every successful `setActiveContext` (the
-    `/api/contexts/switch` handler calls `reindexSearch()`).
+  - After every successful context switch. The
+    `/api/contexts/switch` handler responds immediately and runs
+    `pullContextRemote` + `reindexSearch()` from a `setImmediate`
+    callback so the user sees a fast switch even on contexts with
+    a slow git remote.
   - Automatically when the worker's `fs.watch(contextDir,
     {recursive:true})` sees a relevant file change. Debounced 200 ms.
     Watched: `**/*.md` (week notes) and the four context-level

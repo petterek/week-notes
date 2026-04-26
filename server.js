@@ -34,7 +34,8 @@ function getActiveContext() {
     return first;
 }
 
-function setActiveContext(name) {
+function setActiveContext(name, opts) {
+    const { skipPull = false } = opts || {};
     const safe = safeName(name);
     if (!safe) throw new Error('Ugyldig kontekstnavn');
     if (!listContexts().includes(safe)) throw new Error('Kontekst finnes ikke');
@@ -50,16 +51,23 @@ function setActiveContext(name) {
         }
     } catch (e) { console.error('pre-switch commit failed', e.message); }
     fs.writeFileSync(ACTIVE_FILE, safe);
-    // Pull the target context if it has a remote configured
-    try {
-        const targetDir = path.join(CONTEXTS_DIR, safe);
-        const targetSettings = getContextSettings(safe);
-        if (gitIsRepo(targetDir) && (targetSettings.remote || '').trim()) {
-            try { git(targetDir, 'pull --ff-only --quiet'); }
-            catch (e) { console.error('git pull failed for', safe, e.message); }
-        }
-    } catch (e) { console.error('post-switch pull failed', e.message); }
+    // Pull the target context if it has a remote configured (skippable so
+    // callers can defer the network call to a background task)
+    if (!skipPull) {
+        try { pullContextRemote(safe); }
+        catch (e) { console.error('post-switch pull failed', e.message); }
+    }
     return safe;
+}
+
+function pullContextRemote(name) {
+    const safe = safeName(name);
+    const targetDir = path.join(CONTEXTS_DIR, safe);
+    const targetSettings = getContextSettings(safe);
+    if (gitIsRepo(targetDir) && (targetSettings.remote || '').trim()) {
+        try { git(targetDir, 'pull --ff-only --quiet'); }
+        catch (e) { console.error('git pull failed for', safe, e.message); }
+    }
 }
 
 function createContext(rawName, settings) {
@@ -4657,10 +4665,15 @@ function expandAllPeople(expand) {
         req.on('end', () => {
             try {
                 const { id } = JSON.parse(body || '{}');
-                const next = setActiveContext(id);
-                reindexSearch();
+                // Fast path: just commit current and flip the .active pointer.
+                // The git pull and the search reindex run in the background.
+                const next = setActiveContext(id, { skipPull: true });
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ ok: true, active: next }));
+                setImmediate(() => {
+                    try { pullContextRemote(next); } catch (e) { console.error('bg pull', e.message); }
+                    reindexSearch();
+                });
             } catch (e) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ ok: false, error: String(e.message || e) }));
