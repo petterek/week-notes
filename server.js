@@ -3453,6 +3453,10 @@ document.addEventListener('keydown', function(e) {
                     <div class="ctx-detail-section">
                         <label>Git-remote<input type="text" id="cloneRemote" placeholder="git@github.com:bruker/repo.git" spellcheck="false" required></label>
                         <label>Navn (valgfritt — utledes fra repo-URLen)<input type="text" id="cloneName" placeholder="overstyr utledet navn" spellcheck="false"></label>
+                        <div id="knownRepos" class="known-repos" hidden>
+                            <div class="known-repos__label">Tidligere koblet fra:</div>
+                            <ul class="known-repos__list"></ul>
+                        </div>
                         <p class="section-hint">Repoet klones til <code>data/&lt;navn&gt;/</code>. Hvis det allerede finnes en <code>settings.json</code> i repoet brukes den.</p>
                     </div>
                     <div class="ctx-detail-actions">
@@ -3643,6 +3647,19 @@ document.addEventListener('keydown', function(e) {
                 .btn-disconnect:hover { background: #fff5f5; border-color: #e53e3e; }
                 .ctx-detail-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
                 .settings-status { font-size: 0.85em; color: #2f855a; }
+
+                .known-repos { margin-top: 10px; padding: 10px 12px; background: var(--surface-alt); border: 1px solid var(--border-faint); border-radius: 6px; }
+                .known-repos__label { font-size: 0.85em; color: var(--text-subtle); margin-bottom: 8px; font-weight: 600; }
+                .known-repos__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+                .known-repos__list li { display: flex; align-items: stretch; gap: 4px; }
+                .known-repos__pick { flex: 1; display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 5px; cursor: pointer; font-family: inherit; text-align: left; }
+                .known-repos__pick:hover { background: var(--bg); border-color: var(--accent); }
+                .known-repos__icon { font-size: 1.2em; flex-shrink: 0; }
+                .known-repos__meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+                .known-repos__meta strong { font-size: 0.95em; color: var(--text); }
+                .known-repos__meta span { font-family: ui-monospace, monospace; font-size: 0.8em; color: var(--text-subtle); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                .known-repos__forget { background: none; border: 1px solid var(--border-faint); color: var(--text-subtle); border-radius: 5px; padding: 0 10px; cursor: pointer; font-family: inherit; }
+                .known-repos__forget:hover { background: #fff5f5; border-color: #f5b7b7; color: #c53030; }
 
                 .icon-picker { position: relative; display: inline-block; margin-top: 4px; }
                 .icon-trigger { display: inline-flex; align-items: center; gap: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; cursor: pointer; font-family: inherit; }
@@ -3991,6 +4008,39 @@ document.addEventListener('keydown', function(e) {
                         s.textContent = '✗ ' + d.error; s.style.color = '#c53030';
                     }).catch(err => { s.textContent = '✗ ' + err; s.style.color = '#c53030'; });
                 });
+                (function () {
+                    const box = document.getElementById('knownRepos');
+                    if (!box) return;
+                    const ul = box.querySelector('ul');
+                    function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+                    fetch('/api/contexts/disconnected').then(r => r.json()).then(list => {
+                        if (!Array.isArray(list) || list.length === 0) return;
+                        ul.innerHTML = list.map(d =>
+                            '<li>'
+                            + '<button type="button" class="known-repos__pick" data-remote="' + esc(d.remote) + '" data-name="' + esc(d.name || d.id) + '">'
+                            + '<span class="known-repos__icon">' + esc(d.icon || '📁') + '</span>'
+                            + '<span class="known-repos__meta"><strong>' + esc(d.name || d.id) + '</strong><span>' + esc(d.remote) + '</span></span>'
+                            + '</button>'
+                            + '<button type="button" class="known-repos__forget" data-forget="' + esc(d.id) + '" title="Glem denne">✕</button>'
+                            + '</li>'
+                        ).join('');
+                        box.hidden = false;
+                        ul.querySelectorAll('.known-repos__pick').forEach(b => {
+                            b.addEventListener('click', () => {
+                                document.getElementById('cloneRemote').value = b.getAttribute('data-remote');
+                                document.getElementById('cloneName').value = b.getAttribute('data-name') || '';
+                                document.getElementById('cloneRemote').focus();
+                            });
+                        });
+                        ul.querySelectorAll('.known-repos__forget').forEach(b => {
+                            b.addEventListener('click', () => {
+                                const id = b.getAttribute('data-forget');
+                                fetch('/api/contexts/disconnected/' + encodeURIComponent(id), { method: 'DELETE' })
+                                    .then(() => { b.closest('li').remove(); if (!ul.children.length) box.hidden = true; });
+                            });
+                        });
+                    });
+                })();
             </script>
         `;
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
