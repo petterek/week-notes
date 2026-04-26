@@ -11,6 +11,12 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 ## 📜 Changelog
 
 ### 2026-04-26
+- People page expanded into tabbed directory: **Personer / Selskaper / Steder**. People + companies share the `@kortnavn` namespace and are both `@`-mentionable; places are picked from a dropdown.
+- Companies (`🏢`): full CRUD with name, org.nr, web, address, notes. `@key` mentions render as company pills with their own tooltip. Company cards list members (people with this as primary or secondary relation) plus referenced meetings, results, tasks and notes.
+- People gained two separate company relation fields: `primaryCompanyKey` (single, optional — "Hovedselskap") and `extraCompanyKeys[]` (additional). Edit modal has a dropdown for primary plus a checkbox list for extras (auto-deduped vs primary).
+- Places (`📍`): name + address + optional geo coords + notes. Edit modal has a Leaflet + OpenStreetMap **map picker** — click to place marker, drag to refine. Each place card shows a read-only mini-map when expanded, plus all meetings tied to the place.
+- Calendar: meeting modal gained a "Knytt til registrert sted" dropdown (places). When set, the meeting block in the grid shows the place name as a link to OpenStreetMap. Free-text "Sted" remains for ad-hoc locations.
+- Tab state preserved in URL hash (`/people#tab=companies&key=acmeas`) for shareable deep links.
 - Renamed nav label from "Personer" → "Personer og steder" (route stays `/people`). The directory is generic enough to also hold places, companies, and other named entities you mention with `@key`.
 - People: `/people` overhauled. Reference detection now matches by `@key` (lowercase) instead of full display name, so all references that previously showed `0 ref.` are correctly counted. Person cards now also surface **Møter** and **Resultater** with deep links (in addition to Oppgaver and Notater).
 - People: new **➕ Ny person** button on `/people` opens a modal that lets you create a person directly without going via an `@`-mention. Auto-generates a unique lowercase key from the first name. New `POST /api/people` endpoint.

@@ -308,6 +308,8 @@ function notesMetaFile() { return path.join(dataDir(), 'notes-meta.json'); }
 function peopleFile() { return path.join(dataDir(), 'people.json'); }
 function resultsFile() { return path.join(dataDir(), 'results.json'); }
 function meetingsFile() { return path.join(dataDir(), 'meetings.json'); }
+function companiesFile() { return path.join(dataDir(), 'companies.json'); }
+function placesFile() { return path.join(dataDir(), 'places.json'); }
 
 // --- Git per context ---
 function checkExternalTools() {
@@ -503,6 +505,34 @@ function saveMeetings(meetings) {
     fs.writeFileSync(meetingsFile(), JSON.stringify(meetings, null, 2), 'utf-8');
 }
 
+function loadCompanies() {
+    try {
+        const all = JSON.parse(fs.readFileSync(companiesFile(), 'utf-8'));
+        return Array.isArray(all) ? all.filter(c => !c.deleted) : [];
+    } catch { return []; }
+}
+function loadAllCompanies() {
+    try { return JSON.parse(fs.readFileSync(companiesFile(), 'utf-8')); }
+    catch { return []; }
+}
+function saveCompanies(companies) {
+    fs.writeFileSync(companiesFile(), JSON.stringify(companies, null, 2), 'utf-8');
+}
+
+function loadPlaces() {
+    try {
+        const all = JSON.parse(fs.readFileSync(placesFile(), 'utf-8'));
+        return Array.isArray(all) ? all.filter(p => !p.deleted) : [];
+    } catch { return []; }
+}
+function loadAllPlaces() {
+    try { return JSON.parse(fs.readFileSync(placesFile(), 'utf-8')); }
+    catch { return []; }
+}
+function savePlaces(places) {
+    fs.writeFileSync(placesFile(), JSON.stringify(places, null, 2), 'utf-8');
+}
+
 const DEFAULT_MEETING_TYPES = [
     { key: 'meeting', label: 'Møte', icon: '👥', mins: 60 },
     { key: '1on1', label: '1:1', icon: '☕', mins: 30 },
@@ -614,10 +644,14 @@ function extractMentions(text) {
 
 function syncMentions(...texts) {
     const people = loadAllPeople();
+    const companies = loadAllCompanies();
+    const companyKeys = new Set(companies.filter(c => !c.deleted).map(c => c.key));
     let changed = false;
     texts.flat().forEach(text => {
         extractMentions(text).forEach(rawName => {
             const key = rawName.toLowerCase();
+            // Skip if a (live) company already claims this key — don't shadow it with a person stub.
+            if (companyKeys.has(key)) return;
             if (!people.find(p => p.key === key)) {
                 people.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), key, name: rawName, firstName: rawName, created: new Date().toISOString() });
                 changed = true;
@@ -1409,7 +1443,7 @@ function pageHtml(title, body, extraNavLinks) {
         #globalSearchModal .gs-hint { color: #a0998a; font-size: 0.8em; margin-top: 6px; }
     </style>
 </head>
-<body>${nav}${body}<div id="personTip"></div><div id="helpModal" class="page-modal" onclick="if(event.target===this)this.style.display='none'"><div class="page-modal-card" style="max-width:780px;max-height:85vh;display:flex;flex-direction:column"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:12px"><h3 style="margin:0">❓ Hjelp</h3><button onclick="document.getElementById('helpModal').style.display='none'" style="background:none;border:none;font-size:1.3em;cursor:pointer;color:#718096">✕</button></div><div id="helpContent" class="md-content" style="overflow-y:auto;flex:1;padding:4px 4px 4px 0">Laster…</div></div></div><script>(function(){var btn=document.getElementById('helpBtn');var modal=document.getElementById('helpModal');var loaded=false;if(!btn||!modal)return;btn.addEventListener('click',function(e){e.preventDefault();modal.style.display='flex';if(loaded)return;fetch('/help.md').then(function(r){return r.text();}).then(function(md){document.getElementById('helpContent').innerHTML=window.marked?marked.parse(md):'<pre>'+md.replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];})+'</pre>';loaded=true;}).catch(function(){document.getElementById('helpContent').textContent='Kunne ikke laste hjelp.';});});document.addEventListener('keydown',function(e){if(e.key==='Escape'&&modal.style.display==='flex')modal.style.display='none';});})();</script><script>document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaKey)return;var link=document.querySelector('.nav-links a[data-key="'+e.key.toLowerCase()+'"]');if(link){e.preventDefault();window.location.href=link.href;}});(function(){var t=document.getElementById('ctxTrigger');var sw=t&&t.parentElement;if(!t)return;t.addEventListener('click',function(e){e.stopPropagation();sw.classList.toggle('open');});document.addEventListener('click',function(e){if(!sw.contains(e.target))sw.classList.remove('open');});sw.querySelectorAll('.ctx-item[data-id]').forEach(function(b){b.addEventListener('click',function(){var id=b.getAttribute('data-id');fetch('/api/contexts/switch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})}).then(function(r){return r.json();}).then(function(d){if(d.ok)location.reload();else alert('Kunne ikke bytte kontekst: '+d.error);});});});var cb=document.getElementById('ctxCommitBtn');if(cb)cb.addEventListener('click',function(e){e.stopPropagation();var id=cb.getAttribute('data-active');var msg=prompt('Commit-melding (valgfritt):','');if(msg===null)return;cb.textContent='⏳ Committer...';fetch('/api/contexts/'+encodeURIComponent(id)+'/commit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})}).then(function(r){return r.json();}).then(function(d){if(d.ok){cb.textContent=d.committed?'✓ Committet':'Ingen endringer';setTimeout(function(){sw.classList.remove('open');},1200);}else{cb.textContent='✗ '+d.error;}});});})();(function tick(){var c=document.getElementById('navClock');if(c)c.textContent=new Date().toLocaleTimeString('nb-NO',{hour:'2-digit',minute:'2-digit',second:'2-digit'});setTimeout(tick,1000)})();(function(){var tip=document.getElementById('personTip');var peopleCache=null;var peoplePromise=null;function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}function loadPeople(){if(peopleCache)return Promise.resolve(peopleCache);if(peoplePromise)return peoplePromise;peoplePromise=fetch('/api/people').then(function(r){return r.json();}).then(function(d){peopleCache=d||[];return peopleCache;}).catch(function(){peopleCache=[];return peopleCache;});return peoplePromise;}function findPerson(people,key){if(!key)return null;return people.find(function(p){return (p.key&&p.key===key)||(p.name&&p.name.toLowerCase()===key);});}function render(p,key){if(!p){return '<div class="pt-missing">Ingen oppføring for @'+esc(key)+'</div>';}var name=p.firstName?(p.lastName?p.firstName+' '+p.lastName:p.firstName):(p.name||key);var html='<div class="pt-name">'+esc(name)+'</div>';if(p.title)html+='<div class="pt-title">'+esc(p.title)+'</div>';if(p.email)html+='<div class="pt-row">✉️ '+esc(p.email)+'</div>';if(p.phone)html+='<div class="pt-row">📞 '+esc(p.phone)+'</div>';if(p.notes){var n=p.notes.length>140?p.notes.slice(0,140)+'…':p.notes;html+='<div class="pt-notes">'+esc(n)+'</div>';}return html;}function position(ev){var r=18,vw=window.innerWidth,vh=window.innerHeight;var w=tip.offsetWidth,h=tip.offsetHeight;var x=ev.clientX+r,y=ev.clientY+r;if(x+w>vw-8)x=ev.clientX-w-r;if(y+h>vh-8)y=ev.clientY-h-r;if(x<8)x=8;if(y<8)y=8;tip.style.left=x+'px';tip.style.top=y+'px';}var current=null;document.addEventListener('mouseover',function(e){var a=e.target.closest&&e.target.closest('.mention-link');if(!a)return;current=a;var key=a.getAttribute('data-person-key')||a.textContent.trim().toLowerCase();loadPeople().then(function(people){if(current!==a)return;tip.innerHTML=render(findPerson(people,key),key);tip.classList.add('visible');position(e);});});document.addEventListener('mousemove',function(e){if(tip.classList.contains('visible')&&e.target.closest&&e.target.closest('.mention-link'))position(e);});document.addEventListener('mouseout',function(e){var a=e.target.closest&&e.target.closest('.mention-link');if(!a)return;var to=e.relatedTarget;if(to&&to.closest&&to.closest('.mention-link')===a)return;current=null;tip.classList.remove('visible');});})();</script><div id="globalSearchModal" class="page-modal" onclick="if(event.target===this)window.__closeGlobalSearch&&window.__closeGlobalSearch()"><div class="gs-card"><div class="gs-input-row"><input id="gsInput" class="gs-input" type="text" placeholder="Søk i notater, oppgaver, møter, personer, resultater…" autocomplete="off" /><button class="gs-close" onclick="window.__closeGlobalSearch&&window.__closeGlobalSearch()" title="Lukk (Esc)">✕</button></div><div id="gsResults" class="gs-results"></div><div class="gs-hint">↵ åpne første · Esc lukk · Ctrl+K eller / for å søke fra hvor som helst</div></div></div><script>(function(){
+<body>${nav}${body}<div id="personTip"></div><div id="helpModal" class="page-modal" onclick="if(event.target===this)this.style.display='none'"><div class="page-modal-card" style="max-width:780px;max-height:85vh;display:flex;flex-direction:column"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:12px"><h3 style="margin:0">❓ Hjelp</h3><button onclick="document.getElementById('helpModal').style.display='none'" style="background:none;border:none;font-size:1.3em;cursor:pointer;color:#718096">✕</button></div><div id="helpContent" class="md-content" style="overflow-y:auto;flex:1;padding:4px 4px 4px 0">Laster…</div></div></div><script>(function(){var btn=document.getElementById('helpBtn');var modal=document.getElementById('helpModal');var loaded=false;if(!btn||!modal)return;btn.addEventListener('click',function(e){e.preventDefault();modal.style.display='flex';if(loaded)return;fetch('/help.md').then(function(r){return r.text();}).then(function(md){document.getElementById('helpContent').innerHTML=window.marked?marked.parse(md):'<pre>'+md.replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];})+'</pre>';loaded=true;}).catch(function(){document.getElementById('helpContent').textContent='Kunne ikke laste hjelp.';});});document.addEventListener('keydown',function(e){if(e.key==='Escape'&&modal.style.display==='flex')modal.style.display='none';});})();</script><script>document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaKey)return;var link=document.querySelector('.nav-links a[data-key="'+e.key.toLowerCase()+'"]');if(link){e.preventDefault();window.location.href=link.href;}});(function(){var t=document.getElementById('ctxTrigger');var sw=t&&t.parentElement;if(!t)return;t.addEventListener('click',function(e){e.stopPropagation();sw.classList.toggle('open');});document.addEventListener('click',function(e){if(!sw.contains(e.target))sw.classList.remove('open');});sw.querySelectorAll('.ctx-item[data-id]').forEach(function(b){b.addEventListener('click',function(){var id=b.getAttribute('data-id');fetch('/api/contexts/switch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})}).then(function(r){return r.json();}).then(function(d){if(d.ok)location.reload();else alert('Kunne ikke bytte kontekst: '+d.error);});});});var cb=document.getElementById('ctxCommitBtn');if(cb)cb.addEventListener('click',function(e){e.stopPropagation();var id=cb.getAttribute('data-active');var msg=prompt('Commit-melding (valgfritt):','');if(msg===null)return;cb.textContent='⏳ Committer...';fetch('/api/contexts/'+encodeURIComponent(id)+'/commit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})}).then(function(r){return r.json();}).then(function(d){if(d.ok){cb.textContent=d.committed?'✓ Committet':'Ingen endringer';setTimeout(function(){sw.classList.remove('open');},1200);}else{cb.textContent='✗ '+d.error;}});});})();(function tick(){var c=document.getElementById('navClock');if(c)c.textContent=new Date().toLocaleTimeString('nb-NO',{hour:'2-digit',minute:'2-digit',second:'2-digit'});setTimeout(tick,1000)})();(function(){var tip=document.getElementById('personTip');var peopleCache=null;var companiesCache=null;var loadPromise=null;function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}function loadAll(){if(peopleCache&&companiesCache)return Promise.resolve();if(loadPromise)return loadPromise;loadPromise=Promise.all([fetch('/api/people').then(function(r){return r.json();}).catch(function(){return [];}),fetch('/api/companies').then(function(r){return r.json();}).catch(function(){return [];})]).then(function(arr){peopleCache=arr[0]||[];companiesCache=arr[1]||[];});return loadPromise;}function findPerson(key){if(!key||!peopleCache)return null;return peopleCache.find(function(p){return (p.key&&p.key===key)||(p.name&&p.name.toLowerCase()===key);});}function findCompany(key){if(!key||!companiesCache)return null;return companiesCache.find(function(c){return c.key===key;});}function renderPerson(p,key){if(!p){return '<div class="pt-missing">Ingen oppføring for @'+esc(key)+'</div>';}var name=p.firstName?(p.lastName?p.firstName+' '+p.lastName:p.firstName):(p.name||key);var html='<div class="pt-name">'+esc(name)+'</div>';if(p.title)html+='<div class="pt-title">'+esc(p.title)+'</div>';var primaryKey=p.primaryCompanyKey;if(primaryKey){var c=findCompany(primaryKey);if(c)html+='<div class="pt-row">🏢 '+esc(c.name||primaryKey)+'</div>';}if(p.email)html+='<div class="pt-row">✉️ '+esc(p.email)+'</div>';if(p.phone)html+='<div class="pt-row">📞 '+esc(p.phone)+'</div>';if(p.notes){var n=p.notes.length>140?p.notes.slice(0,140)+'…':p.notes;html+='<div class="pt-notes">'+esc(n)+'</div>';}return html;}function renderCompany(c,key){if(!c){return '<div class="pt-missing">Ingen oppføring for @'+esc(key)+'</div>';}var html='<div class="pt-name">🏢 '+esc(c.name||key)+'</div>';if(c.url)html+='<div class="pt-row">🔗 '+esc(c.url)+'</div>';if(c.address)html+='<div class="pt-row">📍 '+esc(c.address)+'</div>';if(c.orgnr)html+='<div class="pt-row">Org.nr: '+esc(c.orgnr)+'</div>';if(c.notes){var n=c.notes.length>140?c.notes.slice(0,140)+'…':c.notes;html+='<div class="pt-notes">'+esc(n)+'</div>';}return html;}function position(ev){var r=18,vw=window.innerWidth,vh=window.innerHeight;var w=tip.offsetWidth,h=tip.offsetHeight;var x=ev.clientX+r,y=ev.clientY+r;if(x+w>vw-8)x=ev.clientX-w-r;if(y+h>vh-8)y=ev.clientY-h-r;if(x<8)x=8;if(y<8)y=8;tip.style.left=x+'px';tip.style.top=y+'px';}var current=null;document.addEventListener('mouseover',function(e){var a=e.target.closest&&e.target.closest('.mention-link');if(!a)return;current=a;var compKey=a.getAttribute('data-company-key');var key=compKey||a.getAttribute('data-person-key')||a.textContent.trim().toLowerCase();loadAll().then(function(){if(current!==a)return;var html;if(compKey){html=renderCompany(findCompany(compKey),compKey);}else{var c=findCompany(key);html=c?renderCompany(c,key):renderPerson(findPerson(key),key);}tip.innerHTML=html;tip.classList.add('visible');position(e);});});document.addEventListener('mousemove',function(e){if(tip.classList.contains('visible')&&e.target.closest&&e.target.closest('.mention-link'))position(e);});document.addEventListener('mouseout',function(e){var a=e.target.closest&&e.target.closest('.mention-link');if(!a)return;var to=e.relatedTarget;if(to&&to.closest&&to.closest('.mention-link')===a)return;current=null;tip.classList.remove('visible');});})();</script><div id="globalSearchModal" class="page-modal" onclick="if(event.target===this)window.__closeGlobalSearch&&window.__closeGlobalSearch()"><div class="gs-card"><div class="gs-input-row"><input id="gsInput" class="gs-input" type="text" placeholder="Søk i notater, oppgaver, møter, personer, resultater…" autocomplete="off" /><button class="gs-close" onclick="window.__closeGlobalSearch&&window.__closeGlobalSearch()" title="Lukk (Esc)">✕</button></div><div id="gsResults" class="gs-results"></div><div class="gs-hint">↵ åpne første · Esc lukk · Ctrl+K eller / for å søke fra hvor som helst</div></div></div><script>(function(){
     var modal = document.getElementById('globalSearchModal');
     var input = document.getElementById('gsInput');
     var resultsEl = document.getElementById('gsResults');
@@ -2475,14 +2509,20 @@ function escapeHtml(str) {
 }
 
 // Replace @name in already-escaped/rendered HTML with a link to /people (no @).
-// Uses people registry for display name (firstName lastName) when available.
-function linkMentions(html, people) {
+// Uses people + companies registries for display name and type-specific anchor.
+function linkMentions(html, people, companies) {
     if (!html) return html;
     people = people || loadPeople();
+    companies = companies || loadCompanies();
     return html.replace(/(^|[\s\n(\[>])@([a-zA-ZæøåÆØÅ][a-zA-ZæøåÆØÅ0-9_-]*)/g, (m, pre, name) => {
-        const p = people.find(x => x.name === name || x.key === name.toLowerCase());
+        const lc = name.toLowerCase();
+        const c = companies.find(x => x.key === lc);
+        if (c) {
+            return pre + `<a href="/people#tab=companies&key=${encodeURIComponent(c.key)}" class="mention-link mention-company" data-company-key="${escapeHtml(c.key)}">${escapeHtml(c.name || name)}</a>`;
+        }
+        const p = people.find(x => x.name === name || x.key === lc);
         const display = p ? (p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : p.name) : name;
-        const key = p ? (p.key || (p.name || '').toLowerCase()) : name.toLowerCase();
+        const key = p ? (p.key || (p.name || '').toLowerCase()) : lc;
         return pre + `<a href="/people" class="mention-link" data-person-key="${escapeHtml(key)}">${escapeHtml(display)}</a>`;
     });
 }
@@ -4692,6 +4732,8 @@ document.addEventListener('keydown', function(e) {
             days.push({ iso, label: dayNames[i], dayNum: String(d.getUTCDate()).padStart(2, '0'), month: String(d.getUTCMonth() + 1).padStart(2, '0'), isToday: iso === todayStr });
         }
         const meetings = loadMeetings().filter(m => m.date >= days[0].iso && m.date <= days[6].iso);
+        const placesByKey = {};
+        loadPlaces().filter(p => !p.deleted).forEach(p => { placesByKey[p.key] = p; });
         const activity = getCalendarActivity(days[0].iso, days[6].iso);
         const prevWeek = shiftIsoWeek(week, -1);
         const nextWeek = shiftIsoWeek(week, 1);
@@ -4765,7 +4807,18 @@ document.addEventListener('keydown', function(e) {
                     <div class="mtg-time">${escapeHtml(m.start || '')}${m.end ? '–' + escapeHtml(m.end) : ''}</div>
                     <div class="mtg-t">${typeIcon ? `<span class="mtg-type-icon" title="${escapeHtml(meetingTypeLabel(m.type))}">${typeIcon}</span> ` : ''}${escapeHtml(m.title)}</div>
                     ${att ? `<div class="mtg-att">${escapeHtml(att + more)}</div>` : ''}
-                    ${m.location ? `<div class="mtg-l">📍 ${escapeHtml(m.location)}</div>` : ''}
+                    ${(() => {
+                        const place = m.placeKey && placesByKey[m.placeKey];
+                        if (place) {
+                            const hasC = Number.isFinite(place.lat) && Number.isFinite(place.lng);
+                            const link = hasC ? `https://www.openstreetmap.org/?mlat=${place.lat}&mlon=${place.lng}#map=17/${place.lat}/${place.lng}` : '';
+                            const inner = `📍 ${escapeHtml(place.name)}`;
+                            return hasC
+                                ? `<div class="mtg-l"><a href="${link}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="color:inherit;text-decoration:none">${inner}</a></div>`
+                                : `<div class="mtg-l">${inner}</div>`;
+                        }
+                        return m.location ? `<div class="mtg-l">📍 ${escapeHtml(m.location)}</div>` : '';
+                    })()}
                     <div class="mtg-resize" title="Dra for å endre varighet"></div>
                 </div>`;
             }).join('');
@@ -4827,7 +4880,8 @@ document.addEventListener('keydown', function(e) {
                             <label>Til<span class="time-pick"><select id="mtgEndH" class="t-h"></select><span class="t-sep">:</span><select id="mtgEndM" class="t-m"></select></span></label>
                         </div>
                         <label>Deltakere <span class="mtg-hint">(kommaseparert eller @navn)</span><input type="text" id="mtgAttendees" placeholder="@kari, @ola"></label>
-                        <label>Sted<input type="text" id="mtgLocation" placeholder="Møterom, Teams, …"></label>
+                        <label>Sted (fritekst)<input type="text" id="mtgLocation" placeholder="Møterom, Teams, …"></label>
+                        <label>Knytt til registrert sted<select id="mtgPlaceKey"><option value="">— ingen —</option></select></label>
                         <label>Notater<textarea id="mtgNotes" rows="6" placeholder="Agenda, lenker, …"></textarea></label>
                         <div class="mtg-modal-actions">
                             <button type="button" id="mtgDelete" class="mtg-btn-del" style="display:none">🗑️ Slett</button>
@@ -4979,6 +5033,12 @@ document.addEventListener('keydown', function(e) {
                 (function(){
                     const HOUR_PX = ${HOUR_PX}, HOUR_START = ${HOUR_START}, HOUR_END = ${HOUR_END};
                     const MEETING_TYPES = ${JSON.stringify(meetingTypes)};
+                    const MEETING_PLACES = ${JSON.stringify(loadPlaces().filter(p => !p.deleted).map(p => ({ key: p.key, name: p.name })))};
+                    (function fillPlaces(){
+                        const sel = document.getElementById('mtgPlaceKey');
+                        if (!sel) return;
+                        sel.innerHTML = '<option value="">— ingen —</option>' + MEETING_PLACES.map(p => '<option value="' + p.key + '">' + p.name + '</option>').join('');
+                    })();
                     function minsForType(key) {
                         const t = MEETING_TYPES.find(x => x.key === key);
                         const m = t && parseInt(t.mins, 10);
@@ -5032,6 +5092,7 @@ document.addEventListener('keydown', function(e) {
                             setTime('mtgEnd', meeting.end || '');
                             $('mtgAttendees').value = (meeting.attendees || []).map(a => '@' + a).join(', ');
                             $('mtgLocation').value = meeting.location || '';
+                            if ($('mtgPlaceKey')) $('mtgPlaceKey').value = meeting.placeKey || '';
                             $('mtgNotes').value = meeting.notes || '';
                             $('mtgDelete').style.display = '';
                         } else {
@@ -5253,6 +5314,7 @@ document.addEventListener('keydown', function(e) {
                             end: getTime('mtgEnd'),
                             attendees,
                             location: $('mtgLocation').value.trim(),
+                            placeKey: ($('mtgPlaceKey') ? $('mtgPlaceKey').value : '') || '',
                             notes: $('mtgNotes').value
                         };
                         const url = id ? '/api/meetings/' + encodeURIComponent(id) : '/api/meetings';
@@ -5390,6 +5452,8 @@ document.addEventListener('keydown', function(e) {
 
     if (pathname === '/people') {
         const people = loadPeople().sort((a, b) => a.name.localeCompare(b.name, 'nb'));
+        const companies = loadCompanies().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'nb'));
+        const places = loadPlaces().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'nb'));
         const tasks = loadTasks();
         const meetings = loadMeetings();
         const results = loadResults();
@@ -5414,13 +5478,46 @@ document.addEventListener('keydown', function(e) {
             const set = new Set([...(r.people || []).map(p => String(p).toLowerCase()), ...extractMentions(r.text || '')]);
             return { r, mentions: set };
         });
+        // Pre-compute company → people index for fast member listing
+        const companyMembers = new Map(); // companyKey → [{person, primary}]
+        people.forEach(p => {
+            if (p.primaryCompanyKey) {
+                const arr = companyMembers.get(p.primaryCompanyKey) || [];
+                arr.push({ person: p, primary: true });
+                companyMembers.set(p.primaryCompanyKey, arr);
+            }
+            (p.extraCompanyKeys || []).forEach(k => {
+                if (k === p.primaryCompanyKey) return;
+                const arr = companyMembers.get(k) || [];
+                arr.push({ person: p, primary: false });
+                companyMembers.set(k, arr);
+            });
+        });
+        // Pre-compute place → meetings index
+        const placeMeetings = new Map();
+        meetings.forEach(m => {
+            if (m.placeKey) {
+                const arr = placeMeetings.get(m.placeKey) || [];
+                arr.push(m);
+                placeMeetings.set(m.placeKey, arr);
+            }
+        });
+        const companiesByKey = Object.fromEntries(companies.map(c => [c.key, c]));
 
         let body = '<div class="people-page">';
         body += `<div class="people-head">
             <h1>👥 Personer og steder</h1>
-            <button class="btn-primary" id="newPersonBtn">➕ Ny person</button>
         </div>`;
 
+        // Tab nav
+        body += `<div class="dir-tabs" role="tablist">
+            <button class="dir-tab" data-tab="people" role="tab">👤 Personer <span class="dir-tab-c">${people.length}</span></button>
+            <button class="dir-tab" data-tab="companies" role="tab">🏢 Selskaper <span class="dir-tab-c">${companies.length}</span></button>
+            <button class="dir-tab" data-tab="places" role="tab">📍 Steder <span class="dir-tab-c">${places.length}</span></button>
+        </div>`;
+
+        // ===== PEOPLE TAB =====
+        body += `<section class="dir-pane" data-pane="people">`;
         body += `<div class="people-toolbar">
             <input id="peopleFilter" type="text" placeholder="🔍 Filter på navn, tittel, e-post..." oninput="applyPeopleFilter()" />
             <select id="peopleSort" onchange="applyPeopleFilter()">
@@ -5433,6 +5530,7 @@ document.addEventListener('keydown', function(e) {
             <button class="btn-ghost" onclick="expandAllPeople(false)" title="Skjul alle">⇡ Skjul</button>
             <label class="show-inactive"><input id="showInactive" type="checkbox" onchange="applyPeopleFilter()" /> Vis inaktive</label>
             <span id="peopleCount" class="people-count"></span>
+            <button class="btn-primary" id="newPersonBtn">➕ Ny person</button>
         </div>`;
 
         if (people.length === 0) {
@@ -5453,7 +5551,9 @@ document.addEventListener('keydown', function(e) {
                 const displayName = person.firstName
                     ? (person.lastName ? `${person.firstName} ${person.lastName}` : person.firstName)
                     : person.name;
-                const searchBlob = [displayName, person.name, person.key, person.title, person.email, person.phone, person.notes].filter(Boolean).join(' ').toLowerCase();
+                const primaryCo = person.primaryCompanyKey ? companiesByKey[person.primaryCompanyKey] : null;
+                const extraCos = (person.extraCompanyKeys || []).map(k => companiesByKey[k]).filter(Boolean);
+                const searchBlob = [displayName, person.name, person.key, person.title, person.email, person.phone, person.notes, primaryCo && primaryCo.name, ...extraCos.map(c => c.name)].filter(Boolean).join(' ').toLowerCase();
                 const inactiveCls = person.inactive ? ' inactive' : '';
 
                 body += `<div class="person-card${inactiveCls}" id="p-${escapeHtml(key)}" data-name="${escapeHtml(displayName.toLowerCase())}" data-refs="${total}" data-inactive="${person.inactive ? '1' : '0'}" data-search="${escapeHtml(searchBlob)}">`;
@@ -5465,6 +5565,7 @@ document.addEventListener('keydown', function(e) {
                 body += `<span class="person-handle">@${escapeHtml(person.key || person.name)}</span>`;
                 if (person.inactive) body += `<span class="person-badge">inaktiv</span>`;
                 if (person.title) body += `<span class="person-title">· ${escapeHtml(person.title)}</span>`;
+                if (primaryCo) body += `<span class="person-company-pill" title="Hovedselskap">🏢 ${escapeHtml(primaryCo.name)}</span>`;
                 body += `</div>`;
                 body += `<span class="person-refs">${total} ref.</span>`;
                 body += `<button class="person-edit-btn" onclick='event.stopPropagation();openEditPerson(${personJson})' title="Rediger person">✏️</button>`;
@@ -5474,6 +5575,14 @@ document.addEventListener('keydown', function(e) {
                     body += `<div class="person-contact">`;
                     if (person.email) body += `<span>📧 <a href="mailto:${escapeHtml(person.email)}">${escapeHtml(person.email)}</a></span>`;
                     if (person.phone) body += `<span>📞 ${escapeHtml(person.phone)}</span>`;
+                    body += `</div>`;
+                }
+                if (primaryCo || extraCos.length > 0) {
+                    body += `<div class="person-companies">`;
+                    if (primaryCo) body += `<a class="company-chip primary" href="/people#tab=companies&key=${encodeURIComponent(primaryCo.key)}" title="Hovedselskap">🏢 ${escapeHtml(primaryCo.name)} <span class="chip-tag">hoved</span></a>`;
+                    extraCos.forEach(c => {
+                        body += `<a class="company-chip" href="/people#tab=companies&key=${encodeURIComponent(c.key)}">🏢 ${escapeHtml(c.name)}</a>`;
+                    });
                     body += `</div>`;
                 }
                 if (person.notes) {
@@ -5534,6 +5643,155 @@ document.addEventListener('keydown', function(e) {
             });
             body += `</div>`;
         }
+        body += `</section>`; // people pane
+
+        // ===== COMPANIES TAB =====
+        body += `<section class="dir-pane" data-pane="companies">`;
+        body += `<div class="people-toolbar">
+            <input id="companyFilter" type="text" placeholder="🔍 Filter på navn, adresse, notat..." oninput="applyCompanyFilter()" />
+            <button class="btn-ghost" onclick="expandAllCompanies(true)">⇣ Utvid</button>
+            <button class="btn-ghost" onclick="expandAllCompanies(false)">⇡ Skjul</button>
+            <span id="companyCount" class="people-count"></span>
+            <button class="btn-primary" id="newCompanyBtn">➕ Nytt selskap</button>
+        </div>`;
+        if (companies.length === 0) {
+            body += '<p class="empty-quiet" style="margin-top:20px">Ingen selskaper registrert ennå. Klikk <strong>➕ Nytt selskap</strong> for å opprette ett.</p>';
+        } else {
+            body += '<div id="companyList">';
+            companies.forEach(company => {
+                const ckey = company.key;
+                const matchesK = (m) => m.has(ckey);
+                const cTasks = taskRefs.filter(x => matchesK(x.mentions)).map(x => x.t);
+                const cNotes = noteRefs.filter(x => matchesK(x.mentions));
+                const cMeetings = meetingRefs.filter(x => matchesK(x.mentions)).map(x => x.m);
+                const cResults = resultRefs.filter(x => matchesK(x.mentions)).map(x => x.r);
+                const members = companyMembers.get(ckey) || [];
+                const total = cTasks.length + cNotes.length + cMeetings.length + cResults.length + members.length;
+                const companyJson = JSON.stringify(company).replace(/'/g, '&#39;');
+                const searchBlob = [company.name, company.key, company.address, company.url, company.orgnr, company.notes].filter(Boolean).join(' ').toLowerCase();
+
+                body += `<div class="person-card" id="c-${escapeHtml(ckey)}" data-name="${escapeHtml((company.name || '').toLowerCase())}" data-refs="${total}" data-search="${escapeHtml(searchBlob)}">`;
+                body += `<div class="person-header" onclick="togglePerson(this)">`;
+                body += `<span class="person-chev">▶</span>`;
+                body += `<span class="person-icon">🏢</span>`;
+                body += `<div class="person-name-wrap">`;
+                body += `<span class="person-name">${escapeHtml(company.name)}</span>`;
+                body += `<span class="person-handle">@${escapeHtml(company.key)}</span>`;
+                if (company.url) body += `<span class="person-title">· ${escapeHtml(company.url)}</span>`;
+                body += `</div>`;
+                body += `<span class="person-refs">${members.length} ⛹ · ${total - members.length} ref.</span>`;
+                body += `<button class="person-edit-btn" onclick='event.stopPropagation();openEditCompany(${companyJson})' title="Rediger">✏️</button>`;
+                body += `</div>`;
+                body += `<div class="person-details">`;
+                if (company.address || company.orgnr || company.url) {
+                    body += `<div class="person-contact">`;
+                    if (company.address) body += `<span>📍 ${escapeHtml(company.address)}</span>`;
+                    if (company.url) body += `<span>🔗 <a href="${escapeHtml(company.url)}" target="_blank" rel="noopener">${escapeHtml(company.url)}</a></span>`;
+                    if (company.orgnr) body += `<span>Org.nr: ${escapeHtml(company.orgnr)}</span>`;
+                    body += `</div>`;
+                }
+                if (company.notes) body += `<div class="person-notes">${escapeHtml(company.notes)}</div>`;
+
+                const sectionH = (label, count) => `<div class="person-section-h">${label} <span class="c">${count}</span></div>`;
+                if (members.length > 0) {
+                    body += `<div class="person-section">${sectionH('Personer', members.length)}`;
+                    members.sort((a, b) => (b.primary - a.primary) || a.person.name.localeCompare(b.person.name, 'nb')).forEach(({ person, primary }) => {
+                        const dn = person.firstName ? (person.lastName ? `${person.firstName} ${person.lastName}` : person.firstName) : person.name;
+                        body += `<div class="person-ref"><a href="/people#p-${encodeURIComponent(person.key)}">👤 ${escapeHtml(dn)}${primary ? ' <span class="chip-tag">hoved</span>' : ''}</a></div>`;
+                    });
+                    body += `</div>`;
+                }
+                if (cMeetings.length > 0) {
+                    body += `<div class="person-section">${sectionH('Møter', cMeetings.length)}`;
+                    cMeetings.slice().sort((a, b) => (b.date + (b.start || '')).localeCompare(a.date + (a.start || ''))).forEach(m => {
+                        const wk = dateToIsoWeek(new Date(m.date + 'T00:00:00Z'));
+                        body += `<div class="person-ref"><a href="/calendar/${escapeHtml(wk)}#m-${encodeURIComponent(m.id)}">${meetingTypeIcon(m.type) || '📅'} ${linkMentions(escapeHtml(m.title))} <span class="ref-when">${escapeHtml(m.date)}</span></a></div>`;
+                    });
+                    body += `</div>`;
+                }
+                if (cResults.length > 0) {
+                    body += `<div class="person-section">${sectionH('Resultater', cResults.length)}`;
+                    cResults.slice().sort((a, b) => (b.created || '').localeCompare(a.created || '')).forEach(r => {
+                        body += `<div class="person-ref"><a href="/results">⚖️ ${linkMentions(escapeHtml(r.text))} <span class="ref-when">${escapeHtml(r.week || '')}</span></a></div>`;
+                    });
+                    body += `</div>`;
+                }
+                if (cTasks.length > 0) {
+                    body += `<div class="person-section">${sectionH('Oppgaver', cTasks.length)}`;
+                    cTasks.forEach(t => {
+                        body += `<div class="person-ref"><a class="${t.done ? 'task-done' : ''}" href="/tasks">${t.done ? '✅' : '☐'} ${linkMentions(escapeHtml(t.text))}</a></div>`;
+                    });
+                    body += `</div>`;
+                }
+                if (cNotes.length > 0) {
+                    body += `<div class="person-section">${sectionH('Notater', cNotes.length)}`;
+                    cNotes.forEach(({ week, file }) => {
+                        const name = file.replace('.md', '');
+                        body += `<div class="person-ref"><a href="/editor/${escapeHtml(week)}/${encodeURIComponent(file)}">📝 ${escapeHtml(name)} <span class="ref-when">${escapeHtml(week)}</span></a></div>`;
+                    });
+                    body += `</div>`;
+                }
+                if (total === 0) body += `<div class="person-empty">Ingen referanser funnet.</div>`;
+                body += `</div>`; // details
+                body += `</div>`; // card
+            });
+            body += `</div>`;
+        }
+        body += `</section>`;
+
+        // ===== PLACES TAB =====
+        body += `<section class="dir-pane" data-pane="places">`;
+        body += `<div class="people-toolbar">
+            <input id="placeFilter" type="text" placeholder="🔍 Filter på navn, adresse..." oninput="applyPlaceFilter()" />
+            <button class="btn-ghost" onclick="expandAllPlaces(true)">⇣ Utvid</button>
+            <button class="btn-ghost" onclick="expandAllPlaces(false)">⇡ Skjul</button>
+            <span id="placeCount" class="people-count"></span>
+            <button class="btn-primary" id="newPlaceBtn">➕ Nytt sted</button>
+        </div>`;
+        if (places.length === 0) {
+            body += '<p class="empty-quiet" style="margin-top:20px">Ingen steder registrert ennå. Klikk <strong>➕ Nytt sted</strong> for å opprette ett.</p>';
+        } else {
+            body += '<div id="placeList">';
+            places.forEach(place => {
+                const ms = placeMeetings.get(place.key) || [];
+                const placeJson = JSON.stringify(place).replace(/'/g, '&#39;');
+                const searchBlob = [place.name, place.key, place.address, place.notes].filter(Boolean).join(' ').toLowerCase();
+                const hasCoords = Number.isFinite(place.lat) && Number.isFinite(place.lng);
+                body += `<div class="person-card" id="pl-${escapeHtml(place.key)}" data-name="${escapeHtml((place.name || '').toLowerCase())}" data-refs="${ms.length}" data-search="${escapeHtml(searchBlob)}">`;
+                body += `<div class="person-header" onclick="togglePerson(this)">`;
+                body += `<span class="person-chev">▶</span>`;
+                body += `<span class="person-icon">📍</span>`;
+                body += `<div class="person-name-wrap">`;
+                body += `<span class="person-name">${escapeHtml(place.name)}</span>`;
+                if (place.address) body += `<span class="person-title">· ${escapeHtml(place.address)}</span>`;
+                if (hasCoords) body += `<span class="person-handle">${place.lat.toFixed(4)}, ${place.lng.toFixed(4)}</span>`;
+                body += `</div>`;
+                body += `<span class="person-refs">${ms.length} møter</span>`;
+                body += `<button class="person-edit-btn" onclick='event.stopPropagation();openEditPlace(${placeJson})' title="Rediger">✏️</button>`;
+                body += `</div>`;
+                body += `<div class="person-details">`;
+                if (hasCoords) {
+                    const osm = `https://www.openstreetmap.org/?mlat=${place.lat}&mlon=${place.lng}#map=16/${place.lat}/${place.lng}`;
+                    body += `<div class="person-contact"><span>📍 <a href="${escapeHtml(osm)}" target="_blank" rel="noopener">Vis på kart (OSM)</a></span></div>`;
+                    body += `<div class="place-mini-map" data-lat="${place.lat}" data-lng="${place.lng}" data-name="${escapeHtml(place.name)}"></div>`;
+                }
+                if (place.notes) body += `<div class="person-notes">${escapeHtml(place.notes)}</div>`;
+                if (ms.length > 0) {
+                    body += `<div class="person-section"><div class="person-section-h">Møter <span class="c">${ms.length}</span></div>`;
+                    ms.slice().sort((a, b) => (b.date + (b.start || '')).localeCompare(a.date + (a.start || ''))).forEach(m => {
+                        const wk = dateToIsoWeek(new Date(m.date + 'T00:00:00Z'));
+                        body += `<div class="person-ref"><a href="/calendar/${escapeHtml(wk)}#m-${encodeURIComponent(m.id)}">${meetingTypeIcon(m.type) || '📅'} ${linkMentions(escapeHtml(m.title))} <span class="ref-when">${escapeHtml(m.date)}</span></a></div>`;
+                    });
+                    body += `</div>`;
+                } else {
+                    body += `<div class="person-empty">Ingen møter knyttet til dette stedet ennå.</div>`;
+                }
+                body += `</div></div>`;
+            });
+            body += `</div>`;
+        }
+        body += `</section>`;
+
         body += `</div>`; // .people-page
 
         body += `
@@ -5541,6 +5799,14 @@ document.addEventListener('keydown', function(e) {
 .people-page { max-width: 1100px; }
 .people-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; flex-wrap: wrap; }
 .people-head h1 { margin: 0; }
+.dir-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-soft); margin-bottom: 16px; }
+.dir-tab { background: transparent; border: 1px solid transparent; border-bottom: none; padding: 8px 14px; cursor: pointer; font-size: 0.95em; color: var(--text-muted); border-radius: 8px 8px 0 0; font-family: inherit; }
+.dir-tab:hover { color: var(--text); background: var(--surface); }
+.dir-tab.active { background: var(--surface); color: var(--accent); border-color: var(--border-soft); border-bottom: 1px solid var(--surface); margin-bottom: -1px; font-weight: 600; }
+.dir-tab-c { display: inline-block; min-width: 18px; padding: 0 6px; margin-left: 4px; background: var(--surface-alt); color: var(--text-muted); border-radius: 9px; font-size: 0.8em; }
+.dir-pane { display: none; }
+.dir-pane.active { display: block; }
+
 .people-toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
 .people-toolbar input[type=text] { flex: 1; min-width: 220px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.95em; outline: none; background: var(--surface); color: var(--text); font-family: inherit; }
 .people-toolbar input[type=text]:focus { border-color: var(--accent); }
@@ -5561,6 +5827,7 @@ document.addEventListener('keydown', function(e) {
 .person-handle { font-size: 0.8em; color: var(--text-subtle); }
 .person-badge { font-size: 0.75em; background: var(--surface-alt); color: var(--text-muted); padding: 1px 8px; border-radius: 10px; font-weight: 500; }
 .person-title { font-size: 0.82em; color: var(--text-muted); }
+.person-company-pill { font-size: 0.78em; background: var(--surface-alt); color: var(--text-muted); padding: 1px 8px; border-radius: 10px; }
 .person-refs { font-size: 0.8em; color: var(--text-subtle); white-space: nowrap; }
 .person-edit-btn { background: none; border: none; cursor: pointer; font-size: 1em; padding: 2px 6px; border-radius: 4px; color: var(--text-muted); }
 .person-edit-btn:hover { background: var(--border-soft); }
@@ -5568,6 +5835,11 @@ document.addEventListener('keydown', function(e) {
 .person-contact { padding: 8px 18px; background: var(--surface-alt); border-top: 1px solid var(--border-soft); display: flex; gap: 20px; flex-wrap: wrap; font-size: 0.85em; color: var(--text-muted); }
 .person-contact a { color: var(--accent); text-decoration: none; }
 .person-contact a:hover { text-decoration: underline; }
+.person-companies { padding: 8px 18px; border-top: 1px solid var(--border-soft); display: flex; gap: 6px; flex-wrap: wrap; }
+.company-chip { font-size: 0.85em; padding: 3px 10px; background: var(--surface-alt); color: var(--text-muted); border-radius: 12px; text-decoration: none; border: 1px solid transparent; }
+.company-chip:hover { border-color: var(--accent); color: var(--accent); }
+.company-chip.primary { background: var(--accent-soft, var(--surface-head)); color: var(--accent); font-weight: 600; }
+.chip-tag { font-size: 0.7em; opacity: 0.7; margin-left: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
 .person-notes { padding: 8px 18px; background: var(--surface-head); border-top: 1px solid var(--border-soft); font-size: 0.85em; color: var(--text-muted); font-style: italic; white-space: pre-wrap; }
 .person-section { padding: 10px 18px; border-top: 1px solid var(--border-faint); }
 .person-section-h { font-size: 0.75em; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
@@ -5579,15 +5851,27 @@ document.addEventListener('keydown', function(e) {
 .person-ref .ref-when { font-size: 0.85em; color: var(--text-subtle); margin-left: 6px; }
 .person-empty { padding: 10px 18px; border-top: 1px solid var(--border-faint); font-size: 0.88em; color: var(--text-subtle); font-style: italic; }
 
-#newPersonModal .np-form { display: flex; flex-direction: column; gap: 12px; }
-#newPersonModal label { font-size: 0.85em; font-weight: 600; color: var(--text-muted); }
-#newPersonModal input, #newPersonModal textarea { display: block; width: 100%; margin-top: 4px; }
-#newPersonModal .np-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.place-mini-map { height: 180px; border-top: 1px solid var(--border-soft); }
+.leaflet-container { font-family: inherit; }
+#placeMapPicker { height: 320px; border-radius: 6px; border: 1px solid var(--border); margin-top: 4px; }
+
+#newPersonModal .np-form, #newCompanyModal .np-form, #newPlaceModal .np-form { display: flex; flex-direction: column; gap: 12px; }
+#newPersonModal label, #newCompanyModal label, #newPlaceModal label { font-size: 0.85em; font-weight: 600; color: var(--text-muted); }
+#newPersonModal input, #newPersonModal textarea, #newPersonModal select,
+#newCompanyModal input, #newCompanyModal textarea, #newCompanyModal select,
+#newPlaceModal input, #newPlaceModal textarea, #newPlaceModal select { display: block; width: 100%; margin-top: 4px; }
+#newPersonModal .np-grid, #newPlaceModal .np-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cmpck-list { border: 1px solid var(--border); border-radius: 6px; padding: 6px; max-height: 120px; overflow-y: auto; background: var(--surface); margin-top: 4px; }
+.cmpck-list label { display: flex !important; align-items: center; gap: 6px; font-weight: normal !important; padding: 3px 4px; font-size: 0.9em !important; cursor: pointer; }
+.cmpck-list label:hover { background: var(--surface-head); border-radius: 4px; }
+.cmpck-list input[type=checkbox] { width: auto; margin: 0; }
 </style>`;
 
         body += `
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <div id="editPersonModal" class="page-modal" onclick="if(event.target===this)closeEditPerson()">
-  <div class="page-modal-card" style="max-width:480px">
+  <div class="page-modal-card" style="max-width:520px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
       <h3 style="margin:0">✏️ Rediger person</h3>
       <button onclick="closeEditPerson()" style="background:none;border:none;font-size:1.3em;cursor:pointer;color:var(--text-subtle)">✕</button>
@@ -5605,6 +5889,12 @@ document.addEventListener('keydown', function(e) {
       <label style="font-size:0.85em;font-weight:600;color:var(--text-muted)">Tittel
         <input id="editPersonTitle" type="text" style="display:block;margin-top:4px" />
       </label>
+      <label style="font-size:0.85em;font-weight:600;color:var(--text-muted)">Hovedselskap
+        <select id="editPersonPrimaryCompany" style="display:block;margin-top:4px"></select>
+      </label>
+      <div style="font-size:0.85em;font-weight:600;color:var(--text-muted)">Andre selskaper
+        <div id="editPersonExtraCompanies" class="cmpck-list"></div>
+      </div>
       <label style="font-size:0.85em;font-weight:600;color:var(--text-muted)">E-post
         <input id="editPersonEmail" type="email" style="display:block;margin-top:4px" />
       </label>
@@ -5626,8 +5916,9 @@ document.addEventListener('keydown', function(e) {
     </div>
   </div>
 </div>
+
 <div id="newPersonModal" class="page-modal" onclick="if(event.target===this)closeNewPerson()">
-  <div class="page-modal-card" style="max-width:480px">
+  <div class="page-modal-card" style="max-width:520px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
       <h3 style="margin:0">➕ Ny person</h3>
       <button onclick="closeNewPerson()" style="background:none;border:none;font-size:1.3em;cursor:pointer;color:var(--text-subtle)">✕</button>
@@ -5638,6 +5929,7 @@ document.addEventListener('keydown', function(e) {
         <label>Etternavn<input id="newPersonLastName" type="text" placeholder="Hansen" /></label>
       </div>
       <label>Tittel<input id="newPersonTitle" type="text" /></label>
+      <label>Hovedselskap<select id="newPersonPrimaryCompany"></select></label>
       <label>E-post<input id="newPersonEmail" type="email" /></label>
       <label>Telefon<input id="newPersonPhone" type="tel" /></label>
       <label>Notat<textarea id="newPersonNotes" rows="3"></textarea></label>
@@ -5648,83 +5940,89 @@ document.addEventListener('keydown', function(e) {
     </div>
   </div>
 </div>
-<script>
-function openEditPerson(p) {
-    document.getElementById('editPersonId').value = p.id;
-    const firstName = p.firstName || (p.name && !p.lastName ? p.name.split(' ')[0] : p.name) || '';
-    const lastName = p.lastName || (p.name && p.name.includes(' ') && !p.firstName ? p.name.split(' ').slice(1).join(' ') : '') || '';
-    document.getElementById('editPersonFirstName').value = firstName;
-    document.getElementById('editPersonLastName').value = lastName;
-    document.getElementById('editPersonTitle').value = p.title || '';
-    document.getElementById('editPersonEmail').value = p.email || '';
-    document.getElementById('editPersonPhone').value = p.phone || '';
-    document.getElementById('editPersonNotes').value = p.notes || '';
-    document.getElementById('editPersonInactive').checked = !!p.inactive;
-    const modal = document.getElementById('editPersonModal');
-    modal.style.display = 'flex';
-    setTimeout(() => document.getElementById('editPersonFirstName').focus(), 50);
-}
-function closeEditPerson() { document.getElementById('editPersonModal').style.display = 'none'; }
-function saveEditPerson() {
-    const id = document.getElementById('editPersonId').value;
-    const firstName = document.getElementById('editPersonFirstName').value.trim();
-    const lastName = document.getElementById('editPersonLastName').value.trim();
-    const data = {
-        firstName, lastName,
-        title: document.getElementById('editPersonTitle').value.trim(),
-        email: document.getElementById('editPersonEmail').value.trim(),
-        phone: document.getElementById('editPersonPhone').value.trim(),
-        notes: document.getElementById('editPersonNotes').value.trim(),
-        inactive: document.getElementById('editPersonInactive').checked
-    };
-    if (!data.firstName) { alert('Fornavn er påkrevd'); return; }
-    fetch('/api/people/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
-        .then(r => r.json()).then(r => { if (r.ok) location.reload(); else alert('Feil ved lagring'); });
-}
-function deleteEditPerson() {
-    const id = document.getElementById('editPersonId').value;
-    const firstName = document.getElementById('editPersonFirstName').value.trim();
-    const lastName = document.getElementById('editPersonLastName').value.trim();
-    const name = (firstName + ' ' + lastName).trim() || 'denne personen';
-    if (!confirm('Slette ' + name + '?\\n\\nDette fjerner kun selve oppføringen. @-referanser i notater og oppgaver beholdes som tekst.')) return;
-    fetch('/api/people/' + id, { method: 'DELETE' })
-        .then(r => r.json()).then(r => { if (r.ok) location.reload(); else alert('Feil ved sletting'); });
-}
-function openNewPerson() {
-    ['newPersonFirstName','newPersonLastName','newPersonTitle','newPersonEmail','newPersonPhone','newPersonNotes'].forEach(id => { document.getElementById(id).value = ''; });
-    document.getElementById('newPersonModal').style.display = 'flex';
-    setTimeout(() => document.getElementById('newPersonFirstName').focus(), 50);
-}
-function closeNewPerson() { document.getElementById('newPersonModal').style.display = 'none'; }
-function saveNewPerson() {
-    const firstName = document.getElementById('newPersonFirstName').value.trim();
-    if (!firstName) { alert('Fornavn er påkrevd'); return; }
-    const data = {
-        firstName,
-        lastName: document.getElementById('newPersonLastName').value.trim(),
-        title: document.getElementById('newPersonTitle').value.trim(),
-        email: document.getElementById('newPersonEmail').value.trim(),
-        phone: document.getElementById('newPersonPhone').value.trim(),
-        notes: document.getElementById('newPersonNotes').value.trim()
-    };
-    fetch('/api/people', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
-        .then(r => r.json()).then(r => {
-            if (r.ok) location.reload();
-            else alert('Feil: ' + (r.error || 'kunne ikke opprette'));
-        });
-}
-const _newBtn = document.getElementById('newPersonBtn'); if (_newBtn) _newBtn.addEventListener('click', openNewPerson);
 
-document.addEventListener('keydown', function(e) {
-    const editOpen = document.getElementById('editPersonModal').style.display === 'flex';
-    const newOpen = document.getElementById('newPersonModal').style.display === 'flex';
-    if (e.key === 'Escape') { closeEditPerson(); closeNewPerson(); }
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-        if (editOpen) saveEditPerson();
-        else if (newOpen) saveNewPerson();
-    }
+<div id="companyModal" class="page-modal" onclick="if(event.target===this)closeCompany()">
+  <div class="page-modal-card" style="max-width:520px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <h3 id="companyModalTitle" style="margin:0">🏢 Selskap</h3>
+      <button onclick="closeCompany()" style="background:none;border:none;font-size:1.3em;cursor:pointer;color:var(--text-subtle)">✕</button>
+    </div>
+    <input type="hidden" id="companyId" />
+    <div class="np-form" id="newCompanyModal">
+      <label>Navn *<input id="companyName" type="text" placeholder="Acme AS" /></label>
+      <label>Org.nr<input id="companyOrgnr" type="text" /></label>
+      <label>Web<input id="companyUrl" type="text" placeholder="https://" /></label>
+      <label>Adresse<input id="companyAddress" type="text" /></label>
+      <label>Notat<textarea id="companyNotes" rows="3"></textarea></label>
+    </div>
+    <div class="page-modal-actions" style="margin-top:20px;display:flex;align-items:center;gap:10px">
+      <button id="companyDeleteBtn" class="page-modal-btn" onclick="deleteCompany()" style="background:#fff5f5;color:#c53030;border:1px solid #fed7d7;margin-right:auto;display:none">🗑️ Slett</button>
+      <button class="page-modal-btn cancel" onclick="closeCompany()">Avbryt</button>
+      <button class="page-modal-btn blue" style="padding:8px 20px" onclick="saveCompany()">💾 Lagre</button>
+    </div>
+  </div>
+</div>
+
+<div id="placeModal" class="page-modal" onclick="if(event.target===this)closePlace()">
+  <div class="page-modal-card" style="max-width:640px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <h3 id="placeModalTitle" style="margin:0">📍 Sted</h3>
+      <button onclick="closePlace()" style="background:none;border:none;font-size:1.3em;cursor:pointer;color:var(--text-subtle)">✕</button>
+    </div>
+    <input type="hidden" id="placeId" />
+    <div class="np-form" id="newPlaceModal">
+      <label>Navn *<input id="placeName" type="text" placeholder="Hovedkontor" /></label>
+      <label>Adresse<input id="placeAddress" type="text" /></label>
+      <div class="np-grid">
+        <label>Breddegrad (lat)<input id="placeLat" type="text" placeholder="59.9139" /></label>
+        <label>Lengdegrad (lng)<input id="placeLng" type="text" placeholder="10.7522" /></label>
+      </div>
+      <div style="font-size:0.8em;color:var(--text-subtle);margin-top:-6px">Klikk på kartet for å plassere markøren. Dra for å justere.</div>
+      <div id="placeMapPicker"></div>
+      <label>Notat<textarea id="placeNotes" rows="2"></textarea></label>
+    </div>
+    <div class="page-modal-actions" style="margin-top:20px;display:flex;align-items:center;gap:10px">
+      <button id="placeDeleteBtn" class="page-modal-btn" onclick="deletePlace()" style="background:#fff5f5;color:#c53030;border:1px solid #fed7d7;margin-right:auto;display:none">🗑️ Slett</button>
+      <button class="page-modal-btn cancel" onclick="closePlace()">Avbryt</button>
+      <button class="page-modal-btn blue" style="padding:8px 20px" onclick="savePlace()">💾 Lagre</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Server-injected data
+const ALL_COMPANIES = ${JSON.stringify(companies.map(c => ({ key: c.key, name: c.name }))).replace(/</g, '\\u003c')};
+
+// ===== Tabs =====
+function parseHashParams() {
+    const h = (location.hash || '').replace(/^#/, '');
+    const params = {};
+    h.split('&').forEach(seg => {
+        const i = seg.indexOf('=');
+        if (i > 0) params[seg.slice(0, i)] = decodeURIComponent(seg.slice(i + 1));
+        else if (seg) params[seg] = true;
+    });
+    return params;
+}
+function activateTab(name) {
+    if (!['people','companies','places'].includes(name)) name = 'people';
+    document.querySelectorAll('.dir-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+    document.querySelectorAll('.dir-pane').forEach(p => p.classList.toggle('active', p.dataset.pane === name));
+    // Init mini-maps when places tab becomes visible
+    if (name === 'places') initMiniMaps();
+}
+document.querySelectorAll('.dir-tab').forEach(t => {
+    t.addEventListener('click', () => {
+        const params = parseHashParams();
+        params.tab = t.dataset.tab;
+        delete params.key;
+        const newHash = Object.entries(params).map(([k, v]) => v === true ? k : k + '=' + encodeURIComponent(v)).join('&');
+        history.replaceState(null, '', '#' + newHash);
+        activateTab(t.dataset.tab);
+    });
 });
 
+// ===== Filtering / sort =====
 function applyPeopleFilter() {
     const filterEl = document.getElementById('peopleFilter');
     const sortEl = document.getElementById('peopleSort');
@@ -5732,8 +6030,7 @@ function applyPeopleFilter() {
     if (!list) return;
     const q = (filterEl ? filterEl.value : '').trim().toLowerCase();
     const sort = sortEl ? sortEl.value : 'name-asc';
-    const showInactiveEl = document.getElementById('showInactive');
-    const showInactive = showInactiveEl ? showInactiveEl.checked : false;
+    const showInactive = document.getElementById('showInactive').checked;
     const cards = Array.from(list.querySelectorAll('.person-card'));
     let visible = 0;
     cards.forEach(c => {
@@ -5754,10 +6051,24 @@ function applyPeopleFilter() {
         return 0;
     });
     cards.forEach(c => list.appendChild(c));
-    const countEl = document.getElementById('peopleCount');
-    if (countEl) countEl.textContent = visible + ' av ' + cards.length;
+    document.getElementById('peopleCount').textContent = visible + ' av ' + cards.length;
 }
-applyPeopleFilter();
+function applyCompanyFilter() {
+    const list = document.getElementById('companyList'); if (!list) return;
+    const q = (document.getElementById('companyFilter').value || '').trim().toLowerCase();
+    const cards = Array.from(list.querySelectorAll('.person-card'));
+    let visible = 0;
+    cards.forEach(c => { const m = !q || (c.dataset.search || '').includes(q); c.style.display = m ? '' : 'none'; if (m) visible++; });
+    document.getElementById('companyCount').textContent = visible + ' av ' + cards.length;
+}
+function applyPlaceFilter() {
+    const list = document.getElementById('placeList'); if (!list) return;
+    const q = (document.getElementById('placeFilter').value || '').trim().toLowerCase();
+    const cards = Array.from(list.querySelectorAll('.person-card'));
+    let visible = 0;
+    cards.forEach(c => { const m = !q || (c.dataset.search || '').includes(q); c.style.display = m ? '' : 'none'; if (m) visible++; });
+    document.getElementById('placeCount').textContent = visible + ' av ' + cards.length;
+}
 
 function togglePerson(header) {
     const card = header.closest('.person-card');
@@ -5766,28 +6077,300 @@ function togglePerson(header) {
     const open = details.style.display !== 'none' && details.style.display !== '';
     details.style.display = open ? 'none' : 'block';
     if (chev) chev.style.transform = open ? '' : 'rotate(90deg)';
+    // initialize mini map if just opened
+    if (!open) {
+        const m = details.querySelector('.place-mini-map');
+        if (m && !m.dataset.inited) initMiniMap(m);
+    }
 }
-
 function expandAllPeople(expand) {
     document.querySelectorAll('#peopleList .person-card').forEach(card => {
-        const details = card.querySelector('.person-details');
-        const chev = card.querySelector('.person-chev');
-        details.style.display = expand ? 'block' : 'none';
-        if (chev) chev.style.transform = expand ? 'rotate(90deg)' : '';
+        card.querySelector('.person-details').style.display = expand ? 'block' : 'none';
+        const chev = card.querySelector('.person-chev'); if (chev) chev.style.transform = expand ? 'rotate(90deg)' : '';
+    });
+}
+function expandAllCompanies(expand) {
+    document.querySelectorAll('#companyList .person-card').forEach(card => {
+        card.querySelector('.person-details').style.display = expand ? 'block' : 'none';
+        const chev = card.querySelector('.person-chev'); if (chev) chev.style.transform = expand ? 'rotate(90deg)' : '';
+    });
+}
+function expandAllPlaces(expand) {
+    document.querySelectorAll('#placeList .person-card').forEach(card => {
+        card.querySelector('.person-details').style.display = expand ? 'block' : 'none';
+        const chev = card.querySelector('.person-chev'); if (chev) chev.style.transform = expand ? 'rotate(90deg)' : '';
+        if (expand) {
+            const m = card.querySelector('.place-mini-map');
+            if (m && !m.dataset.inited) initMiniMap(m);
+        }
     });
 }
 
-// If URL has #key, scroll to and expand that person.
+// ===== Person modal =====
+function fillCompanySelect(selectId, currentKey) {
+    const sel = document.getElementById(selectId);
+    sel.innerHTML = '<option value="">— ingen —</option>' + ALL_COMPANIES.map(c => '<option value="' + c.key + '"' + (c.key === currentKey ? ' selected' : '') + '>' + c.name + '</option>').join('');
+}
+function fillExtraCompanyChecks(containerId, primaryKey, extraKeys) {
+    const c = document.getElementById(containerId);
+    const extras = new Set(extraKeys || []);
+    if (ALL_COMPANIES.length === 0) {
+        c.innerHTML = '<div style="color:var(--text-subtle);padding:6px;font-style:italic">Ingen selskaper opprettet ennå.</div>';
+        return;
+    }
+    c.innerHTML = ALL_COMPANIES.filter(co => co.key !== primaryKey).map(co =>
+        '<label><input type="checkbox" value="' + co.key + '"' + (extras.has(co.key) ? ' checked' : '') + ' /> ' + co.name + '</label>'
+    ).join('');
+}
+function getCheckedExtras(containerId) {
+    return Array.from(document.querySelectorAll('#' + containerId + ' input[type=checkbox]:checked')).map(b => b.value);
+}
+function openEditPerson(p) {
+    document.getElementById('editPersonId').value = p.id;
+    const firstName = p.firstName || (p.name && !p.lastName ? p.name.split(' ')[0] : p.name) || '';
+    const lastName = p.lastName || (p.name && p.name.includes(' ') && !p.firstName ? p.name.split(' ').slice(1).join(' ') : '') || '';
+    document.getElementById('editPersonFirstName').value = firstName;
+    document.getElementById('editPersonLastName').value = lastName;
+    document.getElementById('editPersonTitle').value = p.title || '';
+    document.getElementById('editPersonEmail').value = p.email || '';
+    document.getElementById('editPersonPhone').value = p.phone || '';
+    document.getElementById('editPersonNotes').value = p.notes || '';
+    document.getElementById('editPersonInactive').checked = !!p.inactive;
+    fillCompanySelect('editPersonPrimaryCompany', p.primaryCompanyKey || '');
+    fillExtraCompanyChecks('editPersonExtraCompanies', p.primaryCompanyKey || '', p.extraCompanyKeys || []);
+    // When primary changes, refresh the extras list (excluding new primary)
+    document.getElementById('editPersonPrimaryCompany').onchange = function() {
+        const cur = getCheckedExtras('editPersonExtraCompanies');
+        fillExtraCompanyChecks('editPersonExtraCompanies', this.value, cur);
+    };
+    document.getElementById('editPersonModal').style.display = 'flex';
+    setTimeout(() => document.getElementById('editPersonFirstName').focus(), 50);
+}
+function closeEditPerson() { document.getElementById('editPersonModal').style.display = 'none'; }
+function saveEditPerson() {
+    const id = document.getElementById('editPersonId').value;
+    const firstName = document.getElementById('editPersonFirstName').value.trim();
+    if (!firstName) { alert('Fornavn er påkrevd'); return; }
+    const data = {
+        firstName,
+        lastName: document.getElementById('editPersonLastName').value.trim(),
+        title: document.getElementById('editPersonTitle').value.trim(),
+        email: document.getElementById('editPersonEmail').value.trim(),
+        phone: document.getElementById('editPersonPhone').value.trim(),
+        notes: document.getElementById('editPersonNotes').value.trim(),
+        inactive: document.getElementById('editPersonInactive').checked,
+        primaryCompanyKey: document.getElementById('editPersonPrimaryCompany').value || '',
+        extraCompanyKeys: getCheckedExtras('editPersonExtraCompanies')
+    };
+    fetch('/api/people/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+        .then(r => r.json()).then(r => { if (r.ok) location.reload(); else alert('Feil ved lagring'); });
+}
+function deleteEditPerson() {
+    const id = document.getElementById('editPersonId').value;
+    const name = (document.getElementById('editPersonFirstName').value + ' ' + document.getElementById('editPersonLastName').value).trim() || 'denne personen';
+    if (!confirm('Slette ' + name + '?')) return;
+    fetch('/api/people/' + id, { method: 'DELETE' }).then(r => r.json()).then(r => { if (r.ok) location.reload(); else alert('Feil'); });
+}
+function openNewPerson() {
+    ['newPersonFirstName','newPersonLastName','newPersonTitle','newPersonEmail','newPersonPhone','newPersonNotes'].forEach(id => { document.getElementById(id).value = ''; });
+    fillCompanySelect('newPersonPrimaryCompany', '');
+    document.getElementById('newPersonModal').style.display = 'flex';
+    setTimeout(() => document.getElementById('newPersonFirstName').focus(), 50);
+}
+function closeNewPerson() { document.getElementById('newPersonModal').style.display = 'none'; }
+function saveNewPerson() {
+    const firstName = document.getElementById('newPersonFirstName').value.trim();
+    if (!firstName) { alert('Fornavn er påkrevd'); return; }
+    const data = {
+        firstName,
+        lastName: document.getElementById('newPersonLastName').value.trim(),
+        title: document.getElementById('newPersonTitle').value.trim(),
+        email: document.getElementById('newPersonEmail').value.trim(),
+        phone: document.getElementById('newPersonPhone').value.trim(),
+        notes: document.getElementById('newPersonNotes').value.trim(),
+        primaryCompanyKey: document.getElementById('newPersonPrimaryCompany').value || ''
+    };
+    fetch('/api/people', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+        .then(r => r.json()).then(r => { if (r.ok) location.reload(); else alert('Feil: ' + (r.error || 'ukjent')); });
+}
+document.getElementById('newPersonBtn').addEventListener('click', openNewPerson);
+
+// ===== Company modal =====
+function openCompany(c) {
+    document.getElementById('companyId').value = c ? c.id : '';
+    document.getElementById('companyModalTitle').textContent = c ? '✏️ Rediger selskap' : '➕ Nytt selskap';
+    document.getElementById('companyName').value = c ? c.name : '';
+    document.getElementById('companyOrgnr').value = c ? (c.orgnr || '') : '';
+    document.getElementById('companyUrl').value = c ? (c.url || '') : '';
+    document.getElementById('companyAddress').value = c ? (c.address || '') : '';
+    document.getElementById('companyNotes').value = c ? (c.notes || '') : '';
+    document.getElementById('companyDeleteBtn').style.display = c ? '' : 'none';
+    document.getElementById('companyModal').style.display = 'flex';
+    setTimeout(() => document.getElementById('companyName').focus(), 50);
+}
+function openEditCompany(c) { openCompany(c); }
+function closeCompany() { document.getElementById('companyModal').style.display = 'none'; }
+function saveCompany() {
+    const id = document.getElementById('companyId').value;
+    const name = document.getElementById('companyName').value.trim();
+    if (!name) { alert('Navn er påkrevd'); return; }
+    const data = {
+        name,
+        orgnr: document.getElementById('companyOrgnr').value.trim(),
+        url: document.getElementById('companyUrl').value.trim(),
+        address: document.getElementById('companyAddress').value.trim(),
+        notes: document.getElementById('companyNotes').value.trim()
+    };
+    const url = id ? ('/api/companies/' + id) : '/api/companies';
+    const method = id ? 'PUT' : 'POST';
+    fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+        .then(r => r.json()).then(r => { if (r.ok) location.reload(); else alert('Feil: ' + (r.error || 'ukjent')); });
+}
+function deleteCompany() {
+    const id = document.getElementById('companyId').value; if (!id) return;
+    if (!confirm('Slette dette selskapet? Personer med selskapet beholder referansen til nøkkelen.')) return;
+    fetch('/api/companies/' + id, { method: 'DELETE' }).then(r => r.json()).then(r => { if (r.ok) location.reload(); });
+}
+document.getElementById('newCompanyBtn').addEventListener('click', () => openCompany(null));
+
+// ===== Place modal + Leaflet =====
+let placeMap = null, placeMarker = null;
+function ensurePlaceMap() {
+    const el = document.getElementById('placeMapPicker');
+    if (placeMap) { setTimeout(() => placeMap.invalidateSize(), 50); return; }
+    placeMap = L.map(el).setView([59.9139, 10.7522], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(placeMap);
+    placeMap.on('click', e => setPlaceMarker(e.latlng.lat, e.latlng.lng));
+    setTimeout(() => placeMap.invalidateSize(), 50);
+}
+function setPlaceMarker(lat, lng) {
+    document.getElementById('placeLat').value = lat.toFixed(6);
+    document.getElementById('placeLng').value = lng.toFixed(6);
+    if (!placeMarker) {
+        placeMarker = L.marker([lat, lng], { draggable: true }).addTo(placeMap);
+        placeMarker.on('dragend', e => {
+            const ll = e.target.getLatLng();
+            document.getElementById('placeLat').value = ll.lat.toFixed(6);
+            document.getElementById('placeLng').value = ll.lng.toFixed(6);
+        });
+    } else {
+        placeMarker.setLatLng([lat, lng]);
+    }
+}
+function openPlace(p) {
+    document.getElementById('placeId').value = p ? p.id : '';
+    document.getElementById('placeModalTitle').textContent = p ? '✏️ Rediger sted' : '➕ Nytt sted';
+    document.getElementById('placeName').value = p ? p.name : '';
+    document.getElementById('placeAddress').value = p ? (p.address || '') : '';
+    document.getElementById('placeLat').value = p && p.lat != null ? p.lat : '';
+    document.getElementById('placeLng').value = p && p.lng != null ? p.lng : '';
+    document.getElementById('placeNotes').value = p ? (p.notes || '') : '';
+    document.getElementById('placeDeleteBtn').style.display = p ? '' : 'none';
+    document.getElementById('placeModal').style.display = 'flex';
+    if (placeMarker) { placeMap.removeLayer(placeMarker); placeMarker = null; }
+    setTimeout(() => {
+        ensurePlaceMap();
+        if (p && p.lat != null && p.lng != null) {
+            placeMap.setView([p.lat, p.lng], 15);
+            setPlaceMarker(p.lat, p.lng);
+        } else {
+            placeMap.setView([59.9139, 10.7522], 12);
+        }
+        document.getElementById('placeName').focus();
+    }, 80);
+}
+function openEditPlace(p) { openPlace(p); }
+function closePlace() { document.getElementById('placeModal').style.display = 'none'; }
+function savePlace() {
+    const id = document.getElementById('placeId').value;
+    const name = document.getElementById('placeName').value.trim();
+    if (!name) { alert('Navn er påkrevd'); return; }
+    const lat = document.getElementById('placeLat').value.trim();
+    const lng = document.getElementById('placeLng').value.trim();
+    const data = {
+        name,
+        address: document.getElementById('placeAddress').value.trim(),
+        lat: lat === '' ? null : parseFloat(lat),
+        lng: lng === '' ? null : parseFloat(lng),
+        notes: document.getElementById('placeNotes').value.trim()
+    };
+    const url = id ? ('/api/places/' + id) : '/api/places';
+    const method = id ? 'PUT' : 'POST';
+    fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+        .then(r => r.json()).then(r => { if (r.ok) location.reload(); else alert('Feil: ' + (r.error || 'ukjent')); });
+}
+function deletePlace() {
+    const id = document.getElementById('placeId').value; if (!id) return;
+    if (!confirm('Slette dette stedet? Møter beholder referansen til stedsnøkkelen.')) return;
+    fetch('/api/places/' + id, { method: 'DELETE' }).then(r => r.json()).then(r => { if (r.ok) location.reload(); });
+}
+document.getElementById('newPlaceBtn').addEventListener('click', () => openPlace(null));
+
+// Mini maps in places list
+function initMiniMap(el) {
+    if (!window.L || el.dataset.inited) return;
+    const lat = parseFloat(el.dataset.lat), lng = parseFloat(el.dataset.lng);
+    if (!isFinite(lat) || !isFinite(lng)) return;
+    el.dataset.inited = '1';
+    const m = L.map(el, { zoomControl: false, attributionControl: false, dragging: false, scrollWheelZoom: false, doubleClickZoom: false }).setView([lat, lng], 15);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(m);
+    L.marker([lat, lng], { title: el.dataset.name || '' }).addTo(m);
+}
+function initMiniMaps() {
+    document.querySelectorAll('#placeList .person-card').forEach(card => {
+        if (card.querySelector('.person-details').style.display === 'block') {
+            const m = card.querySelector('.place-mini-map');
+            if (m && !m.dataset.inited) initMiniMap(m);
+        }
+    });
+}
+
+// ===== Keyboard =====
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        ['editPersonModal','newPersonModal','companyModal','placeModal'].forEach(id => {
+            const m = document.getElementById(id); if (m) m.style.display = 'none';
+        });
+    }
+});
+
+// ===== Initial state =====
+const initialParams = parseHashParams();
+applyPeopleFilter();
+applyCompanyFilter();
+applyPlaceFilter();
+activateTab(initialParams.tab || 'people');
+
+// Deep-link to a specific entity within a tab
 (function(){
-    const h = (location.hash || '').replace(/^#/, '');
-    if (!h) return;
-    const card = document.getElementById('p-' + h);
+    const params = initialParams;
+    if (!params.key) return;
+    const idMap = { people: 'p-', companies: 'c-', places: 'pl-' };
+    const prefix = idMap[params.tab] || 'p-';
+    const card = document.getElementById(prefix + params.key);
     if (card) {
         const details = card.querySelector('.person-details');
         const chev = card.querySelector('.person-chev');
         if (details) details.style.display = 'block';
         if (chev) chev.style.transform = 'rotate(90deg)';
-        card.scrollIntoView({ block: 'center' });
+        setTimeout(() => card.scrollIntoView({ block: 'center' }), 50);
+        const m = card.querySelector('.place-mini-map');
+        if (m && !m.dataset.inited) setTimeout(() => initMiniMap(m), 100);
+    }
+})();
+// Also handle plain "#p-key" / "#c-key" / "#pl-key" links from elsewhere
+(function(){
+    const h = (location.hash || '').replace(/^#/, '');
+    if (h.startsWith('p-')) activateTab('people');
+    else if (h.startsWith('c-')) activateTab('companies');
+    else if (h.startsWith('pl-')) activateTab('places');
+    const card = h ? document.getElementById(h) : null;
+    if (card) {
+        const details = card.querySelector('.person-details');
+        const chev = card.querySelector('.person-chev');
+        if (details) details.style.display = 'block';
+        if (chev) chev.style.transform = 'rotate(90deg)';
+        setTimeout(() => card.scrollIntoView({ block: 'center' }), 50);
     }
 })();
 </script>`;
@@ -6406,12 +6989,19 @@ function expandAllPeople(expand) {
             // Generate a unique lowercase key from firstName (or firstName+last initial on collision)
             const baseKey = firstName.toLowerCase().replace(/\s+/g, '');
             let key = baseKey;
-            const liveKeys = new Set(all.filter(p => !p.deleted).map(p => p.key));
+            const liveKeys = new Set([
+                ...all.filter(p => !p.deleted).map(p => p.key),
+                ...loadCompanies().map(c => c.key)
+            ]);
             if (liveKeys.has(key) && lastName) {
                 key = (firstName + lastName.charAt(0)).toLowerCase().replace(/\s+/g, '');
             }
             let n = 2;
             while (liveKeys.has(key)) { key = baseKey + n; n++; }
+            const primaryCompanyKey = String(data.primaryCompanyKey || '').trim().toLowerCase() || undefined;
+            const extraCompanyKeys = Array.isArray(data.extraCompanyKeys)
+                ? [...new Set(data.extraCompanyKeys.map(k => String(k).trim().toLowerCase()).filter(k => k && k !== primaryCompanyKey))]
+                : [];
             const person = {
                 id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
                 key,
@@ -6422,6 +7012,8 @@ function expandAllPeople(expand) {
                 email: String(data.email || '').trim(),
                 phone: String(data.phone || '').trim(),
                 notes: String(data.notes || '').trim(),
+                primaryCompanyKey,
+                extraCompanyKeys,
                 created: new Date().toISOString()
             };
             all.push(person);
@@ -6434,6 +7026,155 @@ function expandAllPeople(expand) {
         }
         return;
     }
+
+    // ===== Companies =====
+    if (pathname === '/api/companies' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(loadCompanies()));
+        return;
+    }
+    if (pathname === '/api/companies' && req.method === 'POST') {
+        try {
+            const data = JSON.parse(await readBody(req) || '{}');
+            const name = String(data.name || '').trim();
+            if (!name) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'name is required' })); return; }
+            const all = loadAllCompanies();
+            const baseKey = name.toLowerCase().replace(/[^a-z0-9æøå]+/gi, '').slice(0, 24) || 'firma';
+            let key = baseKey;
+            const liveKeys = new Set([
+                ...all.filter(c => !c.deleted).map(c => c.key),
+                ...loadPeople().map(p => p.key)
+            ]);
+            let n = 2;
+            while (liveKeys.has(key)) { key = baseKey + n; n++; }
+            const company = {
+                id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+                key,
+                name,
+                orgnr: String(data.orgnr || '').trim(),
+                url: String(data.url || '').trim(),
+                address: String(data.address || '').trim(),
+                notes: String(data.notes || '').trim(),
+                created: new Date().toISOString()
+            };
+            all.push(company);
+            saveCompanies(all);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, company }));
+        } catch (err) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: String(err.message || err) }));
+        }
+        return;
+    }
+    const companyMatch = pathname.match(/^\/api\/companies\/([^/]+)$/);
+    if (companyMatch && req.method === 'PUT') {
+        try {
+            const data = JSON.parse(await readBody(req) || '{}');
+            const all = loadAllCompanies();
+            const idx = all.findIndex(c => c.id === companyMatch[1]);
+            if (idx === -1) { res.writeHead(404); res.end(JSON.stringify({ ok: false })); return; }
+            const c = all[idx];
+            if (data.name !== undefined) c.name = String(data.name).trim();
+            if (data.orgnr !== undefined) c.orgnr = String(data.orgnr).trim();
+            if (data.url !== undefined) c.url = String(data.url).trim();
+            if (data.address !== undefined) c.address = String(data.address).trim();
+            if (data.notes !== undefined) c.notes = String(data.notes).trim();
+            if (data.inactive !== undefined) c.inactive = !!data.inactive;
+            saveCompanies(all);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, company: c }));
+        } catch { res.writeHead(400); res.end(JSON.stringify({ ok: false })); }
+        return;
+    }
+    if (companyMatch && req.method === 'DELETE') {
+        const all = loadAllCompanies();
+        const idx = all.findIndex(c => c.id === companyMatch[1]);
+        if (idx === -1) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'Not found' })); return; }
+        all[idx].deleted = true;
+        all[idx].deletedAt = new Date().toISOString();
+        saveCompanies(all);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+    }
+
+    // ===== Places =====
+    if (pathname === '/api/places' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(loadPlaces()));
+        return;
+    }
+    if (pathname === '/api/places' && req.method === 'POST') {
+        try {
+            const data = JSON.parse(await readBody(req) || '{}');
+            const name = String(data.name || '').trim();
+            if (!name) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'name is required' })); return; }
+            const all = loadAllPlaces();
+            const baseKey = name.toLowerCase().replace(/[^a-z0-9æøå]+/gi, '').slice(0, 24) || 'sted';
+            let key = baseKey;
+            const liveKeys = new Set(all.filter(p => !p.deleted).map(p => p.key));
+            let n = 2;
+            while (liveKeys.has(key)) { key = baseKey + n; n++; }
+            const lat = data.lat !== undefined && data.lat !== null && data.lat !== '' ? parseFloat(data.lat) : null;
+            const lng = data.lng !== undefined && data.lng !== null && data.lng !== '' ? parseFloat(data.lng) : null;
+            const place = {
+                id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+                key,
+                name,
+                address: String(data.address || '').trim(),
+                lat: Number.isFinite(lat) ? lat : null,
+                lng: Number.isFinite(lng) ? lng : null,
+                notes: String(data.notes || '').trim(),
+                created: new Date().toISOString()
+            };
+            all.push(place);
+            savePlaces(all);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, place }));
+        } catch (err) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: String(err.message || err) }));
+        }
+        return;
+    }
+    const placeMatch = pathname.match(/^\/api\/places\/([^/]+)$/);
+    if (placeMatch && req.method === 'PUT') {
+        try {
+            const data = JSON.parse(await readBody(req) || '{}');
+            const all = loadAllPlaces();
+            const idx = all.findIndex(p => p.id === placeMatch[1]);
+            if (idx === -1) { res.writeHead(404); res.end(JSON.stringify({ ok: false })); return; }
+            const p = all[idx];
+            if (data.name !== undefined) p.name = String(data.name).trim();
+            if (data.address !== undefined) p.address = String(data.address).trim();
+            if (data.notes !== undefined) p.notes = String(data.notes).trim();
+            if (data.lat !== undefined) {
+                const v = data.lat === null || data.lat === '' ? null : parseFloat(data.lat);
+                p.lat = Number.isFinite(v) ? v : null;
+            }
+            if (data.lng !== undefined) {
+                const v = data.lng === null || data.lng === '' ? null : parseFloat(data.lng);
+                p.lng = Number.isFinite(v) ? v : null;
+            }
+            savePlaces(all);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, place: p }));
+        } catch { res.writeHead(400); res.end(JSON.stringify({ ok: false })); }
+        return;
+    }
+    if (placeMatch && req.method === 'DELETE') {
+        const all = loadAllPlaces();
+        const idx = all.findIndex(p => p.id === placeMatch[1]);
+        if (idx === -1) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'Not found' })); return; }
+        all[idx].deleted = true;
+        all[idx].deletedAt = new Date().toISOString();
+        savePlaces(all);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+    }
+
 
     // API: list meetings (?week=YYYY-WNN, ?upcoming=N days)
     if (pathname === '/api/meeting-types' && req.method === 'GET') {
@@ -6510,6 +7251,7 @@ function expandAllPeople(expand) {
             type: validTypes.includes(data.type) ? data.type : 'meeting',
             attendees: Array.isArray(data.attendees) ? data.attendees : extractMentions(data.attendees || ''),
             location: (data.location || '').trim(),
+            placeKey: (data.placeKey || '').trim().toLowerCase(),
             notes: (data.notes || '').trim(),
             created: new Date().toISOString()
         };
@@ -6548,6 +7290,7 @@ function expandAllPeople(expand) {
         if (data.type !== undefined && loadMeetingTypes().some(t => t.key === data.type)) m.type = data.type;
         if (data.attendees !== undefined) m.attendees = Array.isArray(data.attendees) ? data.attendees : extractMentions(data.attendees || '');
         if (data.location !== undefined) m.location = (data.location || '').trim();
+        if (data.placeKey !== undefined) m.placeKey = (data.placeKey || '').trim().toLowerCase();
         if (data.notes !== undefined) m.notes = (data.notes || '').trim();
         m.updated = new Date().toISOString();
         saveMeetings(meetings);
@@ -6919,6 +7662,16 @@ function expandAllPeople(expand) {
                 if (data.phone !== undefined) person.phone = data.phone;
                 if (data.notes !== undefined) person.notes = data.notes;
                 if (data.inactive !== undefined) person.inactive = !!data.inactive;
+                if (data.primaryCompanyKey !== undefined) {
+                    const v = String(data.primaryCompanyKey || '').trim().toLowerCase();
+                    person.primaryCompanyKey = v || undefined;
+                }
+                if (data.extraCompanyKeys !== undefined) {
+                    const primary = person.primaryCompanyKey;
+                    person.extraCompanyKeys = Array.isArray(data.extraCompanyKeys)
+                        ? [...new Set(data.extraCompanyKeys.map(k => String(k).trim().toLowerCase()).filter(k => k && k !== primary))]
+                        : [];
+                }
                 savePeople(people);
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ ok: true, person }));

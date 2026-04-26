@@ -64,16 +64,25 @@ To måter å lage resultater på:
 
 ## Personer og steder
 
-Personer (og steder/firmaer) kan refereres med `@kortnavn` i notater. Ved hover vises et tooltip med navn, tittel og kontaktinfo.
+Siden `/people` har tre faner: **Personer**, **Selskaper** og **Steder**.
 
-På `/people` kan du:
+### Personer
+Personer refereres med `@kortnavn` i notater og oppgaver. Ved hover vises et tooltip med navn, tittel, hovedselskap og kontaktinfo. Bruk **➕ Ny person** for å opprette. Hver person kan ha:
+- Et **hovedselskap** (én relasjon, primær)
+- **Andre selskaper** (flere — for personer som jobber/har rolle hos flere)
+- Inaktiv-flagg (skjules fra `@`-autofullføring men beholdes)
 
-- Opprette nye personer direkte med **➕ Ny person** — fyll inn fornavn (påkrevd) og eventuelt etternavn, tittel, kontaktinfo og notat. `@kortnavn` blir generert automatisk fra fornavnet.
-- Redigere kontaktinfo og notater (klikk ✏️)
-- **Inaktivere** personer (skjules fra autocomplete men tas vare på)
-- **Slette** personer (gjøres til gravstein så de ikke gjenoppstår fra eksisterende `@`-referanser)
+Kortet kan utvides for å se alle referanser: **Oppgaver**, **Møter**, **Resultater** og **Notater** med direktelenker.
 
-Hvert personkort kan utvides til å vise alle steder personen er nevnt: **Oppgaver**, **Møter**, **Resultater** og **Notater** — med direktelenker til hver kilde. Bruk søkefeltet og sortering på toppen for å finne personer raskt.
+### Selskaper
+Selskaper deler `@kortnavn`-rommet med personer — du kan skrive `@acmeas` i et notat og få en lenke til selskapskortet (🏢 ikon). Lagre **org.nr**, **web**, **adresse** og notater. Selskapskortet viser alle medlemmer (personer med selskapet som hoved- eller bi-relasjon) pluss møter, resultater og notater som nevner selskapet.
+
+### Steder
+Steder brukes som valgfritt **registrert sted** når du oppretter et møte i kalenderen. De er ikke `@`-mentionable — du velger dem fra en nedtrekksliste. Hvert sted har navn, adresse, valgfri **geo-posisjon** og notater.
+
+**Kart-velger:** Ved opprettelse/redigering av sted vises et OpenStreetMap-kart. Klikk for å plassere markøren; dra markøren for å justere. Lat/lng fylles automatisk. Mini-kart vises også på selve stedskortet når koordinater er satt.
+
+I møte-modalen i kalenderen er det to felt for sted: **Sted (fritekst)** for ad hoc lokasjoner som "Teams" eller "Kafé X", og **Knytt til registrert sted** for å lenke møtet til et lagret sted (med kart-lenke).
 
 ## Notater
 
