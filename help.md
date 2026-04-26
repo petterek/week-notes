@@ -24,7 +24,7 @@ Bytt kontekst via velgeren øverst i navigasjonen. Administrer kontekster på `/
 | `Alt+H` | 🏠 Hjem |
 | `Alt+O` | ☑️ Oppgaver |
 | `Alt+K` | 📅 Kalender |
-| `Alt+P` | 👥 Personer |
+| `Alt+P` | 👥 Personer og steder |
 | `Alt+R` | ⚖️ Resultater |
 | `Alt+N` | 📝 Nytt notat |
 | `Alt+S` | ⚙️ Innstillinger |
@@ -62,9 +62,9 @@ To måter å lage resultater på:
 
 `@navn`-omtaler i et resultat huskes som "involverte personer" og vises som lenker til personkortet.
 
-## Personer
+## Personer og steder
 
-Personer kan refereres med `@kortnavn` i notater. Ved hover vises et tooltip med navn, tittel og kontaktinfo.
+Personer (og steder/firmaer) kan refereres med `@kortnavn` i notater. Ved hover vises et tooltip med navn, tittel og kontaktinfo.
 
 På `/people` kan du:
 

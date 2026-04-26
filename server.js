@@ -1219,7 +1219,7 @@ function pageHtml(title, body, extraNavLinks) {
                 <a href="/" data-key="h" title="Hjem (Alt+H)">🏠 Hjem <kbd>Alt+H</kbd></a>
                 <a href="/tasks" data-key="o" title="Oppgaver (Alt+O)">☑️ Oppgaver <kbd>Alt+O</kbd></a>
                 <a href="/calendar" data-key="k" title="Kalender (Alt+K)">📅 Kalender <kbd>Alt+K</kbd></a>
-                <a href="/people" data-key="p" title="Personer (Alt+P)">👥 Personer <kbd>Alt+P</kbd></a>
+                <a href="/people" data-key="p" title="Personer og steder (Alt+P)">👥 Personer og steder <kbd>Alt+P</kbd></a>
                 <a href="/results" data-key="r" title="Resultater (Alt+R)">⚖️ Resultater <kbd>Alt+R</kbd></a>
                 <a href="/editor" data-key="n" title="Nytt notat (Alt+N)">📝 Nytt <kbd>Alt+N</kbd></a>
                 <a href="#" id="navSearchBtn" data-key="/" title="Søk (Ctrl+K eller /)">🔎 Søk <kbd>Ctrl+K</kbd></a>
@@ -1967,7 +1967,7 @@ function editorPageHtml(week, file, content) {
         <div class="nav-links">
             <a href="/" data-key="h" title="Hjem (Alt+H)">🏠 Hjem <kbd>Alt+H</kbd></a>
             <a href="/tasks" data-key="o" title="Oppgaver (Alt+O)">☑️ Oppgaver <kbd>Alt+O</kbd></a>
-            <a href="/people" data-key="p" title="Personer (Alt+P)">👥 Personer <kbd>Alt+P</kbd></a>
+            <a href="/people" data-key="p" title="Personer og steder (Alt+P)">👥 Personer og steder <kbd>Alt+P</kbd></a>
             <a href="/results" data-key="r" title="Resultater (Alt+R)">⚖️ Resultater <kbd>Alt+R</kbd></a>
             <a href="/editor" data-key="n" title="Nytt notat (Alt+N)">📝 Nytt <kbd>Alt+N</kbd></a>
             <a href="/settings" data-key="s" title="Innstillinger (Alt+S)">⚙️ Innstillinger <kbd>Alt+S</kbd></a>
@@ -5417,7 +5417,7 @@ document.addEventListener('keydown', function(e) {
 
         let body = '<div class="people-page">';
         body += `<div class="people-head">
-            <h1>👥 Personer</h1>
+            <h1>👥 Personer og steder</h1>
             <button class="btn-primary" id="newPersonBtn">➕ Ny person</button>
         </div>`;
 
@@ -5793,7 +5793,7 @@ function expandAllPeople(expand) {
 </script>`;
 
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(pageHtml('Personer', body));
+        res.end(pageHtml('Personer og steder', body));
         return;
     }
 
