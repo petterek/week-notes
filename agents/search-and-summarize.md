@@ -55,6 +55,23 @@ week as `summarize.md`.
 - Limits: query timeout in `searchViaWorker` is 5 s; if the worker is
   unavailable we fall back to `searchAll` synchronously.
 
+### Frontend (global search modal)
+
+- The page-wrapper layout (`pageHtml`) injects a global search modal
+  (`#globalSearchModal` with `#gsInput`, `#gsResults`) on **every**
+  page and a script that wires:
+  - `Ctrl+K` / `Cmd+K` from anywhere → open modal
+  - `/` from anywhere (when not typing) → open modal
+  - `Esc` → close modal
+  - `Enter` in the input → navigate to the first result
+  - The 🔎 nav link (`#navSearchBtn`) also opens the modal
+  - Input is debounced 200 ms, then hits `/api/search`
+  - `window.__openGlobalSearch(prefill?)` and
+    `window.__closeGlobalSearch()` are exposed so other scripts can
+    drive it.
+- The home page no longer has its own inline search input — the
+  modal is the single entry point.
+
 ### Result shape
 
 ```json
@@ -152,7 +169,7 @@ the `href` builder in `searchAll` accordingly.
 ## Related
 
 - `notes.md` — the markdown files being searched/summarized.
-- `home.md` — search input + summary modal live there.
+- `home.md` — summary modal lives there. (Search is global now.)
 - `calendar.md` — `#m-<id>` deep-link handler.
 - `people.md`, `tasks.md`, `results.md` — destination pages for the
   non-note result types.
