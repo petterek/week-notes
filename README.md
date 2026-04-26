@@ -11,6 +11,14 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 ## 📜 Changelog
 
 ### 2026-04-26
+- Calendar: drag a meeting to move it (across days too), drag the bottom edge to resize — snaps to 5-minute increments
+- Calendar: red "now" line on today's column, auto-updating every minute
+- Calendar: timestamped task/note/result activity markers on the day they were saved/completed, with toolbar chips to toggle each kind
+- Calendar: restyled meeting modal — paper-theme header, consistent inputs, taller resizable notes, pinned action bar
+- Search: global Ctrl+K / `/` modal on every page
+- Search: now covers tasks, meetings, people and results in addition to notes
+- Search: moved to a `worker_threads` inverted index that auto-rebuilds on file changes
+- Context switch made async (git pull + reindex now run in the background)
 - Calendar uses the full page width
 - Click an upcoming-meeting card on the home page to jump to the calendar week and pulse-highlight the meeting
 - Configurable default meeting length per context (used to prefill the end time)
