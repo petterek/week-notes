@@ -2580,7 +2580,7 @@ const server = http.createServer(async (req, res) => {
         }
         send(false).then(function (d) {
             if (d.ok) { setStatus(s, '✓ Opprettet — laster…', false); setTimeout(function () { location.href = '/'; }, 600); return; }
-            if (d.needsConfirm && confirm(d.error + '\n\nVil du opprette .week-notes-fil og fortsette?')) {
+            if (d.needsConfirm && confirm(d.error + '\\n\\nVil du opprette .week-notes-fil og fortsette?')) {
                 return send(true).then(function (d2) {
                     if (d2.ok) { setStatus(s, '✓ Opprettet — laster…', false); setTimeout(function () { location.href = '/'; }, 600); }
                     else setStatus(s, '✗ ' + d2.error, true);
@@ -2606,7 +2606,7 @@ const server = http.createServer(async (req, res) => {
         }
         send(false).then(function (d) {
             if (d.ok) { setStatus(s, '✓ Klonet — laster…', false); setTimeout(function () { location.href = '/'; }, 600); return; }
-            if (d.needsConfirm && confirm(d.error + '\n\nVil du opprette .week-notes-fil og fortsette?')) {
+            if (d.needsConfirm && confirm(d.error + '\\n\\nVil du opprette .week-notes-fil og fortsette?')) {
                 return send(true).then(function (d2) {
                     if (d2.ok) { setStatus(s, '✓ Klonet — laster…', false); setTimeout(function () { location.href = '/'; }, 600); }
                     else setStatus(s, '✗ ' + d2.error, true);
@@ -3744,7 +3744,7 @@ document.addEventListener('keydown', function(e) {
                         : Promise.resolve({ ok: true });
                     Promise.all([putSettings(false), typesP]).then(([s, t]) => {
                         if (s.ok && t.ok) { status.textContent = '✓ Lagret'; setTimeout(() => location.reload(), 600); return; }
-                        if (s.needsConfirm && t.ok && confirm(s.error + '\n\nVil du opprette .week-notes-fil og fortsette?')) {
+                        if (s.needsConfirm && t.ok && confirm(s.error + '\\n\\nVil du opprette .week-notes-fil og fortsette?')) {
                             return putSettings(true).then(s2 => {
                                 if (s2.ok) { status.textContent = '✓ Lagret'; setTimeout(() => location.reload(), 600); }
                                 else { status.textContent = '✗ ' + s2.error; status.style.color = '#c53030'; }
@@ -3757,7 +3757,7 @@ document.addEventListener('keydown', function(e) {
                     btn.addEventListener('click', () => {
                         const id = btn.getAttribute('data-disconnect');
                         const name = btn.getAttribute('data-name') || id;
-                        if (!confirm('Koble fra "' + name + '"?\n\nDette vil:\n  • commit\'e alle endringer\n  • push\'e til origin\n  • slette den lokale mappen\n\nGit-URLen huskes lokalt så du kan klone den tilbake senere.')) return;
+                        if (!confirm('Koble fra "' + name + '"?\\n\\nDette vil:\\n  • commit\'e alle endringer\\n  • push\'e til origin\\n  • slette den lokale mappen\\n\\nGit-URLen huskes lokalt så du kan klone den tilbake senere.')) return;
                         const status = document.querySelector('[data-status="' + id + '"]');
                         if (status) { status.textContent = '⏳ Kobler fra…'; status.style.color = ''; }
                         fetch('/api/contexts/' + encodeURIComponent(id) + '/disconnect', { method: 'POST' })
@@ -3916,7 +3916,7 @@ document.addEventListener('keydown', function(e) {
                     }
                     send(false).then(d => {
                         if (d.ok) { s.textContent = '✓ Opprettet'; setTimeout(() => location.reload(), 600); return; }
-                        if (d.needsConfirm && confirm(d.error + '\n\nVil du opprette .week-notes-fil og fortsette?')) {
+                        if (d.needsConfirm && confirm(d.error + '\\n\\nVil du opprette .week-notes-fil og fortsette?')) {
                             return send(true).then(d2 => {
                                 if (d2.ok) { s.textContent = '✓ Opprettet'; setTimeout(() => location.reload(), 600); }
                                 else { s.textContent = '✗ ' + d2.error; s.style.color = '#c53030'; }
@@ -3940,7 +3940,7 @@ document.addEventListener('keydown', function(e) {
                     }
                     send(false).then(d => {
                         if (d.ok) { s.textContent = '✓ Klonet'; setTimeout(() => location.reload(), 600); return; }
-                        if (d.needsConfirm && confirm(d.error + '\n\nVil du opprette .week-notes-fil og fortsette?')) {
+                        if (d.needsConfirm && confirm(d.error + '\\n\\nVil du opprette .week-notes-fil og fortsette?')) {
                             return send(true).then(d2 => {
                                 if (d2.ok) { s.textContent = '✓ Klonet'; setTimeout(() => location.reload(), 600); }
                                 else { s.textContent = '✗ ' + d2.error; s.style.color = '#c53030'; }
