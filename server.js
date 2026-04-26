@@ -469,13 +469,23 @@ function getMdFiles(weekDir) {
     }
 }
 
+function searchSnippet(content, q, pad = 60) {
+    if (!content) return '';
+    const idx = content.toLowerCase().indexOf(q.toLowerCase());
+    if (idx === -1) return '';
+    const start = Math.max(0, idx - pad);
+    const end = Math.min(content.length, idx + q.length + pad);
+    return (start > 0 ? '…' : '') + content.slice(start, end) + (end < content.length ? '…' : '');
+}
+
 function searchMdFiles(query) {
     const results = [];
     const q = query.toLowerCase();
     const weeks = getWeekDirs();
     for (const week of weeks) {
         for (const file of getMdFiles(week)) {
-            const filePath = path.join(dataDir(), week, file);            let content;
+            const filePath = path.join(dataDir(), week, file);
+            let content;
             try { content = fs.readFileSync(filePath, 'utf-8'); } catch { continue; }
             const nameLower = file.toLowerCase();
             const contentLower = content.toLowerCase();
@@ -493,6 +503,95 @@ function searchMdFiles(query) {
         }
     }
     return results;
+}
+
+function searchAll(query) {
+    const q = String(query || '').toLowerCase();
+    if (!q) return [];
+    const out = [];
+
+    // Notes
+    for (const r of searchMdFiles(query)) {
+        const name = r.file.replace(/\.md$/, '');
+        out.push({
+            type: 'note',
+            title: name,
+            subtitle: r.week + '/' + r.file,
+            href: '/' + r.week + '/' + encodeURIComponent(r.file),
+            snippet: r.snippet
+        });
+    }
+
+    // Tasks
+    try {
+        const tasks = loadTasks();
+        for (const t of tasks) {
+            const haystacks = [t.text, t.comment, t.notes].filter(Boolean);
+            const hit = haystacks.find(h => String(h).toLowerCase().includes(q));
+            if (!hit) continue;
+            out.push({
+                type: 'task',
+                title: t.text || '(uten tittel)',
+                subtitle: (t.done ? '✓ ' : '☐ ') + (t.completedWeek || t.week || ''),
+                href: '/tasks',
+                snippet: searchSnippet(hit, query)
+            });
+        }
+    } catch {}
+
+    // Meetings
+    try {
+        const meetings = loadMeetings();
+        for (const m of meetings) {
+            const att = (m.attendees || []).join(' ');
+            const haystacks = [m.title, m.location, m.notes, att].filter(Boolean);
+            const hit = haystacks.find(h => String(h).toLowerCase().includes(q));
+            if (!hit) continue;
+            const week = m.date ? dateToIsoWeek(new Date(m.date + 'T00:00:00Z')) : '';
+            out.push({
+                type: 'meeting',
+                title: m.title || '(uten tittel)',
+                subtitle: (m.date || '') + (m.start ? ' ' + m.start : ''),
+                href: week ? `/calendar/${week}#m-${encodeURIComponent(m.id)}` : '/calendar',
+                snippet: searchSnippet(hit, query)
+            });
+        }
+    } catch {}
+
+    // People
+    try {
+        const people = loadPeople();
+        for (const p of people) {
+            const haystacks = [p.name, p.firstName, p.lastName, p.title, p.email, p.phone, p.notes].filter(Boolean);
+            const hit = haystacks.find(h => String(h).toLowerCase().includes(q));
+            if (!hit) continue;
+            const display = p.firstName ? (p.lastName ? p.firstName + ' ' + p.lastName : p.firstName) : (p.name || p.key);
+            out.push({
+                type: 'person',
+                title: display,
+                subtitle: p.title || p.email || '@' + (p.key || ''),
+                href: '/people#' + encodeURIComponent(p.key || ''),
+                snippet: searchSnippet(hit, query)
+            });
+        }
+    } catch {}
+
+    // Results
+    try {
+        const results = loadResults();
+        for (const r of results) {
+            if (!r.text || !String(r.text).toLowerCase().includes(q)) continue;
+            out.push({
+                type: 'result',
+                title: r.text.length > 60 ? r.text.slice(0, 60) + '…' : r.text,
+                subtitle: r.week || '',
+                href: '/results',
+                snippet: searchSnippet(r.text, query)
+            });
+        }
+    } catch {}
+
+    return out;
 }
 
 function getGhToken() {
@@ -821,6 +920,8 @@ function pageHtml(title, body, extraNavLinks) {
         .search-result .sr-path { font-size: 0.85em; color: #718096; }
         .search-result .sr-snippet { font-size: 0.9em; color: #4a5568; margin-top: 4px; white-space: pre-wrap; word-break: break-word; }
         .search-result mark { background: #fefcbf; padding: 1px 2px; border-radius: 2px; }
+        .sr-group { margin: 18px 0 6px; font-size: 0.95em; color: #4a5568; font-weight: 600; border-bottom: 1px solid #e8e2d2; padding-bottom: 4px; }
+        .sr-group .sr-count { color: #a0998a; font-weight: 400; font-size: 0.9em; margin-left: 6px; }
         .search-hidden { display: none; }
         .page-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center; }
         .page-modal.dark { background:rgba(0,0,0,0.6); }
@@ -2104,16 +2205,33 @@ const server = http.createServer(async (req, res) => {
                 if (data.length === 0) {
                     searchResults.innerHTML = '<p style="color:#718096;font-style:italic">Ingen treff for «' + escapeHtml(q) + '»</p>';
                 } else {
-                    searchResults.innerHTML = '<p style="color:#718096;font-size:0.9em">' + data.length + ' treff</p>'
-                        + data.map(r => {
-                            const name = r.file.replace('.md', '');
+                    const TYPE_META = {
+                        note:    { icon: '📝', label: 'Notater' },
+                        task:    { icon: '✅', label: 'Oppgaver' },
+                        meeting: { icon: '📅', label: 'Møter' },
+                        person:  { icon: '👤', label: 'Personer' },
+                        result:  { icon: '🏁', label: 'Resultater' }
+                    };
+                    const groups = {};
+                    data.forEach(r => { (groups[r.type] = groups[r.type] || []).push(r); });
+                    const order = ['note', 'task', 'meeting', 'person', 'result'];
+                    let html = '<p style="color:#718096;font-size:0.9em">' + data.length + ' treff · '
+                        + order.filter(t => groups[t]).map(t => TYPE_META[t].icon + ' ' + groups[t].length).join(' · ')
+                        + '</p>';
+                    order.forEach(t => {
+                        if (!groups[t]) return;
+                        const meta = TYPE_META[t];
+                        html += '<h3 class="sr-group">' + meta.icon + ' ' + meta.label + ' <span class="sr-count">' + groups[t].length + '</span></h3>';
+                        html += groups[t].map(r => {
                             const snippet = r.snippet ? highlightSnippet(escapeHtml(r.snippet), q) : '';
-                            return '<a href="/' + r.week + '/' + encodeURIComponent(r.file) + '" class="search-result" style="display:block;text-decoration:none">'
-                                + '<div class="sr-title">' + escapeHtml(name) + '</div>'
-                                + '<div class="sr-path">' + r.week + '/' + r.file + '</div>'
+                            return '<a href="' + r.href + '" class="search-result" style="display:block;text-decoration:none">'
+                                + '<div class="sr-title">' + escapeHtml(r.title || '') + '</div>'
+                                + (r.subtitle ? '<div class="sr-path">' + escapeHtml(r.subtitle) + '</div>' : '')
                                 + (snippet ? '<div class="sr-snippet">' + snippet + '</div>' : '')
                                 + '</a>';
                         }).join('');
+                    });
+                    searchResults.innerHTML = html;
                 }
                 weekList.style.display = 'none';
             } catch (e) {
@@ -3827,7 +3945,7 @@ function expandAllPeople(expand) {
             res.end('[]');
             return;
         }
-        const results = searchMdFiles(q.trim());
+        const results = searchAll(q.trim());
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(results));
         return;
