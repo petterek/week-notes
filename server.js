@@ -1891,6 +1891,7 @@ function editorPageHtml(week, file, content) {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>${title}</title>
+    <link id="themeStylesheet" rel="stylesheet" href="/themes/${getActiveTheme()}.css">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
