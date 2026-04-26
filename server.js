@@ -16,10 +16,19 @@ function safeName(name) {
 
 function listContexts() {
     try {
-        return fs.readdirSync(CONTEXTS_DIR, { withFileTypes: true })
+        const ids = fs.readdirSync(CONTEXTS_DIR, { withFileTypes: true })
             .filter(d => d.isDirectory() && !d.name.startsWith('.') && !d.name.startsWith('_'))
-            .map(d => d.name)
-            .sort();
+            .map(d => d.name);
+        const nameOf = (id) => {
+            try {
+                const s = JSON.parse(fs.readFileSync(path.join(CONTEXTS_DIR, id, 'settings.json'), 'utf-8'));
+                return (s && typeof s.name === 'string' && s.name.trim()) || id;
+            } catch { return id; }
+        };
+        return ids
+            .map(id => ({ id, name: nameOf(id) }))
+            .sort((a, b) => a.name.localeCompare(b.name, 'nb'))
+            .map(x => x.id);
     } catch { return []; }
 }
 
