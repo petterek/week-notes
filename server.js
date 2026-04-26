@@ -97,6 +97,32 @@ function createContext(rawName, settings) {
     return safe;
 }
 
+function cloneContext(remoteUrl, rawName) {
+    const url = String(remoteUrl || '').trim();
+    if (!url) throw new Error('Mangler remote-URL');
+    let safe = safeName(rawName);
+    if (!safe) {
+        const m = url.match(/([^/:]+?)(?:\.git)?\/?$/);
+        safe = safeName(m ? m[1] : '');
+    }
+    if (!safe) throw new Error('Kunne ikke utlede kontekstnavn fra remote');
+    const dir = path.join(CONTEXTS_DIR, safe);
+    if (fs.existsSync(dir)) throw new Error('Kontekst finnes allerede');
+    try {
+        require('child_process').execSync(`git clone --quiet "${url.replace(/"/g, '\\"')}" "${dir.replace(/"/g, '\\"')}"`, { encoding: 'utf-8', timeout: 120000, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (e) {
+        try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+        throw new Error('git clone feilet: ' + ((e.stderr && e.stderr.toString()) || e.message));
+    }
+    try { git(dir, `config user.email "ukenotater@local"`); } catch {}
+    try { git(dir, `config user.name "Ukenotater"`); } catch {}
+    let cfg = {};
+    try { cfg = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf-8')); } catch {}
+    cfg = Object.assign({ name: cfg.name || rawName || safe, icon: cfg.icon || '📁', description: cfg.description || '' }, cfg, { remote: url });
+    fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify(cfg, null, 2));
+    return safe;
+}
+
 function getContextSettings(name) {
     const safe = safeName(name);
     try { return JSON.parse(fs.readFileSync(path.join(CONTEXTS_DIR, safe, 'settings.json'), 'utf-8')); }
@@ -3051,7 +3077,7 @@ document.addEventListener('keydown', function(e) {
                 </form>
             </div>`;
         const newPane = `
-            <div class="ctx-detail" data-detail="__new">
+            <div class="ctx-detail${all.length === 0 ? ' visible' : ''}" data-detail="__new">
                 <div class="ctx-detail-head">
                     <span class="ctx-icon-lg">➕</span>
                     <div style="flex:1"><h2 style="margin:0">Ny kontekst</h2><div class="ctx-id">Opprett en ny isolert arbeidsmiljø</div></div>
@@ -3071,8 +3097,32 @@ document.addEventListener('keydown', function(e) {
                     </div>
                 </form>
             </div>`;
+        const clonePane = `
+            <div class="ctx-detail" data-detail="__clone">
+                <div class="ctx-detail-head">
+                    <span class="ctx-icon-lg">📥</span>
+                    <div style="flex:1"><h2 style="margin:0">Klon fra remote</h2><div class="ctx-id">Hent en eksisterende kontekst fra en git-remote</div></div>
+                </div>
+                <form id="cloneCtxForm" class="ctx-edit-form">
+                    <div class="ctx-detail-section">
+                        <label>Git-remote<input type="text" id="cloneRemote" placeholder="git@github.com:bruker/repo.git" spellcheck="false" required></label>
+                        <label>Navn (valgfritt — utledes fra repo-URLen)<input type="text" id="cloneName" placeholder="overstyr utledet navn" spellcheck="false"></label>
+                        <p class="section-hint">Repoet klones til <code>data/&lt;navn&gt;/</code>. Hvis det allerede finnes en <code>settings.json</code> i repoet brukes den.</p>
+                    </div>
+                    <div class="ctx-detail-actions">
+                        <button type="submit" class="btn-primary">📥 Klon</button>
+                        <span id="cloneCtxStatus" class="settings-status"></span>
+                    </div>
+                </form>
+            </div>`;
         const emptyBanner = all.length === 0
-            ? `<div style="background:#fff7e0;border:1px solid #f0d589;color:#8a5a00;padding:14px 16px;border-radius:8px;margin:16px 0">👋 Ingen kontekster ennå. Klikk «Ny kontekst» til venstre for å komme i gang.</div>`
+            ? `<div class="ctx-empty-hero">
+                    <div class="ctx-empty-icon">👋</div>
+                    <div class="ctx-empty-text">
+                        <h2>Velkommen!</h2>
+                        <p>Du har ingen kontekster ennå. Opprett din første kontekst i panelet til høyre — eller klon en eksisterende fra en git-remote.</p>
+                    </div>
+                </div>`
             : '';
         const body = `
             <h1>⚙️ Kontekster</h1>
@@ -3085,10 +3135,15 @@ document.addEventListener('keydown', function(e) {
                         <span class="ctx-rail-icon">➕</span>
                         <span class="ctx-rail-text"><span class="ctx-rail-name">Ny kontekst</span><span class="ctx-rail-id">opprett ny</span></span>
                     </button>
+                    <button type="button" class="ctx-rail-item ctx-rail-new" data-target="__clone">
+                        <span class="ctx-rail-icon">📥</span>
+                        <span class="ctx-rail-text"><span class="ctx-rail-name">Klon fra remote</span><span class="ctx-rail-id">hent fra git</span></span>
+                    </button>
                 </aside>
                 <section class="ctx-pane">
                     ${all.map(detailPane).join('')}
                     ${newPane}
+                    ${clonePane}
                 </section>
             </div>
 
@@ -3106,8 +3161,15 @@ document.addEventListener('keydown', function(e) {
                 .ctx-rail-name { font-weight: 600; font-size: 0.95em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
                 .ctx-rail-id { font-family: ui-monospace, monospace; font-size: 0.72em; color: var(--text-subtle); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
                 .ctx-rail-badge { color: var(--accent); font-size: 1.2em; line-height: 1; }
-                .ctx-rail-new { border-top: 1px dashed var(--border); border-radius: 0; margin-top: 6px; padding-top: 12px; color: var(--text-muted); }
+                .ctx-rail-new { color: var(--text-muted); }
+                .ctx-rail-new:first-of-type { border-top: 1px dashed var(--border); border-radius: 0; margin-top: 6px; padding-top: 12px; }
+                .ctx-rail-new + .ctx-rail-new { margin-top: 0; padding-top: 10px; }
                 .ctx-rail-new .ctx-rail-name { color: var(--text-muted); }
+
+                .ctx-empty-hero { display: flex; align-items: center; gap: 18px; background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 10px; padding: 20px 24px; margin: 16px 0 24px; }
+                .ctx-empty-icon { font-size: 2.6em; flex-shrink: 0; }
+                .ctx-empty-text h2 { margin: 0 0 4px 0; font-size: 1.2em; }
+                .ctx-empty-text p { margin: 0; color: var(--text-subtle); }
 
                 .ctx-pane { min-width: 0; }
                 .ctx-detail { display: none; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 22px 26px; }
@@ -3534,6 +3596,21 @@ document.addEventListener('keydown', function(e) {
                             if (d.ok) { s.textContent = '✓ Opprettet'; setTimeout(() => location.reload(), 600); }
                             else { s.textContent = '✗ ' + d.error; s.style.color = '#c53030'; }
                         });
+                });
+                document.getElementById('cloneCtxForm').addEventListener('submit', e => {
+                    e.preventDefault();
+                    const s = document.getElementById('cloneCtxStatus');
+                    s.style.color = '';
+                    s.textContent = '⏳ Kloner…';
+                    const data = {
+                        remote: document.getElementById('cloneRemote').value,
+                        name: document.getElementById('cloneName').value
+                    };
+                    fetch('/api/contexts/clone', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
+                        .then(r => r.json()).then(d => {
+                            if (d.ok) { s.textContent = '✓ Klonet'; setTimeout(() => location.reload(), 600); }
+                            else { s.textContent = '✗ ' + d.error; s.style.color = '#c53030'; }
+                        }).catch(err => { s.textContent = '✗ ' + err; s.style.color = '#c53030'; });
                 });
             </script>
         `;
@@ -5322,6 +5399,24 @@ function expandAllPeople(expand) {
                 const { name, icon, description, remote } = JSON.parse(body || '{}');
                 if (!name) throw new Error('Mangler navn');
                 const id = createContext(name, { name, icon: icon || '📁', description: description || '', remote: remote || '' });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: true, id }));
+            } catch (e) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: String(e.message || e) }));
+            }
+        });
+        return;
+    }
+
+    // API: clone context from a git remote
+    if (pathname === '/api/contexts/clone' && req.method === 'POST') {
+        let body = '';
+        req.on('data', c => body += c);
+        req.on('end', () => {
+            try {
+                const { remote, name } = JSON.parse(body || '{}');
+                const id = cloneContext(remote, name);
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ ok: true, id }));
             } catch (e) {

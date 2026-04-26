@@ -104,6 +104,13 @@ no server-side change needed unless validation is required.
   (uses `--allow-unrelated-histories` so the local "Init kontekst"
   commit can be merged with whatever's on origin). Same flow runs in
   `createContext` when a remote is supplied at creation time.
+- `cloneContext(remoteUrl, name?)` runs `git clone` straight into
+  `data/<safe>/`. Powers `POST /api/contexts/clone` and the "Klon
+  fra remote" rail entry on `/settings`. Safe id is derived from the
+  optional name or the last path segment of the remote URL. If the
+  cloned repo already has a `settings.json` it's preserved (with
+  `remote` overwritten to the URL used for cloning); otherwise a
+  minimal one is written.
 - The active-context dropdown lives in EVERY page's navbar via the
   global body script — adding a context doesn't refresh open tabs.
 - If no contexts exist, all paths except `/settings` and assets
