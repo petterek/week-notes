@@ -79,6 +79,22 @@ read by `getWorkHours()` if `workHours` is missing.
   (`wh-sH-i`, `wh-sM-i`, `wh-eH-i`, `wh-eM-i`). `.wh-row.on` toggles
   visibility/opacity.
 
+## First-run welcome screen
+
+When `listContexts().length === 0`, the `/settings` route renders a
+dedicated **welcome page** instead of the rail+detail layout. It has:
+
+- Hero with project tagline.
+- 4-card feature grid (notes, tasks/results, people/meetings, isolation).
+- Two side-by-side cards: "Ny tom kontekst" (full create form) and
+  "Klon fra remote" (URL + optional name).
+
+Both cards reuse the same form IDs (`newCtxForm`, `cloneCtxForm`) and
+submit handlers as the regular settings page, so the JS at the bottom
+of the route is shared. The no-context guard at the top of the
+request handler redirects every other path to `/settings` so users
+can't get stuck on a route that needs a `dataDir()`.
+
 ## Adding a new per-context setting (recipe)
 
 1. **Getter** with default + validation near `getWorkHours` /

@@ -3115,16 +3115,111 @@ document.addEventListener('keydown', function(e) {
                     </div>
                 </form>
             </div>`;
-        const emptyBanner = all.length === 0
-            ? `<div class="ctx-empty-hero">
-                    <div class="ctx-empty-icon">👋</div>
-                    <div class="ctx-empty-text">
-                        <h2>Velkommen!</h2>
-                        <p>Du har ingen kontekster ennå. Opprett din første kontekst i panelet til høyre — eller klon en eksisterende fra en git-remote.</p>
+        const emptyBanner = '';
+        const welcomeBody = all.length === 0 ? `
+            <div class="welcome-page">
+                <div class="welcome-hero">
+                    <div class="welcome-emoji">📒</div>
+                    <h1 class="welcome-title">Velkommen til Ukenotater</h1>
+                    <p class="welcome-tagline">Strukturerte ukentlige notater, oppgaver, personer, møter og resultater — i isolerte kontekster.</p>
+                </div>
+
+                <div class="welcome-features">
+                    <div class="welcome-feature">
+                        <div class="welcome-feature-icon">📅</div>
+                        <h3>Ukenotater</h3>
+                        <p>Frittflytende markdown-notater organisert per ISO-uke (YYYY-WNN).</p>
                     </div>
-                </div>`
-            : '';
-        const body = `
+                    <div class="welcome-feature">
+                        <div class="welcome-feature-icon">✅</div>
+                        <h3>Oppgaver &amp; resultater</h3>
+                        <p>Oppgaver med ukekobling, og en resultatlogg som binder alt sammen.</p>
+                    </div>
+                    <div class="welcome-feature">
+                        <div class="welcome-feature-icon">👥</div>
+                        <h3>Personer &amp; møter</h3>
+                        <p>CRM-light og kalender med møtetyper per kontekst.</p>
+                    </div>
+                    <div class="welcome-feature">
+                        <div class="welcome-feature-icon">🔒</div>
+                        <h3>Isolerte kontekster</h3>
+                        <p>Hver kontekst er sitt eget git-repo under <code>data/&lt;navn&gt;/</code> og holdes adskilt.</p>
+                    </div>
+                </div>
+
+                <h2 class="welcome-step-heading">Kom i gang — opprett din første kontekst</h2>
+                <p class="welcome-step-sub">Velg én av to måter:</p>
+
+                <div class="welcome-cards">
+                    <div class="welcome-card">
+                        <div class="welcome-card-head">
+                            <span class="welcome-card-icon">➕</span>
+                            <div><h3>Ny tom kontekst</h3><p>Start fra blanke ark. Du kan koble til en git-remote senere.</p></div>
+                        </div>
+                        <form id="newCtxForm">
+                            <div class="ctx-form-grid">
+                                <label>Navn<input type="text" id="newName" placeholder="f.eks. Privat" required></label>
+                                <label>Ikon${iconPickerHtml('icon', '📁', 'pick-new', 'newIcon')}</label>
+                            </div>
+                            <label>Beskrivelse<textarea id="newDescription" rows="2"></textarea></label>
+                            <label>Git-remote (valgfritt)<input type="text" id="newRemote" placeholder="git@github.com:bruker/repo.git" spellcheck="false"></label>
+                            <div class="welcome-card-actions">
+                                <button type="submit" class="btn-primary">➕ Opprett</button>
+                                <span id="newCtxStatus" class="settings-status"></span>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div class="welcome-card">
+                        <div class="welcome-card-head">
+                            <span class="welcome-card-icon">📥</span>
+                            <div><h3>Klon fra remote</h3><p>Hent en eksisterende kontekst fra et git-repo (f.eks. backup eller annen maskin).</p></div>
+                        </div>
+                        <form id="cloneCtxForm">
+                            <label>Git-remote<input type="text" id="cloneRemote" placeholder="git@github.com:bruker/repo.git" spellcheck="false" required></label>
+                            <label>Navn (valgfritt — utledes fra repo-URLen)<input type="text" id="cloneName" placeholder="overstyr utledet navn" spellcheck="false"></label>
+                            <div class="welcome-card-actions">
+                                <button type="submit" class="btn-primary">📥 Klon</button>
+                                <span id="cloneCtxStatus" class="settings-status"></span>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <style>
+                body:has(.welcome-page) { max-width: 980px; }
+                .welcome-page { padding: 16px 0 32px; }
+                .welcome-hero { text-align: center; padding: 32px 16px 28px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 24px; }
+                .welcome-emoji { font-size: 3.4em; line-height: 1; margin-bottom: 8px; }
+                .welcome-title { margin: 0 0 8px 0; font-size: 1.8em; }
+                .welcome-tagline { margin: 0; color: var(--text-subtle); font-size: 1.05em; max-width: 640px; margin-left: auto; margin-right: auto; }
+
+                .welcome-features { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 32px; }
+                .welcome-feature { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+                .welcome-feature-icon { font-size: 1.6em; margin-bottom: 6px; }
+                .welcome-feature h3 { margin: 0 0 4px 0; font-size: 1em; }
+                .welcome-feature p { margin: 0; color: var(--text-subtle); font-size: 0.9em; line-height: 1.4; }
+
+                .welcome-step-heading { margin: 0 0 4px 0; }
+                .welcome-step-sub { margin: 0 0 16px 0; color: var(--text-subtle); }
+
+                .welcome-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+                @media (max-width: 760px) { .welcome-cards { grid-template-columns: 1fr; } }
+                .welcome-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px 22px; border-left: 4px solid var(--accent); }
+                .welcome-card-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--border-faint); }
+                .welcome-card-icon { font-size: 1.8em; line-height: 1; flex-shrink: 0; }
+                .welcome-card-head h3 { margin: 0 0 2px 0; font-size: 1.1em; }
+                .welcome-card-head p { margin: 0; color: var(--text-subtle); font-size: 0.9em; }
+                .welcome-card form { display: flex; flex-direction: column; gap: 10px; }
+                .welcome-card label { display: flex; flex-direction: column; gap: 4px; font-size: 0.9em; color: var(--text-muted); }
+                .welcome-card input[type="text"], .welcome-card textarea { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); font-family: inherit; font-size: 0.95em; }
+                .welcome-card .ctx-form-grid { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
+                .welcome-card-actions { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+            </style>
+        ` : '';
+
+        const body = welcomeBody || `
             <h1>⚙️ Kontekster</h1>
             <p style="color:#718096;margin-bottom:18px">Hver kontekst har sine egne notater, oppgaver, personer, møter og resultater. Data er fullstendig isolert mellom kontekster.</p>
             ${emptyBanner}
