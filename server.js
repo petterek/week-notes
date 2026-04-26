@@ -3187,7 +3187,12 @@ document.addEventListener('keydown', function(e) {
                 .git-dot.off { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #c8b88f; margin-right: 4px; }
 
                 .mt-list { display: flex; flex-direction: column; gap: 6px; }
-                .mt-row { display: flex; align-items: center; gap: 8px; }
+                .mt-row { display: flex; align-items: center; gap: 8px; padding: 4px; border-radius: 6px; border: 1px solid transparent; transition: background 0.12s, border-color 0.12s; }
+                .mt-row.is-dragging { opacity: 0.4; }
+                .mt-row.drag-over { border-color: var(--accent); background: var(--accent-soft); }
+                .mt-row .mt-handle { cursor: grab; color: var(--text-subtle); font-size: 1.1em; line-height: 1; padding: 4px 2px; user-select: none; flex-shrink: 0; }
+                .mt-row .mt-handle:active { cursor: grabbing; }
+                .mt-row .mt-handle:hover { color: var(--text-muted-warm); }
                 .mt-row .mt-icon { width: 38px; height: 38px; font-size: 1.3em; cursor: pointer; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 0; }
                 .mt-row .mt-icon:hover { background: var(--surface-alt); }
                 .mt-row input[type=text] { flex: 1; padding: 7px 10px; margin: 0; }
@@ -3371,8 +3376,10 @@ document.addEventListener('keydown', function(e) {
                         types.forEach((t, i) => {
                             const row = document.createElement('div');
                             row.className = 'mt-row';
+                            row.dataset.i = i;
                             const mins = (t.mins != null && t.mins !== '') ? t.mins : 60;
-                            row.innerHTML = '<button type="button" class="mt-icon" data-i="' + i + '" title="Velg ikon">' + (t.icon || '·') + '</button>'
+                            row.innerHTML = '<span class="mt-handle" title="Dra for å sortere" draggable="true">⋮⋮</span>'
+                                + '<button type="button" class="mt-icon" data-i="' + i + '" title="Velg ikon">' + (t.icon || '·') + '</button>'
                                 + '<input type="text" class="mt-label" data-i="' + i + '" value="' + (t.label || '').replace(/"/g, '&quot;') + '" placeholder="Navn">'
                                 + '<input type="number" class="mt-mins" data-i="' + i + '" value="' + mins + '" min="5" max="600" step="5" title="Standard lengde i minutter">'
                                 + '<span class="mt-mins-suffix">min</span>'
@@ -3386,6 +3393,45 @@ document.addEventListener('keydown', function(e) {
                             types[parseInt(inp.dataset.i, 10)].mins = (v > 0 && v <= 600) ? v : 60;
                         });
                         list.querySelectorAll('.mt-del').forEach(b => b.onclick = () => { types.splice(parseInt(b.dataset.i, 10), 1); renderList(ctxId); });
+                        // Drag-to-reorder via the handle
+                        list.querySelectorAll('.mt-handle').forEach(h => {
+                            const row = h.closest('.mt-row');
+                            h.addEventListener('dragstart', e => {
+                                row.classList.add('is-dragging');
+                                e.dataTransfer.effectAllowed = 'move';
+                                e.dataTransfer.setData('text/plain', String(row.dataset.i));
+                                try { e.dataTransfer.setDragImage(row, 20, 20); } catch {}
+                            });
+                            h.addEventListener('dragend', () => {
+                                row.classList.remove('is-dragging');
+                                list.querySelectorAll('.mt-row.drag-over').forEach(r => r.classList.remove('drag-over'));
+                            });
+                        });
+                        list.querySelectorAll('.mt-row').forEach(row => {
+                            row.addEventListener('dragover', e => {
+                                e.preventDefault();
+                                e.dataTransfer.dropEffect = 'move';
+                                list.querySelectorAll('.mt-row.drag-over').forEach(r => { if (r !== row) r.classList.remove('drag-over'); });
+                                row.classList.add('drag-over');
+                            });
+                            row.addEventListener('dragleave', e => {
+                                if (!row.contains(e.relatedTarget)) row.classList.remove('drag-over');
+                            });
+                            row.addEventListener('drop', e => {
+                                e.preventDefault();
+                                row.classList.remove('drag-over');
+                                const fromIdx = parseInt(e.dataTransfer.getData('text/plain'), 10);
+                                const toIdx = parseInt(row.dataset.i, 10);
+                                if (Number.isNaN(fromIdx) || Number.isNaN(toIdx) || fromIdx === toIdx) return;
+                                const rect = row.getBoundingClientRect();
+                                const after = (e.clientY - rect.top) > rect.height / 2;
+                                let target = after ? toIdx + 1 : toIdx;
+                                const [moved] = types.splice(fromIdx, 1);
+                                if (fromIdx < target) target -= 1;
+                                types.splice(target, 0, moved);
+                                renderList(ctxId);
+                            });
+                        });
                     }
                     function openPicker(ctxId, idx) {
                         pickerCtx = ctxId; pickerIdx = idx;
