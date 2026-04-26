@@ -3477,18 +3477,21 @@ document.addEventListener('keydown', function(e) {
                     </div>
                     <form id="mtgForm">
                         <input type="hidden" id="mtgId">
-                        <label>Tittel<input type="text" id="mtgTitle" required autofocus></label>
+                        <label class="mtg-fld-full">Tittel<input type="text" id="mtgTitle" required autofocus placeholder="Hva handler møtet om?"></label>
                         <div class="mtg-row">
                             <label style="flex:1">Type<select id="mtgType">
                                 ${meetingTypes.map(t => `<option value="${escapeHtml(t.key)}">${t.icon || ''} ${escapeHtml(t.label)}</option>`).join('')}
                             </select></label>
-                            <label style="flex:1.2">Dato<input type="date" id="mtgDate" required></label>
-                            <label style="flex:0.9">Fra<span class="time-pick"><select id="mtgStartH" class="t-h"></select><span class="t-sep">:</span><select id="mtgStartM" class="t-m"></select></span></label>
-                            <label style="flex:0.9">Til<span class="time-pick"><select id="mtgEndH" class="t-h"></select><span class="t-sep">:</span><select id="mtgEndM" class="t-m"></select></span></label>
+                            <label style="flex:1">Dato<input type="date" id="mtgDate" required></label>
                         </div>
-                        <label>Deltakere (kommaseparert eller @navn)<input type="text" id="mtgAttendees" placeholder="@kari, @ola"></label>
+                        <div class="mtg-row mtg-row-times">
+                            <label>Fra<span class="time-pick"><select id="mtgStartH" class="t-h"></select><span class="t-sep">:</span><select id="mtgStartM" class="t-m"></select></span></label>
+                            <span class="mtg-time-arrow">→</span>
+                            <label>Til<span class="time-pick"><select id="mtgEndH" class="t-h"></select><span class="t-sep">:</span><select id="mtgEndM" class="t-m"></select></span></label>
+                        </div>
+                        <label>Deltakere <span class="mtg-hint">(kommaseparert eller @navn)</span><input type="text" id="mtgAttendees" placeholder="@kari, @ola"></label>
                         <label>Sted<input type="text" id="mtgLocation" placeholder="Møterom, Teams, …"></label>
-                        <label>Notater<textarea id="mtgNotes" rows="4" placeholder="Agenda, lenker, …"></textarea></label>
+                        <label>Notater<textarea id="mtgNotes" rows="6" placeholder="Agenda, lenker, …"></textarea></label>
                         <div class="mtg-modal-actions">
                             <button type="button" id="mtgDelete" class="mtg-btn-del" style="display:none">🗑️ Slett</button>
                             <span style="flex:1"></span>
@@ -3588,23 +3591,33 @@ document.addEventListener('keydown', function(e) {
                 .mtg-att, .mtg-l { color:#4a5568; font-size:0.92em; }
                 .mtg-note { position:absolute; top:2px; right:3px; font-size:0.95em; text-decoration:none; padding:0 3px; opacity:0.55; line-height:1; border-radius:3px; }
                 .mtg-note:hover { opacity:1; background:#fffdf7; }
-                .mtg-modal { display:none; position:fixed; inset:0; background:rgba(26,32,44,0.45); z-index:1000; align-items:center; justify-content:center; }
+                .mtg-modal { display:none; position:fixed; inset:0; background:rgba(26,32,44,0.45); z-index:1000; align-items:flex-start; justify-content:center; padding:5vh 0; backdrop-filter:blur(2px); }
                 .mtg-modal.open { display:flex; }
-                .mtg-modal-card { background:#fffdf7; border:1px solid #d6cdb6; border-radius:8px; padding:20px 24px; width:520px; max-width:92vw; max-height:90vh; overflow:auto; }
-                .mtg-modal-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
-                .mtg-x { background:none; border:none; font-size:1.3em; cursor:pointer; color:#718096; }
-                #mtgForm label { display:block; margin-bottom:10px; font-size:0.85em; color:#4a5568; font-weight:600; }
-                #mtgForm input[type=text], #mtgForm input[type=date], #mtgForm input[type=time], #mtgForm textarea { width:100%; box-sizing:border-box; padding:7px 10px; border:1px solid #d6cdb6; border-radius:4px; font-family:inherit; font-size:0.95em; margin-top:4px; background:#fbf9f4; color:#1a202c; }
-                #mtgForm textarea { font-family: ui-monospace, monospace; font-size:0.88em; }
-                .mtg-row { display:flex; gap:10px; }
-                .time-pick { display:inline-flex; align-items:center; gap:2px; }
-                .time-pick select { padding:7px 6px; border:1px solid #d6cdb6; border-radius:4px; font-family:inherit; background:#fffdf7; }
-                .time-pick .t-sep { color:#7a6f4d; font-weight:600; }
-                .mtg-modal-actions { display:flex; align-items:center; gap:8px; margin-top:14px; }
-                .mtg-btn-save { background:#1a365d; color:#fffdf7; border:none; padding:8px 18px; border-radius:4px; cursor:pointer; font-weight:600; font-family:inherit; }
-                .mtg-btn-save:hover { background:#102542; }
-                .mtg-btn-cancel { background:none; border:1px solid #d6cdb6; padding:7px 14px; border-radius:4px; cursor:pointer; font-family:inherit; color:#7a6f4d; }
-                .mtg-btn-del { background:#fef0c7; border:1px solid #f0d589; color:#8a5a00; padding:7px 12px; border-radius:4px; cursor:pointer; font-family:inherit; font-size:0.9em; }
+                .mtg-modal-card { background:#fffdf7; border:1px solid #d6cdb6; border-radius:10px; padding:22px 26px 20px; width:560px; max-width:92vw; max-height:90vh; overflow:auto; box-shadow:0 12px 36px rgba(26,32,44,0.25); }
+                .mtg-modal-head { display:flex; justify-content:space-between; align-items:center; margin:-22px -26px 16px; padding:14px 22px 12px; border-bottom:1px solid #ebe2cb; background:#f8f3e2; border-radius:10px 10px 0 0; }
+                .mtg-modal-head h3 { font-size:1.05em; color:#3c3a30; font-weight:600; letter-spacing:0.01em; }
+                .mtg-x { background:none; border:none; font-size:1.25em; cursor:pointer; color:#a99a78; padding:2px 8px; border-radius:4px; line-height:1; }
+                .mtg-x:hover { background:#ebe2cb; color:#3c3a30; }
+                #mtgForm label { display:block; margin-bottom:12px; font-size:0.78em; color:#7a6f4d; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; }
+                .mtg-hint { color:#a99a78; font-weight:400; text-transform:none; letter-spacing:0; font-size:0.95em; }
+                #mtgForm input[type=text], #mtgForm input[type=date], #mtgForm input[type=time], #mtgForm select, #mtgForm textarea { width:100%; box-sizing:border-box; padding:8px 10px; border:1px solid #d6cdb6; border-radius:5px; font-family:inherit; font-size:0.95em; margin-top:5px; background:#fbf9f4; color:#1a202c; text-transform:none; letter-spacing:normal; transition:border-color 0.12s, box-shadow 0.12s; }
+                #mtgForm input[type=text]:focus, #mtgForm input[type=date]:focus, #mtgForm select:focus, #mtgForm textarea:focus { outline:none; border-color:#b8956b; box-shadow:0 0 0 3px rgba(184,149,107,0.18); background:#fffdf7; }
+                #mtgForm select { appearance:none; -webkit-appearance:none; background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='%237a6f4d'><path d='M0 0l6 8 6-8z'/></svg>"); background-repeat:no-repeat; background-position:right 10px center; background-size:9px; padding-right:28px; }
+                #mtgForm textarea { font-family: ui-monospace, monospace; font-size:0.88em; resize:vertical; min-height:96px; }
+                .mtg-row { display:flex; gap:12px; }
+                .mtg-row > label { flex:1; }
+                .mtg-row-times { align-items:flex-end; gap:10px; margin-bottom:12px; }
+                .mtg-row-times > label { flex:0 0 auto; margin-bottom:0; }
+                .mtg-time-arrow { color:#a99a78; padding-bottom:9px; font-size:1.1em; }
+                .time-pick { display:inline-flex; align-items:center; gap:2px; margin-top:5px; }
+                .time-pick select { width:auto; margin-top:0; padding:8px 22px 8px 10px; background-color:#fffdf7; }
+                .time-pick .t-sep { color:#7a6f4d; font-weight:600; padding:0 1px; }
+                .mtg-modal-actions { display:flex; align-items:center; gap:8px; margin:18px -26px -20px; padding:14px 22px; border-top:1px solid #ebe2cb; background:#fbf9f4; border-radius:0 0 10px 10px; }
+                .mtg-btn-save { background:#b8956b; color:#fffdf7; border:1px solid #a07e54; padding:8px 18px; border-radius:5px; cursor:pointer; font-weight:600; font-family:inherit; box-shadow:0 1px 2px rgba(60,58,48,0.15); }
+                .mtg-btn-save:hover { background:#a07e54; }
+                .mtg-btn-cancel { background:#fffdf7; border:1px solid #d6cdb6; padding:7px 14px; border-radius:5px; cursor:pointer; font-family:inherit; color:#7a6f4d; }
+                .mtg-btn-cancel:hover { background:#f4ecd6; color:#3c3a30; }
+                .mtg-btn-del { background:#fef0c7; border:1px solid #f0d589; color:#8a5a00; padding:7px 12px; border-radius:5px; cursor:pointer; font-family:inherit; font-size:0.9em; }
                 .mtg-btn-del:hover { background:#f7e2a3; }
                 .types-row { display:flex; align-items:center; gap:8px; margin-bottom:6px; padding:6px; border:1px solid #ebe2cb; border-radius:4px; background:#fbf9f4; }
                 .types-row .ti-icon { width:38px; height:38px; font-size:1.4em; cursor:pointer; background:#fffdf7; border:1px solid #d6cdb6; border-radius:4px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
