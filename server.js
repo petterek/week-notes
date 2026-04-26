@@ -185,7 +185,16 @@ const DISCONNECTED_FILE = path.join(CONTEXTS_DIR, '.disconnected.json');
 function loadDisconnected() {
     try {
         const arr = JSON.parse(fs.readFileSync(DISCONNECTED_FILE, 'utf-8'));
-        return Array.isArray(arr) ? arr : [];
+        if (!Array.isArray(arr)) return [];
+        // Dedupe by remote URL (case-insensitive), keeping the most recent entry.
+        // Older entries earlier in the array are dropped if a later one shares the URL.
+        const seen = new Map();
+        for (const d of arr) {
+            if (!d || typeof d !== 'object') continue;
+            const key = String(d.remote || '').toLowerCase().trim() || ('id:' + (d.id || ''));
+            seen.set(key, d);
+        }
+        return Array.from(seen.values());
     } catch { return []; }
 }
 function saveDisconnected(arr) {
@@ -215,8 +224,11 @@ function disconnectContext(name) {
     } catch (e) {
         throw new Error('git push feilet: ' + ((e.stdout || '') + (e.stderr || '') || e.message));
     }
-    // Remember the URL before destroying the dir
-    const list = loadDisconnected().filter(d => d.id !== safe);
+    // Remember the URL before destroying the dir.
+    // Dedupe by id AND remote so the same repo cloned under different names
+    // doesn't accumulate stale entries.
+    const normRemote = remote.toLowerCase();
+    const list = loadDisconnected().filter(d => d.id !== safe && String(d.remote || '').toLowerCase() !== normRemote);
     list.push({
         id: safe,
         name: cfg.name || safe,
