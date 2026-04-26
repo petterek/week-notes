@@ -1,0 +1,18 @@
+/* Dark — slate background, soft blue accent */
+:root {
+    --bg: #1a1f2c;
+    --surface: #242a38;
+    --surface-alt: #2d3548;
+    --surface-head: #2a3145;
+    --border: #3a4358;
+    --border-soft: #2d3548;
+    --border-faint: #2a3145;
+    --text: #e2e8f0;
+    --text-strong: #f7fafc;
+    --text-muted: #cbd5e0;
+    --text-muted-warm: #b6bdcf;
+    --text-subtle: #889bb1;
+    --accent: #7faaff;
+    --accent-strong: #a8c5ff;
+    --accent-soft: #2d3a52;
+}

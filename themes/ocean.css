@@ -1,0 +1,18 @@
+/* Ocean — blue/teal coastal palette */
+:root {
+    --bg: #e8f0f5;
+    --surface: #f4f9fc;
+    --surface-alt: #c8dde8;
+    --surface-head: #d8e5ec;
+    --border: #88a8bf;
+    --border-soft: #b0c5d4;
+    --border-faint: #c0d0dd;
+    --text: #1a3a4a;
+    --text-strong: #0a1f2c;
+    --text-muted: #3a5868;
+    --text-muted-warm: #4a6878;
+    --text-subtle: #6a8090;
+    --accent: #0a6b8a;
+    --accent-strong: #054c63;
+    --accent-soft: #c8dde8;
+}

@@ -1,0 +1,18 @@
+/* Paper — warm cream paper, navy accents (default) */
+:root {
+    --bg: #fbf9f4;
+    --surface: #fffdf7;
+    --surface-alt: #f0e8d4;
+    --surface-head: #f8f3e2;
+    --border: #d6cdb6;
+    --border-soft: #e8e2d2;
+    --border-faint: #ebe2cb;
+    --text: #3c3a30;
+    --text-strong: #1a202c;
+    --text-muted: #4a5568;
+    --text-muted-warm: #7a6f4d;
+    --text-subtle: #a99a78;
+    --accent: #1a365d;
+    --accent-strong: #102542;
+    --accent-soft: #f0e8d4;
+}

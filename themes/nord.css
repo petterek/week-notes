@@ -1,0 +1,18 @@
+/* Nord — cool blue/grey arctic palette */
+:root {
+    --bg: #2e3440;
+    --surface: #3b4252;
+    --surface-alt: #434c5e;
+    --surface-head: #3b4252;
+    --border: #4c566a;
+    --border-soft: #434c5e;
+    --border-faint: #3b4252;
+    --text: #e5e9f0;
+    --text-strong: #eceff4;
+    --text-muted: #d8dee9;
+    --text-muted-warm: #c0c6d0;
+    --text-subtle: #889bb1;
+    --accent: #88c0d0;
+    --accent-strong: #a3d3e1;
+    --accent-soft: #434c5e;
+}

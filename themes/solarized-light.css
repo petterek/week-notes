@@ -1,0 +1,18 @@
+/* Solarized Light */
+:root {
+    --bg: #fdf6e3;
+    --surface: #fff9eb;
+    --surface-alt: #eee8d5;
+    --surface-head: #f4ecd0;
+    --border: #c8c0aa;
+    --border-soft: #d6d0bd;
+    --border-faint: #e0dac4;
+    --text: #586e75;
+    --text-strong: #073642;
+    --text-muted: #657b83;
+    --text-muted-warm: #93a1a1;
+    --text-subtle: #a8b6b6;
+    --accent: #268bd2;
+    --accent-strong: #1865a8;
+    --accent-soft: #e0e8df;
+}

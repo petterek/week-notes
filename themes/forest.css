@@ -1,0 +1,18 @@
+/* Forest — green earth tones */
+:root {
+    --bg: #f0eee0;
+    --surface: #f7f5e8;
+    --surface-alt: #d9e2c4;
+    --surface-head: #e8ecd2;
+    --border: #a4b888;
+    --border-soft: #c4d0a8;
+    --border-faint: #ccd6b3;
+    --text: #2c3a1f;
+    --text-strong: #1a2410;
+    --text-muted: #4a5d35;
+    --text-muted-warm: #5a6f44;
+    --text-subtle: #7a8862;
+    --accent: #2d5a2c;
+    --accent-strong: #1f3f1f;
+    --accent-soft: #d9e2c4;
+}

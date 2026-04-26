@@ -1,0 +1,18 @@
+/* Sepia — warm brown tones */
+:root {
+    --bg: #f4ecd8;
+    --surface: #f9f1de;
+    --surface-alt: #e8dcb8;
+    --surface-head: #ede0bb;
+    --border: #c8b489;
+    --border-soft: #d8c89e;
+    --border-faint: #d2bf91;
+    --text: #4a3a1f;
+    --text-strong: #2d2210;
+    --text-muted: #5d4a2c;
+    --text-muted-warm: #6e5a3a;
+    --text-subtle: #8b7548;
+    --accent: #8b4513;
+    --accent-strong: #6b3408;
+    --accent-soft: #e8dcb8;
+}
