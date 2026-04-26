@@ -41,7 +41,10 @@ working-hour overlays, and per-meeting notes.
   - `.work-band` — `z-index:0`, `pointer-events:none`.
   - `.cal-activity` — `z-index:1`, the timestamped tasks/notes/results.
   - `.mtg` — `z-index:2`, on top of activity.
-  - Both `.mtg:hover` and `.cal-activity:hover` jump to `z-index:5`.
+  - `.now-line` — `z-index:3`, drawn above meetings (today's column
+    only), `pointer-events:none`.
+  - `.mtg.dragging` — `z-index:10` while being dragged.
+  - `.mtg:hover` and `.cal-activity:hover` jump to `z-index:5`.
 - Meeting blocks: `.mtg` with `id="m-<meetingId>"` for deep-link
   scroll-into-view from the home sidebar.
 - Activity markers: `.cal-activity.act-{task|note|result}` —
@@ -98,10 +101,50 @@ const DEFAULT_MTG_MIN = ${getDefaultMeetingMinutes()};
   save can land on the next local day.
 - Items are rendered as `.cal-activity.act-task / .act-note /
   .act-result` pills (`<a>` elements) at the time-position in the
-  matching day column. Always visible — no toggle.
+  matching day column. Visibility is controlled by the toolbar chips
+  (see below).
+- Overlap handling: items in a chain of vertically overlapping pills
+  are assigned lanes so they tile horizontally inside the column.
 - Click navigates to the source: tasks → `/tasks#t-<id>` (anchor not
   yet honored by /tasks; jumps to top), notes → `/editor/<week>/<file>`,
   results → `/results`.
+
+## Now line
+
+- A red horizontal line (`.now-line` with a small dot on the left) is
+  rendered only inside today's column body. Server emits initial
+  position from the user's local clock; client `updateNowLine()` runs
+  on load and every 60s via `setInterval` to keep it current.
+- `z-index:3` puts it above meetings and activity. `pointer-events:none`
+  so it never blocks clicks.
+
+## Activity filter chips
+
+- Three small chips in the toolbar (`.cal-chip` for task/note/result)
+  toggle visibility of the matching `.cal-activity` items. State is
+  stored in `localStorage["calActivityFilter"]` as
+  `{task?:bool, note?:bool, result?:bool}` (missing key = on).
+- Implementation: toggling adds/removes `hide-task` / `hide-note` /
+  `hide-result` classes on `.cal-grid`; CSS rules
+  `.cal-grid.hide-X .cal-activity.act-X { display:none }` hide them.
+
+## Drag to move / resize meetings
+
+- Each `.mtg` carries `data-date`, `data-start`, `data-end` so the
+  drag handler knows the original position without re-fetching.
+- Mousedown on the body starts a **move** drag; mousedown on
+  `.mtg-resize` (a 6px strip at the bottom edge, `cursor:ns-resize`)
+  starts a **resize** drag.
+- Snap: 5-minute increments (`HOUR_PX/12 = 3px`).
+- Cross-day move: while moving, the cursor's X is hit-tested against
+  every `.cal-col-body`'s rect; on a hit the meeting is re-parented
+  into that column body.
+- Click-vs-drag threshold: 4px movement either axis. A pure click
+  still opens the modal (preserves prior UX).
+- On mouseup, sends `PUT /api/meetings/:id` with `{date, start, end}`.
+  DOM is already updated optimistically; on PUT failure it reloads.
+- The `.mtg-note` link short-circuits before drag starts so opening
+  the meeting note still works normally.
 
 ## Gotchas
 

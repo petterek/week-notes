@@ -3423,17 +3423,24 @@ document.addEventListener('keydown', function(e) {
                 const att = (m.attendees || []).slice(0, 3).map(a => '@' + a).join(' ');
                 const more = (m.attendees || []).length > 3 ? ' +' + ((m.attendees.length - 3)) : '';
                 const typeIcon = meetingTypeIcon(m.type);
-                return `<div class="mtg" id="m-${escapeHtml(m.id)}" data-mid="${escapeHtml(m.id)}" style="top:${Math.max(0, top)}px;height:${height}px">
+                return `<div class="mtg" id="m-${escapeHtml(m.id)}" data-mid="${escapeHtml(m.id)}" data-date="${escapeHtml(m.date)}" data-start="${escapeHtml(m.start || '')}" data-end="${escapeHtml(m.end || '')}" style="top:${Math.max(0, top)}px;height:${height}px">
                     <a class="mtg-note" href="/meeting-note/${encodeURIComponent(m.id)}" title="Åpne møtenotat" onclick="event.stopPropagation()">📝</a>
                     <div class="mtg-time">${escapeHtml(m.start || '')}${m.end ? '–' + escapeHtml(m.end) : ''}</div>
                     <div class="mtg-t">${typeIcon ? `<span class="mtg-type-icon" title="${escapeHtml(meetingTypeLabel(m.type))}">${typeIcon}</span> ` : ''}${escapeHtml(m.title)}</div>
                     ${att ? `<div class="mtg-att">${escapeHtml(att + more)}</div>` : ''}
                     ${m.location ? `<div class="mtg-l">📍 ${escapeHtml(m.location)}</div>` : ''}
+                    <div class="mtg-resize" title="Dra for å endre varighet"></div>
                 </div>`;
             }).join('');
+            let nowLineHtml = '';
+            if (d.isToday) {
+                const now = new Date();
+                const nowTop = ((now.getHours() - HOUR_START) + now.getMinutes() / 60) * HOUR_PX;
+                nowLineHtml = `<div class="now-line" id="nowLine" style="top:${nowTop}px"></div>`;
+            }
             return `<div class="cal-col${d.isToday ? ' today' : ''}" data-date="${d.iso}">
                 <div class="cal-col-head"><strong>${d.label}</strong><span>${d.dayNum}.${d.month}</span></div>
-                <div class="cal-col-body" style="height:${(HOUR_END - HOUR_START + 1) * HOUR_PX}px">${workBand}${activityHtml}${blocks}</div>
+                <div class="cal-col-body" style="height:${(HOUR_END - HOUR_START + 1) * HOUR_PX}px">${workBand}${activityHtml}${blocks}${nowLineHtml}</div>
             </div>`;
         }).join('');
         const hoursCol = `<div class="cal-hours"><div class="cal-col-head"></div><div class="cal-col-body" style="height:${(HOUR_END - HOUR_START + 1) * HOUR_PX}px">${hourLabels.map(h => `<div class="hour-line" style="top:${(h - HOUR_START) * HOUR_PX}px">${String(h).padStart(2,'0')}:00</div>`).join('')}</div></div>`;
@@ -3444,7 +3451,12 @@ document.addEventListener('keydown', function(e) {
             <div class="cal-toolbar">
                 <h1 style="margin:0">📅 Kalender · Uke ${week.split('-W')[1]}</h1>
                 <span style="color:#a99a78">${escapeHtml(dateRange)}</span>
-                <div style="margin-left:auto;display:flex;gap:6px">
+                <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
+                    <div class="cal-filters" title="Vis/skjul aktivitet">
+                        <button type="button" class="cal-chip" data-kind="task" title="Oppgaver">✅</button>
+                        <button type="button" class="cal-chip" data-kind="note" title="Notater">📝</button>
+                        <button type="button" class="cal-chip" data-kind="result" title="Resultater">🏁</button>
+                    </div>
                     <button type="button" class="cal-nav-btn cal-add-btn" onclick="newMeeting()" title="Nytt møte">+ Nytt møte</button>
                     <button type="button" class="cal-nav-btn" onclick="openTypesModal()" title="Rediger møtetyper">✏️ Typer</button>
                     <a href="/calendar/${prevWeek}" class="cal-nav-btn">‹ Forrige</a>
@@ -3556,6 +3568,20 @@ document.addEventListener('keydown', function(e) {
                 .cal-activity.act-note:hover { background:#d4e0fb; }
                 .cal-activity.act-result { background:#fdebd0; border-color:#f1c98a; border-left-color:#d69e2e; }
                 .cal-activity.act-result:hover { background:#fadcae; }
+                .cal-grid.hide-task .cal-activity.act-task { display:none; }
+                .cal-grid.hide-note .cal-activity.act-note { display:none; }
+                .cal-grid.hide-result .cal-activity.act-result { display:none; }
+                .cal-filters { display:inline-flex; gap:2px; padding:2px; background:#f4ecd6; border:1px solid #d6cdb6; border-radius:5px; margin-right:4px; }
+                .cal-chip { background:transparent; border:none; padding:3px 7px; font-size:0.95em; cursor:pointer; border-radius:3px; line-height:1; opacity:0.35; filter:grayscale(0.6); transition:all 0.12s; }
+                .cal-chip.on { opacity:1; filter:none; background:#fffdf7; box-shadow:0 1px 2px rgba(60,58,48,0.12); }
+                .cal-chip:hover { opacity:0.85; }
+                .cal-chip.on:hover { opacity:1; }
+                .now-line { position:absolute; left:0; right:0; height:0; border-top:2px solid #e53e3e; z-index:3; pointer-events:none; }
+                .now-line::before { content:''; position:absolute; left:-4px; top:-5px; width:8px; height:8px; background:#e53e3e; border-radius:50%; box-shadow:0 0 0 2px #fffdf7; }
+                .mtg { cursor:move; user-select:none; }
+                .mtg.dragging { opacity:0.85; box-shadow:0 4px 12px rgba(26,54,93,0.25); z-index:10; }
+                .mtg-resize { position:absolute; left:0; right:0; bottom:0; height:6px; cursor:ns-resize; background:transparent; }
+                .mtg-resize:hover { background:rgba(43,108,176,0.25); }
                 .mtg-time { font-weight:600; font-size:0.85em; }
                 .mtg-t { font-weight:500; line-height:1.2; }
                 .mtg-type-icon { font-size:0.95em; }
@@ -3729,15 +3755,127 @@ document.addEventListener('keydown', function(e) {
                         if (e.key === 'Escape') hideTypeMenu();
                     });
                     document.querySelectorAll('.mtg').forEach(el => {
-                        el.addEventListener('click', e => {
+                        el.addEventListener('mousedown', e => {
+                            if (e.button !== 0) return;
+                            if (e.target.closest('.mtg-note')) return;
                             e.stopPropagation();
+                            e.preventDefault();
                             const id = el.getAttribute('data-mid');
-                            fetch('/api/meetings').then(r => r.json()).then(all => {
-                                const m = all.find(x => x.id === id);
-                                if (m) openModal(m);
-                            });
+                            const startDate = el.getAttribute('data-date');
+                            const startStart = el.getAttribute('data-start') || '';
+                            const startEnd = el.getAttribute('data-end') || '';
+                            const isResize = !!e.target.closest('.mtg-resize');
+                            const startY = e.clientY, startX = e.clientX;
+                            const origTop = parseFloat(el.style.top) || 0;
+                            const origHeight = parseFloat(el.style.height) || HOUR_PX;
+                            const origParent = el.parentElement;
+                            const cols = Array.from(document.querySelectorAll('.cal-col[data-date] .cal-col-body'));
+                            const SNAP_PX = HOUR_PX / 12; // 5-min snap
+                            let moved = false;
+                            let curTop = origTop, curHeight = origHeight, curBody = origParent;
+                            el.classList.add('dragging');
+                            function pxToHHMM(px) {
+                                const totalMin = Math.round(px / HOUR_PX * 60 / 5) * 5;
+                                const minClamped = Math.max(0, Math.min(24 * 60 - 5, totalMin + HOUR_START * 60));
+                                const h = Math.floor(minClamped / 60), m = minClamped % 60;
+                                return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
+                            }
+                            function onMove(ev) {
+                                const dy = ev.clientY - startY;
+                                const dx = ev.clientX - startX;
+                                if (!moved && Math.abs(dy) < 4 && Math.abs(dx) < 4) return;
+                                moved = true;
+                                if (isResize) {
+                                    const snapped = Math.round(dy / SNAP_PX) * SNAP_PX;
+                                    curHeight = Math.max(SNAP_PX * 3, origHeight + snapped); // min 15min
+                                    el.style.height = curHeight + 'px';
+                                } else {
+                                    const snapped = Math.round(dy / SNAP_PX) * SNAP_PX;
+                                    curTop = Math.max(0, Math.min((HOUR_END - HOUR_START + 1) * HOUR_PX - curHeight, origTop + snapped));
+                                    el.style.top = curTop + 'px';
+                                    // hit-test horizontal columns for cross-day move
+                                    const target = cols.find(b => {
+                                        const r = b.getBoundingClientRect();
+                                        return ev.clientX >= r.left && ev.clientX <= r.right;
+                                    });
+                                    if (target && target !== curBody) {
+                                        target.appendChild(el);
+                                        curBody = target;
+                                    }
+                                }
+                            }
+                            function onUp() {
+                                document.removeEventListener('mousemove', onMove);
+                                document.removeEventListener('mouseup', onUp);
+                                el.classList.remove('dragging');
+                                if (!moved) {
+                                    // treat as click → open modal
+                                    fetch('/api/meetings').then(r => r.json()).then(all => {
+                                        const m = all.find(x => x.id === id);
+                                        if (m) openModal(m);
+                                    });
+                                    return;
+                                }
+                                let newDate = startDate, newStart = startStart, newEnd = startEnd;
+                                const newCol = curBody.closest('.cal-col[data-date]');
+                                if (newCol) newDate = newCol.getAttribute('data-date');
+                                if (isResize) {
+                                    newEnd = pxToHHMM(curTop + curHeight);
+                                } else {
+                                    newStart = pxToHHMM(curTop);
+                                    newEnd = pxToHHMM(curTop + curHeight);
+                                }
+                                el.setAttribute('data-date', newDate);
+                                el.setAttribute('data-start', newStart);
+                                el.setAttribute('data-end', newEnd);
+                                const timeEl = el.querySelector('.mtg-time');
+                                if (timeEl) timeEl.textContent = newStart + (newEnd ? '–' + newEnd : '');
+                                fetch('/api/meetings/' + encodeURIComponent(id), {
+                                    method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ date: newDate, start: newStart, end: newEnd })
+                                }).then(r => r.json()).then(d => {
+                                    if (!d.ok) { alert('Kunne ikke flytte møte: ' + (d.error || '')); location.reload(); }
+                                }).catch(() => location.reload());
+                            }
+                            document.addEventListener('mousemove', onMove);
+                            document.addEventListener('mouseup', onUp);
                         });
                     });
+                    // Now-line auto-update
+                    function updateNowLine() {
+                        const nl = document.getElementById('nowLine');
+                        if (!nl) return;
+                        const now = new Date();
+                        const top = ((now.getHours() - HOUR_START) + now.getMinutes() / 60) * HOUR_PX;
+                        nl.style.top = top + 'px';
+                    }
+                    updateNowLine();
+                    setInterval(updateNowLine, 60000);
+                    // Activity filter chips
+                    (function(){
+                        const grid = document.querySelector('.cal-grid');
+                        const KEY = 'calActivityFilter';
+                        let st;
+                        try { st = JSON.parse(localStorage.getItem(KEY)) || {}; } catch(_) { st = {}; }
+                        const apply = () => {
+                            ['task','note','result'].forEach(k => {
+                                const on = st[k] !== false;
+                                grid.classList.toggle('hide-' + k, !on);
+                                const chip = document.querySelector('.cal-chip[data-kind="' + k + '"]');
+                                if (chip) chip.classList.toggle('on', on);
+                            });
+                        };
+                        apply();
+                        document.querySelectorAll('.cal-chip').forEach(chip => {
+                            chip.addEventListener('click', () => {
+                                const k = chip.getAttribute('data-kind');
+                                st[k] = !(st[k] !== false); // toggle (default true)
+                                localStorage.setItem(KEY, JSON.stringify(st));
+                                apply();
+                            });
+                        });
+                    })();
                     $('mtgForm').addEventListener('submit', e => {
                         e.preventDefault();
                         const id = $('mtgId').value;
