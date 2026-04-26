@@ -11,6 +11,7 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 ## 📜 Changelog
 
 ### 2026-04-26
+- Navbar extracted to a single `navbarHtml()` component shared by `pageHtml` and the editor page. Editor now shows the full link set (Kalender, Søk, Hjelp) and wires them up — markdown-help modal renamed to `mdHelpModal` to free the global id; Søk navigates to `/?gs=1` which auto-opens the search modal on home.
 - People page expanded into tabbed directory: **Personer / Selskaper / Steder**. People + companies share the `@kortnavn` namespace and are both `@`-mentionable; places are picked from a dropdown.
 - Companies (`🏢`): full CRUD with name, org.nr, web, address, notes. `@key` mentions render as company pills with their own tooltip. Company cards list members (people with this as primary or secondary relation) plus referenced meetings, results, tasks and notes.
 - People gained two separate company relation fields: `primaryCompanyKey` (single, optional — "Hovedselskap") and `extraCompanyKeys[]` (additional). Edit modal has a dropdown for primary plus a checkbox list for extras (auto-deduped vs primary).

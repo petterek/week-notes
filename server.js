@@ -1243,14 +1243,8 @@ function getActiveTheme() {
     return isValidThemeId(t) ? t : 'paper';
 }
 
-function pageHtml(title, body, extraNavLinks) {
-    const extra = extraNavLinks || '';
-    const nav = `<nav class="navbar">
-        <div class="nav-inner">
-            <a href="/" class="nav-brand">Ukenotater</a>
-            ${contextSwitcherHtml()}
-            <div class="nav-links">
-                <a href="/" data-key="h" title="Hjem (Alt+H)">🏠 Hjem <kbd>Alt+H</kbd></a>
+function navLinksHtml(extra) {
+    return `<a href="/" data-key="h" title="Hjem (Alt+H)">🏠 Hjem <kbd>Alt+H</kbd></a>
                 <a href="/tasks" data-key="o" title="Oppgaver (Alt+O)">☑️ Oppgaver <kbd>Alt+O</kbd></a>
                 <a href="/calendar" data-key="k" title="Kalender (Alt+K)">📅 Kalender <kbd>Alt+K</kbd></a>
                 <a href="/people" data-key="p" title="Personer og steder (Alt+P)">👥 Personer og steder <kbd>Alt+P</kbd></a>
@@ -1259,11 +1253,24 @@ function pageHtml(title, body, extraNavLinks) {
                 <a href="#" id="navSearchBtn" data-key="/" title="Søk (Ctrl+K eller /)">🔎 Søk <kbd>Ctrl+K</kbd></a>
                 <a href="/settings" data-key="s" title="Innstillinger (Alt+S)">⚙️ Innstillinger <kbd>Alt+S</kbd></a>
                 <a href="#" id="helpBtn" title="Hjelp">❓ Hjelp</a>
-                ${extra}
+                ${extra || ''}`;
+}
+
+function navbarHtml(extraNavLinks) {
+    return `<nav class="navbar">
+        <div class="nav-inner">
+            <a href="/" class="nav-brand">Ukenotater</a>
+            ${contextSwitcherHtml()}
+            <div class="nav-links">
+                ${navLinksHtml(extraNavLinks)}
             </div>
             <span id="navClock" class="nav-clock"></span>
         </div>
     </nav>`;
+}
+
+function pageHtml(title, body, extraNavLinks) {
+    const nav = navbarHtml(extraNavLinks);
     const theme = getActiveTheme();
     return `<!DOCTYPE html>
 <html lang="no">
@@ -1556,6 +1563,17 @@ function pageHtml(title, body, extraNavLinks) {
             if(!typing){ e.preventDefault(); openSearch(); }
         }
     });
+
+    // Auto-open if navigated here with ?gs=1 (e.g. from editor's Søk button)
+    try {
+        var sp = new URLSearchParams(window.location.search);
+        if(sp.get('gs') === '1'){
+            openSearch();
+            sp.delete('gs');
+            var qs = sp.toString();
+            history.replaceState(null, '', window.location.pathname + (qs ? '?'+qs : '') + window.location.hash);
+        }
+    } catch(_){}
 })();</script></body>
 </html>`;
 }
@@ -1899,7 +1917,8 @@ function editorPageHtml(week, file, content) {
         input, textarea, select, button { font-family: inherit; font-size: inherit; }
 
         /* Navbar */
-        .navbar { display: flex; align-items: center; gap: 14px; padding: 0 24px; height: 46px; background: var(--bg); border-bottom: 1px solid var(--border-soft); flex-shrink: 0; }
+        .navbar { background: var(--bg); border-bottom: 1px solid var(--border-soft); flex-shrink: 0; }
+        .navbar .nav-inner { display: flex; align-items: center; gap: 14px; padding: 0 24px; height: 46px; }
         .navbar .nav-brand { color: var(--accent); font-family: Georgia, "Times New Roman", serif; font-weight: 700; font-size: 1.1em; text-decoration: none; letter-spacing: -0.01em; }
         .navbar .nav-brand:hover { color: var(--accent-strong); }
         .navbar .nav-links { display: flex; gap: 4px; }
@@ -2016,19 +2035,7 @@ function editorPageHtml(week, file, content) {
     </style>
 </head>
 <body>
-    <nav class="navbar">
-        <a href="/" class="nav-brand">Ukenotater</a>
-        ${contextSwitcherHtml()}
-        <div class="nav-links">
-            <a href="/" data-key="h" title="Hjem (Alt+H)">🏠 Hjem <kbd>Alt+H</kbd></a>
-            <a href="/tasks" data-key="o" title="Oppgaver (Alt+O)">☑️ Oppgaver <kbd>Alt+O</kbd></a>
-            <a href="/people" data-key="p" title="Personer og steder (Alt+P)">👥 Personer og steder <kbd>Alt+P</kbd></a>
-            <a href="/results" data-key="r" title="Resultater (Alt+R)">⚖️ Resultater <kbd>Alt+R</kbd></a>
-            <a href="/editor" data-key="n" title="Nytt notat (Alt+N)">📝 Nytt <kbd>Alt+N</kbd></a>
-            <a href="/settings" data-key="s" title="Innstillinger (Alt+S)">⚙️ Innstillinger <kbd>Alt+S</kbd></a>
-        </div>
-        <span id="navClock" class="nav-clock"></span>
-    </nav>
+    ${navbarHtml()}
     <div class="toolbar">
         <div class="tb-left">
             <span class="crumb">📁 ${defaultWeek}/</span>
@@ -2064,7 +2071,7 @@ function editorPageHtml(week, file, content) {
     </div>
     <div class="editor-wrap">
         <div class="pane">
-            <div class="pane-header">✏️ Markdown <button class="help-btn" onclick="document.getElementById('helpModal').classList.add('open')" title="Markdown-hjelp (F1)">❓ Hjelp</button></div>
+            <div class="pane-header">✏️ Markdown <button class="help-btn" onclick="document.getElementById('mdHelpModal').classList.add('open')" title="Markdown-hjelp (F1)">❓ Hjelp</button></div>
             <textarea id="editor" spellcheck="true" placeholder="Skriv markdown her..." autofocus>${escapeHtml(content || '')}</textarea>
             <div class="pres-help">
                 <h4>🎤 Reveal.js – presentasjons-syntaks</h4>
@@ -2449,11 +2456,11 @@ Note: Husk å nevne tidsplanen.
             document.getElementById('taskSubmitBtn').disabled = false;
         }
     </script>
-    <div class="modal-overlay" id="helpModal">
+    <div class="modal-overlay" id="mdHelpModal">
         <div class="modal">
             <div class="modal-head">
                 <h2>📖 Markdown-hjelp</h2>
-                <button class="modal-close" onclick="document.getElementById('helpModal').classList.remove('open')" title="Lukk (Esc)">&times;</button>
+                <button class="modal-close" onclick="document.getElementById('mdHelpModal').classList.remove('open')" title="Lukk (Esc)">&times;</button>
             </div>
             <div class="modal-body">
                 <h3>Overskrifter</h3>
@@ -2515,7 +2522,7 @@ Note: Husk å nevne tidsplanen.
     </div>
     <script>
         (function() {
-            var modal = document.getElementById('helpModal');
+            var modal = document.getElementById('mdHelpModal');
             modal.addEventListener('click', function(e) { if (e.target === modal) modal.classList.remove('open'); });
             document.addEventListener('keydown', function(e) {
                 if (e.key === 'F1') { e.preventDefault(); modal.classList.toggle('open'); }
@@ -2523,7 +2530,32 @@ Note: Husk å nevne tidsplanen.
             });
         })();
     </script>
-    <script>document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaKey)return;var k=e.key.toLowerCase();if(k==='h'){e.preventDefault();window.location.href='/';}if(k==='o'){e.preventDefault();window.location.href='/tasks';}if(k==='s'){e.preventDefault();window.location.href='/settings';}});(function(){var t=document.getElementById('ctxTrigger');var sw=t&&t.parentElement;if(!t)return;t.addEventListener('click',function(e){e.stopPropagation();sw.classList.toggle('open');});document.addEventListener('click',function(e){if(!sw.contains(e.target))sw.classList.remove('open');});sw.querySelectorAll('.ctx-item[data-id]').forEach(function(b){b.addEventListener('click',function(){var id=b.getAttribute('data-id');fetch('/api/contexts/switch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})}).then(function(r){return r.json();}).then(function(d){if(d.ok)location.href='/';else alert('Kunne ikke bytte: '+d.error);});});});})();</script>
+    <div id="helpModal" class="page-modal" onclick="if(event.target===this)this.style.display='none'" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:2000;align-items:center;justify-content:center"><div style="background:var(--bg);color:var(--text-strong);border:1px solid var(--border);border-radius:10px;padding:18px 20px;width:min(780px,92vw);max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.3)"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:12px"><h3 style="margin:0">❓ Hjelp</h3><button onclick="document.getElementById('helpModal').style.display='none'" style="background:none;border:none;font-size:1.3em;cursor:pointer;color:var(--text-muted)">✕</button></div><div id="helpContent" style="overflow-y:auto;flex:1;padding:4px 4px 4px 0">Laster…</div></div></div>
+    <script>
+        (function(){
+            var btn=document.getElementById('helpBtn');
+            var modal=document.getElementById('helpModal');
+            var loaded=false;
+            if(!btn||!modal)return;
+            btn.addEventListener('click',function(e){
+                e.preventDefault();
+                modal.style.display='flex';
+                if(loaded)return;
+                fetch('/help.md').then(function(r){return r.text();}).then(function(md){
+                    document.getElementById('helpContent').innerHTML=window.marked?marked.parse(md):'<pre>'+md.replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];})+'</pre>';
+                    loaded=true;
+                }).catch(function(){document.getElementById('helpContent').textContent='Kunne ikke laste hjelp.';});
+            });
+            document.addEventListener('keydown',function(e){if(e.key==='Escape'&&modal.style.display==='flex')modal.style.display='none';});
+        })();
+        (function(){
+            var sb=document.getElementById('navSearchBtn');
+            if(!sb)return;
+            sb.addEventListener('click',function(e){e.preventDefault();window.location.href='/?gs=1';});
+        })();
+        (function tick(){var c=document.getElementById('navClock');if(c)c.textContent=new Date().toLocaleTimeString('nb-NO',{hour:'2-digit',minute:'2-digit',second:'2-digit'});setTimeout(tick,1000)})();
+    </script>
+    <script>document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaKey)return;var link=document.querySelector('.nav-links a[data-key="'+e.key.toLowerCase()+'"]');if(link&&link.getAttribute('href')&&link.getAttribute('href')!=='#'){e.preventDefault();window.location.href=link.href;}});(function(){var t=document.getElementById('ctxTrigger');var sw=t&&t.parentElement;if(!t)return;t.addEventListener('click',function(e){e.stopPropagation();sw.classList.toggle('open');});document.addEventListener('click',function(e){if(!sw.contains(e.target))sw.classList.remove('open');});sw.querySelectorAll('.ctx-item[data-id]').forEach(function(b){b.addEventListener('click',function(){var id=b.getAttribute('data-id');fetch('/api/contexts/switch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id})}).then(function(r){return r.json();}).then(function(d){if(d.ok)location.href='/';else alert('Kunne ikke bytte: '+d.error);});});});var cb=document.getElementById('ctxCommitBtn');if(cb)cb.addEventListener('click',function(e){e.stopPropagation();var id=cb.getAttribute('data-active');var msg=prompt('Commit-melding (valgfritt):','');if(msg===null)return;cb.textContent='⏳ Committer...';fetch('/api/contexts/'+encodeURIComponent(id)+'/commit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg})}).then(function(r){return r.json();}).then(function(d){if(d.ok){cb.textContent=d.committed?'✓ Committet':'Ingen endringer';setTimeout(function(){sw.classList.remove('open');},1200);}else{cb.textContent='✗ '+d.error;}});});})();</script>
 </body>
 </html>`;
 }
