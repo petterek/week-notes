@@ -3375,11 +3375,35 @@ document.addEventListener('keydown', function(e) {
             const dayMeetings = meetings.filter(m => m.date === d.iso);
             const dayActivity = activity.filter(a => a.date === d.iso);
             const ACT_H = 18;
-            const activityHtml = dayActivity.map(a => {
+            const actItems = dayActivity.map(a => {
                 const [ah, am] = a.time.split(':').map(n => parseInt(n, 10));
-                const top = ((ah - HOUR_START) + (am || 0) / 60) * HOUR_PX;
+                const top = Math.max(0, ((ah - HOUR_START) + (am || 0) / 60) * HOUR_PX);
+                return { ...a, top, bottom: top + ACT_H };
+            }).sort((x, y) => x.top - y.top);
+            // Assign each item to a lane; items whose vertical spans overlap go to different lanes.
+            // A "group" is a chain of overlapping items; all share the same lane count for width.
+            const laneEnds = [];
+            let groupStart = 0, groupMaxLane = 0;
+            const placed = [];
+            const flush = (until) => {
+                const total = groupMaxLane + 1;
+                for (let i = groupStart; i < until; i++) placed[i].total = total;
+                groupStart = until; groupMaxLane = 0; laneEnds.length = 0;
+            };
+            actItems.forEach((it, i) => {
+                if (laneEnds.length && laneEnds.every(b => b <= it.top)) flush(i);
+                let lane = laneEnds.findIndex(b => b <= it.top);
+                if (lane === -1) { lane = laneEnds.length; laneEnds.push(it.bottom); }
+                else laneEnds[lane] = it.bottom;
+                placed.push({ ...it, lane });
+                if (lane > groupMaxLane) groupMaxLane = lane;
+            });
+            flush(placed.length);
+            const activityHtml = placed.map(a => {
+                const widthPct = 100 / a.total;
+                const leftPct = a.lane * widthPct;
                 const titleAttr = `${a.time} · ${a.title}`;
-                return `<a class="cal-activity act-${a.kind}" href="${a.href}" style="top:${Math.max(0, top)}px;height:${ACT_H}px" title="${escapeHtml(titleAttr)}" onclick="event.stopPropagation()">
+                return `<a class="cal-activity act-${a.kind}" href="${a.href}" style="top:${a.top}px;height:${ACT_H}px;left:${leftPct.toFixed(3)}%;width:calc(${widthPct.toFixed(3)}% - 2px);right:auto" title="${escapeHtml(titleAttr)}" onclick="event.stopPropagation()">
                     <span class="cal-act-icon">${a.icon}</span>
                     <span class="cal-act-time">${escapeHtml(a.time)}</span>
                     <span class="cal-act-t">${escapeHtml(a.title)}</span>
