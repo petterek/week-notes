@@ -2577,6 +2577,15 @@ const server = http.createServer(async (req, res) => {
         el.textContent = text;
         el.classList.toggle('error', !!isError);
     }
+    function goSettings(id) {
+        var done = function () { location.href = '/settings'; };
+        if (!id) { done(); return; }
+        fetch('/api/contexts/switch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: id })
+        }).then(done, done);
+    }
     document.getElementById('newCtxForm').addEventListener('submit', function (e) {
         e.preventDefault();
         var s = document.getElementById('newCtxStatus');
@@ -2595,10 +2604,10 @@ const server = http.createServer(async (req, res) => {
             }).then(function (r) { return r.json(); });
         }
         send(false).then(function (d) {
-            if (d.ok) { setStatus(s, '✓ Opprettet — laster…', false); setTimeout(function () { location.href = '/'; }, 600); return; }
+            if (d.ok) { setStatus(s, '✓ Opprettet — åpner innstillinger…', false); setTimeout(function () { goSettings(d.id); }, 600); return; }
             if (d.needsConfirm && confirm(d.error + '\\n\\nVil du opprette .week-notes-fil og fortsette?')) {
                 return send(true).then(function (d2) {
-                    if (d2.ok) { setStatus(s, '✓ Opprettet — laster…', false); setTimeout(function () { location.href = '/'; }, 600); }
+                    if (d2.ok) { setStatus(s, '✓ Opprettet — åpner innstillinger…', false); setTimeout(function () { goSettings(d2.id); }, 600); }
                     else setStatus(s, '✗ ' + d2.error, true);
                 });
             }
@@ -2621,10 +2630,10 @@ const server = http.createServer(async (req, res) => {
             }).then(function (r) { return r.json(); });
         }
         send(false).then(function (d) {
-            if (d.ok) { setStatus(s, '✓ Klonet — laster…', false); setTimeout(function () { location.href = '/'; }, 600); return; }
+            if (d.ok) { setStatus(s, '✓ Klonet — åpner innstillinger…', false); setTimeout(function () { goSettings(d.id); }, 600); return; }
             if (d.needsConfirm && confirm(d.error + '\\n\\nVil du opprette .week-notes-fil og fortsette?')) {
                 return send(true).then(function (d2) {
-                    if (d2.ok) { setStatus(s, '✓ Klonet — laster…', false); setTimeout(function () { location.href = '/'; }, 600); }
+                    if (d2.ok) { setStatus(s, '✓ Klonet — åpner innstillinger…', false); setTimeout(function () { goSettings(d2.id); }, 600); }
                     else setStatus(s, '✗ ' + d2.error, true);
                 });
             }
