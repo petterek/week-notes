@@ -3757,7 +3757,7 @@ document.addEventListener('keydown', function(e) {
                     btn.addEventListener('click', () => {
                         const id = btn.getAttribute('data-disconnect');
                         const name = btn.getAttribute('data-name') || id;
-                        if (!confirm('Koble fra "' + name + '"?\\n\\nDette vil:\\n  • commit\'e alle endringer\\n  • push\'e til origin\\n  • slette den lokale mappen\\n\\nGit-URLen huskes lokalt så du kan klone den tilbake senere.')) return;
+                        if (!confirm('Koble fra "' + name + '"?\\n\\nDette vil:\\n  • committe alle endringer\\n  • pushe til origin\\n  • slette den lokale mappen\\n\\nGit-URLen huskes lokalt så du kan klone den tilbake senere.')) return;
                         const status = document.querySelector('[data-status="' + id + '"]');
                         if (status) { status.textContent = '⏳ Kobler fra…'; status.style.color = ''; }
                         fetch('/api/contexts/' + encodeURIComponent(id) + '/disconnect', { method: 'POST' })
