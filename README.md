@@ -11,6 +11,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 ## 📜 Changelog
 
 ### 2026-04-26
+- First-run: when there are no contexts yet, `/settings` shows a dedicated welcome screen with project intro + two side-by-side cards for creating a new context or cloning from a git-remote
+- Settings: new "Klon fra remote" rail entry — `git clone`s an existing context-repo straight into `data/<name>/`
+- Settings: when a git-remote is added (or changed) on a context the server now does a fetch + pull (allow-unrelated-histories) so existing remote content lands locally
 - run.sh: if the chosen port is occupied, automatically falls back to a random free port instead of failing
 - Settings: context detail split into Generelt / Møter / Git tabs; selected tab is remembered across reloads
 - Settings: Arbeidstid editor laid out horizontally as seven day cards (Man–Søn) with a polished time-picker pill
