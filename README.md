@@ -11,6 +11,7 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 ## 📜 Changelog
 
 ### 2026-04-26
+- Settings: Generelt tab now shows the context's `.week-notes` marker version vs the running server version (color-coded match / mismatch / missing). Saving settings always refreshes the marker to the current server version.
 - run.sh: when an existing server is detected, prompt `[y/N]` to restart it (gracefully SIGTERM, fall back to SIGKILL) instead of just exiting
 - run.sh: on startup, check if origin has newer commits and offer (`[Y/n]`) to pull before launching the server
 - Themes: new `/themes` builder — clone any theme, edit its CSS variables (colors, font-family, font-size) with color pickers + live preview, save as a custom theme in `data/_themes/` (gitignored). Built-ins are read-only.

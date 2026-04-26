@@ -26,6 +26,14 @@ function writeMarker(dir) {
         );
     } catch (e) { console.error('writeMarker failed', e.message); }
 }
+function readMarker(dir) {
+    try {
+        const raw = fs.readFileSync(path.join(dir, WEEK_NOTES_MARKER), 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') return parsed;
+    } catch {}
+    return null;
+}
 
 function safeName(name) {
     return String(name || '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
@@ -289,7 +297,7 @@ function setContextSettings(name, data, opts) {
         }
     }
     fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify(data, null, 2));
-    if (!fs.existsSync(path.join(dir, WEEK_NOTES_MARKER))) writeMarker(dir);
+    writeMarker(dir);
     return data;
 }
 
@@ -3680,6 +3688,7 @@ document.addEventListener('keydown', function(e) {
                 id,
                 settings: getContextSettings(id),
                 active: id === active,
+                marker: readMarker(dir),
                 git: { isRepo: gitIsRepo(dir), dirty: gitIsDirty(dir), last: gitLastCommit(dir) }
             };
         });
@@ -3737,11 +3746,30 @@ document.addEventListener('keydown', function(e) {
                     <div class="ctx-tab-panel is-active" data-panel="general">
                     <div class="ctx-detail-section">
                         <h3>📝 Generelt</h3>
+                        ${(function(){
+                            const m = c.marker;
+                            const ver = m && typeof m.version === 'string' ? m.version : '';
+                            const short = ver && ver !== 'unknown' ? ver.slice(0, 7) : ver;
+                            const current = WEEK_NOTES_VERSION;
+                            const currentShort = current && current !== 'unknown' ? current.slice(0, 7) : current;
+                            const matches = ver && current && ver === current;
+                            const cls = !ver ? 'ctx-version missing' : (matches ? 'ctx-version match' : 'ctx-version mismatch');
+                            const icon = !ver ? '⚠️' : (matches ? '✓' : 'ℹ️');
+                            const label = !ver ? 'Mangler .week-notes-fil' : (matches ? 'Samme som denne serveren' : 'Annen versjon enn serveren');
+                            return `<div class="${cls}">
+                                <span class="ctx-version-icon">${icon}</span>
+                                <span class="ctx-version-meta">
+                                    <span class="ctx-version-row"><strong>Kontekst-versjon:</strong> <code>${escapeHtml(short || '—')}</code></span>
+                                    <span class="ctx-version-row ctx-version-sub"><span>Server: <code>${escapeHtml(currentShort || 'ukjent')}</code></span> · <span>${escapeHtml(label)}</span></span>
+                                </span>
+                            </div>`;
+                        })()}
                         <div class="ctx-form-grid">
                             <label>Navn<input type="text" name="name" value="${escapeHtml(c.settings.name || '')}" required></label>
                             <label>Ikon${iconPickerHtml('icon', c.settings.icon || '📁', 'pick-' + c.id)}</label>
                         </div>
                         <label>Beskrivelse<textarea name="description" rows="2">${escapeHtml(c.settings.description || '')}</textarea></label>
+
                         <fieldset class="theme-block">
                             <legend>Tema</legend>
                             <div class="theme-grid">
@@ -3957,6 +3985,14 @@ document.addEventListener('keydown', function(e) {
                 .theme-builder-link { margin: 10px 4px 0; font-size: 0.85em; }
                 .theme-builder-link a { color: var(--accent); text-decoration: none; font-weight: 600; }
                 .theme-builder-link a:hover { text-decoration: underline; }
+                .ctx-version { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; margin: 12px 0 6px; border-radius: 6px; border: 1px solid var(--border-faint); background: var(--surface-head); font-size: 0.85em; }
+                .ctx-version.match { border-color: #b6dec0; background: #f1faf3; }
+                .ctx-version.mismatch { border-color: #f0d589; background: #fef8e8; }
+                .ctx-version.missing { border-color: #f5b8b8; background: #fff5f5; }
+                .ctx-version-icon { font-size: 1.2em; line-height: 1; padding-top: 2px; }
+                .ctx-version-meta { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+                .ctx-version-row code { background: var(--surface-alt); padding: 1px 6px; border-radius: 3px; font-size: 0.95em; color: var(--accent); font-family: 'JetBrains Mono', 'Source Code Pro', Consolas, monospace; }
+                .ctx-version-sub { color: var(--text-subtle); font-size: 0.92em; }
                 /* Generic per-swatch preview palette using inline --p-* custom props.
                    Each swatch sets its own colors via inline style; built-ins and
                    custom themes share the same renderer. */
