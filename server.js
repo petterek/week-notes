@@ -3188,7 +3188,8 @@ document.addEventListener('keydown', function(e) {
             </div>
 
             <style>
-                body:has(.welcome-page) { max-width: 980px; }
+                body:has(.welcome-page) { max-width: 980px; padding-top: 24px; }
+                body:has(.welcome-page) .navbar { display: none; }
                 .welcome-page { padding: 16px 0 32px; }
                 .welcome-hero { text-align: center; padding: 32px 16px 28px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 24px; }
                 .welcome-emoji { font-size: 3.4em; line-height: 1; margin-bottom: 8px; }
