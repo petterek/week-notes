@@ -67,9 +67,14 @@ read by `getWorkHours()` if `workHours` is missing.
 ## Settings page UI
 
 - Left: list of contexts with icon, name, active badge.
-- Right: form with Generelt section (name, icon, description, git
-  remote, default meeting minutes), Working-hours fieldset (one row
-  per day), Meeting-types section, danger zone, Git status.
+- Right: detail pane per context, organised into three tabs:
+  - **Generelt** — name, icon, description, theme picker.
+  - **Møter** — default meeting length, work hours per day,
+    meeting types.
+  - **Git** — git status display, git remote (origin) URL.
+- Tabs are pure HTML/CSS/JS — single `<form>` wraps all three panels
+  so the bottom Save button submits everything regardless of which
+  tab is visible. Tab state is per detail pane (not persisted).
 - Width override: `body:has(.ctx-page) { max-width: none; }`.
 - Working-hours rows use `.wh-row` with on/off checkbox + 4 selects
   (`wh-sH-i`, `wh-sM-i`, `wh-eH-i`, `wh-eM-i`). `.wh-row.on` toggles
@@ -79,8 +84,8 @@ read by `getWorkHours()` if `workHours` is missing.
 
 1. **Getter** with default + validation near `getWorkHours` /
    `getDefaultMeetingMinutes`.
-2. **Form field** in the Generelt section (or a new section) of the
-   settings page render.
+2. **Form field** in the appropriate tab panel of the settings page
+   render (Generelt, Møter, or Git).
 3. **Form-submit handler**: include the new field in the `data`
    object PUTed to `/api/contexts/:id/settings`.
 4. **Read it where needed** via the getter (e.g. inject into the

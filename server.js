@@ -2916,11 +2916,13 @@ document.addEventListener('keydown', function(e) {
                         : `<button type="button" class="btn-primary" data-switch="${escapeHtml(c.id)}">Bytt til</button>`}
                 </div>
                 ${c.settings.description ? `<div class="ctx-desc">${escapeHtml(c.settings.description)}</div>` : ''}
-                <div class="ctx-detail-section">
-                    <h3>📦 Status</h3>
-                    ${formatGitStatus(c)}
+                <div class="ctx-tabs" role="tablist">
+                    <button type="button" class="ctx-tab-btn is-active" data-tab="general">📝 Generelt</button>
+                    <button type="button" class="ctx-tab-btn" data-tab="meetings">🗓️ Møter</button>
+                    <button type="button" class="ctx-tab-btn" data-tab="git">📦 Git</button>
                 </div>
                 <form class="ctx-edit-form" data-form="${escapeHtml(c.id)}">
+                    <div class="ctx-tab-panel is-active" data-panel="general">
                     <div class="ctx-detail-section">
                         <h3>📝 Generelt</h3>
                         <div class="ctx-form-grid">
@@ -2948,7 +2950,11 @@ document.addEventListener('keydown', function(e) {
                                 }).join('')}
                             </div>
                         </fieldset>
-                        <label>Git-remote (origin)<input type="text" name="remote" value="${escapeHtml(c.settings.remote || '')}" placeholder="git@github.com:bruker/repo.git" spellcheck="false"></label>
+                    </div>
+                    </div>
+                    <div class="ctx-tab-panel" data-panel="meetings">
+                    <div class="ctx-detail-section">
+                        <h3>🗓️ Møter</h3>
                         <label>Standard møtelengde (minutter)<input type="number" name="defaultMeetingMinutes" value="${escapeHtml(String(c.settings.defaultMeetingMinutes || 60))}" min="5" max="600" step="5"></label>
                         <fieldset class="workhours-block">
                             <legend>Arbeidstid pr. dag</legend>
@@ -2975,11 +2981,22 @@ document.addEventListener('keydown', function(e) {
                         </fieldset>
                     </div>
                     <div class="ctx-detail-section" data-mt="${escapeHtml(c.id)}">
-                        <h3>🗓️ Møtetyper</h3>
+                        <h3>✏️ Møtetyper</h3>
                         <p class="section-hint">Definerer kategorier for møter i kalenderen i denne konteksten.</p>
                         <div class="mt-list" data-mt-list="${escapeHtml(c.id)}"></div>
                         <button type="button" class="btn-cancel mt-add" data-mt-add="${escapeHtml(c.id)}" style="margin-top:8px">+ Ny type</button>
                         <script type="application/json" data-mt-init="${escapeHtml(c.id)}">${JSON.stringify(loadMeetingTypes(c.id)).replace(/</g, '\\u003c')}</script>
+                    </div>
+                    </div>
+                    <div class="ctx-tab-panel" data-panel="git">
+                    <div class="ctx-detail-section">
+                        <h3>📦 Status</h3>
+                        ${formatGitStatus(c)}
+                    </div>
+                    <div class="ctx-detail-section">
+                        <h3>🔗 Git-remote</h3>
+                        <label>Git-remote (origin)<input type="text" name="remote" value="${escapeHtml(c.settings.remote || '')}" placeholder="git@github.com:bruker/repo.git" spellcheck="false"></label>
+                    </div>
                     </div>
                     <div class="ctx-detail-actions">
                         <button type="submit" class="btn-primary">💾 Lagre endringer</button>
@@ -3054,6 +3071,12 @@ document.addEventListener('keydown', function(e) {
                 .ctx-detail-section { margin-bottom: 22px; }
                 .ctx-detail-section:last-child { margin-bottom: 0; }
                 .ctx-detail-section h3 { margin: 0 0 10px; font-size: 0.95em; color: var(--accent); font-weight: 600; }
+                .ctx-tabs { display:flex; gap:4px; margin: 0 0 18px; border-bottom: 1px solid var(--border-faint); }
+                .ctx-tab-btn { background:transparent; border:none; border-bottom:2px solid transparent; padding:8px 14px; font-size:0.92em; color:var(--text-muted-warm); cursor:pointer; margin-bottom:-1px; border-radius:0; transition:color 0.12s, border-color 0.12s, background 0.12s; }
+                .ctx-tab-btn:hover { color:var(--text-strong); background:var(--surface-alt); }
+                .ctx-tab-btn.is-active { color:var(--accent); border-bottom-color:var(--accent); font-weight:600; }
+                .ctx-tab-panel { display:none; }
+                .ctx-tab-panel.is-active { display:block; }
                 .ctx-detail-section .section-hint { margin: -6px 0 10px; font-size: 0.85em; color: var(--text-muted-warm); }
                 .ctx-detail-actions { display: flex; align-items: center; gap: 12px; padding-top: 14px; border-top: 1px solid var(--border-faint); }
                 .ctx-form-grid { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }
@@ -3233,6 +3256,15 @@ document.addEventListener('keydown', function(e) {
                     fetch('/api/contexts/switch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
                         .then(r => r.json()).then(d => { if (d.ok) location.reload(); else alert(d.error); });
                 }));
+                document.querySelectorAll('.ctx-detail').forEach(detail => {
+                    detail.querySelectorAll('.ctx-tab-btn').forEach(btn => {
+                        btn.addEventListener('click', () => {
+                            const target = btn.getAttribute('data-tab');
+                            detail.querySelectorAll('.ctx-tab-btn').forEach(b => b.classList.toggle('is-active', b === btn));
+                            detail.querySelectorAll('.ctx-tab-panel').forEach(p => p.classList.toggle('is-active', p.getAttribute('data-panel') === target));
+                        });
+                    });
+                });
                 document.querySelectorAll('.theme-grid').forEach(grid => {
                     grid.addEventListener('change', e => {
                         if (!e.target.matches('input[name="theme"]')) return;
