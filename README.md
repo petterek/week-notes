@@ -11,6 +11,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 ## 📜 Changelog
 
 ### 2026-04-26
+- Fixed: home page now correctly highlights and expands the current week. The internal `getCurrentYearWeek()` helper was producing a non-canonical format (`2026-17`) that never matched the canonical week-folder format (`2026-W17`), so the "active" week was silently treated as a regular older week. Aliased to `dateToIsoWeek(new Date())`.
+- Git tab: new "📥 Pull fra remote" button on contexts with a remote — runs `git pull --ff-only`, refuses to run if there are uncommitted changes
+- New `scripts/seed-dummy.js` — creates two demo contexts (Demo Jobb / Demo Hjem) with people, tasks, meetings, results and notes for testing/showcase
 - Settings: Generelt tab now shows the context's `.week-notes` marker version vs the running server version (color-coded match / mismatch / missing). Saving settings always refreshes the marker to the current server version.
 - run.sh: when an existing server is detected, prompt `[y/N]` to restart it (gracefully SIGTERM, fall back to SIGKILL) instead of just exiting
 - run.sh: on startup, check if origin has newer commits and offer (`[Y/n]`) to pull before launching the server

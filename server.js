@@ -446,6 +446,18 @@ function gitPush(dir) {
     }
 }
 
+function gitPull(dir) {
+    if (!gitIsRepo(dir)) return { ok: false, error: 'Ikke et git-repo' };
+    if (!gitGetRemote(dir)) return { ok: false, error: 'Ingen remote konfigurert' };
+    if (gitIsDirty(dir)) return { ok: false, error: 'Det finnes ucommittede endringer. Commit eller forkast før du puller.' };
+    try {
+        const out = require('child_process').execSync('git pull --ff-only --no-edit origin 2>&1', { cwd: dir, encoding: 'utf-8', timeout: 60000 });
+        return { ok: true, output: out.trim() };
+    } catch (e) {
+        return { ok: false, error: (e.stdout || '') + (e.stderr || '') || e.message };
+    }
+}
+
 function ensureAllContextsInitialised() {
     for (const id of listContexts()) {
         const dir = path.join(CONTEXTS_DIR, id);
@@ -1513,13 +1525,7 @@ function pageHtml(title, body, extraNavLinks) {
 }
 
 function getCurrentYearWeek() {
-    const now = new Date();
-    const date = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
-    // ISO 8601: week containing the Thursday → shift to Thursday of current week
-    date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
-    const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-    const weekNum = Math.ceil(((date - yearStart) / 86400000 + 1) / 7);
-    return `${date.getUTCFullYear()}-${weekNum}`;
+    return dateToIsoWeek(new Date());
 }
 
 function isoWeekToDateRange(yearWeek) {
@@ -3848,6 +3854,11 @@ document.addEventListener('keydown', function(e) {
                     <div class="ctx-detail-section">
                         <h3>🔗 Git-remote</h3>
                         <label>Git-remote (origin)<input type="text" name="remote" value="${escapeHtml(c.settings.remote || '')}" placeholder="git@github.com:bruker/repo.git" spellcheck="false"></label>
+                        ${(c.settings.remote || '').trim() ? `
+                        <div class="git-remote-actions">
+                            <button type="button" class="btn-pull" data-pull="${escapeHtml(c.id)}">📥 Pull fra remote</button>
+                            <span class="git-action-status" data-pull-status="${escapeHtml(c.id)}"></span>
+                        </div>` : ''}
                     </div>
                     ${(c.settings.remote || '').trim() ? `
                     <div class="ctx-detail-section">
@@ -4068,6 +4079,13 @@ document.addEventListener('keydown', function(e) {
                 .btn-cancel:hover { background: var(--surface-alt); }
                 .btn-disconnect { background: none; border: 1px solid #f5b7b7; color: #c53030; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 0.9em; }
                 .btn-disconnect:hover { background: #fff5f5; border-color: #e53e3e; }
+                .git-remote-actions { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+                .btn-pull { background: var(--surface-alt); border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 0.9em; }
+                .btn-pull:hover:not(:disabled) { background: var(--surface-head); border-color: var(--accent); }
+                .btn-pull:disabled { opacity: 0.6; cursor: wait; }
+                .git-action-status { font-size: 0.85em; color: var(--text-subtle); }
+                .git-action-status.is-ok { color: #2f855a; }
+                .git-action-status.is-err { color: #c53030; }
                 .ctx-detail-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
                 .settings-status { font-size: 0.85em; color: #2f855a; }
 
@@ -4149,6 +4167,36 @@ document.addEventListener('keydown', function(e) {
                         }).catch(err => {
                             b.textContent = '✗ Feilet';
                             alert('Push feilet: ' + err);
+                            setTimeout(() => { b.textContent = orig; b.disabled = false; }, 1800);
+                        });
+                }));
+                document.querySelectorAll('[data-pull]').forEach(b => b.addEventListener('click', () => {
+                    const id = b.getAttribute('data-pull');
+                    const status = document.querySelector('[data-pull-status="' + id + '"]');
+                    const orig = b.textContent;
+                    b.disabled = true;
+                    b.textContent = '⏳ Puller...';
+                    if (status) { status.textContent = ''; status.className = 'git-action-status'; }
+                    fetch('/api/contexts/' + encodeURIComponent(id) + '/pull', { method: 'POST' })
+                        .then(r => r.json()).then(d => {
+                            if (d.ok) {
+                                b.textContent = '✓ Pulled';
+                                if (status) {
+                                    status.className = 'git-action-status is-ok';
+                                    const out = (d.output || '').trim();
+                                    status.textContent = /already up.to.date/i.test(out) ? 'Allerede oppdatert' : 'Hentet endringer — last siden på nytt for å se dem';
+                                }
+                                setTimeout(() => { b.textContent = orig; b.disabled = false; }, 1800);
+                            } else {
+                                b.textContent = '✗ Feilet';
+                                if (status) { status.className = 'git-action-status is-err'; status.textContent = 'Pull feilet'; }
+                                alert('Pull feilet:\\n\\n' + (d.error || 'Ukjent feil'));
+                                setTimeout(() => { b.textContent = orig; b.disabled = false; }, 1800);
+                            }
+                        }).catch(err => {
+                            b.textContent = '✗ Feilet';
+                            if (status) { status.className = 'git-action-status is-err'; status.textContent = String(err); }
+                            alert('Pull feilet: ' + err);
                             setTimeout(() => { b.textContent = orig; b.disabled = false; }, 1800);
                         });
                 }));
@@ -6504,6 +6552,22 @@ function expandAllPeople(expand) {
         }
         const dir = path.join(CONTEXTS_DIR, id);
         const result = gitPush(dir);
+        res.writeHead(result.ok ? 200 : 500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+        return;
+    }
+
+    // API: pull a context's repo from origin
+    const ctxPullMatch = pathname.match(/^\/api\/contexts\/([^/]+)\/pull$/);
+    if (ctxPullMatch && req.method === 'POST') {
+        const id = safeName(ctxPullMatch[1]);
+        if (!listContexts().includes(id)) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Kontekst finnes ikke' }));
+            return;
+        }
+        const dir = path.join(CONTEXTS_DIR, id);
+        const result = gitPull(dir);
         res.writeHead(result.ok ? 200 : 500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
         return;
