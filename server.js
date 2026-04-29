@@ -1696,6 +1696,7 @@ document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaK
 <script type="module" src="/components/entity-callout.js"></script>
 <script type="module" src="/components/entity-mention.js"></script>
 <script type="module" src="/components/people-page.js"></script>
+<script type="module" src="/components/results-page.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </body>
 </html>`;
@@ -2782,7 +2783,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             ['Tasks',     ['task-complete-modal', 'task-open-list', 'task-completed', 'task-create', 'task-create-modal']],
             ['Meetings',  ['meeting-create', 'upcoming-meetings', 'week-notes-calendar']],
             ['People',    ['company-card', 'entity-callout', 'entity-mention', 'people-page', 'person-card', 'place-card']],
-            ['Results',   ['week-results']],
+            ['Results',   ['results-page', 'week-results']],
             ['Settings',  ['settings-page']],
             ['Composit',  ['week-list', 'week-section']],
         ];
@@ -3280,6 +3281,18 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                     { name: 'days', type: 'text', default: '14' },
                 ],
             },
+            'results-page': {
+                desc: `<p><strong>&lt;results-page&gt;</strong> is the SPA replacement for <code>/results</code>. Lists all results grouped by ISO week (descending) with a &ldquo;Nytt resultat&rdquo; header button and per-row edit / delete actions. Edit and create both use a shadow-local modal (Esc cancels, Ctrl/⌘+Enter saves).</p>
+                    <p><strong>Domain:</strong> <code>results</code>. Also reads <code>people_service</code> + <code>companies_service</code> for <code>@mention</code> rendering via <code>linkMentions</code> + <code>&lt;entity-mention&gt;</code> chips.</p>
+                    <p><strong>Hash deep-link.</strong> <code>#r-&lt;id&gt;</code> scrolls to and briefly flashes the matching card.</p>
+                    <p><strong>Events.</strong> None of its own &mdash; mutations go directly through the service.</p>`,
+                tag: 'results-page',
+                attrs: [
+                    { name: 'results_service', type: 'text', default: 'MockResultsService' },
+                    { name: 'people_service', type: 'text', default: 'MockPeopleService' },
+                    { name: 'companies_service', type: 'text', default: 'MockCompaniesService' },
+                ],
+            },
             'week-results': {
                 desc: `<p><strong>&lt;week-results&gt;</strong> is the &ldquo;Resultater&rdquo; section of a week block. It loads all results, filters to a single ISO week, and renders each as a row with date, title, and any <code>@mentions</code>.</p>
                     <p><strong>Domain:</strong> <code>results</code> &mdash; from <code>results_service</code>. Also reads <code>people_service</code> + <code>companies_service</code> for mention rendering.</p>
@@ -3683,6 +3696,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
     <script type="module" src="/components/entity-callout.js"></script>
 <script type="module" src="/components/entity-mention.js"></script>
 <script type="module" src="/components/people-page.js"></script>
+<script type="module" src="/components/results-page.js"></script>
     <style>
         body { font-family: var(--font-family, -apple-system, sans-serif); font-size: var(--font-size, 16px); margin: 0; line-height: 1.6; color: var(--text-strong); background: var(--bg); }
         .dbg-page { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
