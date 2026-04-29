@@ -10,8 +10,11 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-29 (today calendar on home)
+- **`<today-calendar>`** added to the home page sidebar, below `<upcoming-meetings>`. Wraps a single-day `<week-calendar>` (start = end = today) and loads today's meetings from the meetings service. Picks up the active context's `workHours` / `visibleStartHour` / `visibleEndHour` from `/api/contexts`. Auto-rolls over at midnight via `nav-meta:newDay` and re-loads on `context-selected`. Heading shows the localized day + date.
+
 ### 2026-04-29 (nav-meta boundary events)
-- **`<nav-meta>`** now emits `nav-meta:newDay`, `nav-meta:newWeek`, `nav-meta:newMonth` and `nav-meta:newYear` (composed/bubbles) when the wall clock crosses each boundary. Detail payload contains the new value (`date` / `week` / `month` / `year`) and the `now` Date. No event fires on initial mount — only on actual transitions. Pages can listen on `document` to refresh "today / this week" derived UI without polling.
+- **`<nav-meta>`** now emits `nav-meta:newMinute`, `nav-meta:newHour`, `nav-meta:newDay`, `nav-meta:newWeek`, `nav-meta:newMonth` and `nav-meta:newYear` (composed/bubbles) when the wall clock crosses each boundary. Detail payload contains the new value (`minute` / `hour` / `date` / `week` / `month` / `year`) and the `now` Date. No event fires on initial mount — only on actual transitions. Pages can listen on `document` to refresh "today / this week" derived UI without polling.
 
 ### 2026-04-29 (inline-create markers)
 - **`{{X}}` and `[[X]]` markers in notes.** New shorthand for inline-creating entities while writing notes:

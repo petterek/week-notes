@@ -1754,6 +1754,7 @@ document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaK
 <script type="module" src="/components/task-create.js"></script>
 <script type="module" src="/components/task-complete-modal.js"></script>
 <script type="module" src="/components/upcoming-meetings.js"></script>
+<script type="module" src="/components/today-calendar.js"></script>
 <script type="module" src="/components/meeting-create.js"></script>
 <script type="module" src="/components/week-results.js"></script>
 <script type="module" src="/components/task-completed.js"></script>
@@ -2867,7 +2868,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             ['Search',    ['global-search']],
             ['Notes',     ['markdown-preview', 'note-card', 'note-editor']],
             ['Tasks',     ['task-complete-modal', 'task-note-modal', 'task-open-list', 'task-completed', 'task-create', 'task-create-modal']],
-            ['Meetings',  ['meeting-create', 'upcoming-meetings', 'week-notes-calendar']],
+            ['Meetings',  ['meeting-create', 'upcoming-meetings', 'today-calendar', 'week-notes-calendar']],
             ['People',    ['company-card', 'entity-callout', 'entity-mention', 'people-page', 'person-card', 'place-card']],
             ['Results',   ['results-page', 'week-results']],
             ['Settings',  ['settings-page']],
@@ -3437,6 +3438,16 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                     { name: 'days', type: 'text', default: '14' },
                 ],
             },
+            'today-calendar': {
+                desc: `<p><strong>&lt;today-calendar&gt;</strong> is a sidebar widget that shows <em>today</em>'s meetings inside a single-day <code>&lt;week-calendar&gt;</code> column. Used on the home page below <code>&lt;upcoming-meetings&gt;</code>.</p>
+                    <p><strong>Domain:</strong> <code>meetings</code> &mdash; primary service from <code>meetings_service</code> (<code>list({ week })</code> + <code>listTypes()</code>). Also fetches <code>/api/contexts</code> for <code>workHours</code> / <code>visibleStartHour</code> / <code>visibleEndHour</code> and propagates them to the inner grid.</p>
+                    <p><strong>Auto-advance.</strong> Listens to <code>nav-meta:newDay</code> on <code>document</code>, so when the wall clock crosses midnight the heading and grid roll over without a page reload. Also re-loads on <code>context-selected</code>.</p>
+                    <p><strong>Events.</strong> Forwards <code>week-calendar:item-selected</code> and <code>open-item-selected</code> from the inner grid (bubbles).</p>`,
+                tag: 'today-calendar',
+                attrs: [
+                    { name: 'meetings_service', type: 'text', default: 'MockMeetingsService' },
+                ],
+            },
             'results-page': {
                 desc: `<p><strong>&lt;results-page&gt;</strong> is the SPA replacement for <code>/results</code>. Lists all results grouped by ISO week (descending) with a &ldquo;Nytt resultat&rdquo; header button and per-row edit / delete actions. Edit and create both use a shadow-local modal (Esc cancels, Ctrl/⌘+Enter saves).</p>
                     <p><strong>Domain:</strong> <code>results</code>. Also reads <code>people_service</code> + <code>companies_service</code> for <code>@mention</code> rendering via <code>linkMentions</code> + <code>&lt;entity-mention&gt;</code> chips.</p>
@@ -3837,6 +3848,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
     <script type="module" src="/components/task-note-modal.js"></script>
     <script type="module" src="/components/meeting-create.js"></script>
     <script type="module" src="/components/upcoming-meetings.js"></script>
+    <script type="module" src="/components/today-calendar.js"></script>
     <script type="module" src="/components/week-results.js"></script>
     <script type="module" src="/components/task-completed.js"></script>
     <script type="module" src="/components/week-section.js"></script>
