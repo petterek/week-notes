@@ -3760,6 +3760,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             'help:close',
             'week-calendar:ready', 'week-calendar:item-selected', 'open-item-selected',
             'datePeriodSelected',
+            'nav-meta:newDay', 'nav-meta:newWeek', 'nav-meta:newMonth', 'nav-meta:newYear',
             'meeting-create:created', 'meeting-create:cancel', 'meeting-create:error',
             'note-editor:saved', 'note-editor:cancel',
             'task:created', 'task:create-failed',

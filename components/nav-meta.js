@@ -1,6 +1,17 @@
 /**
  * <nav-meta> — small navbar widget showing weekday/date, ISO week badge and a live clock.
  * Updates once per second. Norwegian locale (nb-NO).
+ *
+ * Emits boundary events (composed/bubbles) when the wall clock crosses
+ * a new day/week/month/year. Useful for pages that want to refresh
+ * "today / this week" derived UI without polling.
+ *
+ *   nav-meta:newDay    → { date: 'YYYY-MM-DD', now: Date }
+ *   nav-meta:newWeek   → { week: 'YYYY-WNN',   now: Date }
+ *   nav-meta:newMonth  → { month: 'YYYY-MM',   now: Date }
+ *   nav-meta:newYear   → { year: NNNN,         now: Date }
+ *
+ * No event is fired on the initial mount — only on actual transitions.
  */
 import { WNElement, html, isoWeek } from './_shared.js';
 
@@ -13,6 +24,10 @@ const STYLES = `
     @media (max-width: 700px) { .nm-week { display: none; } }
     @media (max-width: 500px) { .nm-clock { display: none; } }
 `;
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+function dayKey(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
+function monthKey(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`; }
 
 class NavMeta extends WNElement {
     connectedCallback() {
@@ -28,6 +43,7 @@ class NavMeta extends WNElement {
             if (d) d.textContent = now.toLocaleDateString('nb-NO', { weekday: 'short', day: '2-digit', month: 'short' });
             if (w) w.textContent = `Uke ${isoWeek(now)}`;
             if (c) c.textContent = now.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            this._emitBoundaries(now);
             this._timer = setTimeout(tick, 1000);
         };
         tick();
@@ -35,6 +51,40 @@ class NavMeta extends WNElement {
 
     disconnectedCallback() {
         if (this._timer) clearTimeout(this._timer);
+    }
+
+    _emitBoundaries(now) {
+        const day = dayKey(now);
+        const week = isoWeek(now);
+        const month = monthKey(now);
+        const year = now.getFullYear();
+        // First tick after mount: just record the baseline, don't fire.
+        if (!this._last) {
+            this._last = { day, week, month, year };
+            return;
+        }
+        const prev = this._last;
+        if (prev.day !== day) {
+            this.dispatchEvent(new CustomEvent('nav-meta:newDay', {
+                bubbles: true, composed: true, detail: { date: day, now },
+            }));
+        }
+        if (prev.week !== week) {
+            this.dispatchEvent(new CustomEvent('nav-meta:newWeek', {
+                bubbles: true, composed: true, detail: { week, now },
+            }));
+        }
+        if (prev.month !== month) {
+            this.dispatchEvent(new CustomEvent('nav-meta:newMonth', {
+                bubbles: true, composed: true, detail: { month, now },
+            }));
+        }
+        if (prev.year !== year) {
+            this.dispatchEvent(new CustomEvent('nav-meta:newYear', {
+                bubbles: true, composed: true, detail: { year, now },
+            }));
+        }
+        this._last = { day, week, month, year };
     }
 
     css() { return STYLES; }
@@ -49,3 +99,4 @@ class NavMeta extends WNElement {
 }
 
 if (!customElements.get('nav-meta')) customElements.define('nav-meta', NavMeta);
+
