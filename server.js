@@ -598,6 +598,12 @@ function getDefaultMeetingMinutes(ctxId, typeKey) {
     return n > 0 && n <= 600 ? n : 60;
 }
 
+function getUpcomingMeetingsDays(ctxId) {
+    const s = ctxId ? getContextSettings(ctxId) : (getActiveContext() ? getContextSettings(getActiveContext()) : {});
+    const n = parseInt(s.upcomingMeetingsDays, 10);
+    return n > 0 && n <= 365 ? n : 14;
+}
+
 function dateToIsoWeek(d) {
     // Canonical ISO 8601 week: target = Thursday of d's week
     const target = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -889,6 +895,7 @@ function searchAll(query) {
         const name = r.file.replace(/\.md$/, '');
         out.push({
             type: 'note',
+            identifier: r.week + '/' + encodeURIComponent(r.file),
             title: name,
             subtitle: r.week + '/' + r.file,
             href: '/' + r.week + '/' + encodeURIComponent(r.file),
@@ -905,6 +912,7 @@ function searchAll(query) {
             if (!hit) continue;
             out.push({
                 type: 'task',
+                identifier: t.id,
                 title: t.text || '(uten tittel)',
                 subtitle: (t.done ? '✓ ' : '☐ ') + (t.completedWeek || t.week || ''),
                 href: '/tasks',
@@ -924,6 +932,7 @@ function searchAll(query) {
             const week = m.date ? dateToIsoWeek(new Date(m.date + 'T00:00:00Z')) : '';
             out.push({
                 type: 'meeting',
+                identifier: m.id,
                 title: m.title || '(uten tittel)',
                 subtitle: (m.date || '') + (m.start ? ' ' + m.start : ''),
                 href: week ? `/calendar/${week}#m-${encodeURIComponent(m.id)}` : '/calendar',
@@ -942,6 +951,7 @@ function searchAll(query) {
             const display = p.firstName ? (p.lastName ? p.firstName + ' ' + p.lastName : p.firstName) : (p.name || p.key);
             out.push({
                 type: 'person',
+                identifier: p.key || '',
                 title: display,
                 subtitle: p.title || p.email || '@' + (p.key || ''),
                 href: '/people#' + encodeURIComponent(p.key || ''),
@@ -957,6 +967,7 @@ function searchAll(query) {
             if (!r.text || !String(r.text).toLowerCase().includes(q)) continue;
             out.push({
                 type: 'result',
+                identifier: r.id,
                 title: r.text.length > 60 ? r.text.slice(0, 60) + '…' : r.text,
                 subtitle: r.week || '',
                 href: '/results',
@@ -1121,7 +1132,7 @@ function contextSwitcherHtml() {
         ? `<button type="button" class="ctx-item ctx-commit-btn" id="ctxCommitBtn" data-active="${escapeHtml(active)}">💾 Commit endringer i «${escapeHtml(cur.name || active)}»</button>`
         : '';
     const sep = (items || commitBtn) ? '<div class="ctx-sep"></div>' : '';
-    return `<ctx-switcher class="ctx-switcher">
+    return `<ctx-switcher class="ctx-switcher" service="ContextService">
         <button type="button" class="ctx-trigger" id="ctxTrigger" title="Bytt kontekst"><span class="ctx-icon">${curIcon}</span><span class="ctx-name">${curLabel}</span><span class="ctx-caret">▾</span></button>
         <div class="ctx-menu" id="ctxMenu">
             ${items}
@@ -1257,18 +1268,32 @@ function navLinksHtml(extra) {
 }
 
 function navbarHtml(extraNavLinks, opts) {
-    var fixed = opts && opts.fixed ? ' fixed' : '';
-    return `<app-navbar${fixed}>
-        <a slot="brand" href="/" class="nav-brand">Ukenotater</a>
-        <span slot="switcher">${contextSwitcherHtml()}</span>
-        <div slot="links" class="nav-links">
-            ${navLinksHtml(extraNavLinks)}
+    var fixed = opts && opts.fixed ? ' app-navbar-fixed' : '';
+    return `<nav id="appNav" class="app-navbar${fixed}">
+        <div class="nav-inner">
+            <nav-button href="/" text="Ukenotater"></nav-button>
+            ${contextSwitcherHtml()}
+            <div class="nav-links">
+                <a href="/editor" data-key="n" title="Nytt notat (Alt+N)">📝 Nytt notat</a>
+                <a href="/calendar">Kalender</a>
+                <a href="/tasks">Oppgaver</a>
+                <a href="/people">Personer</a>
+                <a href="/results">Resultater</a>
+                <a href="/settings">Innstillinger</a>
+            </div>
+            <global-search></global-search>
+            <nav-meta></nav-meta>
         </div>
-    </app-navbar>`;
+    </nav>`;
 }
 
-function pageHtml(title, body, extraNavLinks) {
-    const nav = navbarHtml(extraNavLinks, { fixed: true });
+function pageHtml(title, body, extraNavLinks, opts) {
+    opts = opts || {};
+    if (opts.fragment) {
+        // Just the inner content (with title hint for the SPA router).
+        return `<title>${escapeHtml(title)}</title>\n<main id="content">${body}</main>`;
+    }
+    const nav = navbarHtml(extraNavLinks, { fixed: false });
     const theme = getActiveTheme();
     return `<!DOCTYPE html>
 <html lang="no">
@@ -1277,315 +1302,236 @@ function pageHtml(title, body, extraNavLinks) {
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>${title}</title>
     <link id="themeStylesheet" rel="stylesheet" href="/themes/${theme}.css">
-    <script defer src="/components/nav-meta.js"></script>
-    <script defer src="/components/app-navbar.js"></script>
-    <script defer src="/components/ctx-switcher.js"></script>
-    <script defer src="/components/help-modal.js"></script>
-    <script defer src="/components/person-tip.js"></script>
-    <script defer src="/components/note-card.js"></script>
-    <script defer src="/components/_shared.js"></script>
-    <script defer src="/components/open-tasks.js"></script>
-    <script defer src="/components/upcoming-meetings.js"></script>
-    <script defer src="/components/week-results.js"></script>
-    <script defer src="/components/week-completed.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <style>
-        body { font-family: var(--font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif); font-size: var(--font-size, 16px); max-width: 1100px; margin: 0 auto; padding: 20px; padding-top: 70px; line-height: 1.6; color: var(--text-strong); background: var(--bg); }
-        input, textarea, select, button { font-family: inherit; font-size: inherit; }
-        .nav-brand { color: var(--accent); font-family: Georgia, "Times New Roman", serif; font-weight: 700; font-size: 1.1em; text-decoration: none; letter-spacing: -0.01em; }
-        .nav-brand:hover { text-decoration: none; color: var(--accent-strong); }
-        .nav-links { display: flex; gap: 4px; }
-        .nav-links a { color: var(--text); opacity: 0.65; text-decoration: none; padding: 6px 10px; border-radius: 4px; font-size: 0.9em; transition: opacity 0.15s, background 0.15s; display: inline-flex; align-items: center; gap: 6px; }
-        .nav-links a:hover { opacity: 1; background: var(--surface-alt); color: var(--accent); text-decoration: none; }
-        .nav-links kbd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.72em; background: var(--surface-alt); color: var(--text-muted-warm); border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px; letter-spacing: 0.02em; opacity: 0.85; }
-        .nav-links a:hover kbd { background: #e6dec5; color: var(--accent); }
-        .ctx-switcher { position: relative; }
-        .ctx-trigger { display: inline-flex; align-items: center; gap: 8px; background: var(--surface-alt); border: 1px solid var(--border); color: var(--accent); font-family: inherit; font-size: 0.9em; padding: 5px 10px; border-radius: 6px; cursor: pointer; transition: background 0.15s; }
-        .ctx-trigger:hover { background: #e6dec5; }
-        .ctx-icon { font-size: 1.05em; line-height: 1; display: inline-block; flex-shrink: 0; }
-        .ctx-name { font-weight: 600; }
-        .ctx-caret { font-size: 0.75em; opacity: 0.6; }
-        .ctx-menu { display: none; position: absolute; top: calc(100% + 6px); left: 0; min-width: 220px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(26,54,93,0.12); padding: 6px; z-index: 1000; }
-        .ctx-switcher.open .ctx-menu { display: block; }
-        .ctx-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 4px; cursor: pointer; background: none; border: none; width: 100%; text-align: left; font-family: inherit; font-size: 0.9em; color: var(--accent); text-decoration: none; }
-        .ctx-item:hover { background: var(--surface-alt); }
-        .ctx-item.active { background: #ebf2fa; font-weight: 600; }
-        .ctx-sep { height: 1px; background: var(--border-soft); margin: 4px 0; }
-        .ctx-link { color: #2a4365; }
-        .nav-meta { margin-left: auto; }
-        h1 { color: var(--accent); border-bottom: 1px solid var(--border-soft); padding-bottom: 10px; font-family: Georgia, "Times New Roman", serif; font-weight: 400; letter-spacing: -0.01em; }
-        h2 { color: #2a4365; }
-        a { color: #2b6cb0; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        .card { display: block; padding: 14px 18px; margin: 8px 0; background: var(--surface); border-radius: 8px; border-left: 4px solid #2b6cb0; transition: background 0.15s; }
-        .card:hover { background: #f5efe1; text-decoration: none; }
-        .breadcrumb { font-size: 0.9em; color: #718096; margin-bottom: 20px; }
-        .breadcrumb a { color: var(--text-muted); }
-        .week-section { margin-bottom: 24px; }
-        .week-title { font-family: Georgia, "Times New Roman", serif; font-size: 1.5em; font-weight: 400; color: var(--accent); margin: 14px 0 6px; padding-bottom: 6px; border-bottom: 1px solid var(--border-soft); display: flex; align-items: baseline; gap: 12px; letter-spacing: -0.01em; }
-        .week-title .week-meta { font-family: -apple-system, sans-serif; font-size: 0.55em; color: var(--text-subtle); font-style: italic; margin-left: auto; font-weight: 400; }
-        .week-active-pill { font-family: -apple-system, sans-serif; font-size: 0.5em; background: #e6dec5; color: var(--text-muted-warm); padding: 2px 8px; border-radius: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; vertical-align: middle; font-style: normal; }
-        .sec-h { font-family: Georgia, "Times New Roman", serif; font-style: italic; color: var(--text-muted-warm); font-size: 1.05em; font-weight: 400; margin: 22px 0 10px; display: flex; align-items: center; gap: 8px; }
-        .sec-h:first-child { margin-top: 4px; }
-        .sec-h .sec-count { background: var(--surface-alt); color: var(--text-muted-warm); font-size: 0.7em; padding: 1px 8px; border-radius: 10px; font-style: normal; font-family: -apple-system, sans-serif; }
-        .week-grid { display: grid; grid-template-columns: 1.7fr 1fr; gap: 36px; margin-top: 8px; }
-        .week-grid .col-side { padding-left: 24px; border-left: 1px solid var(--border-soft); min-width: 0; }
-        .week-grid .col-notes { min-width: 0; }
-        .result { font-size: 0.93em; color: var(--text); padding: 8px 0 8px 14px; border-left: 1px solid var(--accent); margin-bottom: 10px; }
-        .result .meta { display: flex; justify-content: space-between; gap: 8px; color: var(--text-subtle); font-size: 0.75em; margin-top: 3px; }
-        .empty-quiet { color: var(--text-subtle); font-size: 0.88em; font-style: italic; margin: 6px 0; }
-        @media (max-width: 1100px) { .week-grid { grid-template-columns: 1fr; gap: 0; } .week-grid .col-side { padding-left: 0; border-left: none; border-top: 1px solid var(--border-soft); padding-top: 12px; margin-top: 18px; } }
-        .older-week { margin: 0; }
-        .older-week > .older { list-style: none; cursor: pointer; padding: 14px 8px; display: flex; align-items: baseline; gap: 14px; color: var(--text-muted-warm); font-size: 1em; user-select: none; border-top: 1px solid var(--border-soft); border-radius: 4px; }
-        .older-week > .older::-webkit-details-marker { display: none; }
-        .older-week > .older .caret { color: var(--text-muted-warm); font-size: 1.4em; line-height: 1; transition: transform 0.15s; display: inline-block; width: 22px; text-align: center; }
-        .older-week[open] > .older .caret { transform: rotate(90deg); }
-        .older-week > .older:hover { color: var(--accent); background: #faf6ec; }
-        .older-week > .older:hover .older-title { color: var(--accent); }
-        .older-week .older-title { font-family: Georgia, "Times New Roman", serif; font-style: normal; font-size: 1.15em; color: var(--text); }
-        .older-week .older-meta { color: var(--text-subtle); font-size: 0.9em; margin-left: auto; font-style: italic; }
-        .older-body { padding: 6px 0 14px 24px; }
-        .week-title-actions { display: flex; gap: 8px; margin: 6px 0 12px; }
-        .btn-summarize { font-size: 0.75em; padding: 3px 10px; background: #805ad5; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; }
-        .btn-summarize:hover { background: #6b46c1; }
-        .btn-summarize:disabled { background: #a0aec0; cursor: not-allowed; }
-        .md-content { background: #fff; }
-        .md-content table { border-collapse: collapse; width: 100%; margin: 16px 0; }
-        .md-content th, .md-content td { border: 1px solid var(--border-soft); padding: 8px 12px; text-align: left; }
-        .md-content th { background: #2a4365; color: white; }
-        .md-content blockquote { background: #ebf8ff; border-left: 4px solid #2b6cb0; margin: 16px 0; padding: 12px 16px; }
-        .md-content code { background: #f5efe1; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }
-        .md-content pre { background: var(--text-strong); color: var(--border-soft); padding: 16px; border-radius: 8px; overflow-x: auto; }
-        .md-content pre code { background: none; color: inherit; padding: 0; }
-        .note-card { padding: 10px 14px; margin-bottom: 10px; border: 1px solid var(--border-soft); border-radius: 6px; background: var(--surface); font-size: 0.93em; }
-        note-card { display: block; }
-        .note-card .note-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
-        .note-card .note-h a { color: var(--text-muted-warm); text-decoration: none; padding: 2px 4px; border-radius: 3px; }
-        .note-card .note-h a:hover { background: var(--surface-alt); color: var(--accent); }
-        .note-card .note-h .note-actions { display: inline-flex; align-items: center; gap: 2px; }
-        .note-card .note-h .note-icon-btn { background: none; border: none; cursor: pointer; padding: 2px 4px; font-size: 1em; line-height: 1; border-radius: 3px; color: inherit; }
-        .note-card .note-h .note-icon-btn:hover { background: var(--surface-alt); }
-        .note-card .note-h .note-icon-btn.note-del:hover { background: #fed7d7; color: #c53030; }
-        .note-card .note-body { color: var(--text-muted-warm); font-size: 0.92em; line-height: 1.5; }
-        .file-card { margin: 6px 0; background: var(--surface); border-radius: 6px; border: 1px solid var(--border-soft); overflow: hidden; }
-        .file-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; background: var(--surface); cursor: pointer; user-select: none; }
-        .file-header:hover { background: #f5efe1; }
-        .file-name { font-weight: 600; color: var(--accent); font-size: 0.95em; }
-        .file-actions a { color: #2b6cb0; text-decoration: none; padding: 2px 6px; }
-        .file-card .md-content { padding: 10px 14px; background: white; display: none; font-size: 0.92em; }
-        .file-card .md-content h1, .file-card .md-content h2, .file-card .md-content h3 { margin-top: 8px; }
-        .file-card.open .md-content { display: block; }
-        .file-toggle { font-size: 0.75em; color: #718096; margin-right: 8px; transition: transform 0.15s; }
-        .file-card.open .file-toggle { transform: rotate(90deg); }
-        .week-tasks { margin: 4px 0 8px; }
-        .week-task { display: flex; align-items: center; gap: 8px; padding: 4px 14px; font-size: 0.9em; color: var(--text-muted); }
-        .week-task.done { color: #a0aec0; text-decoration: line-through; }
-        .week-task input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; }
-        .home-layout { display: flex; gap: 24px; align-items: stretch; height: calc(100vh - 70px); }
-        body:has(.home-layout) { max-width: none; overflow: hidden; }
-        .home-main { flex: 1; min-width: 0; overflow-y: auto; padding: 0 4px; }
-        .results-sidebar { width: 340px; flex-shrink: 0; overflow-y: auto; padding-right: 4px; }
-        @media (max-width: 1100px) { .results-sidebar { width: 280px; } }
-        @media (max-width: 900px) { body:has(.home-layout) { overflow: auto; } .home-layout { flex-direction: column; height: auto; } .task-sidebar, .results-sidebar { width: 100%; max-height: none; overflow: visible; } .home-main { overflow: visible; } }
-        .task-sidebar { width: 380px; flex-shrink: 0; overflow-y: auto; padding-left: 4px; }
-        .task-sidebar-inner { background: transparent; border: none; padding: 0; }
-        .side-h, .task-sidebar-title { font-family: Georgia, "Times New Roman", serif; font-style: italic; font-size: 1.1em; font-weight: 400; color: var(--text); margin: 0 0 14px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
-        .pill { display: inline-block; font-size: 0.7em; background: var(--surface-alt); color: var(--text-muted-warm); padding: 1px 8px; border-radius: 10px; white-space: nowrap; }
-        .pill.live { font-family: -apple-system, sans-serif; font-style: normal; font-size: 0.5em; background: #e6dec5; color: var(--text-muted-warm); padding: 2px 8px; border-radius: 10px; letter-spacing: 0.06em; text-transform: uppercase; vertical-align: middle; font-weight: 600; }
-        .h-week { font-family: Georgia, "Times New Roman", serif; font-size: 1.6em; color: var(--accent); margin: 8px 0 14px; display: flex; align-items: baseline; gap: 12px; letter-spacing: -0.01em; }
-        .h-week .meta { font-style: italic; color: var(--text-subtle); font-size: 0.55em; margin-left: auto; font-family: -apple-system, sans-serif; }
-        .sidebar-tasks { margin: 0; }
-        .sidebar-task + .sidebar-task { border-top: 1px dotted #e0d8c4; }
-        open-tasks, upcoming-meetings, week-results, week-completed { display: block; }
-        .upcoming-cal-link { margin-top: 8px; }
-        .upcoming-cal-link a { font-size: 0.85em; color: var(--accent); }
-        .row { display: flex; align-items: center; gap: 10px; padding: 7px 0; font-size: 0.93em; color: var(--text); }
-        .row .row-text { flex: 1; min-width: 0; }
-        .row.done { color: var(--text-subtle); text-decoration: line-through; }
-        .row.done + .row.done { border-top: 1px dotted #e0d8c4; }
-        .row .when { margin-left: auto; font-size: 0.78em; color: var(--text-subtle); white-space: nowrap; }
-        .row input[type=checkbox] { accent-color: var(--text-muted-warm); width: 15px; height: 15px; cursor: pointer; flex-shrink: 0; }
-        .row-note-btn { background: none; border: none; cursor: pointer; font-size: 0.9em; padding: 0; }
-        .row-note-btn.empty { opacity: 0.3; }
-        .row-note-body { margin: 1px 0 6px 26px; font-size: 0.82em; color: var(--text-muted-warm); background: transparent; }
-        .sidebar-meetings { display: flex; flex-direction: column; gap: 8px; }
-        .sidebar-meeting { position: relative; padding: 8px 10px; background: var(--surface); border: 1px solid var(--border-faint); border-left: 3px solid var(--accent); border-radius: 4px; font-size: 0.85em; cursor: pointer; transition: background 0.1s; }
-        .sidebar-meeting .sidebar-mtg-note { position: absolute; top: 6px; right: 6px; text-decoration: none; padding: 2px 5px; border-radius: 3px; opacity: 0.55; font-size: 0.95em; line-height: 1; }
-        .sidebar-meeting .sidebar-mtg-note:hover { opacity: 1; background: var(--surface-alt); }
-        .sidebar-meeting:hover { background: var(--surface-head); }
-        .sidebar-meeting .mtg-when { color: var(--text-muted); font-size: 0.85em; margin-bottom: 2px; }
-        .sidebar-meeting .mtg-when strong { color: var(--accent); font-weight: 600; }
-        .sidebar-meeting .mtg-title { color: var(--text-strong); font-weight: 500; line-height: 1.3; }
-        .sidebar-meeting .mtg-meta { margin-top: 4px; color: var(--text-muted-warm); font-size: 0.85em; }
-        .sidebar-meeting .mtg-loc { color: var(--text-muted-warm); }
-        .search-box { display: none; }
-        .search { width: 100%; box-sizing: border-box; padding: 14px 2px 10px; border: none; border-bottom: 1px solid var(--border); border-radius: 0; font-size: 1em; outline: none; background: var(--bg); color: var(--text); font-style: italic; margin: 0 0 16px; font-family: inherit; position: sticky; top: 0; z-index: 50; }
-        .search::placeholder { color: var(--text-subtle); font-style: italic; }
-        .search:focus { border-bottom-color: var(--accent); font-style: normal; }
-        .search-result { padding: 12px 18px; margin: 8px 0; background: var(--surface); border-radius: 8px; border-left: 4px solid #ed8936; }
-        .search-result .sr-title { font-weight: 600; color: #2a4365; }
-        .search-result .sr-path { font-size: 0.85em; color: #718096; }
-        .search-result .sr-snippet { font-size: 0.9em; color: var(--text-muted); margin-top: 4px; white-space: pre-wrap; word-break: break-word; }
-        .search-result mark { background: #fefcbf; padding: 1px 2px; border-radius: 2px; }
-        .sr-group { margin: 18px 0 6px; font-size: 0.95em; color: var(--text-muted); font-weight: 600; border-bottom: 1px solid var(--border-soft); padding-bottom: 4px; }
-        .sr-group .sr-count { color: #a0998a; font-weight: 400; font-size: 0.9em; margin-left: 6px; }
-        .search-hidden { display: none; }
-        .page-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center; }
-        .page-modal.dark { background:rgba(0,0,0,0.6); }
-        .page-modal-card { background:white; border-radius:12px; padding:24px; max-width:500px; width:90%; box-shadow:0 20px 60px rgba(0,0,0,0.3); }
-        .page-modal-btn { padding:8px 16px; border-radius:6px; cursor:pointer; font-weight:600; border:none; color:white; }
-        .page-modal-btn.cancel { border:1px solid var(--border-soft); background:white; color:var(--text-muted); font-weight:normal; }
-        .page-modal-btn.green { background:#48bb78; }
-        .page-modal-btn.blue { background:#2b6cb0; }
-        .page-modal-btn.purple { background:#805ad5; }
-        .page-modal-btn.orange { background:#ed8936; }
-        .page-modal-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:16px; }
-        .page-modal-card h3 { color:var(--accent); margin-bottom:8px; }
-        .page-modal-card textarea, .page-modal-card input[type=text], .page-modal-card input[type=email], .page-modal-card input[type=tel] { width:100%; padding:10px; border:2px solid var(--border-soft); border-radius:8px; font-size:0.95em; font-family:inherit; outline:none; box-sizing:border-box; }
-        .page-modal-card textarea { resize:vertical; }
-        .mention-link { color:#2b6cb0; text-decoration:none; background:#ebf8ff; border-radius:4px; padding:0 5px; font-size:0.9em; }
-        .mention-link:hover { background:#bee3f8; }
-        #personTip { position: fixed; z-index: 2000; background: white; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); padding: 10px 14px; font-size: 0.85em; color: #2d3748; max-width: 280px; pointer-events: none; opacity: 0; transition: opacity 0.1s; }
-        #personTip.visible { opacity: 1; }
-        #personTip .pt-name { font-weight: 700; color: var(--accent); font-size: 1.05em; margin-bottom: 2px; }
-        #personTip .pt-title { color: var(--text-muted); font-style: italic; margin-bottom: 4px; }
-        #personTip .pt-row { color: #718096; font-size: 0.9em; }
-        #personTip .pt-notes { color: var(--text-muted); margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-soft); white-space: pre-wrap; }
-        #personTip .pt-missing { color: #a0aec0; font-style: italic; }
-        #globalSearchModal .gs-card { background: var(--bg); border: 1px solid var(--border-soft); border-radius: 10px; padding: 18px 20px; width: min(720px, 92vw); max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
-        #globalSearchModal .gs-input-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-        #globalSearchModal .gs-input { flex: 1; font-size: 1.05em; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: var(--text-strong); outline: none; }
-        #globalSearchModal .gs-input:focus { border-color: #ed8936; box-shadow: 0 0 0 2px rgba(237,137,54,0.18); }
-        #globalSearchModal .gs-close { background: none; border: none; font-size: 1.3em; cursor: pointer; color: #718096; }
-        #globalSearchModal .gs-results { overflow-y: auto; flex: 1; padding-right: 4px; }
-        #globalSearchModal .gs-hint { color: #a0998a; font-size: 0.8em; margin-top: 6px; }
-    </style>
+    <link rel="stylesheet" href="/style.css">
 </head>
-<body>${nav}${body}<person-tip></person-tip><help-modal></help-modal><script>document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaKey)return;var link=document.querySelector('.nav-links a[data-key="'+e.key.toLowerCase()+'"]');if(link){e.preventDefault();window.location.href=link.href;}});document.addEventListener('mention-clicked',function(e){var d=e.detail||{};if(d.href)window.location.href=d.href;});</script><div id="globalSearchModal" class="page-modal" onclick="if(event.target===this)window.__closeGlobalSearch&&window.__closeGlobalSearch()"><div class="gs-card"><div class="gs-input-row"><input id="gsInput" class="gs-input" type="text" placeholder="Søk i notater, oppgaver, møter, personer, resultater…" autocomplete="off" /><button class="gs-close" onclick="window.__closeGlobalSearch&&window.__closeGlobalSearch()" title="Lukk (Esc)">✕</button></div><div id="gsResults" class="gs-results"></div><div class="gs-hint">↵ åpne første · Esc lukk · Ctrl+K eller / for å søke fra hvor som helst</div></div></div><script>(function(){
-    var modal = document.getElementById('globalSearchModal');
-    var input = document.getElementById('gsInput');
-    var resultsEl = document.getElementById('gsResults');
-    var btn = document.getElementById('navSearchBtn');
-    if(!modal||!input||!resultsEl) return;
-    var debounceTimer = null;
-    var lastQuery = '';
-    var lastResults = [];
-
-    function escapeHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-    function highlight(escaped, q){
-        if(!q) return escaped;
-        var re = new RegExp('('+q.replace(/[.*+?^\${}()|[\\]\\\\]/g,'\\\\$$&')+')','gi');
-        return escaped.replace(re,'<mark>$1</mark>');
-    }
-    var TYPE_META = {
-        note:    { icon:'📝', label:'Notater' },
-        task:    { icon:'✅', label:'Oppgaver' },
-        meeting: { icon:'📅', label:'Møter' },
-        person:  { icon:'👤', label:'Personer' },
-        result:  { icon:'🏁', label:'Resultater' }
+<body><header id="appHeader">${nav}</header><main id="content">${body}</main><person-tip></person-tip><help-modal></help-modal><script>
+// ----- SPA router. Maps URL paths to static HTML fragments under /pages/. -----
+(function(){
+    var ROUTES = {
+        '/': '/pages/home.html',
+        '/editor': '/pages/editor.html',
+        '/tasks': '/pages/tasks.html',
+        '/people': '/pages/people.html',
+        '/results': '/pages/results.html',
+        '/settings': '/pages/settings.html',
+        '/calendar': '/pages/calendar.html'
     };
-    var ORDER = ['note','task','meeting','person','result'];
+    var ROUTE_PATTERNS = [
+        { re: /^\\/editor\\/[^/]+\\/[^/]+\\.md$/, frag: '/pages/editor.html' },
+        { re: /^\\/calendar\\/\\d{4}-W\\d{2}$/, frag: '/pages/calendar.html' }
+    ];
+    var content = document.getElementById('content');
+    if (!content) return;
 
-    function render(data, q){
-        if(!data || data.length === 0){
-            resultsEl.innerHTML = '<p style="color:#718096;font-style:italic">Ingen treff for «' + escapeHtml(q) + '»</p>';
+    function resolveFragment(pathname) {
+        if (Object.prototype.hasOwnProperty.call(ROUTES, pathname)) return ROUTES[pathname];
+        for (var i = 0; i < ROUTE_PATTERNS.length; i++) {
+            if (ROUTE_PATTERNS[i].re.test(pathname)) return ROUTE_PATTERNS[i].frag;
+        }
+        return null; // unknown route -> fall through to full navigation
+    }
+
+    function applyFragment(html, pushPath) {
+        // Extract <title> if present and update document.title.
+        var titleMatch = html.match(/<title>([^<]*)<\\/title>/i);
+        if (titleMatch) {
+            document.title = titleMatch[1];
+            html = html.replace(titleMatch[0], '');
+        }
+        content.innerHTML = html;
+        if (pushPath) {
+            history.pushState({ spa: true }, '', pushPath);
+        }
+        // Notify the rest of the app that content changed.
+        document.dispatchEvent(new CustomEvent('spa:navigated', { detail: { path: location.pathname } }));
+    }
+
+    function navigate(pathname, push) {
+        var frag = resolveFragment(pathname);
+        if (!frag) {
+            // Not a SPA route — let the browser do a full navigation.
+            window.location.href = pathname;
             return;
         }
-        var groups = {};
-        data.forEach(function(r){ (groups[r.type] = groups[r.type] || []).push(r); });
-        var html = '<p style="color:#718096;font-size:0.9em;margin:0 0 8px">' + data.length + ' treff · '
-            + ORDER.filter(function(t){return groups[t];}).map(function(t){return TYPE_META[t].icon + ' ' + groups[t].length;}).join(' · ')
-            + '</p>';
-        ORDER.forEach(function(t){
-            if(!groups[t]) return;
-            var meta = TYPE_META[t];
-            html += '<h3 class="sr-group">' + meta.icon + ' ' + meta.label + ' <span class="sr-count">' + groups[t].length + '</span></h3>';
-            html += groups[t].map(function(r){
-                var snippet = r.snippet ? highlight(escapeHtml(r.snippet), q) : '';
-                return '<a href="' + r.href + '" class="search-result" style="display:block;text-decoration:none">'
-                    + '<div class="sr-title">' + escapeHtml(r.title || '') + '</div>'
-                    + (r.subtitle ? '<div class="sr-path">' + escapeHtml(r.subtitle) + '</div>' : '')
-                    + (snippet ? '<div class="sr-snippet">' + snippet + '</div>' : '')
-                    + '</a>';
-            }).join('');
-        });
-        resultsEl.innerHTML = html;
+        fetch(frag, { headers: { 'Accept': 'text/html' } })
+            .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+            .then(function(html){ applyFragment(html, push ? pathname : null); })
+            .catch(function(){ window.location.href = pathname; });
     }
 
-    function doSearch(q){
-        lastQuery = q;
-        if(!q){ resultsEl.innerHTML=''; lastResults=[]; return; }
-        fetch('/api/search?q=' + encodeURIComponent(q))
-            .then(function(r){ return r.json(); })
-            .then(function(data){
-                if(lastQuery !== q) return; // stale
-                lastResults = Array.isArray(data) ? data : [];
-                render(lastResults, q);
-            })
-            .catch(function(){ resultsEl.innerHTML = '<p style="color:#c53030">Søkefeil</p>'; });
-    }
-
-    function openSearch(prefill){
-        modal.style.display = 'flex';
-        if(typeof prefill === 'string'){ input.value = prefill; }
-        setTimeout(function(){ input.focus(); input.select(); }, 0);
-        var q = input.value.trim();
-        if(q && q !== lastQuery){ doSearch(q); }
-    }
-    function closeSearch(){ modal.style.display = 'none'; }
-    window.__openGlobalSearch  = openSearch;
-    window.__closeGlobalSearch = closeSearch;
-
-    if(btn){
-        btn.addEventListener('click', function(e){ e.preventDefault(); openSearch(); });
-    }
-
-    input.addEventListener('input', function(){
-        clearTimeout(debounceTimer);
-        var q = input.value.trim();
-        if(!q){ resultsEl.innerHTML=''; lastQuery=''; lastResults=[]; return; }
-        debounceTimer = setTimeout(function(){ doSearch(q); }, 200);
+    document.addEventListener('click', function(e){
+        if (e.defaultPrevented) return;
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        var a = e.target.closest && e.target.closest('a[href]');
+        if (!a) return;
+        if (a.target && a.target !== '' && a.target !== '_self') return;
+        var url;
+        try { url = new URL(a.href, location.href); } catch (_) { return; }
+        if (url.origin !== location.origin) return;
+        if (a.hasAttribute('download')) return;
+        if (!resolveFragment(url.pathname)) return;
+        e.preventDefault();
+        navigate(url.pathname + url.search, true);
     });
 
-    input.addEventListener('keydown', function(e){
-        if(e.key === 'Enter'){
-            var first = resultsEl.querySelector('a.search-result');
-            if(first){ e.preventDefault(); window.location.href = first.getAttribute('href'); }
-        } else if(e.key === 'Escape'){
-            e.preventDefault(); closeSearch();
-        }
+    window.addEventListener('popstate', function(){
+        navigate(location.pathname, false);
     });
 
-    document.addEventListener('keydown', function(e){
-        // Ctrl+K / Cmd+K from anywhere
-        if((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'k' || e.key === 'K')){
-            e.preventDefault(); openSearch();
-            return;
+    // Public API: returns true if the path was handled via SPA, false otherwise.
+    window.spaNavigate = function(pathname){
+        try {
+            var u = new URL(pathname, location.origin);
+            if (u.origin !== location.origin) return false;
+            if (!resolveFragment(u.pathname)) return false;
+            navigate(u.pathname + u.search, true);
+            return true;
+        } catch (_) { return false; }
+    };
+
+    // Initial load: if the server returned an empty <content>, hydrate from the route.
+    function hydrate(){
+        if (content.children.length === 0 && content.textContent.trim() === '') {
+            navigate(location.pathname, false);
         }
-        // Esc closes
-        if(e.key === 'Escape' && modal.style.display === 'flex'){
-            e.preventDefault(); closeSearch();
-            return;
-        }
-        // "/" opens, but only when the user isn't typing somewhere
-        if(e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey){
-            var t = e.target;
-            var typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
-            if(!typing){ e.preventDefault(); openSearch(); }
-        }
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', hydrate);
+    } else {
+        hydrate();
+    }
+})();
+
+document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaKey)return;var link=document.querySelector('.nav-links a[data-key="'+e.key.toLowerCase()+'"]');if(link){e.preventDefault();window.location.href=link.href;}});
+
+// ----- Global wiring of component events -----
+(function(){
+    function pad2(n){ return String(n).padStart(2,'0'); }
+    function go(url){ window.location.href = url; }
+
+    // brand-clicked: navigate to the brand's href (via SPA router if possible).
+    document.addEventListener('brand-clicked', function(e){
+        var href = e.detail && e.detail.href;
+        if (!href) return;
+        e.preventDefault();
+        if (window.spaNavigate && window.spaNavigate(href)) return;
+        go(href);
     });
 
-    // Auto-open if navigated here with ?gs=1 (e.g. from editor's Søk button)
-    try {
-        var sp = new URLSearchParams(window.location.search);
-        if(sp.get('gs') === '1'){
-            openSearch();
-            sp.delete('gs');
-            var qs = sp.toString();
-            history.replaceState(null, '', window.location.pathname + (qs ? '?'+qs : '') + window.location.hash);
+    // mention-clicked: resolve id -> person or company URL.
+    document.addEventListener('mention-clicked', function(e){
+        var id = e.detail && e.detail.id;
+        if (!id) return;
+        e.preventDefault();
+        var WN = window.WN;
+        if (!WN) { go('/people'); return; }
+        WN.companies().then(function(companies){
+            var isCompany = (companies || []).some(function(c){ return c.key === id; });
+            if (isCompany) go('/people#tab=companies&key=' + encodeURIComponent(id));
+            else go('/people#' + encodeURIComponent(id));
+        }).catch(function(){ go('/people'); });
+    });
+
+    // week-clicked: navigate to that ISO week in the calendar.
+    document.addEventListener('week-clicked', function(e){
+        var d = e.detail || {};
+        if (!d.year || !d.weekNumber) return;
+        e.preventDefault();
+        go('/calendar/' + d.year + '-W' + pad2(d.weekNumber));
+    });
+
+    // Note actions. <week-section> emits "note:*"; bare <note-card>s emit unprefixed.
+    function splitFp(detail){
+        var fp = (detail && detail.filePath) || '';
+        var i = fp.indexOf('/');
+        if (i < 0) return null;
+        return { week: fp.slice(0, i), fileEnc: fp.slice(i + 1) };
+    }
+    function handleView(e){
+        var p = splitFp(e.detail); if (!p) return;
+        e.preventDefault();
+        if (typeof window.openNoteViewModal === 'function') window.openNoteViewModal(p.week, p.fileEnc);
+        else go('/note/' + p.week + '/' + p.fileEnc);
+    }
+    function handlePresent(e){
+        var p = splitFp(e.detail); if (!p) return;
+        e.preventDefault();
+        if (typeof window.openPresentation === 'function') window.openPresentation(p.week, p.fileEnc);
+        else window.open('/present/' + p.week + '/' + p.fileEnc + '?fs=1', '_blank');
+    }
+    function handleEdit(e){
+        var p = splitFp(e.detail); if (!p) return;
+        e.preventDefault();
+        go('/editor/' + p.week + '/' + p.fileEnc);
+    }
+    function handleDelete(e){
+        var p = splitFp(e.detail); if (!p) return;
+        e.preventDefault();
+        var name = decodeURIComponent(p.fileEnc).replace(/\.md$/, '');
+        if (typeof window.deleteNoteFromHome === 'function') window.deleteNoteFromHome(p.week, p.fileEnc, name);
+    }
+    document.addEventListener('view', handleView);
+    document.addEventListener('present', handlePresent);
+    document.addEventListener('delete', handleDelete);
+    document.addEventListener('note:view', handleView);
+    document.addEventListener('note:present', handlePresent);
+    document.addEventListener('note:edit', handleEdit);
+
+    // element-selected from <global-search>: route to the right URL by type.
+    document.addEventListener('element-selected', function(e){
+        var d = e.detail || {};
+        var t = d.type, id = d.identifier || '';
+        if (!t) return;
+        e.preventDefault();
+        if (typeof window.__closeGlobalSearch === 'function') window.__closeGlobalSearch();
+        if (t === 'note') {
+            var i = id.indexOf('/');
+            if (i < 0) return;
+            var week = id.slice(0, i), fileEnc = id.slice(i + 1);
+            if (typeof window.openNoteViewModal === 'function') window.openNoteViewModal(week, fileEnc);
+            else go('/note/' + week + '/' + fileEnc);
+        } else if (t === 'meeting') {
+            // identifier is meeting id; we don't know the week here, so defer to /api/meetings? Keep simple: jump to calendar list.
+            go('/calendar#m-' + encodeURIComponent(id));
+        } else if (t === 'person') {
+            var WN = window.WN;
+            if (!WN) { go('/people#' + encodeURIComponent(id)); return; }
+            WN.companies().then(function(companies){
+                var isCompany = (companies || []).some(function(c){ return c.key === id; });
+                if (isCompany) go('/people#tab=companies&key=' + encodeURIComponent(id));
+                else go('/people#' + encodeURIComponent(id));
+            }).catch(function(){ go('/people#' + encodeURIComponent(id)); });
+        } else if (t === 'task') {
+            go('/tasks#t-' + encodeURIComponent(id));
+        } else if (t === 'result') {
+            go('/results#r-' + encodeURIComponent(id));
         }
-    } catch(_){}
-})();</script></body>
+    });
+})();
+</script>
+<script type="module" src="/components/_shared.js"></script>
+<script type="module" src="/components/nav-meta.js"></script>
+<script type="module" src="/components/nav-button.js"></script>
+<script type="module" src="/components/ctx-switcher.js"></script>
+<script type="module" src="/components/markdown-preview.js"></script>
+<script type="module" src="/components/help-modal.js"></script>
+<script type="module" src="/components/person-tip.js"></script>
+<script type="module" src="/components/note-card.js"></script>
+<script type="module" src="/components/note-editor.js"></script>
+<script type="module" src="/components/open-tasks.js"></script>
+<script type="module" src="/components/task-create.js"></script>
+<script type="module" src="/components/upcoming-meetings.js"></script>
+<script type="module" src="/components/week-results.js"></script>
+<script type="module" src="/components/task-completed.js"></script>
+<script type="module" src="/components/week-section.js"></script>
+<script type="module" src="/components/week-list.js"></script>
+<script type="module" src="/components/week-pill.js"></script>
+<script type="module" src="/components/global-search.js"></script>
+<script type="module" src="/components/week-calendar.js"></script>
+<script type="module" src="/components/week-notes-calendar.js"></script>
+<script type="module" src="/components/settings-page.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</body>
 </html>`;
 }
 
@@ -1908,646 +1854,6 @@ function presentationPageHtml(week, file, content, style) {
 </html>`;
 }
 
-function editorPageHtml(week, file, content) {
-    const isNew = !week && !file;
-    const title = isNew ? 'Nytt notat' : `Rediger ${file}`;
-    const currentWeek = getCurrentYearWeek();
-    const defaultWeek = week || currentWeek;
-
-    return `<!DOCTYPE html>
-<html lang="no">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>${title}</title>
-    <link id="themeStylesheet" rel="stylesheet" href="/themes/${getActiveTheme()}.css">
-    <script defer src="/components/nav-meta.js"></script>
-    <script defer src="/components/app-navbar.js"></script>
-    <script defer src="/components/ctx-switcher.js"></script>
-    <script defer src="/components/help-modal.js"></script>
-    <script defer src="/components/person-tip.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: var(--font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif); font-size: var(--font-size, 16px); color: var(--text-strong); height: 100vh; display: flex; flex-direction: column; background: var(--bg); }
-        input, textarea, select, button { font-family: inherit; font-size: inherit; }
-
-        /* Navbar slotted content (shell is in <app-navbar> shadow DOM) */
-        .nav-brand { color: var(--accent); font-family: Georgia, "Times New Roman", serif; font-weight: 700; font-size: 1.1em; text-decoration: none; letter-spacing: -0.01em; }
-        .nav-brand:hover { color: var(--accent-strong); }
-        .nav-links { display: flex; gap: 4px; }
-        .nav-links a { color: var(--text); opacity: 0.65; text-decoration: none; padding: 6px 10px; border-radius: 4px; font-size: 0.9em; display: inline-flex; align-items: center; gap: 6px; transition: opacity 0.15s, background 0.15s; }
-        .nav-links a:hover { opacity: 1; background: var(--surface-alt); color: var(--accent); }
-        .nav-links kbd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.72em; background: var(--surface-alt); color: var(--text-muted-warm); border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px; letter-spacing: 0.02em; opacity: 0.85; }
-
-        /* Context switcher */
-        .ctx-switcher { position: relative; }
-        .ctx-trigger { display: inline-flex; align-items: center; gap: 8px; background: var(--surface-alt); border: 1px solid var(--border); color: var(--accent); font-family: inherit; font-size: 0.9em; padding: 5px 10px; border-radius: 6px; cursor: pointer; transition: background 0.15s; }
-        .ctx-trigger:hover { background: var(--border-soft); }
-        .ctx-icon { font-size: 1.05em; line-height: 1; display: inline-block; flex-shrink: 0; }
-        .ctx-name { font-weight: 600; }
-        .ctx-caret { font-size: 0.75em; opacity: 0.6; }
-        .ctx-menu { display: none; position: absolute; top: calc(100% + 6px); left: 0; min-width: 220px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); padding: 6px; z-index: 1000; }
-        .ctx-switcher.open .ctx-menu { display: block; }
-        .ctx-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 4px; cursor: pointer; background: none; border: none; width: 100%; text-align: left; font-family: inherit; font-size: 0.9em; color: var(--accent); text-decoration: none; }
-        .ctx-item:hover { background: var(--surface-alt); }
-        .ctx-item.active { background: var(--accent-soft); font-weight: 600; }
-        .ctx-sep { height: 1px; background: var(--border-soft); margin: 4px 0; }
-        .ctx-link { color: var(--accent); }
-
-        /* Toolbar – two logical groups in one row */
-        .toolbar { display: flex; align-items: center; gap: 0; padding: 0; background: var(--surface-head); color: var(--text); flex-shrink: 0; border-bottom: 1px solid var(--border-soft); overflow: hidden; }
-        .tb-left { display: flex; align-items: center; gap: 8px; padding: 8px 16px; flex: 1; min-width: 0; border-right: 1px solid var(--border-soft); }
-        .tb-right { display: flex; align-items: center; gap: 6px; padding: 8px 16px; flex-shrink: 0; }
-        .toolbar .crumb { font-family: Georgia, "Times New Roman", serif; font-style: italic; color: var(--text-muted-warm); font-size: 0.9em; white-space: nowrap; flex-shrink: 0; }
-        .toolbar select, .toolbar input[type="text"] { padding: 5px 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 0.88em; background: var(--surface); color: var(--text); font-family: inherit; }
-        .toolbar input[type="text"] { flex: 1; min-width: 120px; max-width: 240px; }
-        .toolbar input[type="text"]:focus, .toolbar select:focus { outline: none; border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 2px var(--accent-soft); }
-        .toolbar button { padding: 5px 11px; border: 1px solid var(--border); border-radius: 4px; font-size: 0.85em; cursor: pointer; font-weight: 500; background: var(--surface); color: var(--text); display: inline-flex; align-items: center; gap: 5px; transition: background 0.12s, border-color 0.12s, color 0.12s; line-height: 1.2; white-space: nowrap; }
-        .toolbar button:hover { background: var(--surface-alt); border-color: var(--border); color: var(--accent); }
-        .toolbar button:active { background: var(--border-soft); }
-        .toolbar button:disabled { opacity: 0.4; cursor: not-allowed; }
-        .toolbar button kbd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.72em; background: rgba(0,0,0,0.05); color: var(--text-subtle); border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px; font-weight: normal; margin-left: 1px; }
-        .btn-save { background: var(--accent) !important; color: var(--text-on-accent, #fff) !important; border-color: var(--accent) !important; font-weight: 600 !important; }
-        .btn-save:hover { background: var(--accent-strong) !important; border-color: var(--accent-strong) !important; }
-        .btn-save kbd { background: rgba(255,255,255,0.15) !important; color: rgba(255,255,255,0.8) !important; border-color: rgba(255,255,255,0.2) !important; }
-        .btn-save-close { background: transparent !important; color: var(--accent) !important; border-color: var(--accent) !important; font-weight: 500 !important; }
-        .btn-save-close:hover { background: var(--accent-soft) !important; }
-        .btn-danger:hover { color: #c53030 !important; border-color: #f5b7b7 !important; background: #fff5f5 !important; }
-        .tb-sep { width: 1px; height: 20px; background: var(--border); margin: 0 2px; flex-shrink: 0; }
-        .status { font-size: 0.82em; color: var(--text-subtle); font-style: italic; margin-left: 6px; white-space: nowrap; }
-
-        /* Split pane */
-        .editor-wrap { display: flex; flex: 1; min-height: 0; padding: 12px; gap: 12px; background: var(--bg); }
-        .pane { flex: 1; display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-        .pane-header { padding: 5px 14px; background: var(--surface-head); font-size: 0.78em; font-weight: 700; color: var(--text-muted-warm); border-bottom: 1px solid var(--border-soft); flex-shrink: 0; display: flex; align-items: center; gap: 8px; letter-spacing: 0.05em; text-transform: uppercase; }
-        .editor-wrap textarea { flex: 1; width: 100%; border: none; resize: none; padding: 18px 22px 20vh; font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace; font-size: 0.93em; line-height: 1.65; outline: none; tab-size: 4; background: var(--surface); color: var(--text); }
-        .divider { width: 3px; background: var(--border-soft); cursor: col-resize; flex-shrink: 0; border-radius: 3px; transition: background 0.15s; align-self: stretch; margin: 0; }
-        .divider:hover, .divider.dragging { background: var(--accent); }
-
-        /* Preview pane */
-        .preview { flex: 1; overflow-y: auto; padding: 22px 28px; background: var(--surface); color: var(--text); font-size: 0.95em; line-height: 1.75; }
-        .preview table { border-collapse: collapse; width: 100%; margin: 16px 0; }
-        .preview th, .preview td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
-        .preview th { background: var(--accent); color: var(--surface); font-size: 0.85em; font-weight: 600; }
-        .preview td { background: var(--surface); }
-        .preview tr:nth-child(even) td { background: var(--surface-head); }
-        .preview blockquote { background: var(--surface-alt); border-left: 3px solid var(--accent); margin: 16px 0; padding: 12px 16px; color: var(--text-muted); border-radius: 0 4px 4px 0; }
-        .preview code { background: var(--surface-alt); color: var(--text-muted-warm); padding: 2px 6px; border-radius: 3px; font-size: 0.88em; font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace; border: 1px solid var(--border-soft); }
-        .preview pre { background: #1e2433; color: #e2e8f0; padding: 16px; border-radius: 6px; overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace; line-height: 1.5; }
-        .preview pre code { background: none; color: inherit; padding: 0; border: none; font-size: 0.9em; }
-        .preview h1 { font-family: Georgia, "Times New Roman", serif; color: var(--accent); font-weight: 400; margin: 24px 0 10px; letter-spacing: -0.01em; border-bottom: 1px solid var(--border-soft); padding-bottom: 6px; font-size: 1.6em; }
-        .preview h2 { font-family: Georgia, "Times New Roman", serif; color: var(--accent); font-weight: 400; margin: 20px 0 8px; font-size: 1.25em; }
-        .preview h3 { color: var(--text-strong); font-weight: 600; margin: 16px 0 6px; font-size: 1.05em; }
-        .preview p { margin: 0 0 12px; }
-        .preview a { color: var(--accent); text-decoration: none; border-bottom: 1px dashed var(--border); }
-        .preview a:hover { border-bottom-color: var(--accent); }
-        .preview strong { color: var(--text-strong); font-weight: 700; }
-        .preview em { color: var(--text-muted); }
-        .preview hr { border: none; border-top: 1px solid var(--border-soft); margin: 24px 0; }
-        .preview ul, .preview ol { margin: 0 0 12px 22px; }
-        .preview li { margin: 4px 0; }
-        .preview li::marker { color: var(--accent); }
-        .preview img { border-radius: 6px; border: 1px solid var(--border-soft); max-width: 100%; }
-
-        /* Help button */
-        .help-btn { background: var(--surface); border: 1px solid var(--border); color: var(--text-subtle); font-size: 0.78em; padding: 2px 8px; border-radius: 4px; cursor: pointer; margin-left: auto; font-weight: normal; }
-        .help-btn:hover { background: var(--surface-alt); color: var(--accent); border-color: var(--border); }
-
-        /* Presentation help panel */
-        .pres-help { display: none; flex-shrink: 0; background: var(--surface-head); border-top: 1px solid var(--border-soft); padding: 14px 18px; font-size: 0.82em; color: var(--text); line-height: 1.55; max-height: 38vh; overflow-y: auto; }
-        body.is-presentation .pres-help { display: block; }
-        .pres-help h4 { font-family: Georgia, "Times New Roman", serif; font-style: italic; font-weight: 400; color: var(--accent); font-size: 1em; margin: 0 0 10px; padding-bottom: 4px; border-bottom: 1px solid var(--border-soft); }
-        .pres-help h5 { font-family: Georgia, "Times New Roman", serif; font-style: italic; font-weight: 400; color: var(--accent); font-size: 0.92em; margin: 14px 0 6px; opacity: 0.8; }
-        .pres-help dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; }
-        .pres-help dt { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--accent); white-space: nowrap; }
-        .pres-help dt code { background: var(--surface); border: 1px solid var(--border-soft); padding: 1px 6px; border-radius: 3px; font-size: 0.95em; }
-        .pres-help dd { margin: 0; color: var(--text-muted-warm); }
-        .pres-help code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; background: var(--surface); border: 1px solid var(--border-soft); padding: 1px 6px; border-radius: 3px; color: var(--accent); font-size: 0.92em; }
-        .pres-help pre { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 4px; padding: 8px 10px; margin: 4px 0; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 0.85em; color: var(--text); line-height: 1.4; overflow-x: auto; white-space: pre; }
-        .pres-help a { color: var(--accent); }
-        .pres-style-select { display: none; }
-        body.is-presentation .pres-style-select { display: inline-block; }
-
-        /* Modals */
-        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
-        .modal-overlay.open { display: flex; }
-        .modal { background: var(--surface); border-radius: 8px; width: min(700px, 90vw); max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3); border: 1px solid var(--border); }
-        .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; background: var(--accent); color: var(--surface); border-radius: 8px 8px 0 0; position: sticky; top: 0; }
-        .modal-head h2 { font-size: 1.1em; margin: 0; font-family: Georgia, "Times New Roman", serif; font-weight: 400; }
-        .modal-close { background: none; border: none; color: var(--surface); font-size: 1.4em; cursor: pointer; padding: 0 4px; opacity: 0.8; }
-        .modal-close:hover { opacity: 1; }
-        .modal-body { padding: 20px; }
-        .modal-body table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
-        .modal-body th { text-align: left; background: var(--accent); color: var(--surface); padding: 8px 12px; font-size: 0.85em; }
-        .modal-body td { padding: 8px 12px; border-bottom: 1px solid var(--border-soft); font-size: 0.9em; vertical-align: top; }
-        .modal-body td:first-child { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; background: var(--surface-alt); width: 50%; }
-        .modal-body h3 { font-size: 0.95em; color: var(--accent); margin: 18px 0 8px; font-family: Georgia, serif; font-weight: 400; }
-        .modal-body h3:first-child { margin-top: 0; }
-        .modal-body kbd { background: var(--surface-alt); border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px; font-size: 0.85em; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
-    </style>
-</head>
-<body>
-    ${navbarHtml()}
-    <div class="toolbar">
-        <div class="tb-left">
-            <span class="crumb">📁 ${defaultWeek}/</span>
-            <select id="noteType">
-                <option value="note">📝 Notat</option>
-                <option value="meeting">🤝 Møte</option>
-                <option value="task">🎯 Oppgave</option>
-                <option value="presentation">🎤 Presentasjon</option>
-                <option value="other">📌 Annet</option>
-            </select>
-            <select id="presStyle" class="pres-style-select" title="Presentasjonsstil">
-                <option value="paper">🌾 Papir</option>
-                <option value="noir">🌙 Noir</option>
-                <option value="klassisk">📜 Klassisk</option>
-                <option value="levende">🌈 Levende</option>
-                <option value="minimal">⬜ Minimal</option>
-                <option value="matrix">🟢 Matrix</option>
-                <option value="nav">🟥 NAV</option>
-            </select>
-            <input type="text" id="fileName" placeholder="filnavn.md" value="${file || ''}" />
-        </div>
-        <div class="tb-right">
-            <button class="btn-save" id="saveBtn" onclick="save()">💾 Lagre <kbd>Ctrl+S</kbd></button>
-            <button id="saveCloseBtn" class="btn-save-close" onclick="saveAndClose()">Lagre &amp; lukk <kbd>Ctrl+⇧+S</kbd></button>
-            <span class="tb-sep"></span>
-            <button onclick="openTaskModal()">☑️ Ny oppgave</button>
-            ${isNew ? '' : `<button onclick="window.open('/present/${week}/${encodeURIComponent(file)}','_blank')">🎤 Presenter</button>`}
-            ${isNew ? '' : '<button id="pinBtn" onclick="togglePin()">📌 Fest</button>'}
-            ${isNew ? '' : '<button onclick="showMeta()">ℹ️ Info</button>'}
-            ${isNew ? '' : '<button class="btn-danger" onclick="deleteNote()">🗑️ Slett</button>'}
-            <span class="status" id="status"></span>
-        </div>
-    </div>
-    <div class="editor-wrap">
-        <div class="pane">
-            <div class="pane-header">✏️ Markdown <button class="help-btn" onclick="document.getElementById('mdHelpModal').classList.add('open')" title="Markdown-hjelp (F1)">❓ Hjelp</button></div>
-            <textarea id="editor" spellcheck="true" placeholder="Skriv markdown her..." autofocus>${escapeHtml(content || '')}</textarea>
-            <div class="pres-help">
-                <h4>🎤 Reveal.js – presentasjons-syntaks</h4>
-                <dl>
-                    <dt><code>---</code></dt><dd>Nytt lysbilde (egen linje)</dd>
-                    <dt><code>--</code></dt><dd>Vertikalt undertema</dd>
-                    <dt><code>Note: …</code></dt><dd>Talenotat (vises med <code>S</code>)</dd>
-                    <dt><code># Tittel</code></dt><dd>Hovedoverskrift på lysbildet</dd>
-                    <dt><code>## Undertittel</code></dt><dd>Underoverskrift</dd>
-                    <dt><code>&gt; sitat</code></dt><dd>Blokksitat</dd>
-                    <dt><code>\`kode\`</code></dt><dd>Inline kode</dd>
-                </dl>
-                <h5>Eksempel</h5>
-                <pre># Velkommen
-Et innledende lysbilde
-
----
-
-## Agenda
-- Punkt 1
-- Punkt 2
-
---
-
-### Detalj
-Vertikalt under-lysbilde
-
-Note: Husk å nevne tidsplanen.
-
----
-
-## Takk!</pre>
-                <h5>Snarveier under presentasjon</h5>
-                <dl>
-                    <dt><code>F</code></dt><dd>Fullskjerm</dd>
-                    <dt><code>S</code></dt><dd>Talenotater</dd>
-                    <dt><code>Esc</code> / <code>O</code></dt><dd>Oversikt over lysbilder</dd>
-                    <dt><code>B</code></dt><dd>Sort skjerm (pause)</dd>
-                    <dt><code>?</code></dt><dd>Vis alle snarveier</dd>
-                </dl>
-                <p style="margin-top:10px"><a href="https://revealjs.com/markdown/" target="_blank">📖 Full reveal.js-dokumentasjon →</a></p>
-            </div>
-        </div>
-        <div class="divider" id="divider"></div>
-        <div class="pane">
-            <div class="pane-header">👁️ Forhåndsvisning</div>
-            <div class="preview" id="preview"></div>
-        </div>
-    </div>
-    <script>
-        const editor = document.getElementById('editor');
-        const preview = document.getElementById('preview');
-        const fileName = document.getElementById('fileName');
-        const status = document.getElementById('status');
-        const saveBtn = document.getElementById('saveBtn');
-        const noteType = document.getElementById('noteType');
-        const currentFolder = '${defaultWeek}';
-        const presStyle = document.getElementById('presStyle');
-
-        // Parse type from metadata
-        noteType.value = '${(content && file) ? (getNoteMeta(week, file).type || 'note') : 'note'}';
-        presStyle.value = '${(content && file) ? (getNoteMeta(week, file).presentationStyle || 'paper') : 'paper'}';
-        const PRESENTATION_TEMPLATE = [
-            '# Tittel på presentasjonen',
-            '',
-            'Kort undertittel eller intro',
-            '',
-            '---',
-            '',
-            '## Agenda',
-            '',
-            '- Punkt 1',
-            '- Punkt 2',
-            '- Punkt 3',
-            '',
-            '---',
-            '',
-            '## Hovedinnhold',
-            '',
-            'Skriv innholdet her.',
-            '',
-            '> Et viktig sitat eller poeng',
-            '',
-            'Note: Talenotat – synlig med tasten S under presentasjonen.',
-            '',
-            '--',
-            '',
-            '### Detalj',
-            '',
-            'Vertikalt under-lysbilde med mer detaljer.',
-            '',
-            '---',
-            '',
-            '## Takk for oppmerksomheten 🎤',
-            '',
-            'Spørsmål?',
-            ''
-        ].join('\\n');
-        function updatePresHelp() {
-            const isPres = noteType.value === 'presentation';
-            document.body.classList.toggle('is-presentation', isPres);
-            if (isPres && editor.value.trim() === '') {
-                editor.value = PRESENTATION_TEMPLATE;
-                render();
-                editor.selectionStart = editor.selectionEnd = 0;
-            }
-        }
-        updatePresHelp();
-        noteType.addEventListener('change', updatePresHelp);
-
-        function syncScroll() {
-            var maxScroll = editor.scrollHeight - editor.clientHeight;
-            var scrollPct = maxScroll > 0 ? Math.min(editor.scrollTop / (maxScroll - editor.clientHeight * 0.2), 1) : 0;
-            preview.scrollTop = scrollPct * (preview.scrollHeight - preview.clientHeight);
-        }
-        function render() {
-            preview.innerHTML = marked.parse(editor.value, { breaks: true });
-            syncScroll();
-        }
-        editor.addEventListener('input', render);
-        editor.addEventListener('scroll', syncScroll);
-        render();
-        editor.selectionStart = editor.selectionEnd = editor.value.length;
-
-        // Tab key inserts spaces
-        editor.addEventListener('keydown', function(e) {
-            if (e.key === 'Tab') {
-                e.preventDefault();
-                const start = this.selectionStart;
-                const end = this.selectionEnd;
-                this.value = this.value.substring(0, start) + '    ' + this.value.substring(end);
-                this.selectionStart = this.selectionEnd = start + 4;
-                render();
-            }
-            // Ctrl+S / Cmd+S to save, Ctrl+Shift+S / Cmd+Shift+S to save & close
-            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
-                e.preventDefault();
-                if (e.shiftKey) { saveAndClose(); } else { save(); }
-            }
-            // Alt+D inserts current date
-            if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'd') {
-                e.preventDefault();
-                var now = new Date();
-                var ds = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
-                var start = editor.selectionStart, end = editor.selectionEnd;
-                editor.value = editor.value.substring(0, start) + ds + editor.value.substring(end);
-                editor.selectionStart = editor.selectionEnd = start + ds.length;
-                render();
-            }
-        });
-
-        // Draggable divider
-        const divider = document.getElementById('divider');
-        const editorWrap = document.querySelector('.editor-wrap');
-        let dragging = false;
-        divider.addEventListener('mousedown', () => { dragging = true; divider.classList.add('dragging'); document.body.style.cursor = 'col-resize'; });
-        document.addEventListener('mousemove', (e) => {
-            if (!dragging) return;
-            const panes = editorWrap.querySelectorAll('.pane');
-            const rect = editorWrap.getBoundingClientRect();
-            const pct = ((e.clientX - rect.left) / rect.width) * 100;
-            if (pct > 20 && pct < 80) {
-                panes[0].style.flex = 'none';
-                panes[0].style.width = pct + '%';
-                panes[1].style.flex = '1';
-            }
-        });
-        document.addEventListener('mouseup', () => { dragging = false; divider.classList.remove('dragging'); document.body.style.cursor = ''; });
-
-        async function save(autosave = false) {
-            let file = fileName.value.trim();
-            let autoNamed = false;
-            if (!file) {
-                const headingMatch = editor.value.match(/^#+ +(.+)/m);
-                if (headingMatch) {
-                    file = headingMatch[1].trim().replace(/[^a-zA-Z0-9æøåÆØÅ _-]/g, '').replace(/\\s+/g, '-').substring(0, 80);
-                } else {
-                    const now = new Date();
-                    const dd = String(now.getDate()).padStart(2, '0');
-                    const mm = String(now.getMonth() + 1).padStart(2, '0');
-                    const yyyy = now.getFullYear();
-                    file = yyyy + '-' + mm + '-' + dd;
-                }
-                autoNamed = true;
-            }
-            const finalFile = file.endsWith('.md') ? file : file + '.md';
-
-            saveBtn.disabled = true;
-            status.textContent = '⏳ Lagrer...';
-            try {
-                const resp = await fetch('/api/save', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ folder: currentFolder, file: finalFile, content: editor.value, append: autoNamed, type: noteType.value, presentationStyle: presStyle.value, autosave })
-                });
-                const data = await resp.json();
-                if (resp.ok) {
-                    status.textContent = '✅ Lagret!';
-                    lastSaved = editor.value;
-                    history.replaceState(null, '', '/editor/' + currentFolder + '/' + encodeURIComponent(finalFile));
-                    fileName.value = finalFile;
-                    saveBtn.disabled = false;
-                    return true;
-                } else {
-                    status.textContent = '❌ ' + (data.error || 'Feil ved lagring');
-                }
-            } catch (e) {
-                status.textContent = '❌ Nettverksfeil';
-            }
-            saveBtn.disabled = false;
-            return false;
-        }
-
-        async function saveAndClose() {
-            const ok = await save();
-            if (ok) window.location.href = '/';
-        }
-
-        async function deleteNote() {
-            var file = fileName.value.trim();
-            if (!file) return;
-            if (!confirm('Er du sikker på at du vil slette ' + file + '?')) return;
-            var resp = await fetch('/api/notes/' + currentFolder + '/' + encodeURIComponent(file), { method: 'DELETE' });
-            if (resp.ok) { window.location.href = '/'; }
-            else { status.textContent = '❌ Kunne ikke slette'; }
-        }
-
-        async function togglePin() {
-            var file = fileName.value.trim();
-            if (!file) return;
-            var resp = await fetch('/api/notes/' + currentFolder + '/' + encodeURIComponent(file) + '/pin', { method: 'PUT' });
-            if (resp.ok) {
-                var data = await resp.json();
-                document.getElementById('pinBtn').textContent = data.pinned ? '📌 Festet' : '📌 Fest';
-                status.textContent = data.pinned ? '📌 Festet!' : 'Fjernet fra festet';
-            }
-        }
-
-        async function showMeta() {
-            var file = fileName.value.trim();
-            if (!file) return;
-            var resp = await fetch('/api/notes/' + currentFolder + '/' + encodeURIComponent(file) + '/meta');
-            if (!resp.ok) { status.textContent = '❌ Kunne ikke hente info'; return; }
-            var meta = await resp.json();
-            var typeLabels = { note: '📝 Notat', meeting: '🤝 Møte', task: '🎯 Oppgave', other: '📌 Annet' };
-            var body = '<table>';
-            body += '<tr><th>Egenskap</th><th>Verdi</th></tr>';
-            body += '<tr><td>Type</td><td>' + (typeLabels[meta.type] || '📄 Ukjent') + '</td></tr>';
-            body += '<tr><td>Opprettet</td><td>' + (meta.created ? meta.created.slice(0, 16).replace('T', ' ') : '—') + '</td></tr>';
-            body += '<tr><td>Sist endret</td><td>' + (meta.modified ? meta.modified.slice(0, 16).replace('T', ' ') : '—') + '</td></tr>';
-            body += '<tr><td>Festet</td><td>' + (meta.pinned ? '✅ Ja' : 'Nei') + '</td></tr>';
-            body += '<tr><td>Antall lagringer</td><td>' + (meta.saves ? meta.saves.length : 0) + '</td></tr>';
-            if (meta.saves && meta.saves.length > 0) {
-                body += '<tr><td colspan="2" style="padding-top:12px"><strong>Lagringshistorikk</strong></td></tr>';
-                meta.saves.slice().reverse().forEach(function(s, i) {
-                    body += '<tr><td style="color:#718096">#' + (meta.saves.length - i) + '</td><td>' + s.slice(0, 16).replace('T', ' ') + '</td></tr>';
-                });
-            }
-            body += '</table>';
-            document.querySelector('#metaModal .modal-body').innerHTML = body;
-            document.getElementById('metaModal').classList.add('open');
-        }
-
-        // Autosave every 30 seconds if content changed and file has a name
-        let lastSaved = editor.value;
-        window.addEventListener('beforeunload', function(e) {
-            if (editor.value !== lastSaved) { e.preventDefault(); }
-        });
-        setInterval(() => {
-            if (fileName.value.trim() && editor.value !== lastSaved) {
-                lastSaved = editor.value;
-                save(true).then(() => {});
-            }
-        }, 30000);
-    </script>
-    <script src="/mention-autocomplete.js"></script>
-    <script>initMentionAutocomplete(document.getElementById('editor'));</script>
-    <div class="modal-overlay" id="metaModal">
-        <div class="modal" style="width:min(500px,90vw)">
-            <div class="modal-head" style="background:var(--text-muted)">
-                <h2>ℹ️ Notatinfo</h2>
-                <button class="modal-close" onclick="document.getElementById('metaModal').classList.remove('open')" title="Lukk (Esc)">&times;</button>
-            </div>
-            <div class="modal-body"></div>
-        </div>
-    </div>
-    <script>
-        (function() {
-            var mm = document.getElementById('metaModal');
-            mm.addEventListener('click', function(e) { if (e.target === mm) mm.classList.remove('open'); });
-            document.addEventListener('keydown', function(e) {
-                if (e.key === 'Escape' && mm.classList.contains('open')) mm.classList.remove('open');
-            });
-        })();
-    </script>
-    <div class="modal-overlay" id="taskModal">
-        <div class="modal" style="width:min(500px,90vw)">
-            <div class="modal-head" style="background:#553c9a">
-                <h2>☑️ Ny oppgave</h2>
-                <button class="modal-close" onclick="closeTaskModal()" title="Lukk (Esc)">&times;</button>
-            </div>
-            <div class="modal-body" style="padding:20px">
-                <label style="display:block;font-weight:600;margin-bottom:8px;font-size:0.9em;color:var(--text-muted)">Oppgavetekst</label>
-                <input type="text" id="taskInput" placeholder="Beskriv oppgaven..." style="width:100%;padding:10px 12px;border:1px solid var(--border-soft);border-radius:6px;font-size:0.95em;outline:none;box-sizing:border-box" />
-                <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
-                    <button onclick="closeTaskModal()" style="padding:8px 16px;border:1px solid var(--border-soft);border-radius:6px;background:white;cursor:pointer;font-size:0.9em">Avbryt</button>
-                    <button id="taskSubmitBtn" onclick="submitTask()" style="padding:8px 20px;border:none;border-radius:6px;background:#805ad5;color:white;cursor:pointer;font-weight:600;font-size:0.9em">Opprett</button>
-                </div>
-                <div id="taskStatus" style="margin-top:10px;font-size:0.85em;color:#48bb78"></div>
-            </div>
-        </div>
-    </div>
-    <script>
-        var _savedCursorStart = null, _savedCursorEnd = null;
-        function openTaskModal() {
-            var ed = document.getElementById('editor');
-            _savedCursorStart = ed ? ed.selectionStart : null;
-            _savedCursorEnd   = ed ? ed.selectionEnd   : null;
-            document.getElementById('taskModal').classList.add('open');
-            document.getElementById('taskInput').focus();
-        }
-        function closeTaskModal() {
-            document.getElementById('taskModal').classList.remove('open');
-            var ed = document.getElementById('editor');
-            if (ed && _savedCursorStart !== null) {
-                ed.focus();
-                ed.selectionStart = _savedCursorStart;
-                ed.selectionEnd   = _savedCursorEnd;
-            }
-        }
-        (function() {
-            var tm = document.getElementById('taskModal');
-            var ti = document.getElementById('taskInput');
-            tm.addEventListener('click', function(e) { if (e.target === tm) closeTaskModal(); });
-            ti.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter') { e.preventDefault(); submitTask(); }
-            });
-            document.addEventListener('keydown', function(e) {
-                if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 't') {
-                    e.preventDefault();
-                    openTaskModal();
-                }
-                if (e.key === 'Escape' && tm.classList.contains('open')) { closeTaskModal(); }
-            });
-        })();
-        async function submitTask() {
-            var ti = document.getElementById('taskInput');
-            var ts = document.getElementById('taskStatus');
-            var text = ti.value.trim();
-            if (!text) { ti.focus(); return; }
-            document.getElementById('taskSubmitBtn').disabled = true;
-            ts.textContent = '⏳ Oppretter...';
-            try {
-                var resp = await fetch('/api/tasks', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: text })
-                });
-                if (resp.ok) {
-                    ts.style.color = '#48bb78';
-                    ts.textContent = '✅ Oppgave opprettet!';
-                    ti.value = '';
-                    setTimeout(function() {
-                        closeTaskModal();
-                        ts.textContent = '';
-                    }, 1000);
-                } else {
-                    ts.style.color = '#e53e3e';
-                    ts.textContent = '❌ Feil ved opprettelse';
-                }
-            } catch(e) {
-                ts.style.color = '#e53e3e';
-                ts.textContent = '❌ Nettverksfeil';
-            }
-            document.getElementById('taskSubmitBtn').disabled = false;
-        }
-    </script>
-    <div class="modal-overlay" id="mdHelpModal">
-        <div class="modal">
-            <div class="modal-head">
-                <h2>📖 Markdown-hjelp</h2>
-                <button class="modal-close" onclick="document.getElementById('mdHelpModal').classList.remove('open')" title="Lukk (Esc)">&times;</button>
-            </div>
-            <div class="modal-body">
-                <h3>Overskrifter</h3>
-                <table><tr><th>Skriv dette</th><th>Resultat</th></tr>
-                <tr><td># Overskrift 1</td><td><strong style="font-size:1.4em">Overskrift 1</strong></td></tr>
-                <tr><td>## Overskrift 2</td><td><strong style="font-size:1.2em">Overskrift 2</strong></td></tr>
-                <tr><td>### Overskrift 3</td><td><strong style="font-size:1.05em">Overskrift 3</strong></td></tr>
-                </table>
-
-                <h3>Tekstformatering</h3>
-                <table><tr><th>Skriv dette</th><th>Resultat</th></tr>
-                <tr><td>**fet tekst**</td><td><strong>fet tekst</strong></td></tr>
-                <tr><td>*kursiv tekst*</td><td><em>kursiv tekst</em></td></tr>
-                <tr><td>~~gjennomstreking~~</td><td><s>gjennomstreking</s></td></tr>
-                <tr><td>\`inline kode\`</td><td><code style="background:#f5efe1;padding:2px 5px;border-radius:3px">inline kode</code></td></tr>
-                </table>
-
-                <h3>Lister</h3>
-                <table><tr><th>Skriv dette</th><th>Resultat</th></tr>
-                <tr><td>- Punkt 1\n- Punkt 2\n  - Underpunkt</td><td>• Punkt 1<br>• Punkt 2<br>&nbsp;&nbsp;◦ Underpunkt</td></tr>
-                <tr><td>1. Første\n2. Andre\n3. Tredje</td><td>1. Første<br>2. Andre<br>3. Tredje</td></tr>
-                <tr><td>- [ ] Ugjort\n- [x] Ferdig</td><td>☐ Ugjort<br>☑ Ferdig</td></tr>
-                </table>
-
-                <h3>Lenker og bilder</h3>
-                <table><tr><th>Skriv dette</th><th>Resultat</th></tr>
-                <tr><td>[Lenketekst](https://url.no)</td><td><a style="color:#2b6cb0">Lenketekst</a></td></tr>
-                <tr><td>![Bildetekst](bilde.png)</td><td>🖼️ <em>Bilde vises her</em></td></tr>
-                </table>
-
-                <h3>Sitat og skillelinje</h3>
-                <table><tr><th>Skriv dette</th><th>Resultat</th></tr>
-                <tr><td>> Dette er et sitat</td><td><blockquote style="border-left:3px solid #2b6cb0;padding-left:10px;color:var(--text-muted);margin:0">Dette er et sitat</blockquote></td></tr>
-                <tr><td>---</td><td><hr style="margin:4px 0"></td></tr>
-                </table>
-
-                <h3>Tabell</h3>
-                <table><tr><th>Skriv dette</th><th>Resultat</th></tr>
-                <tr><td>| Kolonne 1 | Kolonne 2 |\n|-----------|----------|\n| Celle 1   | Celle 2  |</td><td><table style="border-collapse:collapse;font-size:0.9em"><tr><th style="background:#2a4365;color:white;padding:4px 8px">Kolonne 1</th><th style="background:#2a4365;color:white;padding:4px 8px">Kolonne 2</th></tr><tr><td style="border:1px solid var(--border-soft);padding:4px 8px">Celle 1</td><td style="border:1px solid var(--border-soft);padding:4px 8px">Celle 2</td></tr></table></td></tr>
-                </table>
-
-                <h3>Kodeblokk</h3>
-                <table><tr><th>Skriv dette</th><th>Resultat</th></tr>
-                <tr><td>\`\`\`javascript\nconsole.log("Hei!");\n\`\`\`</td><td><pre style="background:var(--text-strong);color:var(--border-soft);padding:8px;border-radius:4px;margin:0;font-size:0.9em">console.log("Hei!");</pre></td></tr>
-                </table>
-
-                <h3>Hurtigtaster i editoren</h3>
-                <table><tr><th>Tastekombinasjon</th><th>Handling</th></tr>
-                <tr><td><kbd>Ctrl+S</kbd></td><td>Lagre</td></tr>
-                <tr><td><kbd>Ctrl+Shift+S</kbd></td><td>Lagre og lukk</td></tr>
-                <tr><td><kbd>Tab</kbd></td><td>Sett inn 4 mellomrom</td></tr>
-                <tr><td><kbd>F1</kbd></td><td>Vis/skjul denne hjelpen</td></tr>
-                <tr><td><kbd>Alt+D</kbd></td><td>Sett inn dagens dato (yyyy-mm-dd)</td></tr>
-                <tr><td><kbd>Alt+H</kbd></td><td>Gå til hjem</td></tr>
-                <tr><td><kbd>Alt+O</kbd></td><td>Gå til oppgaver</td></tr>
-                </table>
-            </div>
-        </div>
-    </div>
-    <script>
-        (function() {
-            var modal = document.getElementById('mdHelpModal');
-            modal.addEventListener('click', function(e) { if (e.target === modal) modal.classList.remove('open'); });
-            document.addEventListener('keydown', function(e) {
-                if (e.key === 'F1') { e.preventDefault(); modal.classList.toggle('open'); }
-                if (e.key === 'Escape' && modal.classList.contains('open')) { modal.classList.remove('open'); }
-            });
-        })();
-    </script>
-    <help-modal></help-modal>
-    <script>
-        (function(){
-            var sb=document.getElementById('navSearchBtn');
-            if(!sb)return;
-            sb.addEventListener('click',function(e){e.preventDefault();window.location.href='/?gs=1';});
-        })();
-    </script>
-    <script>document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaKey)return;var link=document.querySelector('.nav-links a[data-key="'+e.key.toLowerCase()+'"]');if(link&&link.getAttribute('href')&&link.getAttribute('href')!=='#'){e.preventDefault();window.location.href=link.href;}});</script>
-</body>
-</html>`;
-}
 
 function escapeHtml(str) {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -2917,394 +2223,639 @@ const server = http.createServer(async (req, res) => {
         return;
     }
 
-    // Root: list all weeks with their md files
-    if (pathname === '/' || pathname === '/index.html') {
-        const weeks = getWeekDirs();
-        const tasks = loadTasks();
-        const results = loadResults();
-        const tasksByWeek = {};
-        tasks.forEach(t => {
-            const w = t.week || '';
-            if (!tasksByWeek[w]) tasksByWeek[w] = [];
-            tasksByWeek[w].push(t);
-        });
-        const resultsByWeek = {};
-        results.forEach(r => {
-            if (!resultsByWeek[r.week]) resultsByWeek[r.week] = [];
-            resultsByWeek[r.week].push(r);
-        });
-        // Collect all weeks (from folders + tasks)
-        const taskWeeks = Object.keys(tasksByWeek).filter(w => w && !weeks.includes(w));
-        const allWeeks = [...weeks, ...taskWeeks].sort((a, b) => b.localeCompare(a));
-
-        const savedSummaries = {};
-
-        // Build sidebar: open tasks (handled by <open-tasks> web component)
-        const currentWeek = getCurrentYearWeek();
-
-        let sidebar = '<aside class="task-sidebar"><div class="task-sidebar-inner">';
-        sidebar += '<open-tasks></open-tasks>';
-        sidebar += '<upcoming-meetings days="14"></upcoming-meetings>';
-        sidebar += '</div></aside>';
-
-        let body = '<div class="home-layout">' + sidebar + '<main class="home-main">';
-        body += '<div id="weekList">';
-
-        let currentSideHtml = '';
-
-        if (allWeeks.length === 0) {
-            body += '<p class="empty-quiet">Ingen uker funnet.</p>';
-        } else {
-            allWeeks.forEach(week => {
-                const files = getMdFiles(week);
-                const weekResults = resultsByWeek[week] || [];
-                const weekHasCompletedTask = tasks.some(t => t.done && (t.completedWeek || t.week) === week);
-                if (files.length === 0 && weekResults.length === 0 && !weekHasCompletedTask) return;
-
-                const isCurrent = week === currentWeek;
-                const weekCompleted = tasks.filter(t => t.done && (t.completedWeek || t.week) === week);
-                const noteFilesAll = files.filter(f => f !== 'summarize.md');
-                const weekNum = week.split('-')[1];
-                const dateRange = isoWeekToDateRange(week);
-                const summaryLine = `${weekCompleted.length} fullført · ${weekResults.length} ${weekResults.length === 1 ? 'resultat' : 'resultater'} · ${noteFilesAll.length} ${noteFilesAll.length === 1 ? 'notat' : 'notater'}`;
-
-                const hasSummary = files.includes('summarize.md');
-                if (hasSummary) {
-                    try { savedSummaries[week] = fs.readFileSync(path.join(dataDir(), week, 'summarize.md'), 'utf-8'); } catch {}
-                }
-                const viewBtn = hasSummary ? ` <button onclick="showSavedSummary('${week}')" class="btn-summarize" style="background:#2b6cb0">📋 Vis oppsummering</button>` : '';
-
-                if (isCurrent) {
-                    body += `<div class="week-section">`;
-                    body += `<div class="h-week"><span class="h-week-label">Uke ${weekNum}</span> <span class="pill live">aktiv</span><span class="meta">${dateRange}</span></div>`;
-                    body += `<div class="week-title-actions"><button onclick="summarizeWeek('${week}')" class="btn-summarize" id="sum-${week}">✨ Oppsummer</button>${viewBtn}</div>`;
-                } else {
-                    body += `<details class="older-week"><summary class="older"><span class="caret">▸</span><span class="older-title">Uke ${weekNum}</span><span class="older-meta">${dateRange ? dateRange + '  ·  ' : ''}${summaryLine}</span></summary>`;
-                    body += `<div class="week-section older-body"><div class="week-title-actions"><button onclick="summarizeWeek('${week}')" class="btn-summarize" id="sum-${week}">✨ Oppsummer</button>${viewBtn}</div>`;
-                }
-
-                // Build notes column
-                const noteFiles = noteFilesAll.slice();
-                noteFiles.sort((a, b) => {
-                    const aPinned = getNoteMeta(week, a).pinned ? 1 : 0;
-                    const bPinned = getNoteMeta(week, b).pinned ? 1 : 0;
-                    if (aPinned !== bPinned) return bPinned - aPinned;
-                    const aCreated = getNoteMeta(week, a).created || '';
-                    const bCreated = getNoteMeta(week, b).created || '';
-                    if (aCreated && bCreated) return bCreated.localeCompare(aCreated);
-                    if (aCreated) return -1;
-                    if (bCreated) return 1;
-                    return b.localeCompare(a);
-                });
-                let notesHtml = `<h3 class="sec-h">Notater <span class="c">${noteFiles.length}</span></h3>`;
-                if (noteFiles.length === 0) {
-                    notesHtml += '<p class="empty-quiet">Ingen notater denne uken</p>';
-                } else {
-                    noteFiles.forEach(f => {
-                        notesHtml += `<note-card note="${week}/${encodeURIComponent(f)}"></note-card>`;
-                    });
-                }
-
-                // Build side column (results + completed) — handled by web components
-                const sideHtml = `<week-results week="${week}"></week-results><week-completed week="${week}"></week-completed>`;
-
-                if (isCurrent) {
-                    // Current week: only render notes inline; results+completed go in the right sidebar
-                    body += notesHtml;
-                    currentSideHtml = sideHtml;
-                } else {
-                    body += `<div class="week-grid"><div class="col-notes">${notesHtml}</div><div class="col-side">${sideHtml}</div></div>`;
-                }
-
-                body += '</div>'; // end .week-section
-                if (!isCurrent) body += '</details>';
-            });
-        }
-
-        body += '</div>'; // end weekList
-        body += '</main>';
-        body += `<aside class="results-sidebar">${currentSideHtml}</aside>`;
-        body += '</div>'; // end home-layout
-
-        // Comment modal
-        body += commentModalHtml();
-
-        // Note modal
-        body += noteModalHtml();
-
-        // Add task modal
-        body += '<div id="addTaskModal" class="page-modal" onclick="if(event.target===this)closeAddTaskModal()"><div class="page-modal-card"><h3>☑️ Ny oppgave</h3><p id="addTaskWeekLabel" style="color:#718096;font-size:0.85em;margin-bottom:12px"></p><input type="text" id="addTaskInput" placeholder="Beskriv oppgaven..." /><div class="page-modal-actions"><button class="page-modal-btn cancel" onclick="closeAddTaskModal()">Avbryt</button><button class="page-modal-btn green" onclick="submitAddTask()">Legg til</button></div></div></div>';
-
-        // Summary modal
-        body += '<div id="summaryModal" class="page-modal" onclick="if(event.target===this)closeSummary()"><div class="page-modal-card" style="max-width:700px;max-height:80vh;display:flex;flex-direction:column"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><h3 style="margin:0" id="summaryTitle">✨ Oppsummering</h3><button onclick="closeSummary()" style="background:none;border:none;font-size:1.3em;cursor:pointer;color:#718096">✕</button></div><div id="summaryContent" class="md-content" style="overflow-y:auto;flex:1"></div><div class="page-modal-actions"><button class="page-modal-btn cancel" onclick="closeSummary()">Lukk</button><button id="summarySaveBtn" class="page-modal-btn purple" onclick="saveSummary()">💾 Lagre</button></div></div></div>';
-        body += '<div id="noteViewModal" class="page-modal" onclick="if(event.target===this)closeNoteViewModal()"><div class="page-modal-card" style="max-width:780px;max-height:85vh;display:flex;flex-direction:column"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:12px"><h3 style="margin:0" id="noteViewTitle">📄 Notat</h3><div style="display:flex;gap:8px;align-items:center"><a id="noteViewEditLink" href="#" class="page-modal-btn blue" style="text-decoration:none;font-size:0.85em">✏️ Rediger</a><button onclick="closeNoteViewModal()" style="background:none;border:none;font-size:1.3em;cursor:pointer;color:#718096">✕</button></div></div><div id="noteViewContent" class="md-content" style="overflow-y:auto;flex:1;padding:4px 4px 4px 0"></div></div></div>';
-
-        // Home script (modals, mentions, summarize, etc.)
-        body += `<script>
-
-        function escapeHtml(s) {
-            return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-        }
-
-        let pendingToggleEl = null;
-
-        function showCommentModal(el) {
-            pendingToggleEl = el;
-            document.getElementById('commentTaskText').textContent = el.dataset.tasktext;
-            document.getElementById('commentText').value = '';
-            document.getElementById('commentModal').style.display = 'flex';
-            setTimeout(() => document.getElementById('commentText').focus(), 100);
-        }
-
-        async function undoComplete(el) {
-            const id = el.dataset.taskid;
-            await fetch('/api/tasks/' + id + '/toggle', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({})
-            });
-            location.reload();
-        }
-
-        function cancelComment() {
-            document.getElementById('commentModal').style.display = 'none';
-            if (pendingToggleEl) pendingToggleEl.checked = false;
-            pendingToggleEl = null;
-        }
-
-        async function submitComment(withComment) {
-            const comment = withComment ? document.getElementById('commentText').value.trim() : '';
-            const id = pendingToggleEl.dataset.taskid;
-            document.getElementById('commentModal').style.display = 'none';
-            pendingToggleEl = null;
-            await fetch('/api/tasks/' + id + '/toggle', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ comment })
-            });
-            location.reload();
-        }
-
-        document.addEventListener('keydown', function(e) {
-            if (document.getElementById('commentModal').style.display === 'flex') {
-                if (e.key === 'Escape') cancelComment();
-                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitComment(true);
-            }
-            if (document.getElementById('noteModal').style.display === 'flex') {
-                if (e.key === 'Escape') closeNoteModal();
-                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) saveNote();
-            }
-            if (document.getElementById('addTaskModal').style.display === 'flex') {
-                if (e.key === 'Escape') closeAddTaskModal();
-                if (e.key === 'Enter') submitAddTask();
-            }
-            if (document.getElementById('summaryModal').style.display === 'flex') {
-                if (e.key === 'Escape') closeSummary();
-            }
-            if (document.getElementById('noteViewModal') && document.getElementById('noteViewModal').style.display === 'flex') {
-                if (e.key === 'Escape') closeNoteViewModal();
-            }
-            if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 't') {
-                e.preventDefault();
-                openAddTaskModal('${getCurrentYearWeek()}');
-            }
-        });
-        function openNoteModal(id) {
-            pendingNoteId = id;
-            fetch('/api/tasks').then(r => r.json()).then(tasks => {
-                const task = tasks.find(t => t.id === id);
-                if (task) {
-                    document.getElementById('noteTaskText').textContent = task.text;
-                    document.getElementById('noteText').value = task.note || '';
-                }
-            });
-            document.getElementById('noteModal').style.display = 'flex';
-            setTimeout(() => document.getElementById('noteText').focus(), 150);
-        }
-        function closeNoteModal() {
-            document.getElementById('noteModal').style.display = 'none';
-            pendingNoteId = null;
-        }
-        async function saveNote() {
-            if (!pendingNoteId) return;
-            const note = document.getElementById('noteText').value.trim();
-            await fetch('/api/tasks/' + pendingNoteId, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ note })
-            });
-            closeNoteModal();
-            location.reload();
-        }
-
-        let addTaskWeek = null;
-        function openAddTaskModal(week) {
-            addTaskWeek = week;
-            document.getElementById('addTaskWeekLabel').textContent = 'Uke ' + week;
-            document.getElementById('addTaskInput').value = '';
-            document.getElementById('addTaskModal').style.display = 'flex';
-            setTimeout(() => document.getElementById('addTaskInput').focus(), 100);
-        }
-        function closeAddTaskModal() {
-            document.getElementById('addTaskModal').style.display = 'none';
-            addTaskWeek = null;
-        }
-        async function submitAddTask() {
-            const text = document.getElementById('addTaskInput').value.trim();
-            if (!text) return;
-            await fetch('/api/tasks', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text, week: addTaskWeek })
-            });
-            closeAddTaskModal();
-            location.reload();
-        }
-        let summaryMarkdown = '';
-        const savedSummaries = ${JSON.stringify(savedSummaries).replace(/</g, '\\u003c')};
-
-        function showSavedSummary(week) {
-            const md = savedSummaries[week];
-            if (!md) return;
-            document.getElementById('summaryTitle').textContent = '📋 Oppsummering — Uke ' + week;
-            document.getElementById('summaryContent').innerHTML = marked.parse(md);
-            document.getElementById('summarySaveBtn').style.display = 'none';
-            document.getElementById('summaryModal').style.display = 'flex';
-        }
-
-        async function summarizeWeek(week) {
-            const btn = document.getElementById('sum-' + week);
-            btn.disabled = true;
-            btn.textContent = '⏳ Oppsummerer...';
-            try {
-                const resp = await fetch('/api/summarize', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ week })
-                });
-                const data = await resp.json();
-                if (resp.ok) {
-                    btn.textContent = '✨ Oppsummer';
-                    btn.disabled = false;
-                    summaryWeek = week;
-                    summaryMarkdown = data.summary;
-                    document.getElementById('summaryTitle').textContent = '✨ Oppsummering — Uke ' + week;
-                    document.getElementById('summaryContent').innerHTML = marked.parse(data.summary);
-                    document.getElementById('summarySaveBtn').style.display = '';
-                    document.getElementById('summaryModal').style.display = 'flex';
-                } else {
-                    btn.textContent = '❌ Feil';
-                    alert(data.error || 'Noe gikk galt');
-                    setTimeout(() => { btn.textContent = '✨ Oppsummer'; btn.disabled = false; }, 2000);
-                }
-            } catch (e) {
-                btn.textContent = '❌ Feil';
-                setTimeout(() => { btn.textContent = '✨ Oppsummer'; btn.disabled = false; }, 2000);
-            }
-        }
-
-        function closeSummary() {
-            document.getElementById('summaryModal').style.display = 'none';
-        }
-
-        function openPresentation(week, fileEnc) {
-            const url = '/present/' + week + '/' + fileEnc + '?fs=1';
-            const w = window.screen.availWidth;
-            const h = window.screen.availHeight;
-            const features = 'popup=yes,noopener=no,width=' + w + ',height=' + h + ',left=0,top=0,menubar=no,toolbar=no,location=no,status=no,scrollbars=no,resizable=yes';
-            const win = window.open(url, 'presentation_' + Date.now(), features);
-            if (win) win.focus();
-        }
-
-        async function deleteNoteFromHome(week, fileEnc, name) {
-            if (!confirm('Slette notatet "' + name + '"?\\n\\nDette kan ikke angres.')) return;
-            try {
-                const resp = await fetch('/api/notes/' + week + '/' + fileEnc, { method: 'DELETE' });
-                if (resp.ok) {
-                    const card = document.querySelector('[data-note-card="' + week + '/' + fileEnc + '"]');
-                    if (card) card.remove();
-                } else {
-                    alert('Kunne ikke slette notatet.');
-                }
-            } catch (e) {
-                alert('Nettverksfeil: ' + e.message);
-            }
-        }
-
-        async function openNoteViewModal(week, fileEnc) {
-            const file = decodeURIComponent(fileEnc);
-            const modal = document.getElementById('noteViewModal');
-            const titleEl = document.getElementById('noteViewTitle');
-            const contentEl = document.getElementById('noteViewContent');
-            const editLink = document.getElementById('noteViewEditLink');
-            titleEl.textContent = '📄 ' + file.replace(/\.md$/, '');
-            contentEl.innerHTML = '<p style="color:var(--text-subtle);font-style:italic">Laster…</p>';
-            editLink.href = '/editor/' + week + '/' + fileEnc;
-            modal.style.display = 'flex';
-            try {
-                const resp = await fetch('/api/notes/' + week + '/' + fileEnc + '/render');
-                const data = await resp.json();
-                if (data.ok) {
-                    contentEl.innerHTML = data.html;
-                } else {
-                    contentEl.innerHTML = '<p style="color:#c53030">Kunne ikke laste notatet.</p>';
-                }
-            } catch (e) {
-                contentEl.innerHTML = '<p style="color:#c53030">Feil ved lasting: ' + e.message + '</p>';
-            }
-        }
-
-        function closeNoteViewModal() {
-            document.getElementById('noteViewModal').style.display = 'none';
-        }
-
-        async function saveSummary() {
-            const resp = await fetch('/api/save', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ folder: summaryWeek, file: 'summarize.md', content: summaryMarkdown })
-            });
-            if (resp.ok) {
-                document.getElementById('summarySaveBtn').textContent = '✅ Lagret!';
-                document.getElementById('summarySaveBtn').disabled = true;
-                setTimeout(() => { closeSummary(); location.reload(); }, 1000);
-            }
-        }
-        </script>
-        <script src="/mention-autocomplete.js"></script>
-        <script>
-        (function() {
-            const origOpen = window.openAddTaskModal;
-            window.openAddTaskModal = function(week) {
-                origOpen(week);
-                setTimeout(() => initMentionAutocomplete(document.getElementById('addTaskInput')), 120);
+    // Static page fragments (loaded by the SPA router). Supports simple
+    // {{KEY}} substitutions for per-context server-side values.
+    if (pathname.startsWith('/pages/') && pathname.endsWith('.html')) {
+        const slug = pathname.slice('/pages/'.length, -'.html'.length);
+        if (!/^[a-z0-9_-]+$/.test(slug)) { res.writeHead(404); res.end('Bad page'); return; }
+        const file = path.join(__dirname, 'pages', slug + '.html');
+        fs.readFile(file, 'utf-8', (err, data) => {
+            if (err) { res.writeHead(404); res.end('Page not found'); return; }
+            const subs = {
+                UPCOMING_MEETINGS_DAYS: String(getUpcomingMeetingsDays())
             };
-        })();
-        (function() {
-            const orig = window.showCommentModal;
-            window.showCommentModal = function(el) { orig(el); setTimeout(() => initMentionAutocomplete(document.getElementById('commentText')), 120); };
-        })();
-        (function() {
-            const orig = window.openNoteModal;
-            window.openNoteModal = function(id) { orig(id); setTimeout(() => initMentionAutocomplete(document.getElementById('noteText')), 120); };
-        })();
-        document.addEventListener('click', function(e) {
-            const card = e.target.closest('.sidebar-meeting');
-            if (!card) return;
-            if (e.target.closest('a, button')) return;
-            const href = card.getAttribute('data-cal-href');
-            // <upcoming-meetings> handles its own internal cards; this is the
-            // fallback for any legacy server-rendered .sidebar-meeting cards.
-            if (href && !card.closest('upcoming-meetings')) window.location.href = href;
+            const out = data.replace(/\{\{(\w+)\}\}/g, (m, k) =>
+                Object.prototype.hasOwnProperty.call(subs, k) ? subs[k] : m
+            );
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+            res.end(out);
         });
-        </script>`;
+        return;
+    }
 
+    // Root: SPA shell. The home fragment is injected client-side from /pages/home.html.
+    if (pathname === '/' || pathname === '/index.html') {
+        const body = ''; // intentionally empty; the SPA router fills <content>.
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(pageHtml('Ukenotater', body));
+        return;
+    }
+
+    // SPA stubs — these pages render via /pages/<slug>.html fragments + components.
+    // The original full server-rendered handlers below are unreachable and will be removed
+    // as each page is fully ported to web components.
+    {
+        const SPA_STUBS = {
+            '/tasks':    'Oppgaver',
+            '/people':   'Personer og steder',
+            '/results':  'Resultater',
+            '/settings': 'Innstillinger'
+        };
+        if (Object.prototype.hasOwnProperty.call(SPA_STUBS, pathname)) {
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+            res.end(pageHtml(SPA_STUBS[pathname], ''));
+            return;
+        }
+        const calStubMatch = pathname.match(/^\/calendar(?:\/(\d{4}-W\d{2}))?$/);
+        if (calStubMatch) {
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+            res.end(pageHtml('Kalender', ''));
+            return;
+        }
+    }
+
+    // (Old home route below — kept for reference but unreachable.)
+    if (false && (pathname === '/' || pathname === '/index.html')) {
+        const body =
+            '<div class="home-layout" data-layout-id="div.home-layout">' +
+                '<div class="main-content" data-layout-id="div.main-content">' +
+                    '<aside id="taskSidebar" class="task-sidebar" data-layout-id="aside.task-sidebar">' +
+                        '<div class="task-sidebar-inner"></div>' +
+                    '</aside>' +
+                    '<main id="homeMain" class="home-main" data-layout-id="main.home-main"></main>' +
+                '</div>' +
+            '</div>';
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(pageHtml('Ukenotater', body));
         return;
     }
 
     // Results page
+    // ---------- /debug component playground ----------
+    if (pathname === '/debug/_mock-services.js') {
+        try {
+            const data = fs.readFileSync(path.join(__dirname, 'domains', '_mock-services.js'));
+            res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache' });
+            res.end(data);
+        } catch (e) {
+            res.writeHead(404); res.end('Not found');
+        }
+        return;
+    }
+    if (pathname === '/debug' || pathname.startsWith('/debug/')) {
+        const COMPONENTS = [
+            'nav-meta', 'nav-button', 'ctx-switcher', 'help-modal',
+            'person-tip', 'note-card', 'markdown-preview', 'note-editor',
+            'open-tasks', 'task-create', 'task-create-modal', 'upcoming-meetings',
+            'week-results', 'task-completed', 'week-section', 'week-list',
+            'week-pill', 'global-search', 'week-calendar', 'week-notes-calendar', 'settings-page',
+        ];
+
+        // List all weeks for week-* demos.
+        // Use the mock-services seed: the current ISO week and the two prior.
+        const mockToday = new Date();
+        const mockThisWeek = dateToIsoWeek(mockToday);
+        const mockLastWeek = (() => { const d = new Date(mockToday); d.setDate(d.getDate() - 7); return dateToIsoWeek(d); })();
+        const mockTwoWeeksAgo = (() => { const d = new Date(mockToday); d.setDate(d.getDate() - 14); return dateToIsoWeek(d); })();
+        const weeks = [mockThisWeek, mockLastWeek, mockTwoWeeksAgo];
+
+        // Mock notes seeded by domains/_mock-services.js
+        const allNotes = [
+            `${mockThisWeek}/mandag.md`,
+            `${mockThisWeek}/tirsdag.md`,
+            `${mockLastWeek}/oppsummering.md`,
+            `${mockTwoWeeksAgo}/reise.md`,
+        ];
+        const firstNote = allNotes[0] || '';
+
+        // Default page when no component picked: redirect to first
+        const current = pathname === '/debug' ? '' : pathname.slice('/debug/'.length);
+        if (!current) {
+            res.writeHead(302, { Location: `/debug/${COMPONENTS[0]}` });
+            res.end();
+            return;
+        }
+        if (!COMPONENTS.includes(current)) {
+            res.writeHead(404, { 'Content-Type': 'text/plain' });
+            res.end(`Unknown component: ${current}`);
+            return;
+        }
+
+        // ---- per-component demo declaration ----
+        // tag       : custom element name (a single live instance is rendered)
+        // attrs     : [{ name, type:'text'|'select'|'bool', options?, default }]
+        // wrap      : optional surrounding HTML string with %HOST% placeholder
+        // rawHtml   : for components that need bespoke markup (no attribute editor)
+        // extraStyle: per-demo CSS additions
+        const DEMOS = {
+            'nav-meta': {
+                desc: 'Date · ISO-week · clock display used in the navbar.',
+                tag: 'nav-meta', attrs: [],
+                wrap: `<div style="background:var(--surface);padding:10px;border-radius:6px;display:inline-block">%HOST%</div>`,
+            },
+            'nav-button': {
+                desc: 'Brand link in the navbar (defaults to "Ukenotater" pointing to /).',
+                tag: 'nav-button',
+                attrs: [
+                    { name: 'href', type: 'text', default: '/' },
+                    { name: 'text', type: 'text', default: 'Ukenotater' },
+                    { name: 'icon', type: 'select', default: '', options: ['', '📓', '🏠', '📅', '✅', '👥', '⭐', '🔍', '⚙️', '📝', '💡', '🚀'] },
+                    { name: 'size', type: 'text', default: '3' },
+                ],
+                wrap: `<div style="background:var(--surface);padding:10px;border-radius:6px;display:inline-block">%HOST%</div>`,
+            },
+            'app-navbar': {
+                desc: 'REMOVED — the navbar is now plain HTML rendered by navbarHtml() in server.js.',
+                rawHtml: `<p style="color:var(--text-muted);font-style:italic">This component has been removed.</p>`,
+            },
+            'ctx-switcher': {
+                desc: 'Context switcher dropdown. Wraps server-supplied light-DOM children (trigger + menu) via a <slot>. Emits <code>context-selected</code> (cancelable) before reload.',
+                rawHtml: `<ctx-switcher class="ctx-switcher" service="MockContextService">
+                    <button type="button" class="ctx-trigger" id="ctxTrigger" title="Bytt kontekst"><span class="ctx-icon">🧪</span><span class="ctx-name">Demo-arbeidsplass</span><span class="ctx-caret">▾</span></button>
+                    <div class="ctx-menu" id="ctxMenu">
+                        <button type="button" class="ctx-item active" data-id="demo"><span class="ctx-icon">🧪</span>Demo-arbeidsplass</button>
+                        <button type="button" class="ctx-item" data-id="work"><span class="ctx-icon">💼</span>Jobb</button>
+                        <button type="button" class="ctx-item" data-id="home"><span class="ctx-icon">🏠</span>Hjemme</button>
+                        <div class="ctx-sep"></div>
+                        <button type="button" class="ctx-item ctx-commit-btn" id="ctxCommitBtn" data-active="demo">💾 Commit endringer i «Demo-arbeidsplass»</button>
+                        <a class="ctx-item ctx-link" href="#">⚙️ Administrer kontekster</a>
+                    </div>
+                </ctx-switcher>`,
+                extraStyle: `ctx-switcher { position: relative; display: inline-block; }
+                    .ctx-trigger { padding: 6px 10px; border: 1px solid var(--border); background: var(--surface); border-radius: 4px; cursor: pointer; }
+                    .ctx-menu { display: none; position: absolute; top: 100%; left: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; min-width: 200px; z-index: 10; padding: 4px; }
+                    ctx-switcher.open .ctx-menu { display: block; }
+                    .ctx-item { display: block; width: 100%; text-align: left; padding: 6px 10px; background: none; border: none; cursor: pointer; color: var(--text); text-decoration: none; }
+                    .ctx-item:hover { background: var(--surface-alt); }`,
+            },
+            'help-modal': {
+                desc: 'Lazy-loaded help modal. Click the button — fires on #helpBtn click or window event "help:open".',
+                rawHtml: `<button id="helpBtn" class="btn-summarize">❓ Open help</button>
+                    <button class="btn-summarize" onclick="window.dispatchEvent(new CustomEvent('help:open'))" style="background:var(--text-muted)">Fire help:open event</button>
+                    <help-modal></help-modal>`,
+            },
+            'person-tip': {
+                desc: 'Singleton tooltip — hover any .mention-link below. Optional services: service (people), service_companies (companies). With no services, falls back to /api/people and /api/companies via the cached fetchers.',
+                rawHtml: `<p style="line-height:2">Try hovering:
+                    <a class="mention-link" data-person-key="petter" href="#">@petter</a> ·
+                    <a class="mention-link" data-person-key="astrid" href="#">@astrid</a> ·
+                    <a class="mention-link mention-company" data-company-key="acmeas" href="#">@acmeas</a> ·
+                    <a class="mention-link mention-company" data-company-key="globex" href="#">@globex</a> ·
+                    <a class="mention-link" data-person-key="ukjent" href="#">@ukjent (mangler)</a></p>
+                    <person-tip service="MockPeopleService" service_companies="MockCompaniesService"></person-tip>`,
+            },
+            'note-card': {
+                desc: 'Self-loading note summary card. Emits cancelable note-card:{view,present,edit,delete}.',
+                tag: 'note-card',
+                attrs: [
+                    { name: 'service', type: 'text', default: 'MockNotesService' },
+                    { name: 'note', type: 'select', options: allNotes, default: firstNote },
+                ],
+            },
+            'open-tasks': {
+                desc: 'Self-loading list of open tasks.',
+                tag: 'open-tasks',
+                attrs: [{ name: 'service', type: 'text', default: 'MockTaskService' }],
+            },
+            'task-create': {
+                desc: 'Reusable input + button for creating a task. Calls <code>service.create(text)</code> and dispatches <code>task:created</code> with detail <code>{task, tasks}</code>.',
+                tag: 'task-create',
+                attrs: [
+                    { name: 'service', type: 'text', default: 'MockTaskService' },
+                    { name: 'placeholder', type: 'text', default: 'Ny oppgave...' },
+                    { name: 'button-label', type: 'text', default: 'Legg til' },
+                    { name: 'compact', type: 'bool' },
+                ],
+            },
+            'task-create-modal': {
+                desc: 'Renders a button. Click opens a modal containing &lt;task-create&gt;. Closes on success, Esc, backdrop click, or close button.',
+                tag: 'task-create-modal',
+                attrs: [
+                    { name: 'button-label', type: 'text', default: '+ Ny oppgave' },
+                    { name: 'modal-title', type: 'text', default: 'Ny oppgave' },
+                    { name: 'placeholder', type: 'text', default: 'Beskriv oppgaven…' },
+                    { name: 'endpoint', type: 'text', default: '/api/tasks' },
+                ],
+            },
+            'upcoming-meetings': {
+                desc: 'Self-loading list of meetings in the next N days.',
+                tag: 'upcoming-meetings',
+                attrs: [
+                    { name: 'service', type: 'text', default: 'MockMeetingsService' },
+                    { name: 'days', type: 'text', default: '14' },
+                ],
+            },
+            'week-results': {
+                desc: 'List of results for one week.',
+                tag: 'week-results',
+                attrs: [
+                    { name: 'service', type: 'text', default: 'MockResultsService' },
+                    { name: 'week', type: 'select', options: weeks, default: weeks[0] || '' },
+                ],
+            },
+            'task-completed': {
+                desc: 'List of tasks completed in one week.',
+                tag: 'task-completed',
+                attrs: [
+                    { name: 'service', type: 'text', default: 'MockTaskService' },
+                    { name: 'week', type: 'select', options: weeks, default: weeks[0] || '' },
+                ],
+            },
+            'week-section': {
+                desc: 'A whole week block (heading, notes, results, completed). Auto-detects current ISO week.',
+                tag: 'week-section',
+                attrs: [
+                    { name: 'service', type: 'text', default: 'MockNotesService' },
+                    { name: 'service_notes', type: 'text', default: 'MockNotesService' },
+                    { name: 'service_results', type: 'text', default: 'MockResultsService' },
+                    { name: 'service_tasks', type: 'text', default: 'MockTaskService' },
+                    { name: 'week', type: 'select', options: weeks, default: weeks[0] || '' },
+                    { name: 'current', type: 'bool', default: false },
+                ],
+            },
+            'week-list': {
+                desc: 'Loads weeks via service.listWeeks() and renders one &lt;week-section&gt; per week.',
+                tag: 'week-list',
+                attrs: [
+                    { name: 'service', type: 'text', default: 'MockNotesService' },
+                    { name: 'service_section', type: 'text', default: 'MockNotesService' },
+                    { name: 'service_notes', type: 'text', default: 'MockNotesService' },
+                    { name: 'service_results', type: 'text', default: 'MockResultsService' },
+                    { name: 'service_tasks', type: 'text', default: 'MockTaskService' },
+                ],
+            },
+            'week-pill': {
+                desc: 'Tiny "U<NN>" badge for an ISO week. Tooltip shows the full week.',
+                tag: 'week-pill',
+                attrs: [{ name: 'week', type: 'select', options: weeks, default: weeks[0] || '' }],
+            },
+            'global-search': {
+                desc: 'Singleton search modal. Click "Open" to open. Try typing "petter", "rapport", or "demo".',
+                rawHtml: `<button class="btn-summarize" onclick="document.querySelector('global-search').openSearch()">🔎 Open search</button>
+                    <button class="btn-summarize" onclick="document.querySelector('global-search').closeSearch()" style="background:var(--text-muted)">Close</button>
+                    <global-search service="MockSearchService"></global-search>`,
+            },
+            'markdown-preview': {
+                desc: 'Renders markdown via window.marked. Set element.value to update; observes "value", "placeholder" and "offset" attributes. Emits <code>markdown-preview:scroll</code> on user scroll (suppressed for programmatic offset writes). Shadow-DOM, themed via CSS variables.',
+                rawHtml: `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+                        <label style="font-size:0.85em;color:var(--text-muted)">offset (px):</label>
+                        <input id="mp-off" type="range" min="0" max="800" step="10" value="0" style="flex:1" />
+                        <input id="mp-off-num" type="number" min="0" max="2000" step="10" value="0" style="width:80px;padding:3px 6px;border:1px solid var(--border);border-radius:4px" />
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:stretch">
+                        <textarea id="mp-src" style="min-height:320px;padding:10px;font-family:ui-monospace,monospace"># Long document\n\nParagraph one — try scrolling the preview to test the scroll event.\n\n## Section A\n${Array.from({length:20}, (_,i)=>`Line ${i+1} of section A. Lorem ipsum dolor sit amet, consectetur adipiscing elit.`).join('\\n\\n')}\n\n## Section B\n${Array.from({length:20}, (_,i)=>`Line ${i+1} of section B. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.`).join('\\n\\n')}\n\n## End</textarea>
+                        <markdown-preview id="mp-out" service="MockNotesService" style="max-height:320px" placeholder="Start typing markdown…"></markdown-preview>
+                    </div>
+                    <script>(function(){
+                        var s=document.getElementById('mp-src'),o=document.getElementById('mp-out');
+                        var off=document.getElementById('mp-off'),offNum=document.getElementById('mp-off-num');
+                        function sync(){o.value=s.value;}
+                        s.addEventListener('input',sync); sync();
+                        function setOffset(v){var n=Number(v)||0;off.value=String(n);offNum.value=String(n);o.setAttribute('offset',String(n));}
+                        off.addEventListener('input',function(){setOffset(off.value);});
+                        offNum.addEventListener('input',function(){setOffset(offNum.value);});
+                        o.addEventListener('markdown-preview:scroll',function(e){var n=Math.round(e.detail.offset);off.value=String(n);offNum.value=String(n);});
+                    })();</script>`,
+            },
+            'note-editor': {
+                desc: 'New-note editor with week selector, filename, textarea + live preview (uses &lt;markdown-preview&gt;). Saves via service.save() and emits note-editor:saved/cancel.',
+                rawHtml: `<note-editor service="MockNotesService" service_preview="MockNotesService"></note-editor>`,
+            },
+            'week-notes-calendar': {
+                desc: 'Page wrapper: toolbar (title, range, prev/today/next nav) + embedded &lt;week-calendar&gt;. Reacts to /calendar/&lt;week&gt; URL. Reads workHours from the <code>settings</code> attribute (JSON) when provided, otherwise fetches via service.',
+                tag: 'week-notes-calendar',
+                attrs: [
+                    { name: 'service', type: 'text', default: 'MockMeetingsService' },
+                    { name: 'week', type: 'text', default: '' },
+                    { name: 'settings', type: 'json', mode: 'tree', default: '{"workHours":[{"start":"09:00","end":"17:00"},{"start":"09:00","end":"17:00"},{"start":"09:00","end":"17:00"},{"start":"09:00","end":"17:00"},{"start":"09:00","end":"15:00"},null,null]}' },
+                ],
+            },
+            'week-calendar': (() => {
+                const today = new Date();
+                const yw = dateToIsoWeek(today);
+                const monday = isoWeekMonday(yw);
+                const sunday = new Date(monday); sunday.setUTCDate(monday.getUTCDate() + 6);
+                const fmt = d => d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+                const fmtDay = i => { const d = new Date(monday); d.setUTCDate(monday.getUTCDate() + i); return fmt(d); };
+                const sample = [
+                    { id: 'm1', startDate: fmtDay(0) + 'T09:00', endDate: fmtDay(0) + 'T10:00', heading: 'Stand-up', body: 'Team sync', type: 'meeting', moveable: true },
+                    { id: 't1', startDate: fmtDay(1) + 'T13:00', endDate: fmtDay(1) + 'T14:30', heading: 'Skriv rapport', body: 'Q-rapport', type: 'task' },
+                    { id: 'f1', startDate: fmtDay(2) + 'T08:30', endDate: fmtDay(2) + 'T11:00', heading: 'Fokustid', body: 'Refaktorering', type: 'focus', moveable: true },
+                    { id: 'b1', startDate: fmtDay(3) + 'T15:00', endDate: fmtDay(3) + 'T16:00', heading: 'Blokkert', body: 'Lege', type: 'block' },
+                    { id: 'n1', startDate: fmtDay(4) + 'T11:00', endDate: fmtDay(4) + 'T12:00', heading: 'Lunsj med Per', type: 'note' },
+                ];
+                const dayList = [0,1,2,3,4,5,6].map(fmtDay);
+                return {
+                    desc: 'Pure N-day × N-hour calendar grid (no toolbar). Renders work-hour bands, a now-line, items via setItems()/addItem(), and special-days for holidays / non-working days. Use start-date/end-date for the range, show-days to filter weekdays (0=Mon..6=Sun), work-hours JSON for bands, special-days JSON for {date,name,workday}.',
+                    tag: 'week-calendar',
+                    attrs: [
+                        { name: 'service', type: 'text', default: 'MockMeetingsService' },
+                        { name: 'start-date', type: 'text', default: fmt(monday) },
+                        { name: 'end-date', type: 'text', default: fmt(sunday) },
+                        { name: 'show-days', type: 'text', default: '0-6' },
+                        { name: 'work-hours', type: 'text', default: '[{"start":"08:00","end":"16:00"},{"start":"08:00","end":"16:00"},{"start":"08:00","end":"16:00"},{"start":"08:00","end":"16:00"},{"start":"08:00","end":"16:00"},null,null]' },
+                        { name: 'special-days', type: 'json', mode: 'tree', default: JSON.stringify([{ date: dayList[2], name: 'Eksempel helligdag', workday: false }, { date: dayList[4], name: 'Inneklemt', workday: true }]) },
+                        { name: 'hour-start', type: 'text', default: '' },
+                        { name: 'hour-end', type: 'text', default: '' },
+                    ],
+                    extras: `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
+                            <span style="color:var(--text-subtle);font-size:0.85em">items API:</span>
+                            <button class="btn-summarize" id="wcAddItems">📌 Last sample</button>
+                            <button class="btn-summarize" id="wcAddOne">➕ Random</button>
+                            <button class="btn-summarize" id="wcClear" style="background:var(--text-muted)">🗑️ Tøm</button>
+                            <span id="wcCount" style="color:var(--text-muted);font-family:ui-monospace,monospace;font-size:0.85em"></span>
+                        </div>
+                        <script>(function(){
+                            const SAMPLE = ${JSON.stringify(sample)};
+                            const DAYS = ${JSON.stringify(dayList)};
+                            const TYPES = ['meeting','task','focus','note','block'];
+                            const cnt = document.getElementById('wcCount');
+                            const refresh = (cal) => { cnt.textContent = '(' + cal.items.length + ' item' + (cal.items.length === 1 ? '' : 's') + ')'; };
+                            const wire = (cal) => {
+                                document.getElementById('wcAddItems').onclick = () => { cal.setItems(SAMPLE); refresh(cal); };
+                                document.getElementById('wcAddOne').onclick = () => {
+                                    const i = Math.floor(Math.random() * DAYS.length);
+                                    const h = 8 + Math.floor(Math.random() * 8);
+                                    const t = TYPES[Math.floor(Math.random() * TYPES.length)];
+                                    cal.addItem({ id: 'r-' + Date.now(), startDate: DAYS[i] + 'T' + String(h).padStart(2,'0') + ':00', endDate: DAYS[i] + 'T' + String(h+1).padStart(2,'0') + ':00', heading: 'Random', body: t, type: t });
+                                    refresh(cal);
+                                };
+                                document.getElementById('wcClear').onclick = () => { cal.clearItems(); refresh(cal); };
+                            };
+                            const apply = (cal) => {
+                                if (!cal) return;
+                                wire(cal);
+                                cal.setItems(SAMPLE);
+                                refresh(cal);
+                            };
+                            document.addEventListener('dbg:rebuilt', (e) => {
+                                if (e.detail && e.detail.tag === 'week-calendar') apply(e.detail.el);
+                            });
+                        })();</script>`,
+                };
+            })(),
+            'settings-page': {
+                desc: 'Master/detail context settings: list contexts, edit name/icon/description/theme/working-hours, save via service.saveSettings.',
+                rawHtml: `<settings-page service="MockSettingsService" service_context="MockContextService"></settings-page>`,
+            },
+        };
+
+        const demo = DEMOS[current];
+        const sidebar = `<aside class="dbg-side">
+            <h2>Components</h2>
+            <nav class="dbg-nav">
+                ${COMPONENTS.map(c => `<a href="/debug/${c}" class="${c === current ? 'active' : ''}">${c}</a>`).join('')}
+            </nav>
+        </aside>`;
+
+        // Shared event names to log/cancel
+        const EVENTS = [
+            'mention-clicked',
+            'brand-clicked',
+            'view', 'present', 'edit', 'delete',
+            'open-tasks:toggle', 'open-tasks:note',
+            'task-completed:undo',
+            'week-section:summarize', 'week-section:show-summary',
+            'note:view', 'note:present', 'note:edit',
+            'week-clicked',
+            'search:open', 'search:close',
+            'element-selected',
+            'upcoming-meetings:open',
+            'help:open', 'help:close',
+            'week-calendar:ready', 'week-calendar:item-click',
+            'note-editor:saved', 'note-editor:cancel',
+            'task:created', 'task:create-failed',
+            'markdown-preview:scroll',
+            'calendar:week-changed',
+            'context-selected',
+        ];
+
+        const html = `<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="utf-8">
+    <title>Debug · ${current}</title>
+    <link rel="stylesheet" href="/themes/paper.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsoneditor@10.1.0/dist/jsoneditor.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsoneditor@10.1.0/dist/jsoneditor.min.js"></script>
+    <script type="module" src="/components/_shared.js"></script>
+    <script defer src="/debug/_mock-services.js"></script>
+    <script type="module" src="/components/nav-meta.js"></script>
+    <script type="module" src="/components/nav-button.js"></script>
+    <script type="module" src="/components/ctx-switcher.js"></script>
+    <script type="module" src="/components/help-modal.js"></script>
+    <script type="module" src="/components/person-tip.js"></script>
+    <script type="module" src="/components/note-card.js"></script>
+    <script type="module" src="/components/open-tasks.js"></script>
+    <script type="module" src="/components/task-create.js"></script>
+    <script type="module" src="/components/task-create-modal.js"></script>
+    <script type="module" src="/components/upcoming-meetings.js"></script>
+    <script type="module" src="/components/week-results.js"></script>
+    <script type="module" src="/components/task-completed.js"></script>
+    <script type="module" src="/components/week-section.js"></script>
+    <script type="module" src="/components/week-list.js"></script>
+    <script type="module" src="/components/week-pill.js"></script>
+    <script type="module" src="/components/global-search.js"></script>
+    <script type="module" src="/components/markdown-preview.js"></script>
+    <script type="module" src="/components/note-editor.js"></script>
+    <script type="module" src="/components/week-calendar.js"></script>
+    <script type="module" src="/components/week-notes-calendar.js"></script>
+    <script type="module" src="/components/settings-page.js"></script>
+    <style>
+        body { font-family: var(--font-family, -apple-system, sans-serif); font-size: var(--font-size, 16px); margin: 0; line-height: 1.6; color: var(--text-strong); background: var(--bg); }
+        .dbg-page { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+        .dbg-side { background: var(--surface-head); border-right: 1px solid var(--border-faint); padding: 16px 14px; position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto; }
+        .dbg-side h2 { font-family: Georgia, serif; color: var(--accent); margin: 0 0 10px; font-size: 1.05em; }
+        .dbg-nav { display: flex; flex-direction: column; gap: 2px; }
+        .dbg-nav a { display: block; padding: 6px 10px; border-radius: 4px; color: var(--text); text-decoration: none; font-family: ui-monospace, monospace; font-size: 0.88em; }
+        .dbg-nav a:hover { background: var(--surface-alt); }
+        .dbg-nav a.active { background: var(--accent); color: var(--text-on-accent, white); }
+        .dbg-main { padding: 20px 26px; max-width: 1100px; }
+        .dbg-head { margin-bottom: 14px; }
+        .dbg-head h1 { font-family: Georgia, serif; color: var(--accent); font-size: 1.4em; margin: 0 0 4px; }
+        .dbg-head .desc { color: var(--text-muted); font-size: 0.9em; }
+        a { color: var(--accent); }
+        week-section, week-results, task-completed, open-tasks, upcoming-meetings, note-card { display: block; }
+        .h-week { font-family: Georgia, serif; font-size: 1.6em; color: var(--accent); margin: 8px 0 14px; display: flex; align-items: baseline; gap: 12px; }
+        .h-week .meta { font-style: italic; color: var(--text-subtle); font-size: 0.55em; margin-left: auto; }
+        .pill { display: inline-block; background: var(--surface-alt); color: var(--text-muted-warm); padding: 2px 8px; border-radius: 10px; font-size: 0.7em; font-weight: 600; }
+        .pill.live { font-size: 0.5em; letter-spacing: 0.06em; text-transform: uppercase; }
+        .sec-h, .side-h { font-family: Georgia, serif; color: var(--accent); margin: 14px 0 8px; font-size: 1em; }
+        .sec-h .c, .side-h .c { color: var(--text-subtle); font-weight: 400; }
+        .empty-quiet { color: var(--text-subtle); font-style: italic; font-size: 0.9em; }
+        .older-week { margin: 10px 0; border-top: 1px solid var(--border-faint); }
+        .older-week > summary { list-style: none; cursor: pointer; padding: 8px 0; display: flex; align-items: baseline; gap: 10px; color: var(--text-muted); }
+        .older-week > summary::-webkit-details-marker { display: none; }
+        .older-week .caret { color: var(--text-subtle); transition: transform 0.15s; }
+        .older-week[open] .caret { transform: rotate(90deg); }
+        .older-title { font-weight: 600; color: var(--text-strong); }
+        .older-meta { font-size: 0.85em; color: var(--text-subtle); margin-left: auto; }
+        .older-body { padding: 6px 0 14px; }
+        .week-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; }
+        .btn-summarize { font-size: 0.8em; padding: 4px 10px; background: var(--accent); color: var(--text-on-accent, white); border: none; border-radius: 4px; cursor: pointer; font-weight: 600; }
+        .week-title-actions { margin: 4px 0 10px; }
+        .note-card { padding: 10px 14px; margin: 6px 0; background: var(--surface); border: 1px solid var(--border-faint); border-radius: 6px; }
+        .note-card .note-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .note-card .note-actions { display: inline-flex; gap: 6px; }
+        .note-card .note-actions button, .note-card .note-actions a { background: none; border: none; cursor: pointer; font-size: 1em; color: var(--text-muted); text-decoration: none; }
+        .note-card .note-body { margin-top: 6px; color: var(--text-muted); font-size: 0.9em; }
+        .row { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 0.9em; }
+        .row.done { color: var(--text-subtle); text-decoration: line-through; }
+        .row .when { margin-left: auto; font-size: 0.78em; color: var(--text-subtle); }
+        .result { padding: 8px 10px; margin: 6px 0; background: var(--surface); border: 1px solid var(--border-faint); border-left: 3px solid var(--accent); border-radius: 4px; }
+        .result .meta { display: flex; justify-content: space-between; font-size: 0.78em; color: var(--text-subtle); margin-top: 4px; }
+        .sidebar-meeting { position: relative; padding: 8px 10px; margin: 6px 0; background: var(--surface); border: 1px solid var(--border-faint); border-left: 3px solid var(--accent); border-radius: 4px; font-size: 0.85em; }
+        .sidebar-meeting .mtg-when { color: var(--text-muted); font-size: 0.85em; }
+        .sidebar-meeting .mtg-when strong { color: var(--accent); }
+        .sidebar-meeting .mtg-meta { margin-top: 4px; color: var(--text-muted-warm); font-size: 0.85em; }
+        .sidebar-mtg-note { position: absolute; top: 6px; right: 6px; text-decoration: none; opacity: 0.55; }
+        .upcoming-cal-link a { font-size: 0.85em; color: var(--accent); }
+        .mention-link { color: var(--accent); text-decoration: none; cursor: pointer; }
+        .nav-brand { color: var(--accent); font-family: Georgia, serif; font-weight: 700; text-decoration: none; }
+        .nav-links { display: inline-flex; gap: 8px; }
+        .nav-links a { color: var(--text); text-decoration: none; padding: 4px 8px; border-radius: 4px; }
+        .nav-links a:hover { background: var(--surface-alt); }
+        .dbg-attrs { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: center; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border-faint); border-radius: 6px; margin-bottom: 12px; font-size: 0.88em; }
+        .dbg-attrs label { display: inline-flex; gap: 6px; align-items: center; color: var(--text-muted); }
+        .dbg-attrs input[type=text], .dbg-attrs select { padding: 3px 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 4px; font: inherit; }
+        .dbg-attrs textarea { padding: 6px 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 4px; font: inherit; font-family: ui-monospace, monospace; font-size: 0.85em; min-width: 360px; resize: vertical; }
+        .dbg-attrs label.ta-row { flex: 1 1 100%; align-items: flex-start; flex-direction: column; gap: 4px; }
+        .dbg-attrs label.ta-row textarea { width: 100%; box-sizing: border-box; }
+        .dbg-attrs label.json-row { flex: 1 1 100%; align-items: flex-start; flex-direction: column; gap: 4px; }
+        .dbg-attrs .json-editor-mount { width: 100%; height: 280px; box-sizing: border-box; }
+        .dbg-attrs .json-error { color: #c0392b; font-family: ui-monospace, monospace; font-size: 0.8em; margin-top: 2px; min-height: 1em; }
+        .dbg-attrs code { color: var(--accent); }
+        #dbgEvents { font-family: ui-monospace, monospace; font-size: 0.78em; color: var(--text-muted); background: var(--surface-alt); border: 1px solid var(--border-faint); border-radius: 4px; padding: 8px; min-height: 22px; overflow-y: auto; white-space: pre-wrap; position: fixed; top: 12px; right: 12px; bottom: 12px; width: 320px; z-index: 50; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        #dbgHost { border: 1px dashed var(--border); padding: 14px; border-radius: 6px; background: var(--surface); }
+        .dbg-main { padding-right: 350px; }
+        @media (max-width: 900px) { #dbgEvents { position: static; width: auto; max-height: 200px; margin-top: 14px; } .dbg-main { padding-right: 26px; } }
+        ${demo.extraStyle || ''}
+    </style>
+</head>
+<body>
+    <div class="dbg-page">
+        ${sidebar}
+        <main class="dbg-main">
+            <div class="dbg-head">
+                <h1>🧪 ${current}</h1>
+                <div class="desc">${demo.desc}</div>
+            </div>
+            ${demo.tag && demo.attrs && demo.attrs.length > 0 ? `<div class="dbg-attrs" id="dbgAttrs">
+                <span style="color:var(--text-subtle)">attributes:</span>
+                ${demo.attrs.map(a => {
+                    if (a.type === 'bool') {
+                        return `<label><input type="checkbox" data-attr="${a.name}"${a.default ? ' checked' : ''} /> <code>${a.name}</code></label>`;
+                    }
+                    if (a.type === 'select') {
+                        const opts = (a.options || []).map(o => `<option value="${escapeHtml(o)}"${o === a.default ? ' selected' : ''}>${escapeHtml(o)}</option>`).join('');
+                        return `<label><code>${a.name}</code><select data-attr="${a.name}">${opts || '<option value="">(none)</option>'}</select></label>`;
+                    }
+                    if (a.type === 'textarea') {
+                        return `<label class="ta-row"><code>${a.name}</code><textarea data-attr="${a.name}" rows="${a.rows || 3}" spellcheck="false">${escapeHtml(a.default || '')}</textarea></label>`;
+                    }
+                    if (a.type === 'json') {
+                        const def = a.default || '';
+                        return `<label class="json-row"><code>${a.name}</code>`
+                            + `<div class="json-editor-mount" data-json-for="${a.name}" data-json-mode="${escapeHtml(a.mode || 'tree')}" data-json-default="${escapeHtml(def)}"></div>`
+                            + `<div class="json-error" data-json-error-for="${a.name}"></div>`
+                            + `<input type="hidden" data-attr="${a.name}" value="${escapeHtml(def)}" />`
+                            + `</label>`;
+                    }
+                    return `<label><code>${a.name}</code><input type="text" data-attr="${a.name}" value="${escapeHtml(a.default || '')}" /></label>`;
+                }).join('')}
+            </div>` : ''}
+            ${demo.extras || ''}
+            <div id="dbgHost">${demo.rawHtml || (demo.tag ? `<${demo.tag}></${demo.tag}>` : '')}</div>
+            <div id="dbgEvents">events: (none)</div>
+        </main>
+    </div>
+    <script>
+        (function () {
+            const events = document.getElementById('dbgEvents');
+            const log = (line) => {
+                const t = new Date().toISOString().slice(11, 19);
+                events.textContent = '[' + t + '] ' + line + '\\n' + events.textContent;
+            };
+            const NAMES = ${JSON.stringify(EVENTS)};
+            NAMES.forEach(name => {
+                document.addEventListener(name, (e) => log(name + ' ' + JSON.stringify(e.detail || {})));
+            });
+            // Cancel cancelable events so we just observe (don't navigate / open modals).
+            ['mention-clicked', 'view', 'present', 'edit', 'delete', 'upcoming-meetings:open', 'note:view', 'note:present', 'note:edit', 'week-clicked', 'context-selected'].forEach(name => {
+                document.addEventListener(name, (e) => { if (e.cancelable) e.preventDefault(); }, true);
+            });
+
+            // Attribute editor: rebuild the live host element on input change.
+            const TAG = ${JSON.stringify(demo.tag || '')};
+            const attrPanel = document.getElementById('dbgAttrs');
+            const host = document.getElementById('dbgHost');
+            if (TAG && attrPanel) {
+                const rebuild = () => {
+                    const el = document.createElement(TAG);
+                    attrPanel.querySelectorAll('[data-attr]').forEach(input => {
+                        const name = input.dataset.attr;
+                        if (input.type === 'checkbox') {
+                            if (input.checked) el.setAttribute(name, '');
+                        } else if (input.value !== '') {
+                            el.setAttribute(name, input.value);
+                        }
+                    });
+                    host.innerHTML = '';
+                    host.appendChild(el);
+                    log('rebuilt <' + TAG + '> ' + Array.from(el.attributes).map(a => a.name + (a.value ? '=' + JSON.stringify(a.value) : '')).join(' '));
+                    document.dispatchEvent(new CustomEvent('dbg:rebuilt', { detail: { tag: TAG, host: host, el: el } }));
+                };
+                attrPanel.addEventListener('change', rebuild);
+                attrPanel.addEventListener('input', (e) => {
+                    if (e.target.matches('input[type=text], textarea')) rebuild();
+                });
+
+                // Mount jsoneditor for any data-json-for slots.
+                const editors = new Map();
+                attrPanel.querySelectorAll('.json-editor-mount').forEach(mount => {
+                    const name = mount.dataset.jsonFor;
+                    const mode = mount.dataset.jsonMode || 'tree';
+                    const errEl = attrPanel.querySelector('[data-json-error-for="' + name + '"]');
+                    const hidden = attrPanel.querySelector('input[type=hidden][data-attr="' + name + '"]');
+                    let initial = {};
+                    try { initial = JSON.parse(mount.dataset.jsonDefault || '{}'); } catch (_) {}
+                    if (typeof JSONEditor === 'undefined') {
+                        mount.textContent = '(JSONEditor failed to load)';
+                        return;
+                    }
+                    const editor = new JSONEditor(mount, {
+                        mode: mode,
+                        modes: ['tree', 'code', 'text', 'view'],
+                        mainMenuBar: true,
+                        navigationBar: false,
+                        statusBar: false,
+                        onChange: () => {
+                            try {
+                                const txt = editor.getText();
+                                JSON.parse(txt);
+                                if (errEl) errEl.textContent = '';
+                                hidden.value = txt;
+                                hidden.dispatchEvent(new Event('input', { bubbles: true }));
+                            } catch (e) {
+                                if (errEl) errEl.textContent = e.message;
+                            }
+                        },
+                    }, initial);
+                    editors.set(name, editor);
+                });
+
+                rebuild();
+            }
+        })();
+    </script>
+</body>
+</html>`;
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(html);
+        return;
+    }
+
     if (pathname === '/results') {
         const results = loadResults().sort((a, b) => (b.created || '').localeCompare(a.created || ''));
         const people = loadPeople();
@@ -6337,14 +5888,14 @@ activateTab(initialParams.tab || 'people');
         return;
     }
 
-    // Editor: new note
+    // Editor: new note (SPA — hydrates from /pages/editor.html)
     if (pathname === '/editor') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(editorPageHtml('', '', ''));
+        res.end(pageHtml('Nytt notat', ''));
         return;
     }
 
-    // Editor: edit existing file
+    // Editor: edit existing file (SPA — note-editor reads URL for week/file)
     const editorMatch = pathname.match(/^\/editor\/([^/]+)\/([^/]+\.md)$/);
     if (editorMatch) {
         const [, week, file] = editorMatch;
@@ -6355,10 +5906,8 @@ activateTab(initialParams.tab || 'people');
             res.end('Forbidden');
             return;
         }
-        let content = '';
-        try { content = fs.readFileSync(filePath, 'utf-8'); } catch {}
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(editorPageHtml(week, file, content));
+        res.end(pageHtml('Rediger ' + file, ''));
         return;
     }
 
@@ -6524,10 +6073,7 @@ activateTab(initialParams.tab || 'people');
         const body = `
         <div class="breadcrumb"><a href="/">Ukenotater</a> / Oppgaver</div>
         <h1>☑️ Oppgaver</h1>
-        <div style="display:flex;gap:8px;margin-bottom:20px">
-            <input type="text" id="taskInput" placeholder="Ny oppgave..." style="flex:1;padding:10px 14px;border:2px solid var(--border-soft);border-radius:8px;font-size:1em;outline:none" />
-            <button onclick="addTask()" style="padding:10px 20px;background:#48bb78;color:white;border:none;border-radius:8px;font-weight:600;cursor:pointer;font-size:1em">Legg til</button>
-        </div>
+        <task-create id="taskCreate" autofocus-on-connect style="margin-bottom:20px;display:block"></task-create>
         <div style="margin-bottom:16px"><label style="cursor:pointer;font-size:0.9em;color:var(--text-muted);user-select:none"><input type="checkbox" id="showDone" onchange="localStorage.setItem('showDone',this.checked);renderTasks()" style="margin-right:6px" />Vis fullførte oppgaver</label></div>
         <div id="taskList"></div>
         ${commentModalHtml()}
@@ -6536,8 +6082,12 @@ activateTab(initialParams.tab || 'people');
         <script>
         let tasks = ${tasksJson};
 
-        const taskInput = document.getElementById('taskInput');
-        taskInput.addEventListener('keydown', e => { if (e.key === 'Enter') addTask(); });
+        document.getElementById('taskCreate').addEventListener('task:created', e => {
+            if (Array.isArray(e.detail && e.detail.tasks)) {
+                tasks = e.detail.tasks;
+                renderTasks();
+            }
+        });
 
         function renderTasks() {
             const list = document.getElementById('taskList');
@@ -6619,20 +6169,6 @@ activateTab(initialParams.tab || 'people');
                 const key = p ? (p.key || (p.name || '').toLowerCase()) : name.toLowerCase();
                 return pre + '<a href="/people" class="mention-link" data-person-key="' + escapeHtml(key) + '">' + escapeHtml(display) + '</a>';
             });
-        }
-
-        async function addTask() {
-            const text = taskInput.value.trim();
-            if (!text) return;
-            taskInput.value = '';
-            const resp = await fetch('/api/tasks', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text })
-            });
-            tasks = await resp.json();
-            renderTasks();
-            taskInput.focus();
         }
 
         let pendingToggleId = null;
@@ -7772,6 +7308,61 @@ activateTab(initialParams.tab || 'people');
         return;
     }
 
+    // API: list weeks that have content (notes / results / completed tasks)
+    if (pathname === '/api/weeks' && req.method === 'GET') {
+        let dirWeeks = [];
+        try {
+            dirWeeks = fs.readdirSync(dataDir(), { withFileTypes: true })
+                .filter(d => d.isDirectory() && /^\d{4}-W\d{2}$/.test(d.name))
+                .map(d => d.name);
+        } catch {}
+        const tasks = loadTasks();
+        const results = loadResults();
+        const taskWeeks = new Set();
+        tasks.forEach(t => { if (t.week) taskWeeks.add(t.week); });
+        const all = new Set([...dirWeeks, ...taskWeeks]);
+        const out = [];
+        all.forEach(w => {
+            const files = getMdFiles(w).filter(f => f !== 'summarize.md');
+            const hasResults = results.some(r => r.week === w);
+            const hasCompleted = tasks.some(t => t.done && (t.completedWeek || t.week) === w);
+            if (files.length === 0 && !hasResults && !hasCompleted) return;
+            out.push(w);
+        });
+        out.sort((a, b) => b.localeCompare(a));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(out));
+        return;
+    }
+
+    // API: week summary used by <week-section>
+    const weekInfoMatch = pathname.match(/^\/api\/week\/([^/]+)$/);
+    if (weekInfoMatch && req.method === 'GET') {
+        const week = weekInfoMatch[1];
+        const files = getMdFiles(week);
+        const hasSummary = files.includes('summarize.md');
+        const noteFiles = files.filter(f => f !== 'summarize.md').map(f => {
+            const m = getNoteMeta(week, f);
+            return { file: f, pinned: !!m.pinned, created: m.created || '' };
+        });
+        noteFiles.sort((a, b) => {
+            if (!!a.pinned !== !!b.pinned) return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
+            if (a.created && b.created) return b.created.localeCompare(a.created);
+            if (a.created) return -1;
+            if (b.created) return 1;
+            return b.file.localeCompare(a.file);
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            week,
+            weekNum: (week.split('-')[1] || ''),
+            dateRange: isoWeekToDateRange(week),
+            notes: noteFiles,
+            hasSummary,
+        }));
+        return;
+    }
+
     // API: note card data (name, type, pinned, presentationStyle, snippet HTML)
     const cardMatch = pathname.match(/^\/api\/notes\/([^/]+)\/(.+)\/card$/);
     if (cardMatch && req.method === 'GET') {
@@ -7810,6 +7401,27 @@ activateTab(initialParams.tab || 'people');
         return;
     }
 
+    // API: get raw note content
+    const rawNoteMatch = pathname.match(/^\/api\/notes\/([^/]+)\/(.+)\/raw$/);
+    if (rawNoteMatch && req.method === 'GET') {
+        const [, week, file] = rawNoteMatch;
+        const fileName = decodeURIComponent(file);
+        const filePath = path.join(dataDir(), week, fileName);
+        const resolved = path.resolve(filePath);
+        if (!resolved.startsWith(path.resolve(dataDir()))) {
+            res.writeHead(403); res.end('Forbidden'); return;
+        }
+        try {
+            const content = fs.readFileSync(filePath, 'utf-8');
+            res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+            res.end(content);
+        } catch {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Filen finnes ikke' }));
+        }
+        return;
+    }
+
     // API: delete note
     const deleteNoteMatch = pathname.match(/^\/api\/notes\/([^/]+)\/(.+)$/);
     if (deleteNoteMatch && req.method === 'DELETE') {
@@ -7831,9 +7443,30 @@ activateTab(initialParams.tab || 'people');
     if (pathname.startsWith('/components/') && pathname.endsWith('.js')) {
         const slug = pathname.slice('/components/'.length);
         if (slug.includes('/') || slug.includes('..')) { res.writeHead(400); res.end('Bad'); return; }
+        // Search components/ first, then each domains/<name>/ folder so
+        // moved components keep working under their stable /components/ URL.
+        const candidates = [path.join(__dirname, 'components', slug)];
         try {
-            const data = fs.readFileSync(path.join(__dirname, 'components', slug));
-            res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache' });
+            for (const d of fs.readdirSync(path.join(__dirname, 'domains'), { withFileTypes: true })) {
+                if (d.isDirectory()) candidates.push(path.join(__dirname, 'domains', d.name, slug));
+            }
+        } catch {}
+        for (const p of candidates) {
+            try {
+                const data = fs.readFileSync(p);
+                res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache' });
+                res.end(data);
+                return;
+            } catch {}
+        }
+        res.writeHead(404); res.end('Not found');
+        return;
+    }
+
+    if (pathname === '/style.css') {
+        try {
+            const data = fs.readFileSync(path.join(__dirname, 'public', 'style.css'));
+            res.writeHead(200, { 'Content-Type': 'text/css; charset=utf-8', 'Cache-Control': 'no-cache' });
             res.end(data);
         } catch (e) {
             res.writeHead(404); res.end('Not found');

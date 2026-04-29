@@ -18,4 +18,20 @@
     --accent-soft: #0f2a0f;
     --font-family: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', Consolas, 'Courier New', monospace;
     --font-size: 14px;
+    --font-heading: Georgia, "Times New Roman", serif;
+    --font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+    --success: #48bb78;
+    --success-strong: #38a169;
+    --highlight: #fefcbf;
+    --cal-meeting: #4299e1;
+    --cal-task: #48bb78;
+    --cal-focus: #9f7aea;
+    --cal-note: var(--accent);
+    --cal-block: #718096;
+    --danger: #fc8181;
+    --danger-strong: #f56565;
+    --overlay: rgba(0, 0, 0, 0.7);
+    --shadow: rgba(0, 0, 0, 0.55);
+    --code-bg: #0f1320;
+    --code-fg: #e2e8f0;
 }

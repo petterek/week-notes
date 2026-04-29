@@ -10,8 +10,18 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-29
+- **SPA migration: domain folders, service pattern, debug page.** Components reorganized into `domains/{notes,tasks,meetings,people,results,search,settings,context,composit}/` with one `service.js` per domain wrapping the existing `/api/*` endpoints. Each visual component looks up its data source via a `service` attribute (`<thing service="MeetingsService">`) and renders `renderNoService()` when missing — making them mockable. `domains/_mock-services.js` provides browser-side mocks (Mock*Service) for the debug page so every component can render in isolation.
+- **`<week-notes-calendar>`** wrapper around the dumb display `<week-calendar>`. Fetches `service.list({week})` + `listTypes()`, maps to calendar item shape `{startDate, endDate, heading, body, type, id}` with type-icon prefix and `@attendees · 📍 location` body, then calls `cal.setItems()`. `<week-calendar>` itself no longer requires a service — items are pushed in via `setItems()`.
+- **`<nav-button>`** (renamed from `<app-brand>`) gained `size` (1–5) and `icon` (emoji) attributes.
+- **Per-day note grouping** in `<week-section>`: pinned notes first (📌 Festet), then groups by ISO date with Norwegian day headings ("mandag 27.04"), counts per day, "Uten dato" catch-all.
+- **Service pattern conversions**: `<person-tip>`, `<global-search>` now read from `service` attr (with fallback to direct fetch / cached loader). Cache invalidates on source change.
+- **Debug page** at `/debug` lists every component with rendered demos using mock services; each `/debug/<tag>` route shows the component standalone with editable attributes.
+- Pages directory `pages/` introduced for SPA shells (home, calendar, editor, people).
+- Theme files gained 16 new `--*` CSS variables for component theming.
+
 ### 2026-04-26
-- `<upcoming-meetings days="14">`, `<week-results week="...">`, `<week-completed week="...">` web components — finish moving the home sidebar widgets into self-loading custom elements. Each fetches its data via `/api/*` (cached per-page through a shared `components/_shared.js` helper), renders the same markup as before and bubbles `mention-clicked` for `@`-links so the page-level handler can navigate.
+- `<upcoming-meetings days="14">`, `<week-results week="...">`, `<task-completed week="...">` web components — finish moving the home sidebar widgets into self-loading custom elements. Each fetches its data via `/api/*` (cached per-page through a shared `components/_shared.js` helper), renders the same markup as before and bubbles `mention-clicked` for `@`-links so the page-level handler can navigate.
 - `<open-tasks>` web component — replaces the inline open-tasks sidebar markup. Fetches `/api/tasks` + `/api/people` + `/api/companies`, renders heading + rows, calls `window.showCommentModal` / `window.openNoteModal` when present, otherwise dispatches `open-tasks:*` events. `@`-mentions emit a bubbling `mention-clicked` event handled at page level so navigation logic stays out of the component.
 - All web components now use `var(--*)` theme variables exclusively; removed the few remaining hardcoded colors (`#2b6cb0`, `#a0aec0`, `#c53030`).
 - `<note-card note="WEEK/file.md">` web component (`components/note-card.js`) — self-loading note summary card. Fetches `/api/notes/<week>/<file>/card` for type/pin/snippet and renders the markup; action buttons call existing globals (`openNoteViewModal`, `openPresentation`, `deleteNoteFromHome`) when present, otherwise dispatch `note-card:*` events. Home weekly view emits one `<note-card>` tag per note instead of inline markup.

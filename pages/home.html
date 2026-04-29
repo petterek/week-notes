@@ -1,0 +1,13 @@
+<!-- Home page fragment. Loaded by the SPA router into <main id="content">. -->
+<title>Hjem</title>
+<div class="home-layout">
+    <aside id="taskSidebar" class="task-sidebar">
+        <div class="task-sidebar-inner">
+            <open-tasks></open-tasks>
+            <upcoming-meetings days="{{UPCOMING_MEETINGS_DAYS}}"></upcoming-meetings>
+        </div>
+    </aside>
+    <div id="homeMain" class="home-main">
+        <week-list></week-list>
+    </div>
+</div>

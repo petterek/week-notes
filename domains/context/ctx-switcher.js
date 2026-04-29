@@ -1,7 +1,7 @@
 /**
- * <ctx-switcher> — wraps the server-rendered context switcher (trigger button +
- * dropdown menu) and wires up: open/close, click-outside, switch context, and
- * the optional commit-changes button.
+ * <ctx-switcher service="ContextService"> — wraps the server-rendered context
+ * switcher (trigger button + dropdown menu). The server emits light-DOM
+ * children which appear inside the component's shadow root via a <slot>.
  *
  * Expected light-DOM children (rendered server-side by contextSwitcherHtml()):
  *   <ctx-switcher>
@@ -12,17 +12,35 @@
  *       <a class="ctx-item ctx-link" href="/settings">…</a>
  *     </div>
  *   </ctx-switcher>
+ *
+ * Service contract:
+ *   switchTo(id) → Promise
+ *   commit(id, { message }) → Promise<{ ok, committed?, error? }>
+ *
+ * Behavior unchanged: clicking the trigger toggles `.open` on the host;
+ * clicking a context item switches; clicking the commit button commits.
  */
-(function () {
-    if (window.customElements && customElements.get('ctx-switcher')) return;
+import { WNElement, html } from './_shared.js';
 
-    class CtxSwitcher extends HTMLElement {
-        connectedCallback() {
-            if (this._wired) return;
-            this._wired = true;
+const STYLES = `
+    :host { display: inline-block; position: relative; font: inherit; }
+`;
 
-            const trigger = this.querySelector('.ctx-trigger');
-            if (!trigger) return;
+class CtxSwitcher extends WNElement {
+    css() { return STYLES; }
+
+    render() {
+        return html`<slot></slot>`;
+    }
+
+    connectedCallback() {
+        super.connectedCallback();
+        if (!this.service) return;
+        if (this._wired) return;
+        this._wired = true;
+
+        const trigger = this.querySelector('.ctx-trigger');
+        if (!trigger) return;
 
             trigger.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -38,14 +56,17 @@
                 b.addEventListener('click', async () => {
                     const id = b.getAttribute('data-id');
                     try {
-                        const r = await fetch('/api/contexts/switch', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ id }),
-                        });
-                        const d = await r.json();
-                        if (d.ok) location.reload();
-                        else alert(`Kunne ikke bytte kontekst: ${d.error}`);
+                        const d = await this.service.switchTo(id);
+                        if (d && d.ok) {
+                            const evt = new CustomEvent('context-selected', {
+                                bubbles: true, composed: true, cancelable: true,
+                                detail: { id, result: d }
+                            });
+                            if (!this.dispatchEvent(evt)) return;
+                            location.reload();
+                        } else {
+                            alert(`Kunne ikke bytte kontekst: ${d && d.error || 'ukjent feil'}`);
+                        }
                     } catch (e) {
                         alert(`Kunne ikke bytte kontekst: ${e.message || e}`);
                     }
@@ -61,17 +82,12 @@
                     if (msg === null) return;
                     cb.textContent = '⏳ Committer...';
                     try {
-                        const r = await fetch(`/api/contexts/${encodeURIComponent(id)}/commit`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ message: msg }),
-                        });
-                        const d = await r.json();
-                        if (d.ok) {
+                        const d = await this.service.commit(id, { message: msg });
+                        if (d && d.ok) {
                             cb.textContent = d.committed ? '✓ Committet' : 'Ingen endringer';
                             setTimeout(() => this.classList.remove('open'), 1200);
                         } else {
-                            cb.textContent = `✗ ${d.error}`;
+                            cb.textContent = `✗ ${d && d.error || 'feil'}`;
                         }
                     } catch (err) {
                         cb.textContent = `✗ ${err.message || err}`;
@@ -79,10 +95,10 @@
                 });
             }
         }
-        disconnectedCallback() {
-            if (this._onDocClick) document.removeEventListener('click', this._onDocClick);
-        }
-    }
 
-    customElements.define('ctx-switcher', CtxSwitcher);
-})();
+        disconnectedCallback() {
+        if (this._onDocClick) document.removeEventListener('click', this._onDocClick);
+    }
+}
+
+if (!customElements.get('ctx-switcher')) customElements.define('ctx-switcher', CtxSwitcher);

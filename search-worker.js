@@ -80,6 +80,7 @@ function buildIndex(contextDir) {
             const name = f.replace(/\.md$/, '');
             const idx = pushDoc({
                 type: 'note',
+                identifier: week + '/' + encodeURIComponent(f),
                 title: name,
                 subtitle: week + '/' + f,
                 href: '/' + week + '/' + encodeURIComponent(f),
@@ -99,6 +100,7 @@ function buildIndex(contextDir) {
             if (!blob) continue;
             const idx = pushDoc({
                 type: 'task',
+                identifier: t.id,
                 title: t.text || '(uten tittel)',
                 subtitle: (t.done ? '✓ ' : '☐ ') + (t.completedWeek || t.week || ''),
                 href: '/tasks',
@@ -120,6 +122,7 @@ function buildIndex(contextDir) {
             try { if (m.date) week = dateToIsoWeek(new Date(m.date + 'T00:00:00Z')); } catch {}
             const idx = pushDoc({
                 type: 'meeting',
+                identifier: m.id,
                 title: m.title || '(uten tittel)',
                 subtitle: (m.date || '') + (m.start ? ' ' + m.start : ''),
                 href: week ? `/calendar/${week}#m-${encodeURIComponent(m.id || '')}` : '/calendar',
@@ -140,6 +143,7 @@ function buildIndex(contextDir) {
             const display = p.firstName ? (p.lastName ? p.firstName + ' ' + p.lastName : p.firstName) : (p.name || p.key);
             const idx = pushDoc({
                 type: 'person',
+                identifier: p.key || '',
                 title: display,
                 subtitle: p.title || p.email || ('@' + (p.key || '')),
                 href: '/people#' + encodeURIComponent(p.key || ''),
@@ -157,6 +161,7 @@ function buildIndex(contextDir) {
             if (!r.text) continue;
             const idx = pushDoc({
                 type: 'result',
+                identifier: r.id,
                 title: r.text.length > 60 ? r.text.slice(0, 60) + '…' : r.text,
                 subtitle: r.week || '',
                 href: '/results',
@@ -268,6 +273,7 @@ function runQuery(q) {
         if (!d.searchText.toLowerCase().includes(qLower)) continue;
         out.push({
             type: d.type,
+            identifier: d.identifier,
             title: d.title,
             subtitle: d.subtitle,
             href: d.href,

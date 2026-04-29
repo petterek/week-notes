@@ -18,4 +18,20 @@
     --accent-soft: #c8dde8;
     --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     --font-size: 16px;
+    --font-heading: Georgia, "Times New Roman", serif;
+    --font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+    --success: #48bb78;
+    --success-strong: #38a169;
+    --highlight: #fefcbf;
+    --cal-meeting: #4299e1;
+    --cal-task: #48bb78;
+    --cal-focus: #9f7aea;
+    --cal-note: var(--accent);
+    --cal-block: #718096;
+    --danger: #c53030;
+    --danger-strong: #9b2c2c;
+    --overlay: rgba(0, 0, 0, 0.5);
+    --shadow: rgba(0, 0, 0, 0.18);
+    --code-bg: #2d3748;
+    --code-fg: #e2e8f0;
 }
