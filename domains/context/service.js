@@ -16,40 +16,36 @@
  *   POST   /api/contexts/:id/push                 → push(id)
  *   POST   /api/contexts/:id/pull                 → pull(id)
  *
- * Exposed as window.ContextService.
+ * Exposed as named export `ContextService`.
  */
-(function () {
-    if (typeof window !== 'undefined' && window.ContextService) return;
-
-    async function req(method, path, body) {
-        const opts = { method, headers: {} };
-        if (body !== undefined) {
-            opts.headers['Content-Type'] = 'application/json';
-            opts.body = JSON.stringify(body);
-        }
-        const r = await fetch(path, opts);
-        if (!r.ok) throw new Error(method + ' ' + path + ' ' + r.status);
-        const ct = r.headers.get('Content-Type') || '';
-        return ct.includes('json') ? r.json() : r.text();
+async function req(method, path, body) {
+    const opts = { method, headers: {} };
+    if (body !== undefined) {
+        opts.headers['Content-Type'] = 'application/json';
+        opts.body = JSON.stringify(body);
     }
+    const r = await fetch(path, opts);
+    if (!r.ok) throw new Error(method + ' ' + path + ' ' + r.status);
+    const ct = r.headers.get('Content-Type') || '';
+    return ct.includes('json') ? r.json() : r.text();
+}
 
-    const enc = encodeURIComponent;
+const enc = encodeURIComponent;
 
-    const ContextService = {
-        list:               ()          => req('GET',    '/api/contexts'),
-        create:             (data)      => req('POST',   '/api/contexts', data),
-        clone:              (data)      => req('POST',   '/api/contexts/clone', data),
-        switchTo:           (id)        => req('POST',   '/api/contexts/switch', { id }),
-        listDisconnected:   ()          => req('GET',    '/api/contexts/disconnected'),
-        forgetDisconnected: (id)        => req('DELETE', `/api/contexts/disconnected/${enc(id)}`),
-        disconnect:         (id)        => req('POST',   `/api/contexts/${enc(id)}/disconnect`),
+export const ContextService = {
+    list:               ()          => req('GET',    '/api/contexts'),
+    create:             (data)      => req('POST',   '/api/contexts', data),
+    clone:              (data)      => req('POST',   '/api/contexts/clone', data),
+    switchTo:           (id)        => req('POST',   '/api/contexts/switch', { id }),
+    listDisconnected:   ()          => req('GET',    '/api/contexts/disconnected'),
+    forgetDisconnected: (id)        => req('DELETE', `/api/contexts/disconnected/${enc(id)}`),
+    disconnect:         (id)        => req('POST',   `/api/contexts/${enc(id)}/disconnect`),
 
-        commit:             (id, body) => req('POST',   `/api/contexts/${enc(id)}/commit`, body),
-        gitStatus:          (id)        => req('GET',    `/api/contexts/${enc(id)}/git`),
-        push:               (id)        => req('POST',   `/api/contexts/${enc(id)}/push`),
-        pull:               (id)        => req('POST',   `/api/contexts/${enc(id)}/pull`),
-    };
+    commit:             (id, body) => req('POST',   `/api/contexts/${enc(id)}/commit`, body),
+    gitStatus:          (id)        => req('GET',    `/api/contexts/${enc(id)}/git`),
+    push:               (id)        => req('POST',   `/api/contexts/${enc(id)}/push`),
+    pull:               (id)        => req('POST',   `/api/contexts/${enc(id)}/pull`),
+};
 
-    if (typeof window !== 'undefined') window.ContextService = ContextService;
-    if (typeof module !== 'undefined' && module.exports) module.exports = ContextService;
-})();
+
+if (typeof window !== 'undefined') window.ContextService = ContextService;

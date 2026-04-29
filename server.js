@@ -1510,6 +1510,14 @@ document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaK
 })();
 </script>
 <script type="module" src="/components/_shared.js"></script>
+<script type="module" src="/services/context.js"></script>
+<script type="module" src="/services/meetings.js"></script>
+<script type="module" src="/services/notes.js"></script>
+<script type="module" src="/services/people.js"></script>
+<script type="module" src="/services/results.js"></script>
+<script type="module" src="/services/search.js"></script>
+<script type="module" src="/services/settings.js"></script>
+<script type="module" src="/services/tasks.js"></script>
 <script type="module" src="/components/nav-meta.js"></script>
 <script type="module" src="/components/nav-button.js"></script>
 <script type="module" src="/components/ctx-switcher.js"></script>
@@ -2302,13 +2310,316 @@ const server = http.createServer(async (req, res) => {
         }
         return;
     }
+
+    // Serve production service files at /services/<name>.js (used in pageHtml,
+    // editor, etc. so components can resolve `service="XService"` via window)
+    // and at /debug/services/<name>.js (used by the services debug page,
+    // which imports them as ES modules).
+    {
+        const m = pathname.match(/^\/(?:debug\/)?services\/([a-z]+)\.js$/);
+        if (m) {
+            const file = path.join(__dirname, 'domains', m[1], 'service.js');
+            try {
+                const data = fs.readFileSync(file);
+                res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache' });
+                res.end(data);
+            } catch (e) {
+                res.writeHead(404); res.end('Not found');
+            }
+            return;
+        }
+    }
+
+    function renderServicesDebug(req, res) {
+        // Production services + their GET endpoints. Each entry's `methods`
+        // describe how to invoke a method via the service object on `window`.
+        // Each method has:
+        //   name   : method name on the service
+        //   http   : human-readable HTTP method + path
+        //   desc   : what it returns
+        //   params : [{ name, type:'text', placeholder?, optional?, default? }]
+        //            For the `list` filter pattern, the params are merged into
+        //            a single { ... } object passed as the first arg.
+        //   shape  : 'positional' (default — pass each param as positional arg)
+        //          | 'filter'     (single object: {name: value, ...})
+        const SERVICES_RAW = [
+            {
+                key: 'context', global: 'ContextService',
+                title: 'ContextService',
+                desc: 'Workspace (context) management + per-context git status.',
+                methods: [
+                    { name: 'list',             http: 'GET /api/contexts',                       desc: 'All workspaces.', params: [] },
+                    { name: 'listDisconnected', http: 'GET /api/contexts/disconnected',          desc: 'Workspaces removed but still on disk.', params: [] },
+                    { name: 'gitStatus',        http: 'GET /api/contexts/:id/git',               desc: 'Git status for a workspace.', params: [{ name: 'id', placeholder: 'e.g. work', optional: false }] },
+                ],
+            },
+            {
+                key: 'meetings', global: 'MeetingsService',
+                title: 'MeetingsService',
+                desc: 'Meetings + meeting types.',
+                methods: [
+                    { name: 'list', http: 'GET /api/meetings[?week=&upcoming=]', desc: 'List meetings (optionally filtered).', shape: 'filter', params: [
+                        { name: 'week', placeholder: 'YYYY-WNN', optional: true },
+                        { name: 'upcoming', placeholder: 'days, e.g. 14', optional: true },
+                    ] },
+                    { name: 'listTypes', http: 'GET /api/meeting-types', desc: 'Meeting type catalogue.', params: [] },
+                ],
+            },
+            {
+                key: 'notes', global: 'NotesService',
+                title: 'NotesService',
+                desc: 'Weekly notes + per-file metadata, raw + rendered content.',
+                methods: [
+                    { name: 'listWeeks', http: 'GET /api/weeks',                       desc: 'All known week ids.', params: [] },
+                    { name: 'getWeek',   http: 'GET /api/week/:week',                  desc: 'Week metadata + notes index.', params: [{ name: 'week', placeholder: 'YYYY-WNN' }] },
+                    { name: 'meta',      http: 'GET /api/notes/:week/:file/meta',      desc: 'Note metadata (frontmatter etc).', params: [{ name: 'week', placeholder: 'YYYY-WNN' }, { name: 'file', placeholder: 'mandag.md' }] },
+                    { name: 'card',      http: 'GET /api/notes/:week/:file/card',      desc: 'Sidebar card payload (snippet, type, pin).', params: [{ name: 'week', placeholder: 'YYYY-WNN' }, { name: 'file', placeholder: 'mandag.md' }] },
+                    { name: 'raw',       http: 'GET /api/notes/:week/:file/raw',       desc: 'Raw markdown.',  params: [{ name: 'week', placeholder: 'YYYY-WNN' }, { name: 'file', placeholder: 'mandag.md' }] },
+                    { name: 'renderHtml',http: 'GET /api/notes/:week/:file/render',    desc: 'Server-rendered HTML.', params: [{ name: 'week', placeholder: 'YYYY-WNN' }, { name: 'file', placeholder: 'mandag.md' }] },
+                ],
+            },
+            {
+                key: 'people', global: 'PeopleService',
+                title: 'PeopleService',
+                desc: 'People directory.',
+                methods: [
+                    { name: 'list', http: 'GET /api/people', desc: 'All people.', params: [] },
+                ],
+            },
+            {
+                key: 'results', global: 'ResultsService',
+                title: 'ResultsService',
+                desc: 'Result/outcome log.',
+                methods: [
+                    { name: 'list', http: 'GET /api/results[?week=]', desc: 'Results, optionally filtered.', shape: 'filter', params: [
+                        { name: 'week', placeholder: 'YYYY-WNN', optional: true },
+                    ] },
+                ],
+            },
+            {
+                key: 'search', global: 'SearchService',
+                title: 'SearchService',
+                desc: 'Cross-cutting global search.',
+                methods: [
+                    { name: 'search', http: 'GET /api/search?q=', desc: 'Search across notes, tasks, results, meetings, people.', params: [
+                        { name: 'q', placeholder: 'search text' },
+                    ] },
+                ],
+            },
+            {
+                key: 'settings', global: 'SettingsService',
+                title: 'SettingsService',
+                desc: 'Per-context settings, meeting-type catalogue, theme catalogue.',
+                methods: [
+                    { name: 'getSettings',     http: 'GET /api/contexts/:id/settings',      desc: 'Per-context settings.', params: [{ name: 'id', placeholder: 'e.g. work' }] },
+                    { name: 'getMeetingTypes', http: 'GET /api/contexts/:id/meeting-types', desc: 'Meeting types for a context.', params: [{ name: 'id', placeholder: 'e.g. work' }] },
+                    { name: 'listThemes',      http: 'GET /api/themes',                     desc: 'All themes.', params: [] },
+                ],
+            },
+            {
+                key: 'tasks', global: 'TaskService',
+                title: 'TaskService',
+                desc: 'Open + completed tasks.',
+                methods: [
+                    { name: 'list', http: 'GET /api/tasks', desc: 'All tasks (open + completed).', params: [] },
+                ],
+            },
+        ];
+        const SERVICES = SERVICES_RAW.slice().sort((a, b) => a.global.localeCompare(b.global));
+
+        const html = `<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="utf-8">
+    <title>Debug · services</title>
+    <link rel="stylesheet" href="/themes/paper.css">
+${SERVICES.map(s => `    <link rel="modulepreload" href="/debug/services/${s.key}.js">`).join('\n')}
+    <style>
+        body { font-family: var(--font-family, -apple-system, sans-serif); font-size: var(--font-size, 16px); margin: 0; line-height: 1.55; color: var(--text-strong); background: var(--bg); }
+        .dbg-page { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+        .dbg-side { background: var(--surface-head); border-right: 1px solid var(--border-faint); padding: 16px 14px; position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto; }
+        .dbg-side h2 { font-family: Georgia, serif; color: var(--accent); margin: 0 0 10px; font-size: 1.05em; }
+        .dbg-nav { display: flex; flex-direction: column; gap: 2px; }
+        .dbg-nav a { display: block; padding: 6px 10px; border-radius: 4px; color: var(--text); text-decoration: none; font-family: ui-monospace, monospace; font-size: 0.88em; }
+        .dbg-nav a:hover { background: var(--surface-alt); }
+        .dbg-nav a.active { background: var(--accent); color: var(--text-on-accent, white); }
+        .dbg-main { padding: 20px 26px; max-width: 1100px; }
+        .dbg-head h1 { font-family: Georgia, serif; color: var(--accent); font-size: 1.4em; margin: 0 0 4px; }
+        .dbg-head .desc { color: var(--text-muted); font-size: 0.9em; margin-bottom: 14px; }
+        .svc { background: var(--surface); border: 1px solid var(--border-faint); border-radius: 8px; padding: 14px 18px; margin-bottom: 22px; }
+        .svc > h2 { margin: 0 0 4px; font-family: Georgia, serif; color: var(--accent); font-size: 1.1em; }
+        .svc > h2 .glob { font-family: ui-monospace, monospace; font-size: 0.8em; color: var(--text-subtle); margin-left: 8px; }
+        .svc > .desc { color: var(--text-muted); font-size: 0.9em; margin-bottom: 10px; }
+        .method { border-top: 1px solid var(--border-faint); padding: 10px 0; }
+        .method:first-of-type { border-top: none; }
+        .method .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .method .name { font-family: ui-monospace, monospace; font-size: 0.95em; font-weight: 600; min-width: 130px; }
+        .method .http { font-family: ui-monospace, monospace; font-size: 0.78em; color: var(--text-subtle); background: var(--surface-alt); padding: 2px 6px; border-radius: 4px; }
+        .method .desc { color: var(--text-muted); font-size: 0.85em; flex: 1 1 100%; margin-top: 2px; }
+        .method input { font-family: ui-monospace, monospace; font-size: 0.85em; padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text-strong); }
+        .method input.opt { border-style: dashed; }
+        .method label { font-size: 0.78em; color: var(--text-subtle); display: inline-flex; flex-direction: column; gap: 2px; }
+        .method button { font-size: 0.85em; padding: 4px 12px; background: var(--accent); color: var(--text-on-accent, white); border: none; border-radius: 4px; cursor: pointer; font-weight: 600; }
+        .method button:disabled { opacity: 0.5; cursor: wait; }
+        .out { margin-top: 8px; }
+        .out pre { margin: 0; padding: 8px 10px; background: var(--surface-alt); border-radius: 6px; max-height: 320px; overflow: auto; font-family: ui-monospace, monospace; font-size: 0.8em; white-space: pre-wrap; word-break: break-word; }
+        .out .meta { font-size: 0.75em; color: var(--text-subtle); margin-bottom: 4px; }
+        .out.err pre { background: var(--danger-bg, #fee); color: var(--danger, #900); }
+        .toolbar { margin-bottom: 14px; }
+        .toolbar button { font-size: 0.85em; padding: 4px 12px; background: var(--surface-alt); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; color: var(--text-strong); }
+    </style>
+</head>
+<body>
+    <div class="dbg-page">
+        <aside class="dbg-side">
+            <h2>Components</h2>
+            <nav class="dbg-nav">
+                <a href="/debug">← components</a>
+            </nav>
+            <h2 style="margin-top:18px">Services</h2>
+            <nav class="dbg-nav">
+                ${SERVICES.map(s => `<a href="#svc-${s.key}">${s.global}</a>`).join('')}
+            </nav>
+        </aside>
+        <main class="dbg-main">
+            <header class="dbg-head">
+                <h1>Production services</h1>
+                <p class="desc">All eight production services and their GET endpoints, imported as ES modules from <code>domains/&lt;name&gt;/service.js</code> — no globals on <code>window</code>. Calls hit the live <code>/api/*</code> backend. Use <strong>Run all</strong> to invoke every parameter-less GET in one go.</p>
+            </header>
+            <div class="toolbar">
+                <button id="btnRunAll" type="button">▶ Run all parameter-less GETs</button>
+            </div>
+            ${SERVICES.map(s => `
+                <section class="svc" id="svc-${s.key}">
+                    <h2>${s.title} <span class="glob">import { ${s.global} }</span></h2>
+                    <p class="desc">${s.desc} <span style="font-family:ui-monospace,monospace;font-size:0.78em;color:var(--text-subtle);margin-left:6px">· source: <a href="/debug/services/${s.key}.js" style="color:var(--text-subtle)">domains/${s.key}/service.js</a></span></p>
+                    ${s.methods.map((m, i) => {
+                        const id = `${s.key}-${m.name}`;
+                        const inputs = m.params.map(p => `
+                            <label>${escapeHtml(p.name)}${p.optional ? ' <span style="opacity:.6">(valgfri)</span>' : ''}
+                                <input type="text" data-param="${escapeHtml(p.name)}" placeholder="${escapeHtml(p.placeholder || '')}"${p.optional ? ' class="opt"' : ''}>
+                            </label>`).join('');
+                        return `
+                        <div class="method" data-svc="${s.global}" data-method="${m.name}" data-shape="${m.shape || 'positional'}" data-params='${escapeHtml(JSON.stringify(m.params.map(p => ({ name: p.name, optional: !!p.optional }))))}'>
+                            <div class="row">
+                                <span class="name">${m.name}(${m.params.map(p => p.name).join(', ')})</span>
+                                <span class="http">${escapeHtml(m.http)}</span>
+                                ${inputs}
+                                <button type="button" data-run="${id}">▶ Run</button>
+                            </div>
+                            <div class="desc">${m.desc}</div>
+                            <div class="out" id="out-${id}" hidden></div>
+                        </div>`;
+                    }).join('')}
+                </section>
+            `).join('')}
+        </main>
+    </div>
+    <script type="module">
+        // Import each service as an ES module — no globals on window.
+${SERVICES.map(s => `        import { ${s.global} } from '/debug/services/${s.key}.js';`).join('\n')}
+        const SERVICES = {
+${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).join('\n')}
+        };
+
+        function fmt(v) {
+            if (typeof v === 'string') {
+                if (v.length > 4000) return v.slice(0, 4000) + '\\n… (' + (v.length - 4000) + ' more chars)';
+                return v;
+            }
+            try { return JSON.stringify(v, null, 2); } catch (_) { return String(v); }
+        }
+
+        async function run(method) {
+            const svc = SERVICES[method.dataset.svc];
+            const fn = svc && svc[method.dataset.method];
+            const out = method.querySelector('.out');
+            const btn = method.querySelector('button[data-run]');
+            if (!svc) {
+                out.hidden = false; out.classList.add('err');
+                out.innerHTML = '<div class="meta">' + method.dataset.svc + ' is not imported.</div><pre></pre>';
+                return;
+            }
+            if (typeof fn !== 'function') {
+                out.hidden = false; out.classList.add('err');
+                out.innerHTML = '<div class="meta">No such method: ' + method.dataset.method + '</div><pre></pre>';
+                return;
+            }
+            const declared = JSON.parse(method.dataset.params || '[]');
+            const inputs = method.querySelectorAll('input[data-param]');
+            const values = {};
+            inputs.forEach(i => { if (i.value !== '') values[i.dataset.param] = i.value; });
+
+            let args;
+            if (method.dataset.shape === 'filter') {
+                args = [values];
+            } else {
+                args = declared.map(p => values[p.name]);
+                while (args.length && args[args.length - 1] === undefined) args.pop();
+                if (declared.some((p, i) => !p.optional && args[i] === undefined)) {
+                    out.hidden = false; out.classList.add('err');
+                    out.innerHTML = '<div class="meta">Missing required parameter(s).</div><pre></pre>';
+                    return;
+                }
+            }
+
+            btn.disabled = true; out.classList.remove('err'); out.hidden = false;
+            out.innerHTML = '<div class="meta">Running…</div><pre></pre>';
+            const t0 = performance.now();
+            try {
+                const result = await fn.apply(svc, args);
+                const dt = (performance.now() - t0).toFixed(0);
+                const text = fmt(result);
+                const size = typeof result === 'string' ? result.length + ' chars' : (Array.isArray(result) ? result.length + ' items' : (result && typeof result === 'object' ? Object.keys(result).length + ' keys' : typeof result));
+                out.innerHTML = '';
+                const meta = document.createElement('div'); meta.className = 'meta';
+                meta.textContent = '✓ ' + dt + 'ms · ' + size;
+                const pre = document.createElement('pre'); pre.textContent = text;
+                out.appendChild(meta); out.appendChild(pre);
+            } catch (e) {
+                const dt = (performance.now() - t0).toFixed(0);
+                out.classList.add('err');
+                out.innerHTML = '';
+                const meta = document.createElement('div'); meta.className = 'meta';
+                meta.textContent = '✗ ' + dt + 'ms';
+                const pre = document.createElement('pre'); pre.textContent = (e && e.message) || String(e);
+                out.appendChild(meta); out.appendChild(pre);
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        document.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-run]');
+            if (btn) {
+                const method = btn.closest('.method');
+                if (method) run(method);
+            }
+        });
+
+        document.getElementById('btnRunAll').addEventListener('click', async () => {
+            const methods = document.querySelectorAll('.method');
+            for (const m of methods) {
+                const declared = JSON.parse(m.dataset.params || '[]');
+                const required = declared.filter(p => !p.optional);
+                if (required.length === 0) await run(m);
+            }
+        });
+    </script>
+</body>
+</html>`;
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(html);
+    }
+
     if (pathname === '/debug' || pathname.startsWith('/debug/')) {
         const COMPONENTS = [
-            'nav-meta', 'nav-button', 'ctx-switcher', 'help-modal',
-            'person-tip', 'note-card', 'markdown-preview', 'note-editor',
-            'open-tasks', 'task-create', 'task-create-modal', 'upcoming-meetings',
-            'week-results', 'task-completed', 'week-section', 'week-list',
-            'week-pill', 'global-search', 'week-calendar', 'week-notes-calendar', 'settings-page',
+            'ctx-switcher', 'global-search', 'help-modal', 'markdown-preview',
+            'nav-button', 'nav-meta', 'note-card', 'note-editor',
+            'open-tasks', 'person-tip', 'settings-page', 'task-completed',
+            'task-create', 'task-create-modal', 'upcoming-meetings',
+            'week-calendar', 'week-list', 'week-notes-calendar', 'week-pill',
+            'week-results', 'week-section',
         ];
 
         // List all weeks for week-* demos.
@@ -2334,6 +2645,9 @@ const server = http.createServer(async (req, res) => {
             res.writeHead(302, { Location: `/debug/${COMPONENTS[0]}` });
             res.end();
             return;
+        }
+        if (current === 'services') {
+            return renderServicesDebug(req, res);
         }
         if (!COMPONENTS.includes(current)) {
             res.writeHead(404, { 'Content-Type': 'text/plain' });
@@ -2605,6 +2919,10 @@ const server = http.createServer(async (req, res) => {
             <h2>Components</h2>
             <nav class="dbg-nav">
                 ${COMPONENTS.map(c => `<a href="/debug/${c}" class="${c === current ? 'active' : ''}">${c}</a>`).join('')}
+            </nav>
+            <h2 style="margin-top:18px">Other</h2>
+            <nav class="dbg-nav">
+                <a href="/debug/services">services</a>
             </nav>
         </aside>`;
 

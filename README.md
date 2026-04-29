@@ -10,6 +10,11 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-29 (later)
+- **Home page wired up to production services.** Each `domains/<name>/service.js` is now an ES module with a named export (`export const XService = ...`) plus a guarded `window.XService = XService` for backward-compat. Served from `/services/<name>.js` (and `/debug/services/<name>.js`). Home + editor pages load all 8 service modules in head before component modules so `<ctx-switcher service="ContextService">` and any other service-driven component resolve correctly. Without this, the production navbar's context dropdown was silently broken (component did `if (!this.service) return;` because no service was on `window`).
+- **`/debug/services` page** lists every production service and its GET endpoints, imported as ES modules (no `window` indirection in the test page). Each method has inline params and a ▶ Run button that invokes the service against the live `/api/*` backend; **▶ Run all** fires every parameter-less GET. Sidebar and per-card method order is alphabetical.
+- Debug page **components list** now alphabetised.
+
 ### 2026-04-29
 - **SPA migration: domain folders, service pattern, debug page.** Components reorganized into `domains/{notes,tasks,meetings,people,results,search,settings,context,composit}/` with one `service.js` per domain wrapping the existing `/api/*` endpoints. Each visual component looks up its data source via a `service` attribute (`<thing service="MeetingsService">`) and renders `renderNoService()` when missing — making them mockable. `domains/_mock-services.js` provides browser-side mocks (Mock*Service) for the debug page so every component can render in isolation.
 - **`<week-notes-calendar>`** wrapper around the dumb display `<week-calendar>`. Fetches `service.list({week})` + `listTypes()`, maps to calendar item shape `{startDate, endDate, heading, body, type, id}` with type-icon prefix and `@attendees · 📍 location` body, then calls `cal.setItems()`. `<week-calendar>` itself no longer requires a service — items are pushed in via `setItems()`.
