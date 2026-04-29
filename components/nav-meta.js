@@ -5,10 +5,13 @@
 import { WNElement, html, isoWeek } from './_shared.js';
 
 const STYLES = `
-    :host { display: inline-block; align-items: center; font-family: var(--font-mono); font-size: 0.85em; color: var(--text-muted-warm); opacity: 0.65; letter-spacing: 0.02em; }
-    .nm-date, .nm-week, .nm-clock { display: inline-block; vertical-align: middle; }
+    :host { display: inline-flex; align-items: center; font-family: var(--font-mono); font-size: 0.85em; color: var(--text-muted-warm); opacity: 0.65; letter-spacing: 0.02em; white-space: nowrap; min-width: clamp(0px, 28vw, 320px); justify-content: flex-end; }
+    .nm-date, .nm-week, .nm-clock { display: inline-block; vertical-align: middle; white-space: nowrap; }
     .nm-date, .nm-clock { margin-right: 10px; }
     .nm-week { padding: 1px 6px; border: 1px solid var(--border); border-radius: 3px; font-size: 0.78em; opacity: 0.9; margin-right: 10px; }
+    @media (max-width: 900px) { .nm-date { display: none; } }
+    @media (max-width: 700px) { .nm-week { display: none; } }
+    @media (max-width: 500px) { .nm-clock { display: none; } }
 `;
 
 class NavMeta extends WNElement {

@@ -46,6 +46,14 @@ function shiftWeek(yw, delta) {
     return isoWeekFromDate(m);
 }
 
+function addMinutes(hhmm, mins) {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm || ''); if (!m) return hhmm;
+    let total = (+m[1]) * 60 + (+m[2]) + (+mins || 0);
+    total = Math.max(0, Math.min(23 * 60 + 59, total));
+    const h = Math.floor(total / 60), mi = total % 60;
+    return String(h).padStart(2, '0') + ':' + String(mi).padStart(2, '0');
+}
+
 function weekLabel(yw) {
     const monday = isoWeekMonday(yw); if (!monday) return yw;
     const sunday = new Date(monday); sunday.setUTCDate(monday.getUTCDate() + 6);
@@ -87,9 +95,19 @@ const STYLES = `
     .nav { display: flex; gap: 4px; margin-left: auto; }
     .nav button { padding: 3px 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text-strong); border-radius: 5px; cursor: pointer; font: inherit; font-size: 0.9em; }
     .nav button:hover { background: var(--surface-alt); }
+    .new-btn { padding: 3px 12px; border: 1px solid var(--accent); background: var(--accent); color: var(--text-on-accent); border-radius: 5px; cursor: pointer; font: inherit; font-size: 0.9em; }
+    .new-btn:hover { background: var(--accent-strong); }
+    .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 1000; align-items: flex-start; justify-content: center; padding: 5vh 16px; box-sizing: border-box; overflow-y: auto; }
+    .overlay.open { display: flex; }
+    .overlay-card { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.25); padding: 18px 20px; width: min(560px, 100%); box-sizing: border-box; }
+    .overlay-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .overlay-head h2 { margin: 0; font-family: var(--font-heading); font-weight: 400; color: var(--accent); font-size: 1.1em; flex: 1; }
+    .overlay-head button { background: transparent; border: 0; color: var(--text-muted); font-size: 1.3em; cursor: pointer; padding: 0 4px; }
+    .overlay-head button:hover { color: var(--text-strong); }
 `;
 
 class WeekNotesCalendar extends WNElement {
+    static get domain() { return 'meetings'; }
     static get observedAttributes() { return ['settings', 'week']; }
 
     css() { return STYLES; }
@@ -111,6 +129,7 @@ class WeekNotesCalendar extends WNElement {
 
     disconnectedCallback() {
         if (this._onSpa) document.removeEventListener('spa:navigated', this._onSpa);
+        if (this._onEsc) { document.removeEventListener('keydown', this._onEsc); this._onEsc = null; this._escWired = false; }
     }
 
     attributeChangedCallback(name, oldV, newV) {
@@ -130,25 +149,33 @@ class WeekNotesCalendar extends WNElement {
     }
 
     render() {
-        // Wrapper component — has no service of its own. Forwards the
-        // `service` attribute to the embedded <week-calendar> which loads
-        // meetings from it.
-        const childSvc = this.getAttribute('service') || '';
-        const calendar = childSvc
-            ? html`<week-calendar service="${childSvc}"></week-calendar>`
-            : html`<week-calendar></week-calendar>`;
+        // Wrapper component. Loads meetings via `meetings_service` and
+        // pushes them into the dumb display <week-calendar> via setItems().
+        const svcAttr = this.getAttribute('meetings_service') || '';
+        const setAttr = this.getAttribute('settings_service') || '';
+        const ctxAttr = this.getAttribute('context') || '';
         return html`
             <div class="page">
                 <div class="toolbar">
                     <h1>📅 Kalender</h1>
                     <span class="range" data-range></span>
+                    <button type="button" class="new-btn" data-new>+ Nytt møte</button>
                     <div class="nav">
                         <button type="button" data-nav="prev" title="Forrige uke">‹</button>
                         <button type="button" data-nav="today">I dag</button>
                         <button type="button" data-nav="next" title="Neste uke">›</button>
                     </div>
                 </div>
-                ${calendar}
+                <div class="overlay" data-create-panel>
+                    <div class="overlay-card" data-overlay-card>
+                        <div class="overlay-head">
+                            <h2>Nytt møte</h2>
+                            <button type="button" data-overlay-close title="Lukk">✕</button>
+                        </div>
+                        ${html`<meeting-create meetings_service="${svcAttr}" settings_service="${setAttr}" context="${ctxAttr}"></meeting-create>`}
+                    </div>
+                </div>
+                ${html`<week-calendar></week-calendar>`}
             </div>
         `;
     }
@@ -157,8 +184,60 @@ class WeekNotesCalendar extends WNElement {
         this.shadowRoot.querySelectorAll('.nav button').forEach(btn => {
             btn.addEventListener('click', () => this._onNav(btn.dataset.nav));
         });
+        const newBtn = this.shadowRoot.querySelector('[data-new]');
+        const overlay = this.shadowRoot.querySelector('[data-create-panel]');
+        const closeBtn = this.shadowRoot.querySelector('[data-overlay-close]');
+        const card = this.shadowRoot.querySelector('[data-overlay-card]');
+        const close = () => { if (overlay) overlay.classList.remove('open'); };
+        if (newBtn) newBtn.addEventListener('click', () => this._openCreate({}));
+        if (closeBtn) closeBtn.addEventListener('click', close);
+        if (overlay) overlay.addEventListener('click', (ev) => {
+            if (card && card.contains(ev.target)) return;
+            close();
+        });
+        if (!this._escWired) {
+            this._escWired = true;
+            this._onEsc = (ev) => {
+                if (ev.key === 'Escape' && overlay && overlay.classList.contains('open')) close();
+            };
+            document.addEventListener('keydown', this._onEsc);
+        }
+        this.shadowRoot.addEventListener('datePeriodSelected', (ev) => {
+            const d = ev.detail || {};
+            // type === 'none' → blank meeting (e.g. dblclick); otherwise pre-select the chosen type
+            const type = (d.type && d.type !== 'none') ? d.type : '';
+            this._openCreate({ date: d.date, time: d.time, type });
+        });
+        this.shadowRoot.addEventListener('meeting-create:created', () => {
+            close();
+            this._apply();
+        });
+        this.shadowRoot.addEventListener('meeting-create:cancel', close);
         // Apply initial state after render
         setTimeout(() => this._apply(), 0);
+    }
+
+    _openCreate({ date, time, type } = {}) {
+        const overlay = this.shadowRoot.querySelector('[data-create-panel]');
+        const form = this.shadowRoot.querySelector('meeting-create');
+        if (!overlay || !form) return;
+        if (date) form.setAttribute('date', date); else form.removeAttribute('date');
+        if (time) {
+            form.setAttribute('start', time);
+            const dur = (this._settings && +this._settings.defaultMeetingMinutes) || 60;
+            form.setAttribute('end', addMinutes(time, dur));
+        } else {
+            form.removeAttribute('start');
+            form.removeAttribute('end');
+        }
+        if (type) form.setAttribute('type', type); else form.removeAttribute('type');
+        overlay.classList.add('open');
+        // Focus the title input for quick entry
+        setTimeout(() => {
+            const root = form.shadowRoot;
+            const t = root && root.querySelector('input[name=title]');
+            if (t) t.focus();
+        }, 30);
     }
 
     _applySettings() {
@@ -193,6 +272,10 @@ class WeekNotesCalendar extends WNElement {
         const s = this._settings || {};
         if (Array.isArray(s.workHours)) cal.setAttribute('work-hours', JSON.stringify(s.workHours));
         else cal.removeAttribute('work-hours');
+        if (s.visibleStartHour != null) cal.setAttribute('hour-start', String(s.visibleStartHour));
+        else cal.removeAttribute('hour-start');
+        if (s.visibleEndHour != null) cal.setAttribute('hour-end', String(s.visibleEndHour));
+        else cal.removeAttribute('hour-end');
     }
 
     _weekFromUrl() {
@@ -210,6 +293,13 @@ class WeekNotesCalendar extends WNElement {
             const typeMap = {};
             (types || []).forEach(t => { typeMap[t.key] = t; });
             this._items = (list || []).map(m => meetingToItem(m, typeMap));
+            // Feed event types into the inner <week-calendar> for the right-click menu
+            // and into <meeting-create> for the type dropdown.
+            const eventTypes = (types || []).map(t => ({
+                typeId: t.key, icon: t.icon || '', name: t.label || t.key, color: t.color || '', allDay: !!(t.allDay || t.fullDay),
+            }));
+            const cal = this.shadowRoot.querySelector('week-calendar');
+            if (cal) cal.eventTypes = eventTypes;
         } catch (_) {
             this._items = [];
         }

@@ -1,17 +1,24 @@
 /**
- * <open-tasks service="TaskService"> — self-loading sidebar widget that lists
+ * <task-open-list service="TaskService"> — self-loading sidebar widget that lists
  * open tasks. Renders inside its own shadow DOM. Theming flows from the page
  * via inherited CSS custom properties (--accent, --text, --surface, …).
  *
  * Service contract (window[serviceName]):
- *   list() → Promise<Task[]>
+ *   list()                 → Promise<Task[]>
+ *   toggle(id, comment?)   → Promise<Task>      (used to complete a task)
+ *
+ * Completion flow:
+ *   Clicking the checkbox opens a <task-complete-modal>. The component
+ *   waits for the modal's 'task-complete:confirm' (calls service.toggle
+ *   with the comment, then refreshes) or 'task-complete:cancel' (reverts
+ *   the checkbox).
  *
  * Action handlers (optional window globals; component dispatches events as fallback):
- *   - showCommentModal(checkbox) : toggling a checkbox
  *   - openNoteModal(taskId)      : note button
  * Mentions bubble 'mention-clicked' (handled at page level).
  */
-import { WNElement, html, unsafeHTML, escapeHtml, linkMentions, wireMentionClicks, people as fetchPeople, companies as fetchCompanies } from './_shared.js';
+import { WNElement, html, unsafeHTML, escapeHtml, linkMentions, wireMentionClicks } from './_shared.js';
+import './task-complete-modal.js';
 
 const STYLES = `
         :host { display: block; color: var(--text-strong); font: inherit; }
@@ -71,8 +78,9 @@ function renderTask(t, people, companies) {
         `;
 }
 
-class OpenTasks extends WNElement {
-    static get observedAttributes() { return ['service']; }
+class TaskOpenList extends WNElement {
+    static get domain() { return 'tasks'; }
+    static get observedAttributes() { return ['tasks_service', 'people_service', 'companies_service']; }
 
     css() { return STYLES; }
 
@@ -95,11 +103,13 @@ class OpenTasks extends WNElement {
     refresh() { this._load(); }
 
     async _load() {
+        const peopleSvc = this.serviceFor('people');
+        const compSvc = this.serviceFor('companies');
         try {
             const [tasks, people, companies] = await Promise.all([
                 this.service.list(),
-                fetchPeople(),
-                fetchCompanies(),
+                peopleSvc ? peopleSvc.list() : Promise.resolve([]),
+                compSvc ? compSvc.list() : Promise.resolve([]),
             ]);
             const open = (tasks || []).filter(t => !t.done);
             this._state = { open, people: people || [], companies: companies || [] };
@@ -112,13 +122,34 @@ class OpenTasks extends WNElement {
             this.shadowRoot.addEventListener('change', (ev) => {
                 const cb = ev.target.closest('input[data-act="toggle"]');
                 if (!cb) return;
-                if (typeof window.showCommentModal === 'function') {
-                    window.showCommentModal(cb);
-                } else {
-                    this.dispatchEvent(new CustomEvent('open-tasks:toggle', {
-                        bubbles: true, composed: true, detail: { id: cb.dataset.taskid, checkbox: cb },
+                if (!cb.checked) return;
+                const id = cb.dataset.taskid;
+                const text = cb.dataset.tasktext || '';
+                const modal = this.shadowRoot.querySelector('task-complete-modal');
+                if (!modal || typeof modal.open !== 'function') {
+                    cb.checked = false;
+                    this.dispatchEvent(new CustomEvent('task-open-list:toggle', {
+                        bubbles: true, composed: true, detail: { id, checkbox: cb },
                     }));
+                    return;
                 }
+                modal.open({ id, text }, async (res) => {
+                    if (!res || !res.confirmed) {
+                        cb.checked = false;
+                        return;
+                    }
+                    try {
+                        if (this.service && typeof this.service.toggle === 'function') {
+                            await this.service.toggle(res.id, res.comment || '');
+                        }
+                    } catch (err) {
+                        console.error('task-open-list: toggle failed', err);
+                    }
+                    this.refresh();
+                    this.dispatchEvent(new CustomEvent('task-open-list:completed', {
+                        bubbles: true, composed: true, detail: { id: res.id, comment: res.comment || '' },
+                    }));
+                });
             });
             this.shadowRoot.addEventListener('click', (ev) => {
                 const noteBtn = ev.target.closest('button[data-act="note"]');
@@ -127,7 +158,7 @@ class OpenTasks extends WNElement {
                 if (typeof window.openNoteModal === 'function') {
                     window.openNoteModal(id);
                 } else {
-                    this.dispatchEvent(new CustomEvent('open-tasks:note', {
+                    this.dispatchEvent(new CustomEvent('task-open-list:note', {
                         bubbles: true, composed: true, detail: { id },
                     }));
                 }
@@ -138,19 +169,20 @@ class OpenTasks extends WNElement {
 
     render() {
         if (!this.service) return this.renderNoService();
-        if (!this._state) return html`<h3 class="side-h">Åpne oppgaver</h3><p class="empty-quiet">Laster…</p>`;
-        if (this._state.error) return html`<h3 class="side-h">Åpne oppgaver</h3><p class="empty-quiet">Kunne ikke laste oppgaver</p>`;
+        if (!this._state) return html`<h3 class="side-h">Åpne oppgaver</h3><p class="empty-quiet">Laster…</p><task-complete-modal></task-complete-modal>`;
+        if (this._state.error) return html`<h3 class="side-h">Åpne oppgaver</h3><p class="empty-quiet">Kunne ikke laste oppgaver</p><task-complete-modal></task-complete-modal>`;
 
         const { open, people, companies } = this._state;
         if (open.length === 0) {
-            return html`<h3 class="side-h">Åpne oppgaver · 0</h3><p class="empty-quiet">Ingen åpne oppgaver</p>`;
+            return html`<h3 class="side-h">Åpne oppgaver · 0</h3><p class="empty-quiet">Ingen åpne oppgaver</p><task-complete-modal></task-complete-modal>`;
         }
         const rows = open.map(t => renderTask(t, people, companies));
         return html`
             <h3 class="side-h">Åpne oppgaver · ${open.length}</h3>
             <div class="sidebar-tasks">${rows}</div>
+            <task-complete-modal></task-complete-modal>
         `;
     }
 }
 
-if (!customElements.get('open-tasks')) customElements.define('open-tasks', OpenTasks);
+if (!customElements.get('task-open-list')) customElements.define('task-open-list', TaskOpenList);

@@ -7,7 +7,7 @@
  * exercising components in isolation.
  *
  * Registered on window so demos can do:
- *     <open-tasks service="MockTaskService"></open-tasks>
+ *     <task-open-list service="MockTaskService"></task-open-list>
  *
  * Reset everything by reloading the page; data is recreated from the
  * seed below on every load.
@@ -81,6 +81,18 @@
         remove: (id) => { const i = companies.findIndex(x => x.key === id); if (i >= 0) companies.splice(i, 1); return delay({ ok: true }); },
     };
 
+    // ---------- Places ----------
+    const places = [
+        { id: 'pl1', key: 'mathallen', name: 'Mathallen Oslo', address: 'Vulkan 5, 0178 Oslo', lat: 59.9226, lng: 10.7517, notes: 'Bra for lunsjmøter.', created: now() },
+        { id: 'pl2', key: 'hovedkontor', name: 'Hovedkontoret', address: 'Storgata 1, 0155 Oslo', notes: 'Møterom 3 i 4. etasje.', created: now() },
+    ];
+    window.MockPlacesService = {
+        list:   () => delay(JSON.parse(JSON.stringify(places))),
+        create: (p) => { const np = Object.assign({ id: uid('pl'), key: uid('plk'), created: now() }, p); places.push(np); return delay(np); },
+        update: (id, patch) => { const i = places.findIndex(x => x.id === id || x.key === id); if (i < 0) return Promise.reject(new Error('not found')); Object.assign(places[i], patch); return delay(places[i]); },
+        remove: (id) => { const i = places.findIndex(x => x.id === id || x.key === id); if (i >= 0) places.splice(i, 1); return delay({ ok: true }); },
+    };
+
     // ---------- Tasks ----------
     const tasks = [
         { id: 't1', text: 'Forberede demo for fredag', done: false, created: now(), week: thisWeek, order: 0 },
@@ -146,18 +158,26 @@
 
     // ---------- Meetings ----------
     const meetingTypes = [
-        { key: 'standup', label: 'Standup', icon: '🔄', mins: 15 },
-        { key: 'meeting', label: 'Møte', icon: '👥', mins: 60 },
-        { key: 'focus', label: 'Fokustid', icon: '🎯', mins: 90 },
-        { key: '1on1', label: '1:1', icon: '☕', mins: 30 },
-        { key: 'block', label: 'Blokkert', icon: '🔴', mins: 60 },
+        { key: 'standup',  label: 'Standup',     icon: '🔄', mins: 15,  color: '#7ab648' },
+        { key: 'meeting',  label: 'Møte',        icon: '👥', mins: 60,  color: '#4a90e2' },
+        { key: 'focus',    label: 'Fokustid',    icon: '🎯', mins: 90,  color: '#d35400' },
+        { key: '1on1',     label: '1:1',         icon: '☕', mins: 30,  color: '#a05a2c' },
+        { key: 'block',    label: 'Blokkert',    icon: '🔴', mins: 60,  color: '#c0392b' },
+        { key: 'workshop', label: 'Workshop',    icon: '🛠️', mins: 120, color: '#e08a3c' },
+        { key: 'demo',     label: 'Demo',        icon: '🎬', mins: 45,  color: '#9b59b6' },
+        { key: 'planning', label: 'Planlegging', icon: '📋', mins: 60,  color: '#3aa3a3' },
+        { key: 'review',   label: 'Gjennomgang', icon: '🔍', mins: 45,  color: '#34495e' },
+        { key: 'social',   label: 'Sosialt',     icon: '🎉', mins: 60,  color: '#e91e63' },
+        { key: 'call',     label: 'Telefon',     icon: '📞', mins: 30,  color: '#16a085' },
+        { key: 'travel',   label: 'Reise',       icon: '✈️', mins: 120, color: '#7f8c8d' },
+        { key: 'vacation', label: 'Ferie',       icon: '🌴',           color: '#2ecc71', allDay: true },
     ];
     const meetings = [
         { id: uid('mt'), title: 'Daily standup', type: 'standup', date: dayOffset(0), start: '09:00', end: '09:15', attendees: ['astrid', 'olav'], location: 'Teams', week: thisWeek },
-        { id: uid('mt'), title: 'Sprint review med @acmeas', type: 'meeting', date: dayOffset(1), start: '13:00', end: '14:00', attendees: ['acmeas'], location: 'Møterom 3', week: thisWeek },
+        { id: uid('mt'), title: 'Sprint review med @acmeas', type: 'meeting', date: dayOffset(1), start: '13:00', end: '14:00', attendees: ['acmeas'], location: 'Møterom 3', placeKey: 'hovedkontor', week: thisWeek },
         { id: uid('mt'), title: 'Fokustid: refaktorering', type: 'focus', date: dayOffset(2), start: '08:30', end: '11:00', attendees: [], location: '', week: thisWeek },
         { id: uid('mt'), title: 'Lege', type: 'block', date: dayOffset(3), start: '15:00', end: '16:00', attendees: [], location: 'Sentrum legesenter', week: thisWeek },
-        { id: uid('mt'), title: 'Lunsj med @petter', type: '1on1', date: dayOffset(5), start: '11:30', end: '12:30', attendees: ['petter'], location: 'Mathallen', week: thisWeek },
+        { id: uid('mt'), title: 'Lunsj med @petter', type: '1on1', date: dayOffset(5), start: '11:30', end: '12:30', attendees: ['petter'], location: 'Mathallen', placeKey: 'mathallen', week: thisWeek },
     ];
 
     window.MockMeetingsService = {
@@ -229,9 +249,11 @@
     function title(md) { const m = String(md || '').match(/^#\s+(.+)$/m); return m ? m[1] : ''; }
 
     window.MockNotesService = {
-        save: ({ folder, file, content }) => {
+        save: ({ folder, file, content, themes }) => {
             if (!folder || !file) return Promise.reject(new Error('folder and file required'));
             seedNote(folder, file, content);
+            const n = notes[folder + '/' + file];
+            if (n && Array.isArray(themes)) n.themes = themes.slice();
             return delay({ ok: true, path: '/' + folder + '/' + file });
         },
         raw: (week, file) => {
@@ -245,7 +267,7 @@
         meta: (week, file) => {
             const n = notes[week + '/' + file];
             if (!n) return Promise.reject(new Error('not found'));
-            return delay({ week: n.week, file: n.file, title: title(n.content), pinned: n.pinned, created: n.created });
+            return delay({ week: n.week, file: n.file, title: title(n.content), pinned: n.pinned, created: n.created, themes: Array.isArray(n.themes) ? n.themes : [] });
         },
         card: (week, file) => {
             const n = notes[week + '/' + file];
@@ -259,6 +281,7 @@
                 type: n.type || 'note',
                 pinned: !!n.pinned,
                 presentationStyle: n.presentationStyle || null,
+                themes: Array.isArray(n.themes) ? n.themes : [],
                 snippet: summary(n.content),
             });
         },
@@ -414,6 +437,7 @@
     window.MockServices = {
         people:    window.MockPeopleService,
         companies: window.MockCompaniesService,
+        places:    window.MockPlacesService,
         tasks:    window.MockTaskService,
         results:  window.MockResultsService,
         meetings: window.MockMeetingsService,

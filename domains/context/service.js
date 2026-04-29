@@ -16,7 +16,7 @@
  *   POST   /api/contexts/:id/push                 → push(id)
  *   POST   /api/contexts/:id/pull                 → pull(id)
  *
- * Exposed as named export `ContextService`.
+ * Exposed as named export `ContextService` and via `window["week-note-services"].ContextService`.
  */
 async function req(method, path, body) {
     const opts = { method, headers: {} };
@@ -46,6 +46,3 @@ export const ContextService = {
     push:               (id)        => req('POST',   `/api/contexts/${enc(id)}/push`),
     pull:               (id)        => req('POST',   `/api/contexts/${enc(id)}/pull`),
 };
-
-
-if (typeof window !== 'undefined') window.ContextService = ContextService;

@@ -46,6 +46,7 @@ const STYLES = `
 `;
 
 class MarkdownPreview extends WNElement {
+    static get domain() { return 'notes'; }
     static get observedAttributes() { return ['value', 'placeholder', 'offset']; }
 
     css() { return STYLES; }

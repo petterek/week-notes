@@ -48,6 +48,7 @@ const CSS = `
 `;
 
 class TaskCreate extends WNElement {
+    static get domain() { return 'tasks'; }
     static get observedAttributes() { return ['placeholder', 'button-label']; }
 
     connectedCallback() {
@@ -111,9 +112,6 @@ class TaskCreate extends WNElement {
             if (!resp.ok) throw new Error('HTTP ' + resp.status);
             const tasks = await resp.json();
             const task = Array.isArray(tasks) ? tasks[tasks.length - 1] : null;
-            if (window.WN && typeof window.WN.invalidate === 'function') {
-                window.WN.invalidate('tasks');
-            }
             this._input.value = '';
             this._input.focus();
             this.dispatchEvent(new CustomEvent('task:created', {

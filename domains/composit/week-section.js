@@ -18,7 +18,7 @@
  * Renders inside its own shadow DOM with theming via inherited CSS custom
  * properties.
  */
-import { WNElement, html, unsafeHTML, escapeHtml, isoWeek, tasks as fetchTasks, results as fetchResults } from './_shared.js';
+import { WNElement, html, unsafeHTML, escapeHtml, isoWeek } from './_shared.js';
 
 const STYLES = `
     :host { display: block; color: var(--text-strong); font: inherit; }
@@ -93,8 +93,8 @@ function dayHeading(dateStr) {
     const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
     return `${NB_DAY_LONG[d.getUTCDay()]} ${dd}.${mm}`;
 }
-function noteCardTag(week, file, srvAttr) {
-    return `<note-card note="${week}/${encodeURIComponent(file)}" service="${srvAttr}"></note-card>`;
+function noteCardTag(week, file) {
+    return `<note-card data-card-key="${escapeHtml(file)}"></note-card>`;
 }
 function groupNotesByDay(notes) {
     const pinned = [];
@@ -112,6 +112,7 @@ function groupNotesByDay(notes) {
 }
 
 class WeekSection extends WNElement {
+    static get domain() { return 'notes'; }
     static get observedAttributes() { return ['week']; }
 
     css() { return STYLES; }
@@ -129,23 +130,45 @@ class WeekSection extends WNElement {
     async _load() {
         const week = this.getAttribute('week');
         if (!week) { this._state = null; this.requestRender(); return; }
+        const tasksSvc = this.serviceFor('tasks');
+        const resultsSvc = this.serviceFor('results');
         try {
             const [info, tasks, results] = await Promise.all([
                 this.service.getWeek(week),
-                fetchTasks(),
-                fetchResults(),
+                tasksSvc ? tasksSvc.list() : Promise.resolve([]),
+                resultsSvc ? resultsSvc.list() : Promise.resolve([]),
             ]);
+            const noteList = info.notes || [];
+            const cardData = await Promise.all(noteList.map(n =>
+                this.service.card(week, n.file).catch(() => ({ ok: false, file: n.file }))
+            ));
+            const cards = new Map();
+            cardData.forEach((d, i) => {
+                const file = noteList[i].file;
+                cards.set(file, d && d.ok ? { week, ...d } : { week, file, error: true });
+            });
             const completed = (tasks || []).filter(t => t.done && (t.completedWeek || t.week) === week);
             const weekResults = (results || []).filter(r => r.week === week);
-            this._state = { info, completedCount: completed.length, resultCount: weekResults.length };
+            this._state = { info, cards, completedCount: completed.length, resultCount: weekResults.length };
         } catch {
             this._state = { error: true };
         }
         this.requestRender();
+        this._injectCardData();
         if (!this._wired) {
             this._wired = true;
             this._wireEvents();
         }
+    }
+
+    _injectCardData() {
+        if (!this._state || !this._state.cards) return;
+        const cards = this._state.cards;
+        this.shadowRoot.querySelectorAll('note-card[data-card-key]').forEach(el => {
+            const key = el.getAttribute('data-card-key');
+            const d = cards.get(key);
+            if (d && el.setData) el.setData(d);
+        });
     }
 
     render() {
@@ -161,35 +184,37 @@ class WeekSection extends WNElement {
         const noteCount = (info.notes || []).length;
         const summaryLine = `${completedCount} fullført · ${resultCount} ${pluralResult(resultCount)} · ${noteCount} ${pluralNote(noteCount)}`;
 
-        const noteSrv = this.getAttribute('service_notes') || '';
-        const resultsSrv = this.getAttribute('service_results') || '';
-        const tasksSrv = this.getAttribute('service_tasks') || '';
+        const resultsSrv = this.getAttribute('results_service') || '';
+        const tasksSrv = this.getAttribute('tasks_service') || '';
+        const peopleSrv = this.getAttribute('people_service') || '';
+        const companiesSrv = this.getAttribute('companies_service') || '';
+        const peopleAttr    = peopleSrv    ? ` people_service="${escapeHtml(peopleSrv)}"` : '';
+        const companiesAttr = companiesSrv ? ` companies_service="${escapeHtml(companiesSrv)}"` : '';
         const wEsc = escapeHtml(week);
 
         const noteCardsHtml = (info.notes || []).length === 0
             ? `<p class="empty-quiet">Ingen notater denne uken</p>`
             : (() => {
                 const { pinned, dayGroups, undated } = groupNotesByDay(info.notes || []);
-                const srvEsc = escapeHtml(noteSrv);
                 let out = '';
                 if (pinned.length) {
                     out += `<h4 class="day-h">📌 Festet <span class="c">${pinned.length}</span></h4>`;
-                    out += pinned.map(n => noteCardTag(wEsc, n.file, srvEsc)).join('');
+                    out += pinned.map(n => noteCardTag(wEsc, n.file)).join('');
                 }
                 for (const g of dayGroups) {
                     out += `<h4 class="day-h">${escapeHtml(dayHeading(g.date))} <span class="c">${g.notes.length}</span></h4>`;
-                    out += g.notes.map(n => noteCardTag(wEsc, n.file, srvEsc)).join('');
+                    out += g.notes.map(n => noteCardTag(wEsc, n.file)).join('');
                 }
                 if (undated.length) {
                     out += `<h4 class="day-h">Uten dato <span class="c">${undated.length}</span></h4>`;
-                    out += undated.map(n => noteCardTag(wEsc, n.file, srvEsc)).join('');
+                    out += undated.map(n => noteCardTag(wEsc, n.file)).join('');
                 }
                 return out;
             })();
 
         const sideHtml =
-            `<week-results week="${wEsc}" service="${escapeHtml(resultsSrv)}"></week-results>` +
-            `<task-completed week="${wEsc}" service="${escapeHtml(tasksSrv)}"></task-completed>`;
+            `<week-results week="${wEsc}" results_service="${escapeHtml(resultsSrv)}"${peopleAttr}${companiesAttr}></week-results>` +
+            `<task-completed week="${wEsc}" tasks_service="${escapeHtml(tasksSrv)}"${peopleAttr}${companiesAttr}></task-completed>`;
 
         const viewBtn = info.hasSummary
             ? ` <button data-act="show-summary" class="btn-summarize btn-summarize-saved">📋 Vis oppsummering</button>`

@@ -15,7 +15,7 @@
  *   PUT    /api/themes/:id {name,vars}              → updateTheme(id, body)
  *   DELETE /api/themes/:id                          → removeTheme(id)
  *
- * Exposed as named export `SettingsService`.
+ * Exposed as named export `SettingsService` and via `window["week-note-services"].SettingsService`.
  */
 async function req(method, path, body) {
     const opts = { method, headers: {} };
@@ -42,6 +42,3 @@ export const SettingsService = {
     updateTheme: (id, body) => req('PUT',    `/api/themes/${enc(id)}`, body),
     removeTheme: (id)       => req('DELETE', `/api/themes/${enc(id)}`),
 };
-
-
-if (typeof window !== 'undefined') window.SettingsService = SettingsService;

@@ -3,7 +3,7 @@
  *
  * GET /api/search?q=…  → search(q)
  *
- * Exposed as named export `SearchService`.
+ * Exposed as named export `SearchService` and via `window["week-note-services"].SearchService`.
  */
 async function req(method, path) {
     const r = await fetch(path, { method });
@@ -15,6 +15,3 @@ async function req(method, path) {
 export const SearchService = {
     search: (q) => req('GET', '/api/search?q=' + encodeURIComponent(q || '')),
 };
-
-
-if (typeof window !== 'undefined') window.SearchService = SearchService;

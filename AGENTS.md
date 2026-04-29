@@ -169,7 +169,7 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3001/settings
   components.
 - Markup uses backtick template literals, not string concatenation.
 - Components stay decoupled from page logic by **emitting CustomEvents**
-  (e.g. `mention-clicked`, `note-card:view`, `open-tasks:toggle`) and
+  (e.g. `mention-clicked`, `note-card:view`, `task-open-list:toggle`) and
   letting the host page decide what to do. Default link navigation is
   `preventDefault`'d inside the component; the host page has a single
   `mention-clicked` listener in `pageHtml` body that does

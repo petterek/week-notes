@@ -13,25 +13,10 @@
  *       implement css() and render(); base handles attachShadow,
  *       adoptedStyleSheets, render-on-connect, and re-render on
  *       observed attribute changes. Manual: this.requestRender().
- *   - WN.{people,companies,tasks,results,meetings,meetingTypes} —
- *       cached /api/* fetches shared across component instances.
  *
- * Loaded as an ES module (`<script type="module">`). Side-effect: also
- * exposes the same names on `window.WN` (and `window.html`,
- * `window.unsafeHTML`) so non-module inline page scripts keep working.
+ * Loaded as an ES module (`<script type="module">`). All exports are
+ * named ESM exports — nothing is attached to `window`.
  */
-
-const cache = {};
-function once(key, url) {
-    if (!cache[key]) {
-        cache[key] = fetch(url).then(r => r.json()).catch(() => []);
-    }
-    return cache[key];
-}
-export function invalidate(key) {
-    if (key == null) for (const k in cache) delete cache[k];
-    else delete cache[key];
-}
 
 export function escapeHtml(s) {
     return String(s == null ? '' : s)
@@ -50,12 +35,12 @@ export function linkMentions(s, people, companies) {
         const lc = name.toLowerCase();
         const c = companies.find(x => x.key === lc);
         if (c) {
-            return `${pre}<a href="/people#tab=companies&key=${encodeURIComponent(c.key)}" class="mention-link mention-company" data-company-key="${escapeHtml(c.key)}">${escapeHtml(c.name || name)}</a>`;
+            return `${pre}<entity-mention kind="company" key="${escapeHtml(c.key)}" label="${escapeHtml(c.name || name)}"></entity-mention>`;
         }
         const p = people.find(x => x.name === name || x.key === lc);
         const display = p ? (p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : p.name) : name;
         const key = p ? (p.key || (p.name || '').toLowerCase()) : lc;
-        return `${pre}<a href="/people" class="mention-link" data-person-key="${escapeHtml(key)}">${escapeHtml(display)}</a>`;
+        return `${pre}<entity-mention kind="person" key="${escapeHtml(key)}" label="${escapeHtml(display)}"></entity-mention>`;
     });
 }
 
@@ -131,11 +116,16 @@ export function html(strings, ...values) {
  *   render() { return html`...`; }              // returns html`` result
  *
  * Helpers on the base:
- *   this.service        → window[ getAttribute('service') ] or null
- *   this.serviceFor(k)  → window[ getAttribute('service_'+k) ] or null
+ *   this.service        → resolved from getAttribute('<domain>_service')
+ *                         where <domain> = static get domain (subclass).
+ *                         The attribute value is a dot-separated path from
+ *                         `window`, e.g. "week-note-services.tasks_service".
+ *   this.serviceFor(k)  → resolved from getAttribute('<k>_service')
  *   this.renderNoService() → html`` placeholder for the service-missing case
  */
 export class WNElement extends HTMLElement {
+    static get domain() { return null; }
+
     constructor() {
         super();
         this.attachShadow({ mode: 'open' });
@@ -147,7 +137,10 @@ export class WNElement extends HTMLElement {
     }
 
     attributeChangedCallback() {
-        if (this.isConnected) this.requestRender();
+        if (this.isConnected) {
+            this._applyCss();
+            this.requestRender();
+        }
     }
 
     _applyCss() {
@@ -172,37 +165,32 @@ export class WNElement extends HTMLElement {
     css() { return ''; }
     render() { return ''; }
 
-    get service() {
-        const name = this.getAttribute('service');
-        return name ? (window[name] || null) : null;
+    // Resolve a dot-separated path from `window`. Each segment is read with
+    // bracket access so segments may contain dashes etc.
+    // e.g. "week-note-services.tasks_service"
+    //   → window['week-note-services']['tasks_service']
+    _resolvePath(path) {
+        if (!path || typeof window === 'undefined') return null;
+        const parts = String(path).split('.');
+        let cur = window;
+        for (const p of parts) {
+            if (cur == null) return null;
+            cur = cur[p];
+        }
+        return cur || null;
     }
+
+    // Look up a service via the `<key>_service` attribute. Resolves the
+    // attribute value as a dot-separated path from `window`.
     serviceFor(key) {
-        const name = this.getAttribute('service_' + key);
-        return name ? (window[name] || null) : null;
+        if (!key) return null;
+        return this._resolvePath(this.getAttribute(key + '_service'));
+    }
+    // Primary service for this component's domain (subclass `static get domain`).
+    get service() {
+        return this.serviceFor(this.constructor.domain);
     }
     renderNoService() {
         return html`<p style="color:var(--danger);font-style:italic;margin:0">no service connected</p>`;
     }
 }
-
-// --- WN namespace + globals (backward compat for inline page scripts) -------
-const WN = {
-    people:       () => once('people',       '/api/people'),
-    companies:    () => once('companies',    '/api/companies'),
-    tasks:        () => once('tasks',        '/api/tasks'),
-    results:      () => once('results',      '/api/results'),
-    meetings:     (q = '') => once(`meetings${q}`, `/api/meetings${q}`),
-    meetingTypes: () => once('meetingTypes', '/api/meeting-types'),
-    invalidate, escapeHtml, linkMentions, wireMentionClicks, isoWeek,
-    html, unsafeHTML, WNElement,
-};
-window.WN = WN;
-window.html = html;
-window.unsafeHTML = unsafeHTML;
-
-export const people       = WN.people;
-export const companies    = WN.companies;
-export const tasks        = WN.tasks;
-export const results      = WN.results;
-export const meetings     = WN.meetings;
-export const meetingTypes = WN.meetingTypes;

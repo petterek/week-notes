@@ -1,13 +1,13 @@
 /**
- * <nav-button> — the "Ukenotater" link in the navbar.
+ * <nav-button> — navigation link element used in the top navbar.
  *
  * Attributes:
  *   - href : link target (default "/")
- *   - text : brand text (default "Ukenotater")
+ *   - text : button text (default "Ukenotater")
  *   - icon : optional emoji/glyph rendered before the text
  *   - size : 1 (smallest) … 5 (largest); default 3
  * Events (cancelable, bubbling):
- *   - brand-clicked : detail { href } — host should navigate.
+ *   - nav-clicked : detail { href } — host should navigate.
  */
 import { WNElement, html } from './_shared.js';
 
@@ -18,11 +18,20 @@ const STYLES = `
         font-family: var(--font-heading);
         font-weight: 700;
         font-size: var(--nb-size, 1.1em);
-        text-decoration: none;
         letter-spacing: -0.01em;
+        text-decoration: none;
         cursor: pointer;
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 4px;
+        white-space: nowrap;
     }
-    a:hover { color: var(--accent-strong); }
+    a:hover { color: var(--accent-strong); background: var(--surface-alt); }
+    :host([selected]) a {
+        background: var(--accent-soft);
+        color: var(--accent-strong);
+    }
+    :host([selected]) a:hover { background: var(--accent-soft); }
     .icon { margin-right: 0.35em; }
     :host([size="1"]) { --nb-size: 0.75em; }
     :host([size="2"]) { --nb-size: 0.9em; }
@@ -32,18 +41,18 @@ const STYLES = `
 `;
 
 class NavButton extends WNElement {
-    static get observedAttributes() { return ['href', 'text', 'size', 'icon']; }
+    static get observedAttributes() { return ['href', 'text', 'size', 'icon', 'selected']; }
 
     connectedCallback() {
         super.connectedCallback();
         if (this._wired) return;
         this._wired = true;
-        const href = this.getAttribute('href') || '/';
         this.shadowRoot.addEventListener('click', (e) => {
             const a = e.target.closest('a');
             if (!a) return;
             e.preventDefault();
-            this.dispatchEvent(new CustomEvent('brand-clicked', {
+            const href = this.getAttribute('href') || '/';
+            this.dispatchEvent(new CustomEvent('nav-clicked', {
                 bubbles: true, composed: true, cancelable: true,
                 detail: { href },
             }));

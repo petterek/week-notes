@@ -16,7 +16,8 @@ const STYLES = `
 `;
 
 class WeekList extends WNElement {
-    static get observedAttributes() { return ['service']; }
+    static get domain() { return 'notes'; }
+    static get observedAttributes() { return ['notes_service']; }
 
     css() { return STYLES; }
 
@@ -50,18 +51,19 @@ class WeekList extends WNElement {
             return html`<p class="empty-quiet">Ingen uker funnet.</p>`;
         }
         // Forward the suite of services to each <week-section> child.
-        // Primary `service` (notes) is used as default for the secondaries
+        // Primary `notes_service` is used as default for the secondaries
         // when not explicitly provided.
-        const own = this.getAttribute('service') || '';
-        const sectionService = this.getAttribute('service_section') || own;
-        const notesSrv   = this.getAttribute('service_notes')   || own;
-        const resultsSrv = this.getAttribute('service_results') || '';
-        const tasksSrv   = this.getAttribute('service_tasks')   || '';
+        const notesSrv     = this.getAttribute('notes_service')     || '';
+        const resultsSrv   = this.getAttribute('results_service')   || '';
+        const tasksSrv     = this.getAttribute('tasks_service')     || '';
+        const peopleSrv    = this.getAttribute('people_service')    || '';
+        const companiesSrv = this.getAttribute('companies_service') || '';
         const attrs = (w) =>
-            `week="${escapeHtml(w)}" service="${escapeHtml(sectionService)}"` +
-            ` service_notes="${escapeHtml(notesSrv)}"` +
-            (resultsSrv ? ` service_results="${escapeHtml(resultsSrv)}"` : '') +
-            (tasksSrv   ? ` service_tasks="${escapeHtml(tasksSrv)}"`     : '');
+            `week="${escapeHtml(w)}" notes_service="${escapeHtml(notesSrv)}"` +
+            (resultsSrv   ? ` results_service="${escapeHtml(resultsSrv)}"`     : '') +
+            (tasksSrv     ? ` tasks_service="${escapeHtml(tasksSrv)}"`         : '') +
+            (peopleSrv    ? ` people_service="${escapeHtml(peopleSrv)}"`       : '') +
+            (companiesSrv ? ` companies_service="${escapeHtml(companiesSrv)}"` : '');
         const sections = weeks
             .map(w => `<week-section ${attrs(w)}></week-section>`)
             .join('');

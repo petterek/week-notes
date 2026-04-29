@@ -6,7 +6,7 @@
  * Service contract:
  *   list({ week? }) → Promise<Result[]>
  */
-import { WNElement, html, unsafeHTML, escapeHtml, linkMentions, wireMentionClicks, isoWeek, people as fetchPeople, companies as fetchCompanies } from './_shared.js';
+import { WNElement, html, unsafeHTML, escapeHtml, linkMentions, wireMentionClicks, isoWeek } from './_shared.js';
 
 const STYLES = `
     :host { display: block; color: var(--text-strong); font: inherit; }
@@ -36,7 +36,8 @@ function inWeek(r, week) {
 }
 
 class WeekResults extends WNElement {
-    static get observedAttributes() { return ['week', 'service']; }
+    static get domain() { return 'results'; }
+    static get observedAttributes() { return ['week', 'results_service', 'people_service', 'companies_service']; }
 
     css() { return STYLES; }
 
@@ -52,11 +53,13 @@ class WeekResults extends WNElement {
 
     async _load() {
         const week = this.getAttribute('week');
+        const peopleSvc = this.serviceFor('people');
+        const compSvc = this.serviceFor('companies');
         try {
             const [results, people, companies] = await Promise.all([
-                this.service.list ? this.service.list({ week }) : window.WN.results(),
-                fetchPeople(),
-                fetchCompanies(),
+                this.service.list({ week }),
+                peopleSvc ? peopleSvc.list() : Promise.resolve([]),
+                compSvc ? compSvc.list() : Promise.resolve([]),
             ]);
             const filtered = (results || []).filter(r => inWeek(r, week));
             this._state = { results: filtered, people: people || [], companies: companies || [] };

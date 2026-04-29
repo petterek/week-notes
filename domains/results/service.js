@@ -6,7 +6,7 @@
  * PUT    /api/results/:id {text} → update(id, patch)
  * DELETE /api/results/:id        → remove(id)
  *
- * Exposed as named export `ResultsService`.
+ * Exposed as named export `ResultsService` and via `window["week-note-services"].ResultsService`.
  */
 const BASE = '/api/results';
 
@@ -31,6 +31,3 @@ export const ResultsService = {
     update: (id, patch)   => req('PUT',    `${BASE}/${encodeURIComponent(id)}`, patch),
     remove: (id)          => req('DELETE', `${BASE}/${encodeURIComponent(id)}`),
 };
-
-
-if (typeof window !== 'undefined') window.ResultsService = ResultsService;

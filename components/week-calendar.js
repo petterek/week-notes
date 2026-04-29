@@ -39,7 +39,12 @@
  *
  *   Events:
  *     week-calendar:ready (on first render)
- *     week-calendar:item-click — detail: { item, id }
+ *     week-calendar:item-selected — detail: { item, id } (single click on an item; null/no event when clicking empty space clears selection)
+ *     open-item-selected — detail: { item, id } (click the open ↗ icon on the currently selected item)
+ *     (single-click on empty cells does not emit any event)
+ *     datePeriodSelected       — detail: { type, date, time, icon?, name? }
+ *                                  emitted on empty-cell dblclick (type='none') or after picking
+ *                                  from the right-click context menu (type=<typeId>)
  */
 import { WNElement, html, unsafeHTML, escapeHtml } from './_shared.js';
 
@@ -134,6 +139,17 @@ function buildCss(hourPx, hourSpan, dayCount) {
         .item[data-moveable="true"] { cursor: grab; }
         .item .item-h { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .item .item-b { opacity: 0.92; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .item.selected { outline: 2px solid var(--text-strong, #000); outline-offset: 1px; z-index: 5; }
+        .item .item-open, .allday-bar .item-open {
+            position: absolute; right: 2px; top: 2px; width: 20px; height: 20px;
+            display: inline-flex; align-items: center; justify-content: center;
+            background: rgba(255,255,255,0.85); color: #111; border: 1px solid var(--border-soft);
+            border-radius: 50%; font-size: 0.85em; line-height: 1; cursor: pointer; padding: 0;
+            box-shadow: 0 1px 2px var(--shadow);
+        }
+        .item .item-open:hover, .allday-bar .item-open:hover { background: rgba(255,255,255,1); }
+        .allday-bar.selected { outline: 2px solid var(--text-strong, #000); outline-offset: 1px; padding-right: 22px; }
+        .allday-bar.selected .item-open { top: -2px; right: -2px; width: 18px; height: 18px; }
         .item[data-type="meeting"] { background: var(--cal-meeting); }
         .item[data-type="task"]    { background: var(--success); }
         .item[data-type="focus"]   { background: var(--cal-focus); }
@@ -147,6 +163,20 @@ function buildCss(hourPx, hourSpan, dayCount) {
         .head.special.workday .special-name { color: var(--accent); }
         .head.special .day-num { color: var(--danger); }
         .head.special.workday .day-num { color: var(--accent); }
+        .ctx-menu { position: fixed; z-index: 100; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 14px var(--shadow, rgba(0,0,0,0.15)); padding: 4px 0; min-width: 180px; font-size: 0.9em; }
+        .ctx-menu .ctx-h { padding: 4px 12px; font-size: 0.78em; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+        .ctx-menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 12px; background: transparent; border: 0; color: var(--text-strong); font: inherit; text-align: left; cursor: pointer; }
+        .ctx-menu button:hover { background: var(--surface-alt); }
+        .ctx-menu .ctx-icon { width: 1.2em; text-align: center; }
+        .ctx-menu .ctx-swatch { width: 0.8em; height: 0.8em; border-radius: 2px; flex: 0 0 auto; border: 1px solid var(--border-soft); }
+        .ctx-menu .ctx-empty { padding: 6px 12px; color: var(--text-subtle); font-style: italic; }
+        .allday-corner { background: var(--surface); position: sticky; left: 0; z-index: 4; padding: 2px 6px; font-size: 0.65em; color: var(--text-subtle); text-transform: uppercase; letter-spacing: 0.04em; display: flex; align-items: center; justify-content: flex-end; }
+        .allday-track { background: var(--surface); position: relative; padding: 3px 0; min-height: 16px; }
+        .allday-bar { position: absolute; height: 14px; border-radius: 4px; background: var(--accent); box-shadow: 0 1px 1px var(--shadow); cursor: default; overflow: hidden; }
+        .allday-bar[data-moveable="true"] { cursor: grab; }
+        .allday-bar .ad-label { position: absolute; left: 6px; right: 6px; top: 0; bottom: 0; display: flex; align-items: center; font-size: 0.75em; line-height: 1; color: var(--text-on-accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+        .allday-bar.continues-left  { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+        .allday-bar.continues-right { border-top-right-radius: 0; border-bottom-right-radius: 0; }
     `;
 }
 
@@ -228,6 +258,46 @@ class WeekCalendar extends WNElement {
         this._items = this._items.filter(it => it && it.id !== id);
         this.requestRender();
     }
+
+    // ---- Event types API (used by the right-click context menu) ----
+    get eventTypes() { return Array.isArray(this._eventTypes) ? this._eventTypes.slice() : []; }
+    set eventTypes(v) {
+        this._eventTypes = Array.isArray(v)
+            ? v.filter(t => t && t.typeId).map(t => ({
+                typeId: String(t.typeId),
+                icon: t.icon || '',
+                name: t.name || t.typeId,
+                color: t.color || '',
+                allDay: !!(t.allDay || t.fullDay),
+            }))
+            : [];
+        this._typeColorMap = Object.fromEntries(this._eventTypes.map(t => [t.typeId, t.color]));
+        this._typeAllDayMap = Object.fromEntries(this._eventTypes.map(t => [t.typeId, t.allDay]));
+        if (this._rootWired) this.requestRender();
+    }
+
+    _typeColor(typeId) {
+        return (this._typeColorMap && this._typeColorMap[typeId]) || '';
+    }
+
+    _isAllDayType(typeId) {
+        return !!(this._typeAllDayMap && this._typeAllDayMap[typeId]);
+    }
+
+    _select(item) {
+        const id = item ? item.id : null;
+        if (this._selectedId === id) return;
+        this._selectedId = id;
+        this.requestRender();
+        if (item) {
+            this.dispatchEvent(new CustomEvent('week-calendar:item-selected', {
+                bubbles: true, composed: true, detail: { item, id: item.id },
+            }));
+        }
+    }
+
+    get selectedId() { return this._selectedId == null ? null : this._selectedId; }
+    clearSelection() { this._select(null); }
 
     _readWorkHoursAttr() {
         const a = this.getAttribute('work-hours');
@@ -319,6 +389,8 @@ class WeekCalendar extends WNElement {
         }).join('');
         const wh = this._workHours;
         const itemsByDay = this._layoutItems(days, HS, HE, HP);
+        const { html: alldayHtml, lanes: alldayLanes } = this._layoutAllDayItems(days);
+        const trackHeight = Math.max(16, alldayLanes * 16 + 6);
         const dayCols = days.map(d => {
             const lines = [];
             for (let h = HS; h < HE - 1; h++) lines.push(`<div class="hour-line" style="top:${(h - HS) * HP}px"></div>`);
@@ -354,7 +426,9 @@ class WeekCalendar extends WNElement {
             return `<div class="${colCls.join(' ')}" data-date="${d.iso}">${band}${lines.join('')}${(itemsByDay[d.iso] || '')}${now}</div>`;
         }).join('');
 
-        const markup = `<div class="grid"><div class="corner"></div>${dayHeads}<div class="hours">${hourCells.join('')}</div>${dayCols}</div>`;
+        const alldayRow = `<div class="allday-corner" title="Heldagshendelser">heldag</div>`
+            + `<div class="allday-track" data-allday-track style="grid-column: 2 / span ${days.length}; height:${trackHeight}px">${alldayHtml}</div>`;
+        const markup = `<div class="grid"><div class="corner"></div>${dayHeads}${alldayRow}<div class="hours">${hourCells.join('')}</div>${dayCols}</div>`;
 
         // Wire events after render
         setTimeout(() => this._wireItemEvents(), 0);
@@ -369,6 +443,7 @@ class WeekCalendar extends WNElement {
         const items = Array.isArray(this._items) ? this._items : [];
         const totalPx = (HE - HS) * HP;
         items.forEach((it, i) => {
+            if (this._isAllDayType(it.type)) return; // rendered in the all-day band, not in the grid
             const start = parseDateTime(it.startDate);
             let end = parseDateTime(it.endDate);
             if (!start) return;
@@ -400,9 +475,14 @@ class WeekCalendar extends WNElement {
                     const cls = ['item'];
                     if (continuesUp) cls.push('continues-up');
                     if (continuesDown) cls.push('continues-down');
+                    const isSelected = (it.id != null && this._selectedId === it.id);
+                    if (isSelected) cls.push('selected');
+                    const color = it.type ? this._typeColor(it.type) : '';
+                    const styleParts = [`top:${top}px`, `height:${height}px`];
+                    if (color) styleParts.push(`background:${color}`);
                     const attrs = [
                         `class="${cls.join(' ')}"`,
-                        `style="top:${top}px;height:${height}px"`,
+                        `style="${styleParts.join(';')}"`,
                         `data-item-idx="${i}"`,
                     ];
                     if (it.id != null) attrs.push(`data-item-id="${escapeHtml(it.id)}"`);
@@ -410,7 +490,8 @@ class WeekCalendar extends WNElement {
                     if (it.moveable) attrs.push(`data-moveable="true" draggable="true"`);
                     const heading = it.heading ? `<div class="item-h">${escapeHtml(it.heading)}</div>` : '';
                     const body = it.body ? `<div class="item-b">${escapeHtml(it.body)}</div>` : '';
-                    out[iso] += `<div ${attrs.join(' ')} title="${escapeHtml((it.heading || '') + (it.body ? ' — ' + it.body : ''))}">${heading}${body}</div>`;
+                    const openIcon = isSelected ? `<button type="button" class="item-open" title="Åpne">↗</button>` : '';
+                    out[iso] += `<div ${attrs.join(' ')} title="${escapeHtml((it.heading || '') + (it.body ? ' — ' + it.body : ''))}">${heading}${body}${openIcon}</div>`;
                 }
                 cur.setUTCDate(cur.getUTCDate() + 1);
             }
@@ -418,18 +499,219 @@ class WeekCalendar extends WNElement {
         return out;
     }
 
-    _wireItemEvents() {
-        if (!this.shadowRoot) return;
-        this.shadowRoot.querySelectorAll('.item').forEach(el => {
-            el.addEventListener('click', () => {
-                const idx = parseInt(el.dataset.itemIdx, 10);
-                const item = this._items && this._items[idx];
-                if (!item) return;
-                this.dispatchEvent(new CustomEvent('week-calendar:item-click', {
-                    bubbles: true, composed: true, detail: { item, id: item.id },
-                }));
+    _layoutAllDayItems(days) {
+        const items = Array.isArray(this._items) ? this._items : [];
+        if (!days.length) return { html: '', lanes: 0 };
+        const dayCount = days.length;
+        const dayIdx = {};
+        days.forEach((d, i) => { dayIdx[d.iso] = i; });
+        const firstIso = days[0].iso;
+        const lastIso = days[dayCount - 1].iso;
+        const firstDate = parseDate(firstIso);
+        const lastDate = parseDate(lastIso);
+
+        // Build segments: { idx, item, startCol, endCol, continuesLeft, continuesRight }
+        const segs = [];
+        items.forEach((it, i) => {
+            if (!this._isAllDayType(it.type)) return;
+            const sRaw = String(it.startDate || '').slice(0, 10);
+            const eRaw = String(it.endDate || it.startDate || '').slice(0, 10);
+            const s = parseDate(sRaw);
+            const e = parseDate(eRaw) || s;
+            if (!s) return;
+            // Inclusive day range; clip to visible range.
+            const segStart = s < firstDate ? firstDate : s;
+            const segEnd = e > lastDate ? lastDate : e;
+            if (segEnd < firstDate || segStart > lastDate) return;
+            const startCol = dayIdx[fmtDate(segStart)];
+            const endCol = dayIdx[fmtDate(segEnd)];
+            if (startCol == null || endCol == null) return;
+            segs.push({
+                i, it,
+                startCol, endCol,
+                continuesLeft: s < firstDate,
+                continuesRight: e > lastDate,
             });
         });
+        if (!segs.length) return { html: '', lanes: 0 };
+
+        // Lane assignment (greedy): sort by startCol then length.
+        segs.sort((a, b) => a.startCol - b.startCol || (b.endCol - b.startCol) - (a.endCol - a.startCol));
+        const lanes = []; // each lane: highest endCol used
+        segs.forEach(seg => {
+            for (let l = 0; l < lanes.length; l++) {
+                if (lanes[l] < seg.startCol) { seg.lane = l; lanes[l] = seg.endCol; return; }
+            }
+            seg.lane = lanes.length;
+            lanes.push(seg.endCol);
+        });
+
+        const laneH = 16; // px per lane (bar 14px + 2px gap)
+        const parts = segs.map(seg => {
+            const leftPct = (seg.startCol / dayCount) * 100;
+            const widthPct = ((seg.endCol - seg.startCol + 1) / dayCount) * 100;
+            const top = 3 + seg.lane * laneH;
+            const cls = ['allday-bar'];
+            if (seg.continuesLeft) cls.push('continues-left');
+            if (seg.continuesRight) cls.push('continues-right');
+            const isSelected = (seg.it.id != null && this._selectedId === seg.it.id);
+            if (isSelected) cls.push('selected');
+            const color = seg.it.type ? this._typeColor(seg.it.type) : '';
+            const style = [
+                `left:calc(${leftPct}% + 2px)`,
+                `width:calc(${widthPct}% - 4px)`,
+                `top:${top}px`,
+            ];
+            if (color) style.push(`background:${color}`);
+            const attrs = [
+                `class="${cls.join(' ')}"`,
+                `style="${style.join(';')}"`,
+                `data-item-idx="${seg.i}"`,
+                `data-allday-idx="${seg.i}"`,
+            ];
+            if (seg.it.id != null) attrs.push(`data-item-id="${escapeHtml(seg.it.id)}"`);
+            if (seg.it.type) attrs.push(`data-type="${escapeHtml(seg.it.type)}"`);
+            if (seg.it.moveable) attrs.push(`data-moveable="true" draggable="true"`);
+            const title = (seg.it.heading || '') + (seg.it.body ? ' — ' + seg.it.body : '');
+            const label = seg.it.heading ? `<span class="ad-label">${escapeHtml(seg.it.heading)}</span>` : '';
+            const openIcon = isSelected ? `<button type="button" class="item-open" title="Åpne">↗</button>` : '';
+            return `<div ${attrs.join(' ')} title="${escapeHtml(title)}">${label}${openIcon}</div>`;
+        }).join('');
+        return { html: parts, lanes: lanes.length };
+    }
+
+    _wireItemEvents() {
+        if (!this.shadowRoot || this._rootWired) return;
+        this._rootWired = true;
+        const root = this.shadowRoot;
+
+        root.addEventListener('click', (ev) => {
+            const openEl = ev.target.closest && ev.target.closest('.item-open');
+            if (openEl) {
+                ev.stopPropagation();
+                const host = openEl.closest('.item, .allday-bar');
+                if (!host) return;
+                const idx = parseInt(host.dataset.itemIdx != null ? host.dataset.itemIdx : host.dataset.alldayIdx, 10);
+                const item = this._items && this._items[idx];
+                if (!item) return;
+                this.dispatchEvent(new CustomEvent('open-item-selected', {
+                    bubbles: true, composed: true, detail: { item, id: item.id },
+                }));
+                return;
+            }
+            const adEl = ev.target.closest && ev.target.closest('.allday-bar');
+            if (adEl) {
+                ev.stopPropagation();
+                const idx = parseInt(adEl.dataset.alldayIdx, 10);
+                const item = this._items && this._items[idx];
+                if (!item) return;
+                this._select(item);
+                return;
+            }
+            const itemEl = ev.target.closest && ev.target.closest('.item');
+            if (itemEl) {
+                ev.stopPropagation();
+                const idx = parseInt(itemEl.dataset.itemIdx, 10);
+                const item = this._items && this._items[idx];
+                if (!item) return;
+                this._select(item);
+                return;
+            }
+            // Click outside any item → clear selection
+            if (this._selectedId != null) this._select(null);
+        });
+
+        root.addEventListener('dblclick', (ev) => {
+            const col = ev.target.closest && ev.target.closest('.col[data-date]');
+            if (!col || (ev.target.closest && ev.target.closest('.item'))) return;
+            const { date, time } = this._cellAt(col, ev);
+            this.dispatchEvent(new CustomEvent('datePeriodSelected', {
+                bubbles: true, composed: true, detail: { type: 'none', date, time },
+            }));
+        });
+
+        root.addEventListener('contextmenu', (ev) => {
+            const col = ev.target.closest && ev.target.closest('.col[data-date]');
+            if (!col || (ev.target.closest && ev.target.closest('.item'))) return;
+            ev.preventDefault();
+            const { date, time } = this._cellAt(col, ev);
+            this._openTypeMenu(ev.clientX, ev.clientY, date, time);
+        });
+    }
+
+    _cellAt(col, ev) {
+        const { start: HS, px: HP } = this._hourBounds();
+        const rect = col.getBoundingClientRect();
+        const y = ev.clientY - rect.top;
+        const totalMin = Math.max(0, Math.round((y / HP) * 60 / 15) * 15);
+        const hour = HS + Math.floor(totalMin / 60);
+        const min = totalMin % 60;
+        const pad = n => String(n).padStart(2, '0');
+        return { date: col.dataset.date, time: pad(Math.min(23, hour)) + ':' + pad(min) };
+    }
+
+    _openTypeMenu(x, y, date, time) {
+        this._closeTypeMenu();
+        const menu = document.createElement('div');
+        menu.className = 'ctx-menu';
+        menu.style.left = x + 'px';
+        menu.style.top = y + 'px';
+        const types = this._eventTypes || [];
+        if (!types.length) {
+            menu.innerHTML = '<div class="ctx-empty">Ingen typer definert</div>';
+        } else {
+            const header = '<div class="ctx-h">Nytt møte</div>';
+            const items = types.map(t => {
+                const swatch = t.color
+                    ? `<span class="ctx-swatch" style="background:${escapeHtml(t.color)}"></span>`
+                    : '';
+                const icon = `<span class="ctx-icon">${escapeHtml(t.icon || '')}</span>`;
+                return `<button type="button" data-type="${escapeHtml(t.typeId)}">${swatch}${icon}<span>${escapeHtml(t.name)}</span></button>`;
+            }).join('');
+            menu.innerHTML = header + items;
+        }
+        this.shadowRoot.appendChild(menu);
+        this._ctxMenu = menu;
+
+        // Adjust if off-screen on the right/bottom.
+        const r = menu.getBoundingClientRect();
+        if (r.right > window.innerWidth) menu.style.left = Math.max(4, window.innerWidth - r.width - 4) + 'px';
+        if (r.bottom > window.innerHeight) menu.style.top = Math.max(4, window.innerHeight - r.height - 4) + 'px';
+
+        menu.addEventListener('click', (ev) => {
+            const btn = ev.target.closest('button[data-type]');
+            if (!btn) return;
+            const typeId = btn.dataset.type;
+            const t = types.find(x => x.typeId === typeId) || { typeId, icon: '', name: typeId };
+            this._closeTypeMenu();
+            this.dispatchEvent(new CustomEvent('datePeriodSelected', {
+                bubbles: true, composed: true,
+                detail: { type: t.typeId, icon: t.icon, name: t.name, date, time },
+            }));
+        });
+
+        const onAway = (ev) => {
+            if (ev.composedPath && ev.composedPath().includes(menu)) return;
+            this._closeTypeMenu();
+        };
+        const onEsc = (ev) => { if (ev.key === 'Escape') this._closeTypeMenu(); };
+        // Defer attaching so the originating right-click doesn't immediately close.
+        setTimeout(() => {
+            document.addEventListener('mousedown', onAway, true);
+            document.addEventListener('contextmenu', onAway, true);
+            document.addEventListener('keydown', onEsc);
+        }, 0);
+        this._ctxCleanup = () => {
+            document.removeEventListener('mousedown', onAway, true);
+            document.removeEventListener('contextmenu', onAway, true);
+            document.removeEventListener('keydown', onEsc);
+        };
+    }
+
+    _closeTypeMenu() {
+        if (this._ctxCleanup) { try { this._ctxCleanup(); } catch {} this._ctxCleanup = null; }
+        if (this._ctxMenu && this._ctxMenu.parentNode) this._ctxMenu.parentNode.removeChild(this._ctxMenu);
+        this._ctxMenu = null;
     }
 
     _updateNowLine() {

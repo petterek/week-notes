@@ -8,7 +8,7 @@
  * GET    /api/meeting-types                     → listTypes()
  * PUT    /api/meeting-types      {types}        → saveTypes(types)
  *
- * Exposed as named export `MeetingsService`.
+ * Exposed as named export `MeetingsService` and via `window["week-note-services"].MeetingsService`.
  */
 const BASE = '/api/meetings';
 const TYPES = '/api/meeting-types';
@@ -39,6 +39,3 @@ export const MeetingsService = {
     listTypes: ()          => req('GET',    TYPES),
     saveTypes: (types)     => req('PUT',    TYPES, { types }),
 };
-
-
-if (typeof window !== 'undefined') window.MeetingsService = MeetingsService;

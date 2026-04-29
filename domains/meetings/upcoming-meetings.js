@@ -11,7 +11,7 @@
  * if not cancelled the component navigates to /calendar/<week>#m-<id>.
  * @mentions bubble 'mention-clicked' (handled at the page level).
  */
-import { WNElement, html, unsafeHTML, escapeHtml, linkMentions, isoWeek, wireMentionClicks, people as fetchPeople, companies as fetchCompanies } from './_shared.js';
+import { WNElement, html, unsafeHTML, escapeHtml, linkMentions, isoWeek, wireMentionClicks } from './_shared.js';
 
 const STYLES = `
     :host { display: block; color: var(--text-strong); font: inherit; }
@@ -59,7 +59,8 @@ function dayLabel(dateStr) {
 }
 
 class UpcomingMeetings extends WNElement {
-    static get observedAttributes() { return ['days', 'service']; }
+    static get domain() { return 'meetings'; }
+    static get observedAttributes() { return ['days', 'meetings_service', 'people_service', 'companies_service']; }
 
     css() { return STYLES; }
 
@@ -75,11 +76,13 @@ class UpcomingMeetings extends WNElement {
 
     async _load() {
         const days = parseInt(this.getAttribute('days') || '14', 10) || 14;
+        const peopleSvc = this.serviceFor('people');
+        const compSvc = this.serviceFor('companies');
         try {
             const [meetings, people, companies, types] = await Promise.all([
                 this.service.list({ upcoming: days }),
-                fetchPeople(),
-                fetchCompanies(),
+                peopleSvc ? peopleSvc.list() : Promise.resolve([]),
+                compSvc ? compSvc.list() : Promise.resolve([]),
                 this.service.listTypes(),
             ]);
             this._days = days;

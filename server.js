@@ -604,6 +604,26 @@ function getUpcomingMeetingsDays(ctxId) {
     return n > 0 && n <= 365 ? n : 14;
 }
 
+// Available note tags (themes) for the given context. Stored in
+// settings.json under `availableThemes` as a string[] of normalized tag
+// names (lowercase, trimmed, deduped). Used for autocomplete / chip
+// pickers in the note editor and notes finder page.
+function getContextThemes(ctxId) {
+    const s = ctxId ? getContextSettings(ctxId) : (getActiveContext() ? getContextSettings(getActiveContext()) : {});
+    const raw = Array.isArray(s.availableThemes) ? s.availableThemes : [];
+    const seen = new Set();
+    const out = [];
+    for (const t of raw) {
+        const v = String(t || '').trim();
+        if (!v) continue;
+        const k = v.toLowerCase();
+        if (seen.has(k)) continue;
+        seen.add(k);
+        out.push(v);
+    }
+    return out;
+}
+
 function dateToIsoWeek(d) {
     // Canonical ISO 8601 week: target = Thursday of d's week
     const target = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -1118,29 +1138,7 @@ function iconPickerHtml(name, current, pickerId, inputId) {
 }
 
 function contextSwitcherHtml() {
-    const active = getActiveContext();
-    const contexts = listContexts();
-    const cur = active ? getContextSettings(active) : { name: '', icon: '📁' };
-    const curIcon = escapeHtml(cur.icon || '📁');
-    const curLabel = active ? escapeHtml(cur.name || active) : 'Ingen kontekst';
-    const items = contexts.map(id => {
-        const s = getContextSettings(id);
-        const isActive = id === active ? ' active' : '';
-        return `<button type="button" class="ctx-item${isActive}" data-id="${escapeHtml(id)}"><span class="ctx-icon">${escapeHtml(s.icon || '📁')}</span>${escapeHtml(s.name || id)}</button>`;
-    }).join('');
-    const commitBtn = active
-        ? `<button type="button" class="ctx-item ctx-commit-btn" id="ctxCommitBtn" data-active="${escapeHtml(active)}">💾 Commit endringer i «${escapeHtml(cur.name || active)}»</button>`
-        : '';
-    const sep = (items || commitBtn) ? '<div class="ctx-sep"></div>' : '';
-    return `<ctx-switcher class="ctx-switcher" service="ContextService">
-        <button type="button" class="ctx-trigger" id="ctxTrigger" title="Bytt kontekst"><span class="ctx-icon">${curIcon}</span><span class="ctx-name">${curLabel}</span><span class="ctx-caret">▾</span></button>
-        <div class="ctx-menu" id="ctxMenu">
-            ${items}
-            ${sep}
-            ${commitBtn}
-            <a class="ctx-item ctx-link" href="/settings">⚙️ Administrer kontekster</a>
-        </div>
-    </ctx-switcher>`;
+    return `<ctx-switcher class="ctx-switcher" context_service="week-note-services.context_service"></ctx-switcher>`;
 }
 
 const THEMES = ['paper', 'dark', 'nerd', 'solarized-light', 'nord', 'forest', 'ocean'];
@@ -1271,17 +1269,18 @@ function navbarHtml(extraNavLinks, opts) {
     var fixed = opts && opts.fixed ? ' app-navbar-fixed' : '';
     return `<nav id="appNav" class="app-navbar${fixed}">
         <div class="nav-inner">
-            <nav-button href="/" text="Ukenotater"></nav-button>
+            <nav-button href="/" text="Ukenotater" size="4"></nav-button>
             ${contextSwitcherHtml()}
             <div class="nav-links">
-                <a href="/editor" data-key="n" title="Nytt notat (Alt+N)">📝 Nytt notat</a>
-                <a href="/calendar">Kalender</a>
-                <a href="/tasks">Oppgaver</a>
-                <a href="/people">Personer</a>
-                <a href="/results">Resultater</a>
-                <a href="/settings">Innstillinger</a>
+                <nav-button size="2" href="/editor" data-key="n" title="Nytt notat (Alt+N)" icon="📝" text="Nytt notat"></nav-button>
+                <nav-button size="2" href="/calendar" icon="📅" text="Kalender"></nav-button>
+                <nav-button size="2" href="/tasks" icon="✅" text="Oppgaver"></nav-button>
+                <nav-button size="2" href="/people" icon="👥" text="Personer"></nav-button>
+                <nav-button size="2" href="/results" icon="🎯" text="Resultater"></nav-button>
+                <nav-button size="2" href="/notes" icon="📚" text="Notater"></nav-button>
+                <nav-button size="2" href="/settings" icon="⚙️" text="Innstillinger"></nav-button>
             </div>
-            <global-search></global-search>
+            <global-search search_service="week-note-services.search_service"></global-search>
             <nav-meta></nav-meta>
         </div>
     </nav>`;
@@ -1304,7 +1303,119 @@ function pageHtml(title, body, extraNavLinks, opts) {
     <link id="themeStylesheet" rel="stylesheet" href="/themes/${theme}.css">
     <link rel="stylesheet" href="/style.css">
 </head>
-<body><header id="appHeader">${nav}</header><main id="content">${body}</main><person-tip></person-tip><help-modal></help-modal><script>
+<body><header id="appHeader">${nav}</header><main id="content">${body}</main><entity-callout id="appEntityCallout"></entity-callout><help-modal></help-modal><script>
+// ----- Entity callout host: listen for hover-* events bubbling from cards
+// (composed events cross every shadow boundary) and drive the dumb
+// <entity-callout> singleton. Services are loaded lazily on first hover. -----
+(function(){
+    var cal = document.getElementById('appEntityCallout');
+    if (!cal) return;
+    var ready = customElements.whenDefined('entity-callout');
+    var cache = { person: null, company: null, place: null };
+    var loading = null;
+    function svc(name){
+        var ns = window['week-note-services'] || {};
+        return ns[name + '_service'];
+    }
+    function loadAll(){
+        if (cache.person && cache.company && cache.place) return Promise.resolve();
+        if (loading) return loading;
+        loading = Promise.all([
+            Promise.resolve((svc('people')    && svc('people').list())    || []),
+            Promise.resolve((svc('companies') && svc('companies').list()) || []),
+            Promise.resolve((svc('places')    && svc('places').list())    || []),
+        ]).then(function(arr){
+            cache.person  = arr[0] || [];
+            cache.company = arr[1] || [];
+            cache.place   = arr[2] || [];
+        });
+        return loading;
+    }
+    function lookup(kind, key){
+        var list = cache[kind];
+        if (!list || !key) return null;
+        if (kind === 'person') {
+            var lk = String(key).toLowerCase();
+            var p = list.find(function(x){ return (x.key && x.key.toLowerCase() === lk) || (x.name && x.name.toLowerCase() === lk); });
+            if (!p) return null;
+            var company = p.primaryCompanyKey ? (cache.company || []).find(function(c){ return c.key === p.primaryCompanyKey; }) : null;
+            return Object.assign({}, p, { company: company });
+        }
+        return list.find(function(x){ return x.key === key; }) || null;
+    }
+    ['person','company','place'].forEach(function(kind){
+        document.addEventListener('hover-' + kind, function(e){
+            var d = e.detail || {};
+            ready.then(function(){
+                if (!d.entering) { cal.hide(); return; }
+                loadAll().then(function(){
+                    cal.setData({ kind: kind, key: d.key, entity: lookup(kind, d.key), x: d.x, y: d.y });
+                });
+            });
+        });
+    });
+
+    // ----- Navigation: clicking an <entity-mention> emits select-* events.
+    // Replicate the old anchor behaviour (href="/people..." / "/people#tab=companies&key=...")
+    // through the SPA router so chips remain navigable. -----
+    function nav(url) {
+        if (window.SPA && typeof window.SPA.navigate === 'function') window.SPA.navigate(url);
+        else window.location.assign(url);
+    }
+    document.addEventListener('select-person', function(e){
+        var key = (e.detail && e.detail.key) || '';
+        nav('/people' + (key ? '#' + encodeURIComponent(key) : ''));
+    });
+    document.addEventListener('select-company', function(e){
+        var key = (e.detail && e.detail.key) || '';
+        nav('/people' + (key ? '#tab=companies&key=' + encodeURIComponent(key) : ''));
+    });
+    document.addEventListener('select-place', function(e){
+        var key = (e.detail && e.detail.key) || '';
+        nav('/people' + (key ? '#tab=places&key=' + encodeURIComponent(key) : ''));
+    });
+
+    // ----- Bridge legacy ".mention-link" anchors -> hover-* events. -----
+    // Mention links live in the light DOM (rendered by linkMentions). They
+    // emit no events themselves; this watcher converts mouseover/mouseout to
+    // the same composed hover-* events that cards dispatch, so the callout
+    // host above handles them uniformly.
+    function dispatchMention(a, entering, ev) {
+        var compKey = a.getAttribute('data-company-key');
+        var personKey = a.getAttribute('data-person-key');
+        var key, kind;
+        if (compKey) { key = compKey; kind = 'company'; }
+        else if (personKey) { key = personKey; kind = 'person'; }
+        else {
+            key = (a.textContent || '').trim().toLowerCase();
+            kind = a.classList.contains('mention-company') ? 'company' : 'person';
+        }
+        if (!key) return;
+        document.dispatchEvent(new CustomEvent('hover-' + kind, {
+            bubbles: true, composed: true,
+            detail: { key: key, entering: entering, x: ev.clientX, y: ev.clientY },
+        }));
+    }
+    document.addEventListener('mouseover', function(e){
+        var a = e.target.closest && e.target.closest('.mention-link');
+        if (!a) return;
+        dispatchMention(a, true, e);
+    });
+    document.addEventListener('mouseout', function(e){
+        var a = e.target.closest && e.target.closest('.mention-link');
+        if (!a) return;
+        var to = e.relatedTarget;
+        if (to && to.closest && to.closest('.mention-link') === a) return;
+        dispatchMention(a, false, e);
+    });
+    document.addEventListener('mousemove', function(e){
+        if (!cal.hasAttribute('visible')) return;
+        var a = e.target.closest && e.target.closest('.mention-link');
+        if (!a) return;
+        cal.position && cal.position(e.clientX, e.clientY);
+    });
+})();
+</script><script>
 // ----- SPA router. Maps URL paths to static HTML fragments under /pages/. -----
 (function(){
     var ROUTES = {
@@ -1313,6 +1424,7 @@ function pageHtml(title, body, extraNavLinks, opts) {
         '/tasks': '/pages/tasks.html',
         '/people': '/pages/people.html',
         '/results': '/pages/results.html',
+        '/notes': '/pages/notes.html',
         '/settings': '/pages/settings.html',
         '/calendar': '/pages/calendar.html'
     };
@@ -1402,15 +1514,33 @@ function pageHtml(title, body, extraNavLinks, opts) {
     }
 })();
 
-document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaKey)return;var link=document.querySelector('.nav-links a[data-key="'+e.key.toLowerCase()+'"]');if(link){e.preventDefault();window.location.href=link.href;}});
+document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaKey)return;var btn=document.querySelector('.nav-links nav-button[data-key="'+e.key.toLowerCase()+'"]');if(btn){e.preventDefault();var href=btn.getAttribute('href');if(window.spaNavigate&&window.spaNavigate(href))return;window.location.href=href;}});
+
+// Highlight the active nav-button based on current pathname.
+(function(){
+    function updateSelected(){
+        var path = location.pathname || '/';
+        document.querySelectorAll('nav-button[href]').forEach(function(btn){
+            var href = btn.getAttribute('href') || '';
+            var match = false;
+            if (href === '/') match = (path === '/' || path === '');
+            else match = (path === href || path.indexOf(href + '/') === 0);
+            if (match) btn.setAttribute('selected', '');
+            else btn.removeAttribute('selected');
+        });
+    }
+    document.addEventListener('spa:navigated', updateSelected);
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', updateSelected);
+    else updateSelected();
+})();
 
 // ----- Global wiring of component events -----
 (function(){
     function pad2(n){ return String(n).padStart(2,'0'); }
     function go(url){ window.location.href = url; }
 
-    // brand-clicked: navigate to the brand's href (via SPA router if possible).
-    document.addEventListener('brand-clicked', function(e){
+    // nav-clicked: navigate to the target href (via SPA router if possible).
+    document.addEventListener('nav-clicked', function(e){
         var href = e.detail && e.detail.href;
         if (!href) return;
         e.preventDefault();
@@ -1423,9 +1553,7 @@ document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaK
         var id = e.detail && e.detail.id;
         if (!id) return;
         e.preventDefault();
-        var WN = window.WN;
-        if (!WN) { go('/people'); return; }
-        WN.companies().then(function(companies){
+        fetch('/api/companies').then(function(r){ return r.ok ? r.json() : []; }).then(function(companies){
             var isCompany = (companies || []).some(function(c){ return c.key === id; });
             if (isCompany) go('/people#tab=companies&key=' + encodeURIComponent(id));
             else go('/people#' + encodeURIComponent(id));
@@ -1494,9 +1622,7 @@ document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaK
             // identifier is meeting id; we don't know the week here, so defer to /api/meetings? Keep simple: jump to calendar list.
             go('/calendar#m-' + encodeURIComponent(id));
         } else if (t === 'person') {
-            var WN = window.WN;
-            if (!WN) { go('/people#' + encodeURIComponent(id)); return; }
-            WN.companies().then(function(companies){
+            fetch('/api/companies').then(function(r){ return r.ok ? r.json() : []; }).then(function(companies){
                 var isCompany = (companies || []).some(function(c){ return c.key === id; });
                 if (isCompany) go('/people#tab=companies&key=' + encodeURIComponent(id));
                 else go('/people#' + encodeURIComponent(id));
@@ -1510,25 +1636,50 @@ document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaK
 })();
 </script>
 <script type="module" src="/components/_shared.js"></script>
-<script type="module" src="/services/context.js"></script>
-<script type="module" src="/services/meetings.js"></script>
-<script type="module" src="/services/notes.js"></script>
-<script type="module" src="/services/people.js"></script>
-<script type="module" src="/services/results.js"></script>
-<script type="module" src="/services/search.js"></script>
-<script type="module" src="/services/settings.js"></script>
-<script type="module" src="/services/tasks.js"></script>
+<script type="module">
+    // Production service registry. All domain services are imported here
+    // and attached to a single object on window keyed by domain name so:
+    //   - components resolve <domain>_service="..." via the registry
+    //   - page code can call: WeekNoteServices.tasks_service.list()
+    import { ContextService }  from '/services/context.js';
+    import { MeetingsService } from '/services/meetings.js';
+    import { NotesService }    from '/services/notes.js';
+    import { PeopleService, CompaniesService, PlacesService } from '/services/people.js';
+    import { ResultsService }  from '/services/results.js';
+    import { SearchService }   from '/services/search.js';
+    import { SettingsService } from '/services/settings.js';
+    import { TaskService }     from '/services/tasks.js';
+
+    const registry = {
+        companies_service: CompaniesService,
+        context_service:   ContextService,
+        meetings_service:  MeetingsService,
+        notes_service:     NotesService,
+        people_service:    PeopleService,
+        places_service:    PlacesService,
+        results_service:   ResultsService,
+        search_service:    SearchService,
+        settings_service:  SettingsService,
+        tasks_service:     TaskService,
+    };
+    window['week-note-services'] = registry;
+    window.WeekNoteServices = registry;
+    document.dispatchEvent(new CustomEvent('week-note-services:ready', { detail: registry }));
+</script>
 <script type="module" src="/components/nav-meta.js"></script>
 <script type="module" src="/components/nav-button.js"></script>
 <script type="module" src="/components/ctx-switcher.js"></script>
 <script type="module" src="/components/markdown-preview.js"></script>
 <script type="module" src="/components/help-modal.js"></script>
-<script type="module" src="/components/person-tip.js"></script>
 <script type="module" src="/components/note-card.js"></script>
+<script type="module" src="/components/note-meta-view.js"></script>
+<script type="module" src="/components/note-view.js"></script>
 <script type="module" src="/components/note-editor.js"></script>
-<script type="module" src="/components/open-tasks.js"></script>
+<script type="module" src="/components/task-open-list.js"></script>
 <script type="module" src="/components/task-create.js"></script>
+<script type="module" src="/components/task-complete-modal.js"></script>
 <script type="module" src="/components/upcoming-meetings.js"></script>
+<script type="module" src="/components/meeting-create.js"></script>
 <script type="module" src="/components/week-results.js"></script>
 <script type="module" src="/components/task-completed.js"></script>
 <script type="module" src="/components/week-section.js"></script>
@@ -1538,6 +1689,13 @@ document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaK
 <script type="module" src="/components/week-calendar.js"></script>
 <script type="module" src="/components/week-notes-calendar.js"></script>
 <script type="module" src="/components/settings-page.js"></script>
+<script type="module" src="/components/notes-page.js"></script>
+<script type="module" src="/components/company-card.js"></script>
+<script type="module" src="/components/person-card.js"></script>
+<script type="module" src="/components/place-card.js"></script>
+<script type="module" src="/components/entity-callout.js"></script>
+<script type="module" src="/components/entity-mention.js"></script>
+<script type="module" src="/components/people-page.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </body>
 </html>`;
@@ -1877,12 +2035,12 @@ function linkMentions(html, people, companies) {
         const lc = name.toLowerCase();
         const c = companies.find(x => x.key === lc);
         if (c) {
-            return pre + `<a href="/people#tab=companies&key=${encodeURIComponent(c.key)}" class="mention-link mention-company" data-company-key="${escapeHtml(c.key)}">${escapeHtml(c.name || name)}</a>`;
+            return pre + `<entity-mention kind="company" key="${escapeHtml(c.key)}" label="${escapeHtml(c.name || name)}"></entity-mention>`;
         }
         const p = people.find(x => x.name === name || x.key === lc);
         const display = p ? (p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : p.name) : name;
         const key = p ? (p.key || (p.name || '').toLowerCase()) : lc;
-        return pre + `<a href="/people" class="mention-link" data-person-key="${escapeHtml(key)}">${escapeHtml(display)}</a>`;
+        return pre + `<entity-mention kind="person" key="${escapeHtml(key)}" label="${escapeHtml(display)}"></entity-mention>`;
     });
 }
 
@@ -2267,6 +2425,7 @@ const server = http.createServer(async (req, res) => {
             '/tasks':    'Oppgaver',
             '/people':   'Personer og steder',
             '/results':  'Resultater',
+            '/notes':    'Notater',
             '/settings': 'Innstillinger'
         };
         if (Object.prototype.hasOwnProperty.call(SPA_STUBS, pathname)) {
@@ -2443,6 +2602,8 @@ ${SERVICES.map(s => `    <link rel="modulepreload" href="/debug/services/${s.key
         .dbg-nav a { display: block; padding: 6px 10px; border-radius: 4px; color: var(--text); text-decoration: none; font-family: ui-monospace, monospace; font-size: 0.88em; }
         .dbg-nav a:hover { background: var(--surface-alt); }
         .dbg-nav a.active { background: var(--accent); color: var(--text-on-accent, white); }
+        .dbg-group-label { font-size: 0.72em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin: 12px 8px 4px; }
+        .dbg-group-label:first-of-type { margin-top: 0; }
         .dbg-main { padding: 20px 26px; max-width: 1100px; }
         .dbg-head h1 { font-family: Georgia, serif; color: var(--accent); font-size: 1.4em; margin: 0 0 4px; }
         .dbg-head .desc { color: var(--text-muted); font-size: 0.9em; margin-bottom: 14px; }
@@ -2613,14 +2774,19 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
     }
 
     if (pathname === '/debug' || pathname.startsWith('/debug/')) {
-        const COMPONENTS = [
-            'ctx-switcher', 'global-search', 'help-modal', 'markdown-preview',
-            'nav-button', 'nav-meta', 'note-card', 'note-editor',
-            'open-tasks', 'person-tip', 'settings-page', 'task-completed',
-            'task-create', 'task-create-modal', 'upcoming-meetings',
-            'week-calendar', 'week-list', 'week-notes-calendar', 'week-pill',
-            'week-results', 'week-section',
+        const COMPONENT_GROUPS = [
+            ['Shared',    ['help-modal', 'nav-button', 'nav-meta', 'time-picker', 'week-calendar', 'week-pill']],
+            ['Context',   ['ctx-switcher']],
+            ['Search',    ['global-search']],
+            ['Notes',     ['markdown-preview', 'note-card', 'note-editor']],
+            ['Tasks',     ['task-complete-modal', 'task-open-list', 'task-completed', 'task-create', 'task-create-modal']],
+            ['Meetings',  ['meeting-create', 'upcoming-meetings', 'week-notes-calendar']],
+            ['People',    ['company-card', 'entity-callout', 'entity-mention', 'people-page', 'person-card', 'place-card']],
+            ['Results',   ['week-results']],
+            ['Settings',  ['settings-page']],
+            ['Composit',  ['week-list', 'week-section']],
         ];
+        const COMPONENTS = COMPONENT_GROUPS.flatMap(([, items]) => items);
 
         // List all weeks for week-* demos.
         // Use the mock-services seed: the current ISO week and the two prior.
@@ -2663,12 +2829,25 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
         // extraStyle: per-demo CSS additions
         const DEMOS = {
             'nav-meta': {
-                desc: 'Date · ISO-week · clock display used in the navbar.',
+                desc: `<p><strong>&lt;nav-meta&gt;</strong> is a small read-only navbar widget that shows the current weekday, date, ISO week badge and a live clock. It updates once per second and uses the Norwegian locale (<code>nb-NO</code>) for date and time formatting.</p>
+                    <p><strong>Domain:</strong> none &mdash; presentational only, no service required.</p>
+                    <p><strong>Attributes:</strong> none. The widget is fully self-driven.</p>
+                    <p><strong>Lifecycle.</strong> Starts a 1&nbsp;Hz <code>setTimeout</code> loop on connect; clears it on disconnect. The render() output is just three empty spans (date, week badge, clock); the timer fills them in to avoid re-rendering the whole shadow tree every second.</p>
+                    <p><strong>Events.</strong> None.</p>`,
                 tag: 'nav-meta', attrs: [],
                 wrap: `<div style="background:var(--surface);padding:10px;border-radius:6px;display:inline-block">%HOST%</div>`,
             },
             'nav-button': {
-                desc: 'Brand link in the navbar (defaults to "Ukenotater" pointing to /).',
+                desc: `<p><strong>&lt;nav-button&gt;</strong> is the unified navigation link element used in the top navbar &mdash; both for the &ldquo;Ukenotater&rdquo; brand link and for each menu item. Renders as a single anchor in shadow DOM with the app accent color and heading font.</p>
+                    <p><strong>Attributes:</strong></p>
+                    <ul>
+                        <li><code>href</code> &mdash; link target (default <code>/</code>)</li>
+                        <li><code>text</code> &mdash; link label (default <code>Ukenotater</code>)</li>
+                        <li><code>icon</code> &mdash; optional emoji/glyph rendered before the text</li>
+                        <li><code>size</code> &mdash; <code>1</code> (smallest) … <code>5</code> (largest); default <code>3</code>. Drives <code>--nb-size</code>.</li>
+                    </ul>
+                    <p><strong>Lifecycle.</strong> Stateless. Click is intercepted in shadow DOM and converted into the <code>nav-clicked</code> event &mdash; the host page's listener is responsible for actual navigation (SPA router-aware in the app).</p>
+                    <p><strong>Events.</strong> Cancelable bubbling/composed <code>nav-clicked</code> with <code>{ href }</code>. <code>preventDefault()</code> blocks the host's navigation.</p>`,
                 tag: 'nav-button',
                 attrs: [
                     { name: 'href', type: 'text', default: '/' },
@@ -2683,66 +2862,351 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                 rawHtml: `<p style="color:var(--text-muted);font-style:italic">This component has been removed.</p>`,
             },
             'ctx-switcher': {
-                desc: 'Context switcher dropdown. Wraps server-supplied light-DOM children (trigger + menu) via a <slot>. Emits <code>context-selected</code> (cancelable) before reload.',
-                rawHtml: `<ctx-switcher class="ctx-switcher" service="MockContextService">
-                    <button type="button" class="ctx-trigger" id="ctxTrigger" title="Bytt kontekst"><span class="ctx-icon">🧪</span><span class="ctx-name">Demo-arbeidsplass</span><span class="ctx-caret">▾</span></button>
-                    <div class="ctx-menu" id="ctxMenu">
-                        <button type="button" class="ctx-item active" data-id="demo"><span class="ctx-icon">🧪</span>Demo-arbeidsplass</button>
-                        <button type="button" class="ctx-item" data-id="work"><span class="ctx-icon">💼</span>Jobb</button>
-                        <button type="button" class="ctx-item" data-id="home"><span class="ctx-icon">🏠</span>Hjemme</button>
-                        <div class="ctx-sep"></div>
-                        <button type="button" class="ctx-item ctx-commit-btn" id="ctxCommitBtn" data-active="demo">💾 Commit endringer i «Demo-arbeidsplass»</button>
-                        <a class="ctx-item ctx-link" href="#">⚙️ Administrer kontekster</a>
-                    </div>
-                </ctx-switcher>`,
-                extraStyle: `ctx-switcher { position: relative; display: inline-block; }
-                    .ctx-trigger { padding: 6px 10px; border: 1px solid var(--border); background: var(--surface); border-radius: 4px; cursor: pointer; }
-                    .ctx-menu { display: none; position: absolute; top: 100%; left: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; min-width: 200px; z-index: 10; padding: 4px; }
-                    ctx-switcher.open .ctx-menu { display: block; }
-                    .ctx-item { display: block; width: 100%; text-align: left; padding: 6px 10px; background: none; border: none; cursor: pointer; color: var(--text); text-decoration: none; }
-                    .ctx-item:hover { background: var(--surface-alt); }`,
-            },
-            'help-modal': {
-                desc: 'Lazy-loaded help modal. Click the button — fires on #helpBtn click or window event "help:open".',
-                rawHtml: `<button id="helpBtn" class="btn-summarize">❓ Open help</button>
-                    <button class="btn-summarize" onclick="window.dispatchEvent(new CustomEvent('help:open'))" style="background:var(--text-muted)">Fire help:open event</button>
-                    <help-modal></help-modal>`,
-            },
-            'person-tip': {
-                desc: 'Singleton tooltip — hover any .mention-link below. Optional services: service (people), service_companies (companies). With no services, falls back to /api/people and /api/companies via the cached fetchers.',
-                rawHtml: `<p style="line-height:2">Try hovering:
-                    <a class="mention-link" data-person-key="petter" href="#">@petter</a> ·
-                    <a class="mention-link" data-person-key="astrid" href="#">@astrid</a> ·
-                    <a class="mention-link mention-company" data-company-key="acmeas" href="#">@acmeas</a> ·
-                    <a class="mention-link mention-company" data-company-key="globex" href="#">@globex</a> ·
-                    <a class="mention-link" data-person-key="ukjent" href="#">@ukjent (mangler)</a></p>
-                    <person-tip service="MockPeopleService" service_companies="MockCompaniesService"></person-tip>`,
-            },
-            'note-card': {
-                desc: 'Self-loading note summary card. Emits cancelable note-card:{view,present,edit,delete}.',
-                tag: 'note-card',
+                desc: `<p><strong>&lt;ctx-switcher&gt;</strong> is the workspace/context dropdown shown next to the brand. Each context is its own data folder and git repo, and switching contexts triggers a server-side cookie change followed by a full page reload.</p>
+                    <p><strong>Domain:</strong> <code>context</code> &mdash; reads its primary service from <code>context_service</code>. Calls <code>list()</code>, <code>switchTo(id)</code>, and <code>commit(id, { message })</code>.</p>
+                    <p><strong>Self-contained shadow DOM.</strong> The component renders its own trigger button and menu inside its shadow root and fetches the context list via <code>service.list()</code> on connect. No light-DOM children are read; the host just emits <code>&lt;ctx-switcher context_service="…"&gt;&lt;/ctx-switcher&gt;</code>.</p>
+                    <p><strong>Lifecycle.</strong> States: &ldquo;Laster…&rdquo; while loading, the trigger + menu when ready, &ldquo;Ingen kontekst&rdquo; on error/empty. Toggles the host class <code>open</code> on trigger click. Closes on outside click and Esc.</p>
+                    <p><strong>Events</strong> (cancelable, bubbling, composed):</p>
+                    <ul>
+                        <li><code>context-selected</code> with <code>{ id, result }</code> &mdash; <code>preventDefault()</code> aborts the page reload</li>
+                        <li><code>context-commit</code> with <code>{ id, result }</code></li>
+                    </ul>`,
+                tag: 'ctx-switcher',
                 attrs: [
-                    { name: 'service', type: 'text', default: 'MockNotesService' },
-                    { name: 'note', type: 'select', options: allNotes, default: firstNote },
+                    { name: 'context_service', type: 'text', default: 'MockContextService' },
                 ],
             },
-            'open-tasks': {
-                desc: 'Self-loading list of open tasks.',
-                tag: 'open-tasks',
-                attrs: [{ name: 'service', type: 'text', default: 'MockTaskService' }],
+            'help-modal': {
+                desc: `<p><strong>&lt;help-modal&gt;</strong> is a singleton lazy-loaded modal that displays the project's <code>help.md</code>. The markdown is fetched and rendered through <code>window.marked</code> on first open and cached for subsequent opens.</p>
+                    <p><strong>Domain:</strong> none.</p>
+                    <p><strong>Triggers.</strong> Click on any element with <code>id="helpBtn"</code> (the navbar's <kbd>?</kbd> button) calls <code>open()</code>. Programmatic openers should call <code>document.querySelector('help-modal').open()</code> directly. Closes on Esc, backdrop click, or the modal's close button.</p>
+                    <p><strong>API:</strong> <code>open()</code>, <code>close()</code>. The <code>open</code> attribute reflects state.</p>
+                    <p><strong>Lifecycle.</strong> Renders an empty placeholder until first opened; then fetches <code>/help.md</code> and renders the modal. Subsequent opens reuse the cached HTML.</p>`,
+                rawHtml: `<button id="helpBtn" class="btn-summarize">❓ Open help (via #helpBtn)</button>
+                    <button class="btn-summarize" onclick="document.querySelector('help-modal').open()" style="background:var(--text-muted)">Call open() directly</button>
+                    <help-modal></help-modal>`,
+            },
+            'entity-callout': {
+                desc: `<p><strong>&lt;entity-callout&gt;</strong> is a dumb floating tooltip that shows a read-only summary of a person, company or place. It does <strong>not</strong> listen to any events and does not load data &mdash; the host owns hover detection, entity resolution and positioning, then drives the callout via two methods.</p>
+                    <p><strong>API:</strong></p>
+                    <ul>
+                        <li><code>setData({ kind, entity, key, x, y })</code> &mdash; show. <code>kind</code> is <code>'person'</code>, <code>'company'</code> or <code>'place'</code>. <code>entity</code> is the resolved object, or <code>null</code> to render a "missing" message based on <code>key</code>. <code>x</code>/<code>y</code> are viewport coordinates.</li>
+                        <li><code>hide()</code> &mdash; remove the <code>visible</code> attribute.</li>
+                    </ul>
+                    <p>Cards (<code>&lt;person-card&gt;</code>, <code>&lt;company-card&gt;</code>, <code>&lt;place-card&gt;</code>) emit <code>hover-person</code>/<code>hover-company</code>/<code>hover-place</code> with <code>{ key, entering, x, y }</code>. The host (e.g. <code>&lt;people-page&gt;</code>) listens, resolves the entity from its in-memory data and calls <code>setData(...)</code> on hover-in, <code>hide()</code> on hover-out.</p>
+                    <p><strong>Below:</strong> the three rendering variants &mdash; person, company and place &mdash; each shown by calling <code>setData()</code> directly. The fixed-position styling is overridden for the demo so all three are visible at once.</p>`,
+                rawHtml: `<style>
+                        .ec-demo { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+                        .ec-demo entity-callout { position: static !important; opacity: 1 !important; transition: none !important; display: block; }
+                    </style>
+                    <div class="ec-demo">
+                        <entity-callout id="dbg-ec-person"></entity-callout>
+                        <entity-callout id="dbg-ec-company"></entity-callout>
+                        <entity-callout id="dbg-ec-place"></entity-callout>
+                        <entity-callout id="dbg-ec-missing"></entity-callout>
+                    </div>
+                    <script>
+                        customElements.whenDefined('entity-callout').then(function(){
+                            return Promise.all([
+                                Promise.resolve(window.MockPeopleService    ? window.MockPeopleService.list()    : []),
+                                Promise.resolve(window.MockCompaniesService ? window.MockCompaniesService.list() : []),
+                                Promise.resolve(window.MockPlacesService    ? window.MockPlacesService.list()    : []),
+                            ]);
+                        }).then(function(arr){
+                            var people = arr[0] || [], companies = arr[1] || [], places = arr[2] || [];
+                            var person = people[0] || null;
+                            if (person && person.primaryCompanyKey) {
+                                var co = companies.find(function(c){ return c.key === person.primaryCompanyKey; });
+                                if (co) person = Object.assign({}, person, { company: co });
+                            }
+                            document.getElementById('dbg-ec-person')  .setData({ kind: 'person',  key: person && person.key, entity: person });
+                            document.getElementById('dbg-ec-company') .setData({ kind: 'company', key: companies[0] && companies[0].key, entity: companies[0] || null });
+                            document.getElementById('dbg-ec-place')   .setData({ kind: 'place',   key: places[0]    && places[0].key,    entity: places[0]    || null });
+                            document.getElementById('dbg-ec-missing') .setData({ kind: 'person',  key: 'ukjent', entity: null });
+                        });
+                    <\/script>`,
+            },
+            'entity-mention': {
+                desc: `<p><strong>&lt;entity-mention&gt;</strong> is a reusable inline chip representing a reference to a person, company or place. Given a <code>key</code> it auto-resolves the entity from the global services (<code>window['week-note-services']</code>, falling back to <code>window.MockServices</code>) and shows a friendly display name (<code>FirstName LastName</code> for people, <code>name</code> for companies and places). The lookup is shared and cached across all chips on the page. The component still emits hover and select events for the global callout / SPA navigation hooks.</p>
+                    <p><strong>Attributes:</strong></p>
+                    <ul>
+                        <li><code>kind</code> &mdash; <code>'person'</code> | <code>'company'</code> | <code>'place'</code> (default <code>person</code>)</li>
+                        <li><code>key</code> &mdash; entity key. Required.</li>
+                        <li><code>label</code> &mdash; optional explicit display text. If set, lookup is skipped. Useful when the renderer already knows the name (avoids the async re-render flicker).</li>
+                    </ul>
+                    <p><strong>Events</strong> (cancelable, bubbling, composed):</p>
+                    <ul>
+                        <li><code>hover-person</code> / <code>hover-company</code> / <code>hover-place</code> with <code>{ key, entering, x, y }</code></li>
+                        <li><code>select-person</code> / <code>select-company</code> / <code>select-place</code> with <code>{ key }</code></li>
+                    </ul>
+                    <p>Below: chips that auto-resolve from <code>MockServices</code>, plus chips with explicit labels (lookup skipped) and an unresolvable key (falls back to the key).</p>`,
+                rawHtml: `<p style="font-size:1.05em; line-height:1.7;">
+                        Auto-resolved (no <code>label</code>):
+                        Møte med <entity-mention kind="person" key="petter"></entity-mention>
+                        og <entity-mention kind="person" key="astrid"></entity-mention>
+                        fra <entity-mention kind="company" key="acmeas"></entity-mention>
+                        på <entity-mention kind="place" key="mathallen"></entity-mention>.
+                        Ukjent: <entity-mention kind="person" key="ukjent"></entity-mention>.
+                    </p>
+                    <p style="font-size:1.05em; line-height:1.7;">
+                        Explicit <code>label</code> (lookup skipped):
+                        <entity-mention kind="person" key="petter" label="Petter E."></entity-mention>,
+                        <entity-mention kind="company" key="acmeas" label="Acme"></entity-mention>.
+                    </p>`,
+            },
+            'company-card': {
+                desc: `<p><strong>&lt;company-card&gt;</strong> is a dumb presentation card for a single company. It is used by <code>&lt;people-page&gt;</code> on the Selskaper tab, but is reusable anywhere a company's members and cross-references should be displayed inline.</p>
+                    <p><strong>Domain:</strong> <code>people</code> &mdash; no service is read directly. The host is responsible for assembling the data and passing it via <code>setData(d)</code>.</p>
+                    <p><strong>Data shape:</strong></p>
+                    <ul>
+                        <li><code>company</code> &mdash; <code>{ id, key, name, url, address, orgnr, notes, deleted? }</code></li>
+                        <li><code>members</code> &mdash; <code>[{ person, primary }]</code></li>
+                        <li><code>tasks</code> &mdash; <code>[{ id, text, done }]</code> (already filtered to references of this company)</li>
+                        <li><code>meetings</code> &mdash; <code>[{ id, title, date, start, week }]</code></li>
+                        <li><code>results</code> &mdash; <code>[{ id, text, week }]</code></li>
+                        <li><code>people</code>, <code>companies</code> &mdash; full lists for <code>@mention</code> link resolution</li>
+                        <li><code>open</code> &mdash; expanded state (controlled by host)</li>
+                    </ul>
+                    <p><strong>Lifecycle.</strong> <code>setData(d)</code> may be called before or after the element is connected. Until set, the card renders &ldquo;Ingen data.&rdquo;.</p>
+                    <p><strong>Events</strong> (cancelable, bubbling, composed):</p>
+                    <ul>
+                        <li><code>toggle</code> with <code>{ key }</code> &mdash; header click. The card does not toggle itself; the host should flip its expanded set and call <code>setData(...)</code> again with the new <code>open</code> value.</li>
+                        <li><code>edit</code> with <code>{ id, key }</code> &mdash; pencil button.</li>
+                        <li><code>select-person</code> / <code>select-meeting</code> / <code>select-result</code> / <code>select-task</code> &mdash; click on a member chip or a ref row. Detail carries <code>{ key }</code> for person, <code>{ id, week }</code> for meeting/result, <code>{ id }</code> for task.</li>
+                        <li><code>hover-person</code> / <code>hover-meeting</code> / <code>hover-result</code> / <code>hover-task</code> &mdash; same items on pointerenter/leave. Detail adds <code>{ entering: true|false }</code>.</li>
+                    </ul>
+                    <p>Refs are non-link <code>&lt;span&gt;</code>s &mdash; the card does not navigate; the host owns routing.</p>`,
+                rawHtml: `<company-card id="dbg-company-card"></company-card>
+                    <script>
+                        customElements.whenDefined('company-card').then(function(){
+                            var el = document.getElementById('dbg-company-card');
+                            if (!el || !el.setData) return;
+                            var people = [
+                                { id:'p1', key:'anna',  firstName:'Anna',  lastName:'Berg',  name:'Anna Berg',  title:'Produkteier' },
+                                { id:'p2', key:'bjorn', firstName:'Bjørn', lastName:'Dahl',  name:'Bjørn Dahl', title:'Tech Lead'  },
+                                { id:'p3', key:'cecilie', firstName:'Cecilie', lastName:'Eng', name:'Cecilie Eng', title:'Designer' },
+                            ];
+                            var companies = [
+                                { id:'c1', key:'acmeas', name:'Acme AS', url:'https://acme.example', address:'Storgata 1, Oslo', orgnr:'923 456 789', notes:'Hovedleverandør av widgets.' },
+                                { id:'c2', key:'globex', name:'Globex',  url:'https://globex.example' },
+                            ];
+                            var setOpen = true;
+                            function refresh(){
+                                el.setData({
+                                    company: companies[0],
+                                    members: [
+                                        { person: people[0], primary: true  },
+                                        { person: people[1], primary: false },
+                                        { person: people[2], primary: false },
+                                    ],
+                                    tasks: [
+                                        { id:'t1', text:'Følge opp @anna om widget v2',         done:false },
+                                        { id:'t2', text:'Ferdigstille kontrakt med @acmeas',    done:true  },
+                                    ],
+                                    meetings: [
+                                        { id:'m1', title:'Statusmøte med @acmeas', date:'2026-04-28', start:'10:00', week:'2026-W18' },
+                                        { id:'m2', title:'Kickoff @globex',        date:'2026-04-22', start:'13:00', week:'2026-W17' },
+                                    ],
+                                    results: [
+                                        { id:'r1', text:'Signert avtale med @acmeas', week:'2026-W17' },
+                                    ],
+                                    people: people, companies: companies,
+                                    open: setOpen,
+                                });
+                            }
+                            // Host-controlled toggle pattern.
+                            el.addEventListener('toggle', function(){ setOpen = !setOpen; refresh(); });
+                            refresh();
+                        });
+                    <\/script>`,
+            },
+            'person-card': {
+                desc: `<p><strong>&lt;person-card&gt;</strong> is a dumb presentation card for a single person. Used by <code>&lt;people-page&gt;</code> on the Personer tab; reusable elsewhere.</p>
+                    <p><strong>Domain:</strong> <code>people</code>. The host assembles <code>person</code>, related <code>tasks/meetings/results</code> and the <code>primaryCompany</code>/<code>extraCompanies</code> lookups, then calls <code>setData(d)</code>.</p>
+                    <p><strong>Events</strong> (cancelable, bubbling, composed):</p>
+                    <ul>
+                        <li><code>toggle</code> with <code>{ key }</code> &mdash; header click. Card does not toggle itself; host owns expanded state.</li>
+                        <li><code>edit</code> with <code>{ id, key }</code> &mdash; pencil button.</li>
+                        <li><code>select-company</code> / <code>select-meeting</code> / <code>select-result</code> / <code>select-task</code> &mdash; click on a company-pill or a ref row. Detail carries <code>{ key }</code> for company, <code>{ id, week }</code> for meeting/result, <code>{ id }</code> for task.</li>
+                        <li><code>hover-company</code> / <code>hover-meeting</code> / <code>hover-result</code> / <code>hover-task</code> &mdash; same items on pointerenter/leave. Detail adds <code>{ entering: true|false }</code>.</li>
+                    </ul>
+                    <p>Refs are non-link <code>&lt;span&gt;</code>s &mdash; the host owns navigation.</p>`,
+                rawHtml: `<person-card id="dbg-person-card"></person-card>
+                    <entity-callout id="dbg-pc-callout"></entity-callout>
+                    <script>
+                        Promise.all([
+                            customElements.whenDefined('person-card'),
+                            customElements.whenDefined('entity-callout'),
+                        ]).then(function(){
+                            var el  = document.getElementById('dbg-person-card');
+                            var cal = document.getElementById('dbg-pc-callout');
+                            if (!el || !el.setData) return;
+                            var people = [
+                                { id:'p1', key:'anna',  firstName:'Anna',  lastName:'Berg', name:'Anna Berg', title:'Produkteier', email:'anna@example.no', phone:'+47 900 11 222', notes:'Kontakt for widget v2.', primaryCompanyKey:'acmeas', extraCompanyKeys:['globex'] },
+                                { id:'p2', key:'bjorn', firstName:'Bjørn', lastName:'Dahl', name:'Bjørn Dahl' },
+                            ];
+                            var companies = [
+                                { id:'c1', key:'acmeas', name:'Acme AS', url:'https://acme.example', notes:'Hovedkunde.' },
+                                { id:'c2', key:'globex', name:'Globex',  notes:'Avstemming kvartalsvis.' },
+                            ];
+                            var setOpen = true;
+                            function refresh(){
+                                el.setData({
+                                    person: people[0],
+                                    primaryCompany: companies[0],
+                                    extraCompanies: [companies[1]],
+                                    tasks: [
+                                        { id:'t1', text:'Følge opp @anna om widget v2', done:false },
+                                        { id:'t2', text:'Avstemme tall med @globex',    done:true  },
+                                    ],
+                                    meetings: [
+                                        { id:'m1', title:'1:1 med @anna',           date:'2026-04-28', start:'09:00', week:'2026-W18' },
+                                    ],
+                                    results: [
+                                        { id:'r1', text:'Avtale signert med @acmeas', week:'2026-W17' },
+                                    ],
+                                    people: people, companies: companies,
+                                    open: setOpen,
+                                });
+                            }
+                            el.addEventListener('toggle', function(){ setOpen = !setOpen; refresh(); });
+                            // Demo host wiring: listen for hover-company on the card and drive
+                            // the <entity-callout>. The card itself stays dumb.
+                            el.addEventListener('hover-company', function(e){
+                                var d = e.detail || {};
+                                if (!d.entering) { cal.hide(); return; }
+                                var co = companies.find(function(c){ return c.key === d.key; }) || null;
+                                cal.setData({ kind:'company', key:d.key, entity:co, x:d.x, y:d.y });
+                            });
+                            refresh();
+                        });
+                    <\/script>`,
+            },
+            'place-card': {
+                desc: `<p><strong>&lt;place-card&gt;</strong> is a dumb presentation card for a single place. Used by <code>&lt;people-page&gt;</code> on the Steder tab.</p>
+                    <p><strong>Domain:</strong> <code>people</code>. The host passes the <code>place</code> object plus <code>meetings</code> already filtered to that place. When <code>lat</code>/<code>lng</code> are finite numbers, a Leaflet mini-map renders inside the card&rsquo;s own shadow root (Leaflet is loaded lazily on first need).</p>
+                    <p><strong>Events</strong> (cancelable, bubbling, composed):</p>
+                    <ul>
+                        <li><code>toggle</code> with <code>{ key }</code> &mdash; header click. Host owns expanded state.</li>
+                        <li><code>edit</code> with <code>{ id, key }</code> &mdash; pencil button.</li>
+                        <li><code>select-meeting</code> with <code>{ id, week }</code> &mdash; meeting ref click.</li>
+                        <li><code>hover-meeting</code> with <code>{ id, week, entering }</code> &mdash; meeting ref pointerenter/leave.</li>
+                    </ul>`,
+                rawHtml: `<place-card id="dbg-place-card"></place-card>
+                    <script>
+                        customElements.whenDefined('place-card').then(function(){
+                            var el = document.getElementById('dbg-place-card');
+                            if (!el || !el.setData) return;
+                            var setOpen = true;
+                            function refresh(){
+                                el.setData({
+                                    place: { id:'pl1', key:'osloctr', name:'Oslo Sentrum', address:'Karl Johans gate 1, Oslo', lat: 59.9139, lng: 10.7522, notes:'Kaffe-spot for nye møter.' },
+                                    meetings: [
+                                        { id:'m1', title:'Statusmøte med @acmeas', date:'2026-04-28', start:'10:00', week:'2026-W18' },
+                                        { id:'m2', title:'Kickoff @globex',        date:'2026-04-22', start:'13:00', week:'2026-W17' },
+                                    ],
+                                    people: [], companies: [],
+                                    open: setOpen,
+                                });
+                            }
+                            el.addEventListener('toggle', function(){ setOpen = !setOpen; refresh(); });
+                            refresh();
+                        });
+                    <\/script>`,
+            },
+            'note-card': {
+                desc: `<p><strong>&lt;note-card&gt;</strong> is a dumb presentation card for a single note. It does not load anything itself &mdash; the host (typically <code>&lt;week-section&gt;</code>) calls <code>el.setData(d)</code> to populate it.</p>
+                    <p><strong>Data shape:</strong> <code>{ week, file, name, type, pinned, snippet, themes, presentationStyle? }</code>. <code>type</code> drives the icon (📝 note, 🤝 meeting, 🎯 task, 🎤 presentation, 📌 other); <code>themes</code> render as <code>#tag</code> pills under the snippet; <code>pinned</code> shows a 📌 prefix.</p>
+                    <p><strong>Lifecycle.</strong> <code>setData(d)</code> may be called before or after the element is connected. Until set, the card shows &ldquo;Laster…&rdquo;. Setting data also writes a <code>data-note-card="&lt;week&gt;/&lt;file&gt;"</code> attribute on the host so the legacy delete-handler selector keeps working.</p>
+                    <p><strong>Actions.</strong> Header buttons emit cancelable bubbling/composed events: <code>view</code>, <code>present</code> (only for <code>type=presentation</code>), <code>edit</code> and <code>delete</code>. Each carries <code>{ filePath: "WEEK/encoded-file.md" }</code>. The edit action also renders a real <code>&lt;a href="/editor/…"&gt;</code> for fallback navigation; <code>preventDefault()</code> on the event also blocks that.</p>`,
+                rawHtml: `<note-card id="dbg-note-card"></note-card>
+                    <script>
+                        customElements.whenDefined('note-card').then(function(){
+                            var el = document.getElementById('dbg-note-card');
+                            if (el && el.setData) el.setData({
+                                week: '2026-W18',
+                                file: 'demo.md',
+                                name: 'Demonstrasjon',
+                                type: 'note',
+                                pinned: false,
+                                themes: ['demo', 'planning'],
+                                snippet: '<p>Dette er et <em>kort</em> utdrag fra notatet \u2014 brukes som forhåndsvisning i kortet.</p>',
+                            });
+                        });
+                    <\/script>`,
+            },
+            'task-open-list': {
+                desc: `<p><strong>&lt;task-open-list&gt;</strong> is the &ldquo;Åpne oppgaver&rdquo; sidebar list shown on the home page. It loads all tasks via the tasks service, filters out completed ones, and renders each as a checkbox row with linked <code>@mentions</code> and a small note button.</p>
+                    <p><strong>Domain:</strong> <code>tasks</code> &mdash; primary service from <code>tasks_service</code>. Also reads <code>people_service</code> and <code>companies_service</code> so mention text can be resolved to display names.</p>
+                    <p><strong>Lifecycle.</strong> <code>_load()</code> fetches tasks, people and companies in parallel. Renders &ldquo;Laster…&rdquo; → list / &ldquo;Ingen åpne oppgaver&rdquo; / &ldquo;Kunne ikke laste oppgaver&rdquo;. The header shows the open-task count.</p>
+                    <p><strong>Interactions.</strong> Toggling a checkbox first tries the legacy global <code>window.showCommentModal(cb)</code> (so the home page's existing comment-prompt flow keeps working); if it isn't defined the component emits a fallback event. The note button works the same way against <code>window.openNoteModal(id)</code>.</p>
+                    <p><strong>Events</strong> (cancelable, bubbling, composed):</p>
+                    <ul>
+                        <li><code>task-open-list:toggle</code> with <code>{ id, checkbox }</code> &mdash; fallback when no global comment modal exists</li>
+                        <li><code>task-open-list:note</code> with <code>{ id }</code> &mdash; fallback when no global note modal exists</li>
+                        <li><code>mention-clicked</code> &mdash; bubbled from rendered <code>@mentions</code></li>
+                    </ul>`,
+                tag: 'task-open-list',
+                attrs: [
+                    { name: 'tasks_service', type: 'text', default: 'MockTaskService' },
+                    { name: 'people_service', type: 'text', default: 'MockPeopleService' },
+                    { name: 'companies_service', type: 'text', default: 'MockCompaniesService' },
+                ],
             },
             'task-create': {
-                desc: 'Reusable input + button for creating a task. Calls <code>service.create(text)</code> and dispatches <code>task:created</code> with detail <code>{task, tasks}</code>.',
+                desc: `<p><strong>&lt;task-create&gt;</strong> is a small reusable form &mdash; one input, one submit button &mdash; for creating a task. Used standalone in the tasks page and embedded inside <code>&lt;task-create-modal&gt;</code>.</p>
+                    <p><strong>Domain:</strong> <code>tasks</code> &mdash; reads from <code>tasks_service</code>. Calls <code>service.create(text)</code>; the service is expected to return either the created task or <code>{ task, tasks }</code>.</p>
+                    <p><strong>Attributes:</strong> <code>placeholder</code>, <code>button-label</code>, <code>compact</code> (boolean &mdash; smaller layout for sidebars).</p>
+                    <p><strong>Lifecycle.</strong> Trims input on submit; ignores empty submissions. Disables the button while in flight; re-enables on success/failure. Clears input and re-focuses on success. On error shows an inline error and keeps the input so the user can retry.</p>
+                    <p><strong>Events</strong> (bubbling, composed):</p>
+                    <ul>
+                        <li><code>task:created</code> with <code>{ task, tasks }</code></li>
+                        <li><code>task:create-failed</code> with <code>{ error, text }</code></li>
+                    </ul>`,
                 tag: 'task-create',
                 attrs: [
-                    { name: 'service', type: 'text', default: 'MockTaskService' },
+                    { name: 'tasks_service', type: 'text', default: 'MockTaskService' },
                     { name: 'placeholder', type: 'text', default: 'Ny oppgave...' },
                     { name: 'button-label', type: 'text', default: 'Legg til' },
                     { name: 'compact', type: 'bool' },
                 ],
             },
+            'task-complete-modal': {
+                desc: `<p><strong>&lt;task-complete-modal&gt;</strong> is a centered modal that confirms completion of a single task and lets the user attach an optional comment. The component is dumb &mdash; it does not load or save anything. The host opens the modal with a task object and a callback that receives the result.</p>
+                    <p><strong>Methods:</strong></p>
+                    <ul>
+                        <li><code>open(task, callback)</code> &mdash; sets the task, shows the modal, stores the callback. The textarea is cleared and focused. The callback runs once with one of:
+                            <ul>
+                                <li><code>{ confirmed: true,  id, comment }</code></li>
+                                <li><code>{ confirmed: false, id }</code></li>
+                            </ul>
+                        </li>
+                        <li><code>close()</code> &mdash; hides the modal silently (callback is dropped).</li>
+                    </ul>
+                    <p><strong>Keyboard:</strong> Esc cancels, Ctrl/⌘ + Enter confirms. Backdrop click and the ✕ button cancel.</p>
+                    <p><strong>Try it:</strong> click the button below to open the modal. The result of the callback is logged inside the page (and not via the events panel, since this component does not emit events).</p>`,
+                rawHtml: `<button type="button" id="dbg-ctm-trigger" class="btn"
+                    style="padding:8px 14px;background:var(--accent);color:var(--text-on-accent);border:0;border-radius:8px;font-weight:600;cursor:pointer">Fullfør «Send rapport til @anna»</button>
+                    <pre id="dbg-ctm-out" style="margin-top:10px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;min-height:42px;white-space:pre-wrap"></pre>
+                    <task-complete-modal id="dbg-ctm"></task-complete-modal>
+                    <script>
+                        customElements.whenDefined('task-complete-modal').then(function(){
+                            var modal = document.getElementById('dbg-ctm');
+                            var btn = document.getElementById('dbg-ctm-trigger');
+                            var out = document.getElementById('dbg-ctm-out');
+                            btn.addEventListener('click', function(){
+                                modal.open({ id: 't42', text: 'Send rapport til @anna før fredag' }, function(res){
+                                    out.textContent = JSON.stringify(res, null, 2);
+                                });
+                            });
+                        });
+                    <\/script>`,
+            },
             'task-create-modal': {
-                desc: 'Renders a button. Click opens a modal containing &lt;task-create&gt;. Closes on success, Esc, backdrop click, or close button.',
+                desc: `<p><strong>&lt;task-create-modal&gt;</strong> renders a single button (e.g. &ldquo;+&nbsp;Ny oppgave&rdquo;) that, when clicked, opens a centered modal hosting a <code>&lt;task-create&gt;</code> form.</p>
+                    <p><strong>Domain:</strong> <code>tasks</code> (forwarded as <code>tasks_service</code> to the embedded <code>&lt;task-create&gt;</code>).</p>
+                    <p><strong>Attributes:</strong> <code>button-label</code>, <code>modal-title</code>, <code>placeholder</code> (forwarded), and the legacy <code>endpoint</code> (kept for backward compat).</p>
+                    <p><strong>Lifecycle.</strong> The modal is appended to <code>document.body</code> on open and removed on close. Closes on success (after listening for <code>task:created</code> from the inner form), Esc, backdrop click, or the close button. Re-emits <code>task:created</code> on the outer host so parent pages can react identically whether the modal or inline form is used.</p>`,
                 tag: 'task-create-modal',
                 attrs: [
                     { name: 'button-label', type: 'text', default: '+ Ny oppgave' },
@@ -2751,66 +3215,170 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                     { name: 'endpoint', type: 'text', default: '/api/tasks' },
                 ],
             },
+            'meeting-create': {
+                desc: `<p><strong>&lt;meeting-create&gt;</strong> is a reusable form for creating a meeting &mdash; title, type, date, start/end, attendees, location and notes. Used inside the calendar page&apos;s create-meeting overlay.</p>
+                    <p><strong>Domain:</strong> <code>meetings</code> &mdash; calls <code>meetings_service.create({...})</code> to persist the meeting.</p>
+                    <p><strong>Type list source:</strong> reads from <code>settings_service.getMeetingTypes(context)</code>. The optional <code>context</code> attribute selects which context&apos;s types to load (defaults to the active context server-side). A parent may also set <code>el.types</code> as an explicit override (legacy <code>{key,label}</code> shape accepted).</p>
+                    <p><strong>Attributes:</strong> <code>meetings_service</code>, <code>settings_service</code>, <code>context</code> (optional context id), <code>date</code> (defaults today), <code>start</code>, <code>end</code>, <code>type</code> (preselects the matching option). All visible attributes are observed and re-render the form.</p>
+                    <p><strong>Time inputs.</strong> <code>Fra</code> and <code>Til</code> use the <a href="/debug/time-picker"><code>&lt;time-picker&gt;</code></a> component (5-minute step) instead of the native <code>&lt;input type=&quot;time&quot;&gt;</code> for consistent behavior across browsers.</p>
+                    <p><strong>Form a11y.</strong> Every input has a unique <code>id</code> with a matching <code>for=</code> on its label, generated per instance to avoid id collisions when multiple <code>&lt;meeting-create&gt;</code> are mounted on one page.</p>
+                    <p><strong>Lifecycle.</strong> Required field is the title. Submit disables the button while in flight; on success the form resets and emits an event. Cancel button emits a cancel event without touching the service.</p>
+                    <p><strong>Events</strong> (bubbling, composed):</p>
+                    <ul>
+                        <li><code>meeting-create:created</code> with <code>{ meeting }</code></li>
+                        <li><code>meeting-create:cancel</code></li>
+                        <li><code>meeting-create:error</code> with <code>{ error }</code></li>
+                    </ul>`,
+                tag: 'meeting-create',
+                attrs: [
+                    { name: 'meetings_service', type: 'text', default: 'MockMeetingsService' },
+                    { name: 'settings_service', type: 'text', default: 'MockSettingsService' },
+                    { name: 'context', type: 'text', default: 'work' },
+                    { name: 'date', type: 'text' },
+                    { name: 'start', type: 'text' },
+                    { name: 'end', type: 'text' },
+                    { name: 'type', type: 'text' },
+                ],
+            },
+            'time-picker': {
+                desc: `<p><strong>&lt;time-picker&gt;</strong> is a custom time-of-day input. It renders an hour <code>&lt;select&gt;</code> (00-23) and a minute <code>&lt;select&gt;</code> snapped to a configurable <code>step</code> (default 5 minutes), giving consistent UI across browsers — Chrome's native <code>&lt;input type=&quot;time&quot;&gt;</code> ignores <code>step</code> for the spinner.</p>
+                    <p><strong>Form-associated.</strong> When inside a <code>&lt;form&gt;</code>, the current value is reported as a form value under the <code>name</code> attribute, so <code>FormData</code> picks it up automatically. <code>required</code> is honored via <code>ElementInternals.setValidity</code>; <code>checkValidity()</code> / <code>reportValidity()</code> are exposed on the element.</p>
+                    <p><strong>Attributes:</strong></p>
+                    <ul>
+                        <li><code>value</code> &mdash; "HH:MM"; empty/missing means unset</li>
+                        <li><code>name</code> &mdash; form-control name</li>
+                        <li><code>step</code> &mdash; minute granularity (1, 5, 10, 15, 20, 30, 60). Default 5</li>
+                        <li><code>min</code>, <code>max</code> &mdash; "HH:MM" clamps for the hour list</li>
+                        <li><code>disabled</code>, <code>required</code></li>
+                        <li><code>aria-label</code> &mdash; falls back to <code>name</code> or <code>"tid"</code></li>
+                    </ul>
+                    <p><strong>JS API:</strong> <code>el.value</code> getter/setter; setter parses & rounds to step. <code>el.checkValidity()</code>, <code>el.reportValidity()</code>.</p>
+                    <p><strong>Events.</strong> Standard <code>change</code> event (bubbling, composed); detail: <code>{ value }</code>.</p>`,
+                tag: 'time-picker',
+                attrs: [
+                    { name: 'value', type: 'text', default: '08:30' },
+                    { name: 'name', type: 'text', default: 'start' },
+                    { name: 'step', type: 'select', options: ['1', '5', '10', '15', '20', '30', '60'], default: '5' },
+                    { name: 'min', type: 'text', default: '' },
+                    { name: 'max', type: 'text', default: '' },
+                    { name: 'disabled', type: 'bool', default: false },
+                    { name: 'required', type: 'bool', default: false },
+                    { name: 'aria-label', type: 'text', default: '' },
+                ],
+            },
             'upcoming-meetings': {
-                desc: 'Self-loading list of meetings in the next N days.',
+                desc: `<p><strong>&lt;upcoming-meetings&gt;</strong> is the &ldquo;Kommende møter&rdquo; sidebar list. It loads all meetings, keeps the ones starting within the next <code>days</code> days, and renders each as a small card with date/time, title, attendees and a deep link to the calendar week (<code>/calendar/&lt;week&gt;#m-&lt;id&gt;</code>).</p>
+                    <p><strong>Domain:</strong> <code>meetings</code> &mdash; primary service from <code>meetings_service</code>. Also reads <code>people_service</code> and <code>companies_service</code> for attendee mention rendering.</p>
+                    <p><strong>Attributes:</strong> <code>days</code> (default <code>14</code>) &mdash; the look-ahead window in days.</p>
+                    <p><strong>Lifecycle.</strong> Parallel fetch on connect; re-renders on any service attribute change. States: &ldquo;Laster…&rdquo;, list, &ldquo;Ingen kommende møter&rdquo;, error message.</p>
+                    <p><strong>Events.</strong> <code>upcoming-meetings:open</code> with <code>{ id, week }</code> when a card link is activated (cancelable). <code>mention-clicked</code> bubbles up from attendee mentions.</p>`,
                 tag: 'upcoming-meetings',
                 attrs: [
-                    { name: 'service', type: 'text', default: 'MockMeetingsService' },
+                    { name: 'meetings_service', type: 'text', default: 'MockMeetingsService' },
+                    { name: 'people_service', type: 'text', default: 'MockPeopleService' },
+                    { name: 'companies_service', type: 'text', default: 'MockCompaniesService' },
                     { name: 'days', type: 'text', default: '14' },
                 ],
             },
             'week-results': {
-                desc: 'List of results for one week.',
+                desc: `<p><strong>&lt;week-results&gt;</strong> is the &ldquo;Resultater&rdquo; section of a week block. It loads all results, filters to a single ISO week, and renders each as a row with date, title, and any <code>@mentions</code>.</p>
+                    <p><strong>Domain:</strong> <code>results</code> &mdash; from <code>results_service</code>. Also reads <code>people_service</code> + <code>companies_service</code> for mention rendering.</p>
+                    <p><strong>Attributes:</strong> <code>week</code> &mdash; ISO week (<code>YYYY-WNN</code>).</p>
+                    <p><strong>Lifecycle.</strong> Parallel fetch on any attribute change. Header shows the count. Renders nothing when the week has no results (the section is omitted by the host); otherwise emits a heading and the list.</p>
+                    <p><strong>Events.</strong> None of its own. <code>mention-clicked</code> bubbles from rendered mentions.</p>`,
                 tag: 'week-results',
                 attrs: [
-                    { name: 'service', type: 'text', default: 'MockResultsService' },
+                    { name: 'results_service', type: 'text', default: 'MockResultsService' },
+                    { name: 'people_service', type: 'text', default: 'MockPeopleService' },
+                    { name: 'companies_service', type: 'text', default: 'MockCompaniesService' },
                     { name: 'week', type: 'select', options: weeks, default: weeks[0] || '' },
                 ],
             },
             'task-completed': {
-                desc: 'List of tasks completed in one week.',
+                desc: `<p><strong>&lt;task-completed&gt;</strong> is the &ldquo;Fullførte oppgaver&rdquo; section of a week block. It loads all tasks, keeps the ones whose <code>completedWeek</code> equals the configured week, and renders each as a row with a strike-through label, optional comment, and an &ldquo;Angre&rdquo; button.</p>
+                    <p><strong>Domain:</strong> <code>tasks</code> &mdash; from <code>tasks_service</code>. Plus <code>people_service</code> + <code>companies_service</code> for mentions.</p>
+                    <p><strong>Attributes:</strong> <code>week</code> &mdash; ISO week.</p>
+                    <p><strong>Events.</strong> <code>task-completed:undo</code> with <code>{ id }</code> (cancelable, bubbling, composed) when the Angre button is pressed; the host page is responsible for calling the service and re-rendering.</p>`,
                 tag: 'task-completed',
                 attrs: [
-                    { name: 'service', type: 'text', default: 'MockTaskService' },
+                    { name: 'tasks_service', type: 'text', default: 'MockTaskService' },
+                    { name: 'people_service', type: 'text', default: 'MockPeopleService' },
+                    { name: 'companies_service', type: 'text', default: 'MockCompaniesService' },
                     { name: 'week', type: 'select', options: weeks, default: weeks[0] || '' },
                 ],
             },
             'week-section': {
-                desc: 'A whole week block (heading, notes, results, completed). Auto-detects current ISO week.',
+                desc: `<p><strong>&lt;week-section&gt;</strong> is one whole week block on the home page: heading (with week pill, date range and counts), a grid of note cards, an embedded <code>&lt;week-results&gt;</code>, and an embedded <code>&lt;task-completed&gt;</code>.</p>
+                    <p><strong>Domain:</strong> <code>notes</code> &mdash; from <code>notes_service</code>. Forwards <code>results_service</code>, <code>tasks_service</code>, <code>people_service</code>, <code>companies_service</code> to children.</p>
+                    <p><strong>Note-card data flow.</strong> <code>&lt;note-card&gt;</code> is a dumb component; the section calls <code>service.list(week)</code> for the file list, then <code>service.card(week, file)</code> in parallel for each note. Cards are rendered as bare placeholders (<code>data-card-key</code>); after render, the section walks the shadow root and pushes the data via <code>setData()</code>.</p>
+                    <p><strong>Attributes:</strong> <code>week</code> (auto-detects current ISO week if missing), <code>current</code> (boolean &mdash; visual highlight for the current week).</p>
+                    <p><strong>Events.</strong> Re-emits <code>note:view</code>/<code>note:present</code>/<code>note:edit</code> by translating the dumb card's <code>view</code>/<code>present</code>/<code>edit</code> events. Also <code>week-section:summarize</code> and <code>week-section:show-summary</code> from the &ldquo;Oppsummer&rdquo; button. <code>delete</code> bubbles up unchanged.</p>`,
                 tag: 'week-section',
                 attrs: [
-                    { name: 'service', type: 'text', default: 'MockNotesService' },
-                    { name: 'service_notes', type: 'text', default: 'MockNotesService' },
-                    { name: 'service_results', type: 'text', default: 'MockResultsService' },
-                    { name: 'service_tasks', type: 'text', default: 'MockTaskService' },
+                    { name: 'notes_service', type: 'text', default: 'MockNotesService' },
+                    { name: 'results_service', type: 'text', default: 'MockResultsService' },
+                    { name: 'tasks_service', type: 'text', default: 'MockTaskService' },
+                    { name: 'people_service', type: 'text', default: 'MockPeopleService' },
+                    { name: 'companies_service', type: 'text', default: 'MockCompaniesService' },
                     { name: 'week', type: 'select', options: weeks, default: weeks[0] || '' },
                     { name: 'current', type: 'bool', default: false },
                 ],
             },
             'week-list': {
-                desc: 'Loads weeks via service.listWeeks() and renders one &lt;week-section&gt; per week.',
+                desc: `<p><strong>&lt;week-list&gt;</strong> is the top-level feed of weekly notes used on the home page. It is a thin orchestrator: it asks <code>NotesService.listWeeks()</code> for the list of known ISO weeks (<code>YYYY-WNN</code>), then renders one <code>&lt;week-section&gt;</code> per week in the order returned (newest first by convention).</p>
+                    <p><strong>Domain:</strong> <code>notes</code> &mdash; reads its primary service from <code>notes_service</code>.</p>
+                    <p><strong>Service forwarding.</strong> Each <code>&lt;week-section&gt;</code> needs several services to render its full content (notes, results, completed tasks, plus people/companies for mention rendering). Rather than wiring every child individually, the host sets the attributes on <code>&lt;week-list&gt;</code> and they are forwarded as-is to every child. Only attributes actually present are forwarded:</p>
+                    <ul>
+                        <li><code>notes_service</code> &mdash; required; week-list uses it itself for <code>listWeeks()</code> and forwards it</li>
+                        <li><code>results_service</code> &mdash; forwarded to <code>&lt;week-section&gt;</code> for the result count + result list</li>
+                        <li><code>tasks_service</code> &mdash; forwarded for completed-task count and the completed list</li>
+                        <li><code>people_service</code>, <code>companies_service</code> &mdash; forwarded so child cards can resolve <code>@mentions</code></li>
+                    </ul>
+                    <p><strong>Lifecycle.</strong> Reloads when <code>notes_service</code> changes. Renders &ldquo;Laster uker…&rdquo; while loading, &ldquo;Kunne ikke laste uker&rdquo; on error, and &ldquo;Ingen uker funnet&rdquo; when the list is empty.</p>
+                    <p><strong>Events.</strong> None of its own &mdash; events come from descendants (<code>view</code>/<code>edit</code>/<code>delete</code>/<code>present</code> from <code>&lt;note-card&gt;</code>, etc.) and bubble freely.</p>`,
                 tag: 'week-list',
                 attrs: [
-                    { name: 'service', type: 'text', default: 'MockNotesService' },
-                    { name: 'service_section', type: 'text', default: 'MockNotesService' },
-                    { name: 'service_notes', type: 'text', default: 'MockNotesService' },
-                    { name: 'service_results', type: 'text', default: 'MockResultsService' },
-                    { name: 'service_tasks', type: 'text', default: 'MockTaskService' },
+                    { name: 'notes_service', type: 'text', default: 'MockNotesService' },
+                    { name: 'results_service', type: 'text', default: 'MockResultsService' },
+                    { name: 'tasks_service', type: 'text', default: 'MockTaskService' },
+                    { name: 'people_service', type: 'text', default: 'MockPeopleService' },
+                    { name: 'companies_service', type: 'text', default: 'MockCompaniesService' },
                 ],
             },
             'week-pill': {
-                desc: 'Tiny "U<NN>" badge for an ISO week. Tooltip shows the full week.',
+                desc: `<p><strong>&lt;week-pill&gt;</strong> is a tiny inline badge that displays an ISO week as <code>U&lt;NN&gt;</code> (e.g. <code>U18</code>). Used in week headings, sidebars, and anywhere a compact week reference is needed.</p>
+                    <p><strong>Domain:</strong> none &mdash; presentational only.</p>
+                    <p><strong>Attributes:</strong> <code>week</code> &mdash; ISO week (<code>YYYY-WNN</code>). The pill renders <code>U</code> + the two-digit week number; the full week is shown in a <code>title</code> tooltip.</p>
+                    <p><strong>Lifecycle.</strong> Stateless. Re-renders when <code>week</code> changes.</p>
+                    <p><strong>Events.</strong> Cancelable bubbling/composed <code>week-clicked</code> with <code>{ week }</code> on click.</p>`,
                 tag: 'week-pill',
                 attrs: [{ name: 'week', type: 'select', options: weeks, default: weeks[0] || '' }],
             },
             'global-search': {
-                desc: 'Singleton search modal. Click "Open" to open. Try typing "petter", "rapport", or "demo".',
+                desc: `<p><strong>&lt;global-search&gt;</strong> is the singleton command-bar / search modal triggered from the navbar's 🔍 button or <kbd>Ctrl+K</kbd>. Light-DOM via <code>&lt;slot&gt;</code> so server-rendered shell HTML stays styled.</p>
+                    <p><strong>Domain:</strong> <code>search</code> &mdash; from <code>search_service</code>. The service is expected to expose <code>query(text) → results</code>.</p>
+                    <p><strong>API.</strong> <code>openSearch()</code>, <code>closeSearch()</code>. Also responds to the window event <code>search:open</code>.</p>
+                    <p><strong>Lifecycle.</strong> Debounced query as the user types; arrow-key navigation through results; Enter activates. Esc / backdrop click closes.</p>
+                    <p><strong>Events</strong> (cancelable, bubbling, composed):</p>
+                    <ul>
+                        <li><code>search:open</code>, <code>search:close</code></li>
+                        <li><code>element-selected</code> with the chosen result &mdash; the host page does the navigation</li>
+                    </ul>`,
                 rawHtml: `<button class="btn-summarize" onclick="document.querySelector('global-search').openSearch()">🔎 Open search</button>
                     <button class="btn-summarize" onclick="document.querySelector('global-search').closeSearch()" style="background:var(--text-muted)">Close</button>
-                    <global-search service="MockSearchService"></global-search>`,
+                    <global-search search_service="MockSearchService"></global-search>`,
             },
             'markdown-preview': {
-                desc: 'Renders markdown via window.marked. Set element.value to update; observes "value", "placeholder" and "offset" attributes. Emits <code>markdown-preview:scroll</code> on user scroll (suppressed for programmatic offset writes). Shadow-DOM, themed via CSS variables.',
+                desc: `<p><strong>&lt;markdown-preview&gt;</strong> renders markdown to HTML (via <code>window.marked</code>) inside a scrollable shadow-DOM viewport. Designed to pair with a textarea for editor live preview.</p>
+                    <p><strong>Domain:</strong> <code>notes</code> (optional, used for relative-link resolution); from <code>notes_service</code>.</p>
+                    <p><strong>Attributes / API:</strong></p>
+                    <ul>
+                        <li><code>value</code> (or <code>el.value</code>) &mdash; the markdown source</li>
+                        <li><code>placeholder</code> &mdash; shown when the value is empty</li>
+                        <li><code>offset</code> &mdash; programmatic scroll position in pixels (host writes do not re-emit the scroll event)</li>
+                    </ul>
+                    <p><strong>Events.</strong> <code>markdown-preview:scroll</code> with <code>{ offset }</code> on user-initiated scroll &mdash; suppressed when the host writes <code>offset</code> programmatically. This lets editors implement two-pane scroll-sync without feedback loops.</p>
+                    <p><strong>Theming.</strong> Pure CSS variables, so it adopts the active app theme inside its shadow DOM.</p>`,
                 rawHtml: `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
                         <label style="font-size:0.85em;color:var(--text-muted)">offset (px):</label>
                         <input id="mp-off" type="range" min="0" max="800" step="10" value="0" style="flex:1" />
@@ -2818,7 +3386,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                     </div>
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:stretch">
                         <textarea id="mp-src" style="min-height:320px;padding:10px;font-family:ui-monospace,monospace"># Long document\n\nParagraph one — try scrolling the preview to test the scroll event.\n\n## Section A\n${Array.from({length:20}, (_,i)=>`Line ${i+1} of section A. Lorem ipsum dolor sit amet, consectetur adipiscing elit.`).join('\\n\\n')}\n\n## Section B\n${Array.from({length:20}, (_,i)=>`Line ${i+1} of section B. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.`).join('\\n\\n')}\n\n## End</textarea>
-                        <markdown-preview id="mp-out" service="MockNotesService" style="max-height:320px" placeholder="Start typing markdown…"></markdown-preview>
+                        <markdown-preview id="mp-out" notes_service="MockNotesService" style="max-height:320px" placeholder="Start typing markdown…"></markdown-preview>
                     </div>
                     <script>(function(){
                         var s=document.getElementById('mp-src'),o=document.getElementById('mp-out');
@@ -2832,14 +3400,26 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                     })();</script>`,
             },
             'note-editor': {
-                desc: 'New-note editor with week selector, filename, textarea + live preview (uses &lt;markdown-preview&gt;). Saves via service.save() and emits note-editor:saved/cancel.',
-                rawHtml: `<note-editor service="MockNotesService" service_preview="MockNotesService"></note-editor>`,
+                desc: `<p><strong>&lt;note-editor&gt;</strong> is the standalone note authoring component used on <code>/editor/&hellip;</code> routes. Form layout: week selector, filename input, themes input, a markdown textarea on the left and a live <code>&lt;markdown-preview&gt;</code> on the right with synchronized scrolling.</p>
+                    <p><strong>Domain:</strong> <code>notes</code> &mdash; from <code>notes_service</code>. The optional <code>preview_service</code> is forwarded to the embedded preview for relative-link resolution.</p>
+                    <p><strong>Lifecycle.</strong> Loads existing content via <code>service.load(week, file)</code> when both are present, otherwise starts blank. Save is via <code>service.save({ week, file, body, themes })</code>; cancel emits an event.</p>
+                    <p><strong>Scroll-sync.</strong> Listens for <code>markdown-preview:scroll</code> from the preview and reflects scroll position back to the textarea (and vice versa).</p>
+                    <p><strong>Events</strong> (cancelable, bubbling, composed):</p>
+                    <ul>
+                        <li><code>note-editor:saved</code> with <code>{ week, file, body }</code></li>
+                        <li><code>note-editor:cancel</code></li>
+                    </ul>`,
+                rawHtml: `<note-editor notes_service="MockNotesService" preview_service="MockNotesService"></note-editor>`,
             },
             'week-notes-calendar': {
-                desc: 'Page wrapper: toolbar (title, range, prev/today/next nav) + embedded &lt;week-calendar&gt;. Reacts to /calendar/&lt;week&gt; URL. Reads workHours from the <code>settings</code> attribute (JSON) when provided, otherwise fetches via service.',
+                desc: `<p><strong>&lt;week-notes-calendar&gt;</strong> is the calendar <em>page</em> component: a toolbar (title, ISO-week badge, date range, prev/today/next nav buttons) wrapping an embedded <code>&lt;week-calendar&gt;</code>. Used on <code>/calendar</code> and <code>/calendar/&lt;week&gt;</code>.</p>
+                    <p><strong>Domain:</strong> <code>meetings</code> &mdash; from <code>meetings_service</code>. The service supplies the meeting items for the current week.</p>
+                    <p><strong>Settings.</strong> When the host injects a <code>settings</code> attribute (JSON), the component reads <code>workHours</code> from it directly to avoid a roundtrip; otherwise it falls back to <code>service.getSettings()</code>.</p>
+                    <p><strong>Routing.</strong> Reflects URL changes (<code>/calendar/YYYY-WNN</code>) to its internal <code>week</code> attribute and vice versa &mdash; nav button clicks update <code>history</code> via the SPA router.</p>
+                    <p><strong>Events.</strong> <code>calendar:week-changed</code> with <code>{ week }</code> when the user navigates. Forwards <code>week-calendar:item-selected</code> and <code>open-item-selected</code> from the inner grid.</p>`,
                 tag: 'week-notes-calendar',
                 attrs: [
-                    { name: 'service', type: 'text', default: 'MockMeetingsService' },
+                    { name: 'meetings_service', type: 'text', default: 'MockMeetingsService' },
                     { name: 'week', type: 'text', default: '' },
                     { name: 'settings', type: 'json', mode: 'tree', default: '{"workHours":[{"start":"09:00","end":"17:00"},{"start":"09:00","end":"17:00"},{"start":"09:00","end":"17:00"},{"start":"09:00","end":"17:00"},{"start":"09:00","end":"15:00"},null,null]}' },
                 ],
@@ -2857,13 +3437,32 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                     { id: 'f1', startDate: fmtDay(2) + 'T08:30', endDate: fmtDay(2) + 'T11:00', heading: 'Fokustid', body: 'Refaktorering', type: 'focus', moveable: true },
                     { id: 'b1', startDate: fmtDay(3) + 'T15:00', endDate: fmtDay(3) + 'T16:00', heading: 'Blokkert', body: 'Lege', type: 'block' },
                     { id: 'n1', startDate: fmtDay(4) + 'T11:00', endDate: fmtDay(4) + 'T12:00', heading: 'Lunsj med Per', type: 'note' },
+                    { id: 'v1', startDate: fmtDay(2), endDate: fmtDay(4), heading: 'Ferie', type: 'vacation' },
+                    { id: 'v2', startDate: fmtDay(0), endDate: fmtDay(0), heading: 'Reisedag', type: 'travel' },
                 ];
                 const dayList = [0,1,2,3,4,5,6].map(fmtDay);
                 return {
-                    desc: 'Pure N-day × N-hour calendar grid (no toolbar). Renders work-hour bands, a now-line, items via setItems()/addItem(), and special-days for holidays / non-working days. Use start-date/end-date for the range, show-days to filter weekdays (0=Mon..6=Sun), work-hours JSON for bands, special-days JSON for {date,name,workday}.',
+                    desc: `<p><strong>&lt;week-calendar&gt;</strong> is a pure presentation calendar grid &mdash; an N-day × N-hour matrix &mdash; with no toolbar and no service dependency. The host page provides items via the items API and the component renders them as positioned blocks.</p>
+                        <p><strong>Domain:</strong> none &mdash; dumb component.</p>
+                        <p><strong>Items API:</strong></p>
+                        <ul>
+                            <li><code>el.setItems(arr)</code> &mdash; replaces all items</li>
+                            <li><code>el.addItem(item)</code> &mdash; adds one</li>
+                            <li><code>el.clearItems()</code></li>
+                            <li><code>el.items</code> &mdash; readonly current array</li>
+                        </ul>
+                        <p>Item shape: <code>{ id, startDate, endDate, heading, body?, type, moveable?, allDay? }</code>. <code>type</code> is matched against the registered <code>eventTypes</code> to colorize the block; items whose <code>type</code> isn&apos;t registered fall back to the built-in CSS palette. <strong>All-day items</strong> (<code>allDay:true</code>) are rendered as a thin colored bar in a dedicated track between the day headers and the time grid; they may span multiple days (use <code>startDate</code>/<code>endDate</code> as date-only ISO strings, both inclusive). Items extending beyond the visible week are clipped with squared-off ends.</p>
+                        <p><strong>Layout attributes:</strong> <code>start-date</code>, <code>end-date</code> (ISO yyyy-mm-dd), <code>show-days</code> (e.g. <code>0-4</code> = Mon-Fri), <code>hour-start</code>/<code>hour-end</code>. Also <code>work-hours</code> JSON for the highlighted bands and <code>special-days</code> JSON for holidays / mid-week swap days.</p>
+                        <p><strong>Event types (JS property):</strong> <code>el.eventTypes = [{ typeId, icon, name, color }]</code> &mdash; populates the right-click context menu, supplies the per-type background color for items, and is echoed back on <code>datePeriodSelected</code>.</p>
+                        <p><strong>Events</strong> (cancelable, bubbling, composed):</p>
+                        <ul>
+                            <li><code>week-calendar:ready</code> after first render</li>
+                            <li><code>week-calendar:item-selected</code> with <code>{ id, item }</code> when an item or all-day bar is clicked. Only one item can be selected at a time; selection is rendered with a dark outline and an open ↗ button. Clicking empty space clears the selection (no event).</li>
+                            <li><code>open-item-selected</code> with <code>{ id, item }</code> when the user clicks the open ↗ button on the currently selected item.</li>
+                            <li><code>datePeriodSelected</code> with <code>{ type, date, time, icon?, name? }</code> &mdash; emitted on empty-cell <em>double</em>-click (<code>type:'none'</code>) or after picking from the right-click context menu (<code>type:&lt;typeId&gt;</code>; menu requires <code>el.eventTypes</code>). Time is HH:MM, snapped to 15&nbsp;min.</li>
+                        </ul>`,
                     tag: 'week-calendar',
                     attrs: [
-                        { name: 'service', type: 'text', default: 'MockMeetingsService' },
                         { name: 'start-date', type: 'text', default: fmt(monday) },
                         { name: 'end-date', type: 'text', default: fmt(sunday) },
                         { name: 'show-days', type: 'text', default: '0-6' },
@@ -2883,6 +3482,18 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                             const SAMPLE = ${JSON.stringify(sample)};
                             const DAYS = ${JSON.stringify(dayList)};
                             const TYPES = ['meeting','task','focus','note','block'];
+                            const EVENT_TYPES = [
+                                { typeId: 'meeting',  icon: '👥',  name: 'Møte',     color: '#4a90e2' },
+                                { typeId: 'standup',  icon: '🔄',  name: 'Standup',  color: '#7ab648' },
+                                { typeId: '1on1',     icon: '☕',  name: '1:1',      color: '#a05a2c' },
+                                { typeId: 'workshop', icon: '🛠️', name: 'Workshop', color: '#e08a3c' },
+                                { typeId: 'demo',     icon: '🎬',  name: 'Demo',     color: '#9b59b6' },
+                                { typeId: 'focus',    icon: '🎯',  name: 'Fokustid', color: '#d35400' },
+                                { typeId: 'block',    icon: '🔴',  name: 'Blokkert', color: '#c0392b' },
+                                { typeId: 'social',   icon: '🎉',  name: 'Sosialt',  color: '#e91e63' },
+                                { typeId: 'vacation', icon: '🌴',  name: 'Ferie',    color: '#2ecc71', allDay: true },
+                                { typeId: 'travel',   icon: '✈️', name: 'Reise',    color: '#7f8c8d', allDay: true },
+                            ];
                             const cnt = document.getElementById('wcCount');
                             const refresh = (cal) => { cnt.textContent = '(' + cal.items.length + ' item' + (cal.items.length === 1 ? '' : 's') + ')'; };
                             const wire = (cal) => {
@@ -2898,9 +3509,13 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                             };
                             const apply = (cal) => {
                                 if (!cal) return;
-                                wire(cal);
-                                cal.setItems(SAMPLE);
-                                refresh(cal);
+                                customElements.whenDefined('week-calendar').then(() => {
+                                    if (typeof cal.setItems !== 'function') return;
+                                    wire(cal);
+                                    cal.eventTypes = EVENT_TYPES;
+                                    cal.setItems(SAMPLE);
+                                    refresh(cal);
+                                });
                             };
                             document.addEventListener('dbg:rebuilt', (e) => {
                                 if (e.detail && e.detail.tag === 'week-calendar') apply(e.detail.el);
@@ -2909,17 +3524,92 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                 };
             })(),
             'settings-page': {
-                desc: 'Master/detail context settings: list contexts, edit name/icon/description/theme/working-hours, save via service.saveSettings.',
-                rawHtml: `<settings-page service="MockSettingsService" service_context="MockContextService"></settings-page>`,
+                desc: `<p><strong>&lt;settings-page&gt;</strong> is the master/detail editor on <code>/settings</code>: a list of contexts on the left, a form on the right for the selected context (name, icon, description, theme, working hours per weekday, default meeting length, meeting types).</p>
+                    <p><strong>Domains:</strong></p>
+                    <ul>
+                        <li><code>settings</code> &mdash; from <code>settings_service</code>; <code>list()</code>, <code>load(id)</code>, <code>saveSettings(id, data)</code>, <code>create()</code>, <code>delete(id)</code></li>
+                        <li><code>context</code> &mdash; from <code>context_service</code>; used to switch the active context after rename/create/delete</li>
+                    </ul>
+                    <p><strong>Working hours block.</strong> Horizontal cards, one per weekday (Mon-Sun). Each card has a <code>HH:MM-HH:MM</code> text input (regex parsed) or empty for &ldquo;ledig&rdquo;. The form serializes to a length-7 array before saving.</p>
+                    <p><strong>Møtetyper editor.</strong> One row per type with: icon, color (<code>&lt;input type="color"&gt;</code>), key (lowercased, used as <code>typeId</code>), label. Saved as <code>settings.meetingTypes = [{key, icon, label, color}]</code>. Falls back to <code>DEFAULT_MEETING_TYPES</code> when empty. The color is consumed by <code>&lt;week-calendar&gt;</code> via its <code>eventTypes</code> property to colorize meeting blocks.</p>
+                    <p><strong>Lifecycle.</strong> Loads the context list on connect; when one is picked, fetches its settings and populates the form. Save is optimistic but writes through the service; on success re-renders the list to reflect rename/icon changes.</p>
+                    <p><strong>Events.</strong> No bespoke events &mdash; navigation/reload happens through the context service.</p>`,
+                rawHtml: `<settings-page settings_service="MockSettingsService" context_service="MockContextService"></settings-page>`,
+            },
+            'people-page': {
+                desc: `<p><strong>&lt;people-page&gt;</strong> is the SPA replacement for <code>/people</code>: a tabbed master-list of <strong>Personer</strong>, <strong>Selskaper</strong>, and <strong>Steder</strong>, with cross-references back to tasks, meetings and results.</p>
+                    <p><strong>Domains:</strong></p>
+                    <ul>
+                        <li><code>people</code> — <code>list/create/update/remove</code></li>
+                        <li><code>companies</code> — <code>list/create/update/remove</code></li>
+                        <li><code>places</code> — <code>list/create/update/remove</code></li>
+                        <li><code>tasks</code>, <code>meetings</code>, <code>results</code> — read-only <code>list()</code> for cross-references</li>
+                    </ul>
+                    <p><strong>Tabs.</strong> Active tab is preserved in the URL hash (<code>#tab=people|companies|places</code>). Direct hash links like <code>#p-petter</code>, <code>#c-acmeas</code> or <code>#pl-mathallen</code> open the matching tab, expand the card and scroll to it.</p>
+                    <p><strong>Filtering &amp; sort.</strong> Each tab has a free-text filter; the people tab additionally has sort (Navn ↑↓ / Referanser ↑↓) and a "Vis inaktive" toggle.</p>
+                    <p><strong>Cross-references.</strong> Each card lists tasks, meetings and results that <code>@mention</code> the person/company. Mentions are resolved client-side from the loaded people/companies, so author names render properly. <em>Note references are not yet wired</em> — the legacy page reads markdown off disk; the SPA notes service does not expose that yet.</p>
+                    <p><strong>Modals.</strong> Edit/create person and company live inside the shadow DOM. The place modal renders in the <em>light</em> DOM so Leaflet (CSS-scoping-sensitive) can mount its tile layer cleanly. Leaflet (CSS+JS) is loaded lazily the first time a place card opens or the place modal appears. The mini-maps inside place cards inject Leaflet's CSS into the shadow root via <code>@import</code>.</p>
+                    <p><strong>Mutations.</strong> Save/delete go through the relevant service and the page reloads its data in place — no <code>location.reload()</code>.</p>`,
+                rawHtml: `<people-page id="dbg-people-page"
+                    people_service="MockPeopleService"
+                    companies_service="MockCompaniesService"
+                    places_service="MockPlacesService"
+                    tasks_service="MockTaskService"
+                    meetings_service="MockMeetingsService"
+                    results_service="MockResultsService"></people-page>
+                    <entity-callout id="dbg-pp-callout"></entity-callout>
+                    <script>
+                        Promise.all([
+                            customElements.whenDefined('people-page'),
+                            customElements.whenDefined('entity-callout'),
+                        ]).then(function(){
+                            var pp  = document.getElementById('dbg-people-page');
+                            var cal = document.getElementById('dbg-pp-callout');
+                            if (!pp || !cal) return;
+                            return Promise.all([
+                                Promise.resolve(window.MockPeopleService    ? window.MockPeopleService.list()    : []),
+                                Promise.resolve(window.MockCompaniesService ? window.MockCompaniesService.list() : []),
+                                Promise.resolve(window.MockPlacesService    ? window.MockPlacesService.list()    : []),
+                            ]).then(function(arr){
+                                var people = arr[0] || [], companies = arr[1] || [], places = arr[2] || [];
+                                function lookup(kind, key){
+                                    if (!key) return null;
+                                    if (kind === 'person') {
+                                        var lk = String(key).toLowerCase();
+                                        var p = people.find(function(x){ return (x.key||'').toLowerCase() === lk || (x.name||'').toLowerCase() === lk; });
+                                        if (!p) return null;
+                                        var company = p.primaryCompanyKey ? companies.find(function(c){ return c.key === p.primaryCompanyKey; }) : null;
+                                        return Object.assign({}, p, { company: company });
+                                    }
+                                    if (kind === 'company') return companies.find(function(c){ return c.key === key; }) || null;
+                                    if (kind === 'place')   return places.find(function(x){ return x.key === key; }) || null;
+                                    return null;
+                                }
+                                // Listen on the people-page itself (events bubble + composed
+                                // out of its shadow). The page stays dumb; this debug host
+                                // owns callout positioning and entity resolution.
+                                ['person','company','place'].forEach(function(kind){
+                                    pp.addEventListener('hover-' + kind, function(e){
+                                        var d = e.detail || {};
+                                        if (!d.entering) { cal.hide(); return; }
+                                        cal.setData({ kind: kind, key: d.key, entity: lookup(kind, d.key), x: d.x, y: d.y });
+                                    });
+                                });
+                            });
+                        });
+                    <\/script>`,
             },
         };
 
         const demo = DEMOS[current];
         const sidebar = `<aside class="dbg-side">
             <h2>Components</h2>
-            <nav class="dbg-nav">
-                ${COMPONENTS.map(c => `<a href="/debug/${c}" class="${c === current ? 'active' : ''}">${c}</a>`).join('')}
-            </nav>
+            ${COMPONENT_GROUPS.map(([label, items]) => `
+                <div class="dbg-group-label">${label}</div>
+                <nav class="dbg-nav">
+                    ${items.map(c => `<a href="/debug/${c}" class="${c === current ? 'active' : ''}">${c}</a>`).join('')}
+                </nav>
+            `).join('')}
             <h2 style="margin-top:18px">Other</h2>
             <nav class="dbg-nav">
                 <a href="/debug/services">services</a>
@@ -2929,9 +3619,9 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
         // Shared event names to log/cancel
         const EVENTS = [
             'mention-clicked',
-            'brand-clicked',
+            'nav-clicked',
             'view', 'present', 'edit', 'delete',
-            'open-tasks:toggle', 'open-tasks:note',
+            'task-open-list:toggle', 'task-open-list:note',
             'task-completed:undo',
             'week-section:summarize', 'week-section:show-summary',
             'note:view', 'note:present', 'note:edit',
@@ -2939,13 +3629,19 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             'search:open', 'search:close',
             'element-selected',
             'upcoming-meetings:open',
-            'help:open', 'help:close',
-            'week-calendar:ready', 'week-calendar:item-click',
+            'help:close',
+            'week-calendar:ready', 'week-calendar:item-selected', 'open-item-selected',
+            'datePeriodSelected',
+            'meeting-create:created', 'meeting-create:cancel', 'meeting-create:error',
             'note-editor:saved', 'note-editor:cancel',
             'task:created', 'task:create-failed',
+            'task-open-list:completed',
             'markdown-preview:scroll',
             'calendar:week-changed',
             'context-selected',
+            'toggle',
+            'select-person', 'select-company', 'select-meeting', 'select-result', 'select-task',
+            'hover-person',  'hover-company',  'hover-place',  'hover-meeting',  'hover-result',  'hover-task',
         ];
 
         const html = `<!DOCTYPE html>
@@ -2963,11 +3659,12 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
     <script type="module" src="/components/nav-button.js"></script>
     <script type="module" src="/components/ctx-switcher.js"></script>
     <script type="module" src="/components/help-modal.js"></script>
-    <script type="module" src="/components/person-tip.js"></script>
     <script type="module" src="/components/note-card.js"></script>
-    <script type="module" src="/components/open-tasks.js"></script>
+    <script type="module" src="/components/task-open-list.js"></script>
     <script type="module" src="/components/task-create.js"></script>
     <script type="module" src="/components/task-create-modal.js"></script>
+    <script type="module" src="/components/task-complete-modal.js"></script>
+    <script type="module" src="/components/meeting-create.js"></script>
     <script type="module" src="/components/upcoming-meetings.js"></script>
     <script type="module" src="/components/week-results.js"></script>
     <script type="module" src="/components/task-completed.js"></script>
@@ -2980,6 +3677,12 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
     <script type="module" src="/components/week-calendar.js"></script>
     <script type="module" src="/components/week-notes-calendar.js"></script>
     <script type="module" src="/components/settings-page.js"></script>
+    <script type="module" src="/components/company-card.js"></script>
+    <script type="module" src="/components/person-card.js"></script>
+    <script type="module" src="/components/place-card.js"></script>
+    <script type="module" src="/components/entity-callout.js"></script>
+<script type="module" src="/components/entity-mention.js"></script>
+<script type="module" src="/components/people-page.js"></script>
     <style>
         body { font-family: var(--font-family, -apple-system, sans-serif); font-size: var(--font-size, 16px); margin: 0; line-height: 1.6; color: var(--text-strong); background: var(--bg); }
         .dbg-page { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
@@ -2989,12 +3692,14 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
         .dbg-nav a { display: block; padding: 6px 10px; border-radius: 4px; color: var(--text); text-decoration: none; font-family: ui-monospace, monospace; font-size: 0.88em; }
         .dbg-nav a:hover { background: var(--surface-alt); }
         .dbg-nav a.active { background: var(--accent); color: var(--text-on-accent, white); }
+        .dbg-group-label { font-size: 0.72em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin: 12px 8px 4px; }
+        .dbg-group-label:first-of-type { margin-top: 0; }
         .dbg-main { padding: 20px 26px; max-width: 1100px; }
         .dbg-head { margin-bottom: 14px; }
         .dbg-head h1 { font-family: Georgia, serif; color: var(--accent); font-size: 1.4em; margin: 0 0 4px; }
         .dbg-head .desc { color: var(--text-muted); font-size: 0.9em; }
         a { color: var(--accent); }
-        week-section, week-results, task-completed, open-tasks, upcoming-meetings, note-card { display: block; }
+        week-section, week-results, task-completed, task-open-list, upcoming-meetings, note-card { display: block; }
         .h-week { font-family: Georgia, serif; font-size: 1.6em; color: var(--accent); margin: 8px 0 14px; display: flex; align-items: baseline; gap: 12px; }
         .h-week .meta { font-style: italic; color: var(--text-subtle); font-size: 0.55em; margin-left: auto; }
         .pill { display: inline-block; background: var(--surface-alt); color: var(--text-muted-warm); padding: 2px 8px; border-radius: 10px; font-size: 0.7em; font-weight: 600; }
@@ -3032,8 +3737,6 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
         .mention-link { color: var(--accent); text-decoration: none; cursor: pointer; }
         .nav-brand { color: var(--accent); font-family: Georgia, serif; font-weight: 700; text-decoration: none; }
         .nav-links { display: inline-flex; gap: 8px; }
-        .nav-links a { color: var(--text); text-decoration: none; padding: 4px 8px; border-radius: 4px; }
-        .nav-links a:hover { background: var(--surface-alt); }
         .dbg-attrs { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: center; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border-faint); border-radius: 6px; margin-bottom: 12px; font-size: 0.88em; }
         .dbg-attrs label { display: inline-flex; gap: 6px; align-items: center; color: var(--text-muted); }
         .dbg-attrs input[type=text], .dbg-attrs select { padding: 3px 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); border-radius: 4px; font: inherit; }
@@ -3044,7 +3747,11 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
         .dbg-attrs .json-editor-mount { width: 100%; height: 280px; box-sizing: border-box; }
         .dbg-attrs .json-error { color: #c0392b; font-family: ui-monospace, monospace; font-size: 0.8em; margin-top: 2px; min-height: 1em; }
         .dbg-attrs code { color: var(--accent); }
-        #dbgEvents { font-family: ui-monospace, monospace; font-size: 0.78em; color: var(--text-muted); background: var(--surface-alt); border: 1px solid var(--border-faint); border-radius: 4px; padding: 8px; min-height: 22px; overflow-y: auto; white-space: pre-wrap; position: fixed; top: 12px; right: 12px; bottom: 12px; width: 320px; z-index: 50; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        #dbgEvents { font-family: ui-monospace, monospace; font-size: 0.78em; color: var(--text-muted); background: var(--surface-alt); border: 1px solid var(--border-faint); border-radius: 4px; padding: 0; min-height: 22px; overflow: hidden; position: fixed; top: 12px; right: 12px; bottom: 12px; width: 320px; z-index: 50; box-shadow: 0 2px 8px rgba(0,0,0,0.06); display: flex; flex-direction: column; }
+        #dbgEvents .dbg-events-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-bottom: 1px solid var(--border-faint); background: var(--surface); font-weight: 600; color: var(--text-strong); }
+        #dbgEvents .dbg-events-head button { font: inherit; font-size: 0.85em; padding: 2px 8px; border: 1px solid var(--border); background: var(--surface-alt); color: var(--text-strong); border-radius: 3px; cursor: pointer; }
+        #dbgEvents .dbg-events-head button:hover { background: var(--surface); }
+        #dbgEventsLog { flex: 1; overflow-y: auto; padding: 8px; margin: 0; white-space: pre-wrap; font: inherit; }
         #dbgHost { border: 1px dashed var(--border); padding: 14px; border-radius: 6px; background: var(--surface); }
         .dbg-main { padding-right: 350px; }
         @media (max-width: 900px) { #dbgEvents { position: static; width: auto; max-height: 200px; margin-top: 14px; } .dbg-main { padding-right: 26px; } }
@@ -3062,39 +3769,46 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             ${demo.tag && demo.attrs && demo.attrs.length > 0 ? `<div class="dbg-attrs" id="dbgAttrs">
                 <span style="color:var(--text-subtle)">attributes:</span>
                 ${demo.attrs.map(a => {
+                    const nm = `dbg-${a.name}`;
                     if (a.type === 'bool') {
-                        return `<label><input type="checkbox" data-attr="${a.name}"${a.default ? ' checked' : ''} /> <code>${a.name}</code></label>`;
+                        return `<label><input type="checkbox" id="${nm}" name="${nm}" data-attr="${a.name}"${a.default ? ' checked' : ''} /> <code>${a.name}</code></label>`;
                     }
                     if (a.type === 'select') {
                         const opts = (a.options || []).map(o => `<option value="${escapeHtml(o)}"${o === a.default ? ' selected' : ''}>${escapeHtml(o)}</option>`).join('');
-                        return `<label><code>${a.name}</code><select data-attr="${a.name}">${opts || '<option value="">(none)</option>'}</select></label>`;
+                        return `<label for="${nm}"><code>${a.name}</code><select id="${nm}" name="${nm}" data-attr="${a.name}">${opts || '<option value="">(none)</option>'}</select></label>`;
                     }
                     if (a.type === 'textarea') {
-                        return `<label class="ta-row"><code>${a.name}</code><textarea data-attr="${a.name}" rows="${a.rows || 3}" spellcheck="false">${escapeHtml(a.default || '')}</textarea></label>`;
+                        return `<label class="ta-row" for="${nm}"><code>${a.name}</code><textarea id="${nm}" name="${nm}" data-attr="${a.name}" rows="${a.rows || 3}" spellcheck="false">${escapeHtml(a.default || '')}</textarea></label>`;
                     }
                     if (a.type === 'json') {
                         const def = a.default || '';
                         return `<label class="json-row"><code>${a.name}</code>`
                             + `<div class="json-editor-mount" data-json-for="${a.name}" data-json-mode="${escapeHtml(a.mode || 'tree')}" data-json-default="${escapeHtml(def)}"></div>`
                             + `<div class="json-error" data-json-error-for="${a.name}"></div>`
-                            + `<input type="hidden" data-attr="${a.name}" value="${escapeHtml(def)}" />`
+                            + `<input type="hidden" name="${nm}" data-attr="${a.name}" value="${escapeHtml(def)}" />`
                             + `</label>`;
                     }
-                    return `<label><code>${a.name}</code><input type="text" data-attr="${a.name}" value="${escapeHtml(a.default || '')}" /></label>`;
+                    return `<label for="${nm}"><code>${a.name}</code><input type="text" id="${nm}" name="${nm}" data-attr="${a.name}" value="${escapeHtml(a.default || '')}" /></label>`;
                 }).join('')}
             </div>` : ''}
             ${demo.extras || ''}
             <div id="dbgHost">${demo.rawHtml || (demo.tag ? `<${demo.tag}></${demo.tag}>` : '')}</div>
-            <div id="dbgEvents">events: (none)</div>
+            <div id="dbgEvents">
+                <div class="dbg-events-head"><span>events</span><button type="button" id="dbgEventsClear">Clear</button></div>
+                <pre id="dbgEventsLog">(none)</pre>
+            </div>
         </main>
     </div>
     <script>
         (function () {
-            const events = document.getElementById('dbgEvents');
+            const events = document.getElementById('dbgEventsLog');
+            const clearBtn = document.getElementById('dbgEventsClear');
             const log = (line) => {
                 const t = new Date().toISOString().slice(11, 19);
+                if (events.textContent === '(none)') events.textContent = '';
                 events.textContent = '[' + t + '] ' + line + '\\n' + events.textContent;
             };
+            if (clearBtn) clearBtn.addEventListener('click', () => { events.textContent = '(none)'; });
             const NAMES = ${JSON.stringify(EVENTS)};
             NAMES.forEach(name => {
                 document.addEventListener(name, (e) => log(name + ' ' + JSON.stringify(e.detail || {})));
@@ -3209,7 +3923,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                             const key = String(name).toLowerCase();
                             const p = people.find(p => (p.key && p.key === key) || (p.name && p.name.toLowerCase() === key));
                             const display = p ? (p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : p.name) : name;
-                            return `<a class="mention-link result-person" data-person-key="${escapeHtml(key)}" href="/people#${encodeURIComponent(key)}">@${escapeHtml(display)}</a>`;
+                            return `<entity-mention kind="person" key="${escapeHtml(key)}" label="${escapeHtml(display)}"></entity-mention>`;
                         }).join(' ');
                         const rJson = JSON.stringify(r).replace(/'/g, '&#39;').replace(/</g, '\\u003c');
 
@@ -3695,6 +4409,7 @@ document.addEventListener('keydown', function(e) {
                 ${c.settings.description ? `<div class="ctx-desc">${escapeHtml(c.settings.description)}</div>` : ''}
                 <div class="ctx-tabs" role="tablist">
                     <button type="button" class="ctx-tab-btn is-active" data-tab="general">📝 Generelt</button>
+                    <button type="button" class="ctx-tab-btn" data-tab="tags">🏷️ Tagger</button>
                     <button type="button" class="ctx-tab-btn" data-tab="meetings">🗓️ Møter</button>
                     <button type="button" class="ctx-tab-btn" data-tab="git">📦 Git</button>
                 </div>
@@ -3756,6 +4471,15 @@ document.addEventListener('keydown', function(e) {
                             </div>
                             <p class="theme-builder-link"><a href="/themes">🎨 Tilpass tema →</a></p>
                         </fieldset>
+                    </div>
+                    </div>
+                    <div class="ctx-tab-panel" data-panel="tags">
+                    <div class="ctx-detail-section">
+                        <h3>🏷️ Tagger</h3>
+                        <p class="section-hint">Tagger (tema) tilgjengelig for autofullføring i notatredigereren og som filter på <a href="/notes">notater-siden</a>.</p>
+                        <label>Tilgjengelige tagger (kommaseparert)
+                            <input type="text" name="availableThemes" value="${escapeHtml((Array.isArray(c.settings.availableThemes) ? c.settings.availableThemes : []).join(', '))}" placeholder="planlegging, retro, status, kunde">
+                        </label>
                     </div>
                     </div>
                     <div class="ctx-tab-panel" data-panel="meetings">
@@ -4157,7 +4881,7 @@ document.addEventListener('keydown', function(e) {
                 }));
                 (function(){
                     const TAB_KEY = 'ctxSettingsTab';
-                    const VALID = ['general','meetings','git'];
+                    const VALID = ['general','tags','meetings','git'];
                     function applyTab(tab) {
                         if (!VALID.includes(tab)) tab = 'general';
                         document.querySelectorAll('.ctx-detail').forEach(detail => {
@@ -4204,6 +4928,7 @@ document.addEventListener('keydown', function(e) {
                         description: fd.get('description'),
                         remote: fd.get('remote') || '',
                         theme: fd.get('theme') || 'paper',
+                        availableThemes: (fd.get('availableThemes') || '').split(',').map(s => s.trim()).filter(Boolean),
                         workHours: Array.from({length:7},(_,i)=>{
                             if(!fd.get('wh-on-'+i)) return null;
                             const sH = fd.get('wh-sH-'+i)||'08';
@@ -6307,7 +7032,7 @@ activateTab(initialParams.tab || 'people');
     if (pathname === '/api/save' && req.method === 'POST') {
         try {
             const body = JSON.parse(await readBody(req));
-            const { folder, file, content, append, type, presentationStyle, autosave } = body;
+            const { folder, file, content, append, type, presentationStyle, autosave, themes } = body;
 
             if (!folder || !file || typeof content !== 'string') {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -6344,6 +7069,12 @@ activateTab(initialParams.tab || 'people');
             if (!autosave) saves.push(now);
             const updates = { type: type || existing.type || 'note', modified: now, saves };
             if (presentationStyle) updates.presentationStyle = presentationStyle;
+            if (Array.isArray(themes)) {
+                updates.themes = themes
+                    .map(t => String(t || '').trim())
+                    .filter(Boolean)
+                    .filter((t, i, arr) => arr.indexOf(t) === i);
+            }
             if (!existing.created) updates.created = now;
             setNoteMeta(folder, file, updates);
             syncMentions(content);
@@ -6485,7 +7216,7 @@ activateTab(initialParams.tab || 'people');
                 const p = mentionPeople.find(x => x.name === name || (x.key && x.key === name.toLowerCase()));
                 const display = p ? (p.firstName ? (p.lastName ? p.firstName + ' ' + p.lastName : p.firstName) : p.name) : name;
                 const key = p ? (p.key || (p.name || '').toLowerCase()) : name.toLowerCase();
-                return pre + '<a href="/people" class="mention-link" data-person-key="' + escapeHtml(key) + '">' + escapeHtml(display) + '</a>';
+                return pre + '<entity-mention kind="person" key="' + escapeHtml(key) + '" label="' + escapeHtml(display) + '"></entity-mention>';
             });
         }
 
@@ -7653,6 +8384,47 @@ activateTab(initialParams.tab || 'people');
         return;
     }
 
+    // API: aggregate index of every note across every week, metadata only.
+    // Used by /notes page for filtering by type/themes/date.
+    if (pathname === '/api/notes' && req.method === 'GET') {
+        let weekDirs = [];
+        try {
+            weekDirs = fs.readdirSync(dataDir(), { withFileTypes: true })
+                .filter(d => d.isDirectory() && /^\d{4}-W\d{2}$/.test(d.name))
+                .map(d => d.name);
+        } catch {}
+        const out = [];
+        for (const week of weekDirs) {
+            const files = getMdFiles(week).filter(f => f !== 'summarize.md');
+            for (const file of files) {
+                const meta = getNoteMeta(week, file);
+                out.push({
+                    week,
+                    file,
+                    name: file.replace(/\.md$/, ''),
+                    type: meta.type || 'note',
+                    pinned: !!meta.pinned,
+                    themes: Array.isArray(meta.themes) ? meta.themes : [],
+                    created: meta.created || '',
+                    modified: meta.modified || '',
+                });
+            }
+        }
+        // Newest week first, then by created/modified desc, then by file name.
+        out.sort((a, b) => {
+            if (a.week !== b.week) return b.week.localeCompare(a.week);
+            const ad = a.modified || a.created;
+            const bd = b.modified || b.created;
+            if (ad && bd && ad !== bd) return bd.localeCompare(ad);
+            if (ad && !bd) return -1;
+            if (!ad && bd) return 1;
+            return a.file.localeCompare(b.file);
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(out));
+        return;
+    }
+
     // API: week summary used by <week-section>
     const weekInfoMatch = pathname.match(/^\/api\/week\/([^/]+)$/);
     if (weekInfoMatch && req.method === 'GET') {
@@ -7703,6 +8475,7 @@ activateTab(initialParams.tab || 'people');
             type: meta.type || 'note',
             pinned: !!meta.pinned,
             presentationStyle: meta.presentationStyle || null,
+            themes: Array.isArray(meta.themes) ? meta.themes : [],
             snippet,
         }));
         return;

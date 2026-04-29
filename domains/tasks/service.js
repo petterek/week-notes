@@ -9,7 +9,7 @@
  * POST   /api/tasks/merge   {srcId,tgtId} → merge(srcId, tgtId)
  * POST   /api/tasks/reorder {ids}    → reorder(ids)
  *
- * Exposed as named export `TaskService`.
+ * Exposed as named export `TaskService` and via `window["week-note-services"].TaskService`.
  */
 const BASE = '/api/tasks';
 
@@ -34,6 +34,3 @@ export const TaskService = {
     merge:   (srcId, tgtId)      => req('POST',   `${BASE}/merge`, { srcId, tgtId }),
     reorder: (ids)               => req('POST',   `${BASE}/reorder`, { ids }),
 };
-
-
-if (typeof window !== 'undefined') window.TaskService = TaskService;

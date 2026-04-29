@@ -1,7 +1,18 @@
 /**
- * <note-card note="WEEK/encoded-file.md" service="NotesService">
- * Self-loading note summary card. Calls service.card(week, file) and renders
- * inside its own shadow DOM with theming via inherited CSS custom properties.
+ * <note-card>
+ *
+ * Dumb presentation card for a single note. Receives its data via the
+ * `setData(d)` instance method — it does not load anything itself.
+ *
+ *   const card = document.createElement('note-card');
+ *   card.setData({
+ *       week: '2026-W18', file: 'standup.md', name: 'Standup',
+ *       type: 'note', pinned: false, snippet: '<p>…</p>',
+ *       themes: ['planning'],
+ *   });
+ *
+ * `setData` may be called before or after the element is connected; it
+ * stores the data and re-renders.
  *
  * Pure component: emits cancelable bubbling/composed CustomEvents
  * 'view' / 'present' / 'edit' / 'delete' with detail = { filePath }.
@@ -9,9 +20,9 @@
  * <a href> for fallback navigation; preventDefault on the event suppresses
  * that.
  *
- * Legacy notes: the host element keeps a `data-note-card="<week>/<file>"`
- * attribute so existing `document.querySelector('[data-note-card="…"]')`
- * removal code keeps working.
+ * Legacy notes: when `setData` is called the host element is given a
+ * `data-note-card="<week>/<file>"` attribute so existing
+ * `document.querySelector('[data-note-card="…"]')` removal code keeps working.
  */
 import { WNElement, html, unsafeHTML, escapeHtml } from './_shared.js';
 
@@ -46,77 +57,66 @@ const STYLES = `
         font-size: 0.95em; line-height: 1.5;
     }
     .note-body a { color: var(--accent); }
+    .note-themes {
+        margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px;
+    }
+    .note-theme {
+        display: inline-block; padding: 1px 8px; border-radius: 999px;
+        font-size: 0.75em; background: var(--accent-soft); color: var(--accent-strong);
+        border: 1px solid var(--border-soft);
+    }
 `;
 
 class NoteCard extends WNElement {
-    static get observedAttributes() { return ['note', 'service']; }
-
     css() { return STYLES; }
+
+    setData(d) {
+        if (!d || !d.week || !d.file) {
+            this._data = null;
+        } else {
+            this._data = d;
+            this.setAttribute('data-note-card', `${d.week}/${encodeURIComponent(d.file)}`);
+        }
+        if (this.isConnected) this.requestRender();
+    }
 
     connectedCallback() {
         super.connectedCallback();
-        if (this.service && !this._loaded) this._load();
-    }
-
-    attributeChangedCallback(name, oldVal, newVal) {
-        super.attributeChangedCallback(name, oldVal, newVal);
-        if (name === 'note' && oldVal !== newVal && this.isConnected && this.service) {
-            this._loaded = false;
-            this._load();
-        }
-    }
-
-    async _load() {
-        const note = this.getAttribute('note');
-        if (!note) return;
-        this._loaded = true;
-        const slash = note.indexOf('/');
-        if (slash < 0) { this._state = { error: 'Ugyldig note-id' }; this.requestRender(); return; }
-        const week = note.slice(0, slash);
-        const fileEnc = note.slice(slash + 1);
-        // Preserve host-side selector hook used by legacy delete handler.
-        this.setAttribute('data-note-card', `${week}/${fileEnc}`);
-        try {
-            const d = await this.service.card(week, fileEnc);
-            if (!d || !d.ok) throw new Error(d && d.error || 'load failed');
-            this._state = { week, fileEnc, data: d };
-        } catch {
-            this._state = { error: 'Kunne ikke laste notat' };
-        }
-        this.requestRender();
-        if (!this._wired) {
-            this._wired = true;
-            this.shadowRoot.addEventListener('click', (ev) => {
-                const trigger = ev.target.closest('[data-act]');
-                if (!trigger) return;
-                const act = trigger.getAttribute('data-act');
-                const { week, fileEnc } = this._state || {};
-                if (!week || !fileEnc) return;
-                const filePath = `${week}/${fileEnc}`;
-                const evt = new CustomEvent(act, {
-                    bubbles: true, composed: true, cancelable: true,
-                    detail: { filePath },
-                });
-                const proceed = this.dispatchEvent(evt);
-                if (!proceed && act === 'edit') ev.preventDefault();
+        if (this._wired) return;
+        this._wired = true;
+        this.shadowRoot.addEventListener('click', (ev) => {
+            const trigger = ev.target.closest('[data-act]');
+            if (!trigger || !this._data) return;
+            const act = trigger.getAttribute('data-act');
+            const { week, file } = this._data;
+            const filePath = `${week}/${encodeURIComponent(file)}`;
+            const evt = new CustomEvent(act, {
+                bubbles: true, composed: true, cancelable: true,
+                detail: { filePath },
             });
-        }
+            const proceed = this.dispatchEvent(evt);
+            if (!proceed && act === 'edit') ev.preventDefault();
+        });
     }
 
     render() {
-        if (!this.service) return this.renderNoService();
-        if (!this._state) return html`<div class="note-body" style="color:var(--text-subtle)">Laster…</div>`;
-        if (this._state.error) return html`<div class="note-body" style="color:var(--text-subtle)">${this._state.error}</div>`;
+        const d = this._data;
+        if (!d) return html`<div class="note-body" style="color:var(--text-subtle)">Laster…</div>`;
 
-        const { week, fileEnc, data: d } = this._state;
-        const name = d.name || fileEnc.replace(/\.md$/, '');
+        const fileEnc = encodeURIComponent(d.file);
+        const name = d.name || String(d.file).replace(/\.md$/, '');
         const typeIcon = TYPE_ICONS[d.type] || '📄';
-        const editHref = `/editor/${week}/${fileEnc}`;
+        const editHref = `/editor/${d.week}/${fileEnc}`;
         const pinIcon = d.pinned ? unsafeHTML('<span title="Festet">📌</span> ') : '';
         const presentBtn = d.type === 'presentation'
             ? unsafeHTML(`<button type="button" class="note-icon-btn" data-act="present" title="Presenter ${escapeHtml(name)}">🎤</button>`)
             : '';
         const snippet = d.snippet ? unsafeHTML(`<div class="note-body">${d.snippet}</div>`) : '';
+        const themes = Array.isArray(d.themes) ? d.themes : [];
+        const themesHtml = themes.length
+            ? unsafeHTML(`<div class="note-themes">${themes.map(t =>
+                `<span class="note-theme">#${escapeHtml(t)}</span>`).join('')}</div>`)
+            : '';
 
         return html`
             <div class="note-h">
@@ -129,6 +129,7 @@ class NoteCard extends WNElement {
                 </span>
             </div>
             ${snippet}
+            ${themesHtml}
         `;
     }
 }

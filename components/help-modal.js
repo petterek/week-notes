@@ -1,8 +1,7 @@
 /**
  * <help-modal> — fetches /help.md on first open and renders it as markdown
- * (using window.marked when available, else as a <pre>). Triggered by clicking
- * any element with id="helpBtn", or by sending the custom event 'help:open' to
- * the document.
+ * (using window.marked when available, else as a <pre>). Exposes an open()
+ * method; clicking any element with id="helpBtn" triggers it.
  *
  * Closes on backdrop click and Escape.
  */
@@ -35,16 +34,12 @@ class HelpModal extends WNElement {
         };
         document.addEventListener('keydown', this._onKey);
 
-        this._onCustom = () => this.open();
-        document.addEventListener('help:open', this._onCustom);
-
         const btn = document.getElementById('helpBtn');
         if (btn) btn.addEventListener('click', (e) => { e.preventDefault(); this.open(); });
     }
 
     disconnectedCallback() {
         document.removeEventListener('keydown', this._onKey);
-        document.removeEventListener('help:open', this._onCustom);
     }
 
     css() { return STYLES; }

@@ -9,7 +9,7 @@
  * PUT    /api/notes/:week/:file/pin    {pinned?} → setPinned(week, file, pinned)
  * DELETE /api/notes/:week/:file        → remove(week, file)
  *
- * Exposed as named export `NotesService`.
+ * Exposed as named export `NotesService` and via `window["week-note-services"].NotesService`.
  */
 async function req(method, path, body, accept) {
     const opts = { method, headers: {} };
@@ -38,8 +38,6 @@ export const NotesService = {
     setPinned:  (week, file, pinned) => req('PUT', noteUrl(week, file, '/pin'), { pinned: !!pinned }),
     remove:     (week, file)      => req('DELETE', noteUrl(week, file)),
     listWeeks:  ()                => req('GET',    '/api/weeks'),
+    listAll:    ()                => req('GET',    '/api/notes'),
     getWeek:    (week)            => req('GET',    `/api/week/${encodeURIComponent(week)}`),
 };
-
-
-if (typeof window !== 'undefined') window.NotesService = NotesService;

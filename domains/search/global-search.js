@@ -60,6 +60,7 @@ function ensureStyles() {
 }
 
 class GlobalSearch extends WNElement {
+    static get domain() { return 'search'; }
     // No observed attributes, no CSS (light DOM styling)
     css() { return ''; }
 

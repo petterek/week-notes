@@ -13,7 +13,7 @@
  */
 import {
     WNElement, html, unsafeHTML, escapeHtml,
-    linkMentions, wireMentionClicks, people as fetchPeople, companies as fetchCompanies,
+    linkMentions, wireMentionClicks,
 } from './_shared.js';
 
 const STYLES = `
@@ -44,7 +44,8 @@ const STYLES = `
 `;
 
 class TaskCompleted extends WNElement {
-    static get observedAttributes() { return ['week', 'service']; }
+    static get domain() { return 'tasks'; }
+    static get observedAttributes() { return ['week', 'tasks_service', 'people_service', 'companies_service']; }
 
     css() { return STYLES; }
 
@@ -59,11 +60,13 @@ class TaskCompleted extends WNElement {
     }
 
     async _load() {
+        const peopleSvc = this.serviceFor('people');
+        const compSvc = this.serviceFor('companies');
         try {
             const [tasks, people, companies] = await Promise.all([
                 this.service.list(),
-                fetchPeople(),
-                fetchCompanies(),
+                peopleSvc ? peopleSvc.list() : Promise.resolve([]),
+                compSvc ? compSvc.list() : Promise.resolve([]),
             ]);
             this._state = { tasks: tasks || [], people: people || [], companies: companies || [] };
         } catch {
