@@ -6,6 +6,8 @@
  * a new day/week/month/year. Useful for pages that want to refresh
  * "today / this week" derived UI without polling.
  *
+ *   nav-meta:newMinute → { minute: 'YYYY-MM-DDTHH:MM', now: Date }
+ *   nav-meta:newHour   → { hour:   'YYYY-MM-DDTHH',    now: Date }
  *   nav-meta:newDay    → { date: 'YYYY-MM-DD', now: Date }
  *   nav-meta:newWeek   → { week: 'YYYY-WNN',   now: Date }
  *   nav-meta:newMonth  → { month: 'YYYY-MM',   now: Date }
@@ -28,6 +30,8 @@ const STYLES = `
 function pad2(n) { return String(n).padStart(2, '0'); }
 function dayKey(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; }
 function monthKey(d) { return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`; }
+function hourKey(d)  { return `${dayKey(d)}T${pad2(d.getHours())}`; }
+function minuteKey(d){ return `${hourKey(d)}:${pad2(d.getMinutes())}`; }
 
 class NavMeta extends WNElement {
     connectedCallback() {
@@ -54,16 +58,28 @@ class NavMeta extends WNElement {
     }
 
     _emitBoundaries(now) {
+        const minute = minuteKey(now);
+        const hour = hourKey(now);
         const day = dayKey(now);
         const week = isoWeek(now);
         const month = monthKey(now);
         const year = now.getFullYear();
         // First tick after mount: just record the baseline, don't fire.
         if (!this._last) {
-            this._last = { day, week, month, year };
+            this._last = { minute, hour, day, week, month, year };
             return;
         }
         const prev = this._last;
+        if (prev.minute !== minute) {
+            this.dispatchEvent(new CustomEvent('nav-meta:newMinute', {
+                bubbles: true, composed: true, detail: { minute, now },
+            }));
+        }
+        if (prev.hour !== hour) {
+            this.dispatchEvent(new CustomEvent('nav-meta:newHour', {
+                bubbles: true, composed: true, detail: { hour, now },
+            }));
+        }
         if (prev.day !== day) {
             this.dispatchEvent(new CustomEvent('nav-meta:newDay', {
                 bubbles: true, composed: true, detail: { date: day, now },
@@ -84,7 +100,7 @@ class NavMeta extends WNElement {
                 bubbles: true, composed: true, detail: { year, now },
             }));
         }
-        this._last = { day, week, month, year };
+        this._last = { minute, hour, day, week, month, year };
     }
 
     css() { return STYLES; }
