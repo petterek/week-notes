@@ -10,6 +10,11 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-29 (note editing modal + ➕ button on open list)
+- **`<task-note-modal>`** — new dumb modal that edits a task's note. Same callback API as `<task-complete-modal>` / `<task-create-modal>`: `modal.open(task, cb)` runs the callback once with `{ saved, id, note }` (or `{ saved: false, id }` on Esc / backdrop / ✕). Markdown + `@mentions` are written through to the existing `tasks_service.update(id, { note })` API. Pre-fills the textarea with the existing note and places the cursor at the end. Esc / Ctrl-⌘+Enter shortcuts.
+- **`<task-open-list>`** — note 📓 button now opens the new `<task-note-modal>` (mounted in shadow DOM) and persists via the service on save. Add (`＋`) button opens `<task-create-modal>` via the new callback API. The legacy `window.openNoteModal` on the SSR tasks page is left untouched for now.
+- **`<task-create-modal>`** — refactored to a dumb callback API (`modal.open(cb)`); the trigger button is gone, the inner `<task-create>` still emits `task:created` so the global SPA cross-list refresh wiring keeps working.
+
 ### 2026-04-29 (results-page SPA)
 - **`<results-page>`** — SPA replacement for `/results`. Lists results grouped by ISO week (descending), each card with edit / delete actions; header has a "Nytt resultat" button. Both edit and create use a shadow-local modal (Esc cancels, Ctrl/⌘+Enter saves). `@`-mentions render via `linkMentions` + `<entity-mention>` chips so they auto-resolve display names. Hash deep-link `/results#r-<id>` scrolls to and briefly flashes the matching card. `pages/results.html` now mounts the component; the legacy SSR `/results` body is unreachable (SPA stub wins) and will be removed in a follow-up.
 

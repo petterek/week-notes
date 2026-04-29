@@ -2824,7 +2824,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             ['Context',   ['ctx-switcher']],
             ['Search',    ['global-search']],
             ['Notes',     ['markdown-preview', 'note-card', 'note-editor']],
-            ['Tasks',     ['task-complete-modal', 'task-open-list', 'task-completed', 'task-create', 'task-create-modal']],
+            ['Tasks',     ['task-complete-modal', 'task-note-modal', 'task-open-list', 'task-completed', 'task-create', 'task-create-modal']],
             ['Meetings',  ['meeting-create', 'upcoming-meetings', 'week-notes-calendar']],
             ['People',    ['company-card', 'entity-callout', 'entity-mention', 'people-page', 'person-card', 'place-card']],
             ['Results',   ['results-page', 'week-results']],
@@ -3241,6 +3241,36 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                             var out = document.getElementById('dbg-ctm-out');
                             btn.addEventListener('click', function(){
                                 modal.open({ id: 't42', text: 'Send rapport til @anna før fredag' }, function(res){
+                                    out.textContent = JSON.stringify(res, null, 2);
+                                });
+                            });
+                        });
+                    <\/script>`,
+            },
+            'task-note-modal': {
+                desc: `<p><strong>&lt;task-note-modal&gt;</strong> is a centered modal that edits a task's note (markdown). The component is dumb &mdash; it does not load or save anything. The host opens the modal with a task object (including any existing note) and a callback that receives the result.</p>
+                    <p><strong>Methods:</strong></p>
+                    <ul>
+                        <li><code>open(task, callback)</code> &mdash; shows the modal, fills the textarea with <code>task.note</code>, focuses it. The callback runs once with one of:
+                            <ul>
+                                <li><code>{ saved: true,  id, note }</code></li>
+                                <li><code>{ saved: false, id }</code></li>
+                            </ul>
+                        </li>
+                        <li><code>close()</code> &mdash; hides the modal silently (callback is dropped).</li>
+                    </ul>
+                    <p><strong>Keyboard:</strong> Esc cancels, Ctrl/⌘ + Enter saves. Backdrop click and the ✕ button cancel.</p>`,
+                rawHtml: `<button type="button" id="dbg-tnm-trigger" class="btn"
+                    style="padding:8px 14px;background:var(--accent);color:var(--text-on-accent);border:0;border-radius:8px;font-weight:600;cursor:pointer">Rediger notat for «Send rapport til @anna»</button>
+                    <pre id="dbg-tnm-out" style="margin-top:10px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;min-height:42px;white-space:pre-wrap"></pre>
+                    <task-note-modal id="dbg-tnm"></task-note-modal>
+                    <script>
+                        customElements.whenDefined('task-note-modal').then(function(){
+                            var modal = document.getElementById('dbg-tnm');
+                            var btn = document.getElementById('dbg-tnm-trigger');
+                            var out = document.getElementById('dbg-tnm-out');
+                            btn.addEventListener('click', function(){
+                                modal.open({ id: 't42', text: 'Send rapport til @anna før fredag', note: 'Eksisterende notat. Husk vedlegg.' }, function(res){
                                     out.textContent = JSON.stringify(res, null, 2);
                                 });
                             });
@@ -3720,6 +3750,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
     <script type="module" src="/components/task-create.js"></script>
     <script type="module" src="/components/task-create-modal.js"></script>
     <script type="module" src="/components/task-complete-modal.js"></script>
+    <script type="module" src="/components/task-note-modal.js"></script>
     <script type="module" src="/components/meeting-create.js"></script>
     <script type="module" src="/components/upcoming-meetings.js"></script>
     <script type="module" src="/components/week-results.js"></script>
