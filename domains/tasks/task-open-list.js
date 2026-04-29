@@ -19,10 +19,13 @@
  */
 import { WNElement, html, unsafeHTML, escapeHtml, linkMentions, wireMentionClicks } from './_shared.js';
 import './task-complete-modal.js';
+import './task-create-modal.js';
 
 const STYLES = `
         :host { display: block; color: var(--text-strong); font: inherit; }
         .side-h {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 8px;
             font-family: var(--font-heading);
             font-weight: 400;
             color: var(--accent);
@@ -31,6 +34,14 @@ const STYLES = `
             margin: 0 0 10px;
             font-size: 1.05em;
         }
+        .side-h-title { display: flex; align-items: baseline; gap: 6px; }
+        .add-btn {
+            background: var(--success); color: var(--text-on-accent);
+            border: none; border-radius: 6px; padding: 4px 10px;
+            font: inherit; font-size: 0.85em; font-weight: 600;
+            cursor: pointer;
+        }
+        .add-btn:hover { background: var(--success-strong); filter: brightness(0.95); }
         .empty-quiet { color: var(--text-subtle); font-style: italic; margin: 0; }
         .sidebar-tasks { display: flex; flex-direction: column; gap: 6px; }
         .sidebar-task { padding: 6px 8px; border-radius: 6px; background: var(--surface); }
@@ -163,24 +174,40 @@ class TaskOpenList extends WNElement {
                     }));
                 }
             });
+            this.shadowRoot.addEventListener('click', (ev) => {
+                const addBtn = ev.target.closest('button[data-act="add"]');
+                if (!addBtn) return;
+                const modal = this.shadowRoot.querySelector('task-create-modal');
+                if (!modal) return;
+                modal.open((res) => {
+                    if (res && res.created) this.refresh();
+                });
+            });
             wireMentionClicks(this.shadowRoot);
         }
     }
 
     render() {
         if (!this.service) return this.renderNoService();
-        if (!this._state) return html`<h3 class="side-h">Åpne oppgaver</h3><p class="empty-quiet">Laster…</p><task-complete-modal></task-complete-modal>`;
-        if (this._state.error) return html`<h3 class="side-h">Åpne oppgaver</h3><p class="empty-quiet">Kunne ikke laste oppgaver</p><task-complete-modal></task-complete-modal>`;
+        const headerWithAdd = (countLabel) => html`
+            <h3 class="side-h">
+                <span class="side-h-title">Åpne oppgaver${countLabel ? ' · ' + countLabel : ''}</span>
+                <button type="button" class="add-btn" data-act="add" title="Ny oppgave">➕ Ny</button>
+            </h3>
+        `;
+        if (!this._state) return html`${headerWithAdd('')}<p class="empty-quiet">Laster…</p><task-complete-modal></task-complete-modal><task-create-modal></task-create-modal>`;
+        if (this._state.error) return html`${headerWithAdd('')}<p class="empty-quiet">Kunne ikke laste oppgaver</p><task-complete-modal></task-complete-modal><task-create-modal></task-create-modal>`;
 
         const { open, people, companies } = this._state;
         if (open.length === 0) {
-            return html`<h3 class="side-h">Åpne oppgaver · 0</h3><p class="empty-quiet">Ingen åpne oppgaver</p><task-complete-modal></task-complete-modal>`;
+            return html`${headerWithAdd('0')}<p class="empty-quiet">Ingen åpne oppgaver</p><task-complete-modal></task-complete-modal><task-create-modal></task-create-modal>`;
         }
         const rows = open.map(t => renderTask(t, people, companies));
         return html`
-            <h3 class="side-h">Åpne oppgaver · ${open.length}</h3>
+            ${headerWithAdd(String(open.length))}
             <div class="sidebar-tasks">${rows}</div>
             <task-complete-modal></task-complete-modal>
+            <task-create-modal></task-create-modal>
         `;
     }
 }

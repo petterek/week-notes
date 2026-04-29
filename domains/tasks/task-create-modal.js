@@ -1,29 +1,25 @@
 /**
- * <task-create-modal> — renders a "+ Ny oppgave" button. Clicking the
- * button opens a centered modal containing a <task-create> form.
+ * <task-create-modal> — dumb modal hosting a <task-create> form.
  *
- * Closes automatically when the inner <task-create> dispatches
- * 'task:created', and on Escape, backdrop click, or the close button.
+ * Callback API (no trigger button, no global state):
+ *   modal.open(callback?)
+ *     → callback({ created: true,  task, tasks })  on successful create
+ *     → callback({ created: false })               on Esc / backdrop / ✕
+ *   modal.close()                                  closes silently
+ *
+ * The component also re-bubbles the inner 'task:created' /
+ * 'task:create-failed' events so the global task notification flow keeps
+ * working.
  *
  * Attributes:
- *   button-label  — trigger button text (default "+ Ny oppgave")
  *   modal-title   — modal heading (default "Ny oppgave")
  *   placeholder   — forwarded to <task-create>
  *   endpoint      — forwarded to <task-create>
- *
- * Re-bubbles 'task:created' / 'task:create-failed' through itself so
- * pages can listen on this element instead of digging into the form.
  */
 import { WNElement, html } from './_shared.js';
 
 const STYLES = `
-    :host { display: inline-block; font: inherit; }
-    button.trigger {
-        padding: 8px 14px; background: var(--success); color: var(--text-on-accent);
-        border: none; border-radius: 8px; font-weight: 600;
-        cursor: pointer; font-size: 0.95em; font-family: inherit;
-    }
-    button.trigger:hover { background: var(--success-strong); }
+    :host { display: contents; font: inherit; }
 
     .backdrop {
         position: fixed; inset: 0; display: none; z-index: 2000;
@@ -55,17 +51,15 @@ const STYLES = `
 `;
 
 class TaskCreateModal extends WNElement {
-    static get observedAttributes() { return ['button-label', 'modal-title', 'placeholder', 'endpoint']; }
+    static get observedAttributes() { return ['modal-title', 'placeholder', 'endpoint']; }
 
     css() { return STYLES; }
 
     render() {
-        const btnLabel = this.getAttribute('button-label') || '+ Ny oppgave';
         const title = this.getAttribute('modal-title') || 'Ny oppgave';
         const placeholder = this.getAttribute('placeholder') || 'Beskriv oppgaven…';
         const endpoint = this.getAttribute('endpoint') || '/api/tasks';
         return html`
-            <button type="button" class="trigger" data-act="open">${btnLabel}</button>
             <div class="backdrop" data-backdrop>
                 <div class="card" role="dialog" aria-modal="true">
                     <div class="head">
@@ -75,7 +69,6 @@ class TaskCreateModal extends WNElement {
                     <task-create
                         placeholder="${placeholder}"
                         endpoint="${endpoint}"
-                        autofocus-on-connect
                     ></task-create>
                 </div>
             </div>
@@ -89,22 +82,28 @@ class TaskCreateModal extends WNElement {
 
         this.shadowRoot.addEventListener('click', (ev) => {
             const t = ev.target.closest('[data-act]');
-            if (t) {
-                const act = t.getAttribute('data-act');
-                if (act === 'open') this.open();
-                else if (act === 'close') this.close();
+            if (t && t.getAttribute('data-act') === 'close') {
+                this._runCallback({ created: false });
+                this._closeQuiet();
                 return;
             }
-            // Backdrop click (but not card content): close.
-            if (ev.target.matches('[data-backdrop]')) this.close();
+            if (ev.target.matches('[data-backdrop]')) {
+                this._runCallback({ created: false });
+                this._closeQuiet();
+            }
         });
 
-        this.shadowRoot.addEventListener('task:created', () => this.close());
+        this.shadowRoot.addEventListener('task:created', (ev) => {
+            const detail = (ev && ev.detail) || {};
+            this._runCallback({ created: true, task: detail.task, tasks: detail.tasks });
+            this._closeQuiet();
+        });
 
         this._onKey = (ev) => {
             if (ev.key === 'Escape' && this.hasAttribute('open')) {
                 ev.preventDefault();
-                this.close();
+                this._runCallback({ created: false });
+                this._closeQuiet();
             }
         };
         document.addEventListener('keydown', this._onKey);
@@ -114,22 +113,34 @@ class TaskCreateModal extends WNElement {
         document.removeEventListener('keydown', this._onKey);
     }
 
-    open() {
+    /**
+     * Open the modal. Optional callback is invoked exactly once with
+     *   { created: true, task, tasks }   on successful create
+     *   { created: false }               on cancel
+     */
+    open(callback) {
+        this._callback = (typeof callback === 'function') ? callback : null;
         this.setAttribute('open', '');
-        // Re-focus the input — base re-render may have replaced the form,
-        // but since open/close don't trigger a re-render we just reach in.
         const tc = this.shadowRoot.querySelector('task-create');
         if (tc && typeof tc.focus === 'function') {
             setTimeout(() => tc.focus(), 0);
         }
     }
 
-    close() {
+    /** Close without firing the callback. */
+    close() { this._callback = null; this._closeQuiet(); }
+
+    _closeQuiet() {
         if (!this.hasAttribute('open')) return;
         this.removeAttribute('open');
-        // Clear any leftover input so the next open starts fresh.
         const tc = this.shadowRoot.querySelector('task-create');
         if (tc) tc.value = '';
+    }
+
+    _runCallback(result) {
+        const cb = this._callback;
+        this._callback = null;
+        if (cb) { try { cb(result); } catch (e) { console.error('task-create-modal callback', e); } }
     }
 }
 

@@ -3248,13 +3248,12 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                     <\/script>`,
             },
             'task-create-modal': {
-                desc: `<p><strong>&lt;task-create-modal&gt;</strong> renders a single button (e.g. &ldquo;+&nbsp;Ny oppgave&rdquo;) that, when clicked, opens a centered modal hosting a <code>&lt;task-create&gt;</code> form.</p>
+                desc: `<p><strong>&lt;task-create-modal&gt;</strong> is a dumb modal hosting a <code>&lt;task-create&gt;</code> form. No trigger button — the host opens it imperatively via the callback API.</p>
                     <p><strong>Domain:</strong> <code>tasks</code> (forwarded as <code>tasks_service</code> to the embedded <code>&lt;task-create&gt;</code>).</p>
-                    <p><strong>Attributes:</strong> <code>button-label</code>, <code>modal-title</code>, <code>placeholder</code> (forwarded), and the legacy <code>endpoint</code> (kept for backward compat).</p>
-                    <p><strong>Lifecycle.</strong> The modal is appended to <code>document.body</code> on open and removed on close. Closes on success (after listening for <code>task:created</code> from the inner form), Esc, backdrop click, or the close button. Re-emits <code>task:created</code> on the outer host so parent pages can react identically whether the modal or inline form is used.</p>`,
+                    <p><strong>Attributes:</strong> <code>modal-title</code>, <code>placeholder</code>, <code>endpoint</code>.</p>
+                    <p><strong>Callback API:</strong> <code>modal.open(callback)</code> shows the modal. The callback is invoked once with <code>{ created: true, task, tasks }</code> on a successful create or <code>{ created: false }</code> on Esc / backdrop / ✕. <code>modal.close()</code> closes silently without firing the callback. The inner <code>&lt;task-create&gt;</code> still emits <code>task:created</code> (composed/bubbles) so any global listener (e.g. the SPA shell&apos;s task-list refresh wiring) keeps working.</p>`,
                 tag: 'task-create-modal',
                 attrs: [
-                    { name: 'button-label', type: 'text', default: '+ Ny oppgave' },
                     { name: 'modal-title', type: 'text', default: 'Ny oppgave' },
                     { name: 'placeholder', type: 'text', default: 'Beskriv oppgaven…' },
                     { name: 'endpoint', type: 'text', default: '/api/tasks' },
