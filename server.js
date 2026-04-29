@@ -2920,9 +2920,44 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                     <p><strong>Domain:</strong> none &mdash; presentational only, no service required.</p>
                     <p><strong>Attributes:</strong> none. The widget is fully self-driven.</p>
                     <p><strong>Lifecycle.</strong> Starts a 1&nbsp;Hz <code>setTimeout</code> loop on connect; clears it on disconnect. The render() output is just three empty spans (date, week badge, clock); the timer fills them in to avoid re-rendering the whole shadow tree every second.</p>
-                    <p><strong>Events.</strong> None.</p>`,
-                tag: 'nav-meta', attrs: [],
-                wrap: `<div style="background:var(--surface);padding:10px;border-radius:6px;display:inline-block">%HOST%</div>`,
+                    <p><strong>Boundary events</strong> (composed/bubbles, fire on the next tick after a wall-clock crossing &mdash; <em>not</em> on initial mount):</p>
+                    <ul>
+                        <li><code>nav-meta:newDay</code> &mdash; <code>{ date: 'YYYY-MM-DD', now: Date }</code></li>
+                        <li><code>nav-meta:newWeek</code> &mdash; <code>{ week: 'YYYY-WNN', now: Date }</code></li>
+                        <li><code>nav-meta:newMonth</code> &mdash; <code>{ month: 'YYYY-MM', now: Date }</code></li>
+                        <li><code>nav-meta:newYear</code> &mdash; <code>{ year: NNNN, now: Date }</code></li>
+                    </ul>
+                    <p>Pages typically listen on <code>document</code> to refresh "today / this week" derived UI without polling. Try the buttons below to simulate a transition (they overwrite the recorded baseline so the next tick fires the corresponding event):</p>`,
+                rawHtml: `<div style="background:var(--surface);padding:10px;border-radius:6px;display:inline-block"><nav-meta id="dbg-nm"></nav-meta></div>
+                    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+                        <button type="button" class="btn" data-dbg-nm="day"   style="padding:6px 12px;background:var(--accent);color:var(--text-on-accent);border:0;border-radius:6px;font-weight:600;cursor:pointer">Simulate newDay</button>
+                        <button type="button" class="btn" data-dbg-nm="week"  style="padding:6px 12px;background:var(--accent);color:var(--text-on-accent);border:0;border-radius:6px;font-weight:600;cursor:pointer">Simulate newWeek</button>
+                        <button type="button" class="btn" data-dbg-nm="month" style="padding:6px 12px;background:var(--accent);color:var(--text-on-accent);border:0;border-radius:6px;font-weight:600;cursor:pointer">Simulate newMonth</button>
+                        <button type="button" class="btn" data-dbg-nm="year"  style="padding:6px 12px;background:var(--accent);color:var(--text-on-accent);border:0;border-radius:6px;font-weight:600;cursor:pointer">Simulate newYear</button>
+                    </div>
+                    <pre id="dbg-nm-out" style="margin-top:10px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;min-height:42px;white-space:pre-wrap"></pre>
+                    <script>
+                        customElements.whenDefined('nav-meta').then(function(){
+                            var nm = document.getElementById('dbg-nm');
+                            var out = document.getElementById('dbg-nm-out');
+                            ['newDay','newWeek','newMonth','newYear'].forEach(function(n){
+                                document.addEventListener('nav-meta:' + n, function(e){
+                                    var line = '[' + new Date().toLocaleTimeString('nb-NO') + '] nav-meta:' + n + ' → ' + JSON.stringify(e.detail, function(k,v){ return v instanceof Date ? v.toISOString() : v; });
+                                    out.textContent = line + '\\n' + out.textContent;
+                                });
+                            });
+                            document.querySelectorAll('[data-dbg-nm]').forEach(function(btn){
+                                btn.addEventListener('click', function(){
+                                    if (!nm._last) return;
+                                    var which = btn.getAttribute('data-dbg-nm');
+                                    if (which === 'day')   nm._last.day   = '1999-01-01';
+                                    if (which === 'week')  nm._last.week  = '1999-W01';
+                                    if (which === 'month') nm._last.month = '1999-01';
+                                    if (which === 'year')  nm._last.year  = 1999;
+                                });
+                            });
+                        });
+                    <\/script>`,
             },
             'nav-button': {
                 desc: `<p><strong>&lt;nav-button&gt;</strong> is the unified navigation link element used in the top navbar &mdash; both for the &ldquo;Ukenotater&rdquo; brand link and for each menu item. Renders as a single anchor in shadow DOM with the app accent color and heading font.</p>
