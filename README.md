@@ -10,6 +10,12 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-29 (inline-create markers)
+- **`{{X}}` and `[[X]]` markers in notes.** New shorthand for inline-creating entities while writing notes:
+    - `{{X}}` → creates a new task with text X
+    - `[[X]]` → creates a new result with text X (replaces the legacy single-bracket `[X]` syntax)
+  Markers render as styled pills (green for tasks, blue for results) in any markdown preview via the new `<inline-action>` component, registered through `linkMentions` (server + client). On **explicit** save (Save / Lagre button on note editor, or task-note-modal save), the server creates the corresponding entities, strips the markers (keeping inner text), and writes a clean note. On **autosave** (the editor's 30s countdown), markers are preserved untouched so half-typed text like `{{Send rep` won't accidentally create a "Send rep" task. The `/api/save` response now includes `content` (cleaned) and `createdTasks` / `createdResults` counts; the note editor reflects the cleaned content back into the textarea after explicit save.
+
 ### 2026-04-29 (note editing modal + ➕ button on open list)
 - **`<task-note-modal>`** — new dumb modal that edits a task's note. Same callback API as `<task-complete-modal>` / `<task-create-modal>`: `modal.open(task, cb)` runs the callback once with `{ saved, id, note }` (or `{ saved: false, id }` on Esc / backdrop / ✕). Markdown + `@mentions` are written through to the existing `tasks_service.update(id, { note })` API. Pre-fills the textarea with the existing note and places the cursor at the end. Esc / Ctrl-⌘+Enter shortcuts.
 - **`<task-open-list>`** — note 📓 button now opens the new `<task-note-modal>` (mounted in shadow DOM) and persists via the service on save. Add (`＋`) button opens `<task-create-modal>` via the new callback API. The legacy `window.openNoteModal` on the SSR tasks page is left untouched for now.

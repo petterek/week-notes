@@ -31,7 +31,17 @@ export function escapeHtml(s) {
  */
 export function linkMentions(s, people, companies) {
     if (!s) return s;
-    return s.replace(/(^|[\s\n(\[>])@([a-zA-ZæøåÆØÅ][a-zA-ZæøåÆØÅ0-9_-]*)/g, (_m, pre, name) => {
+    let out = s.replace(/\{\{([^{}]+)\}\}/g, (_m, inner) => {
+        const t = inner.trim();
+        if (!t) return '';
+        return `<inline-action kind="task" label="${escapeHtml(t)}"></inline-action>`;
+    });
+    out = out.replace(/\[\[([^\[\]]+)\]\]/g, (_m, inner) => {
+        const t = inner.trim();
+        if (!t) return '';
+        return `<inline-action kind="result" label="${escapeHtml(t)}"></inline-action>`;
+    });
+    return out.replace(/(^|[\s\n(\[>])@([a-zA-ZæøåÆØÅ][a-zA-ZæøåÆØÅ0-9_-]*)/g, (_m, pre, name) => {
         const lc = name.toLowerCase();
         const c = companies.find(x => x.key === lc);
         if (c) {

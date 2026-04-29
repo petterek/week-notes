@@ -700,19 +700,35 @@ function saveResults(results) {
 function extractResults(noteText) {
     if (!noteText) return { results: [], cleanNote: noteText || '' };
     const extracted = [];
-    // Match [text] but not [text](...) — that's a markdown link.
-    // Use a sticky-ish regex with negative-lookahead for the opening paren.
-    const clean = noteText.replace(/\[([^\]]+)\](?!\()/g, (_, inner) => {
+    // [[X]] — double-bracket result marker. Inner text becomes a new
+    // result entity, the brackets are stripped on save (keeps inner text).
+    const clean = noteText.replace(/\[\[([^\[\]]+)\]\]/g, (_, inner) => {
         const trimmed = inner.trim();
         if (trimmed) extracted.push(trimmed);
-        return trimmed; // keep the text, just remove the brackets
+        return trimmed;
     });
     return { results: extracted, cleanNote: clean };
 }
 
+// {{X}} — double-brace task marker. Inner text becomes a new task entity,
+// the braces are stripped on save (keeps inner text).
+function extractInlineTasks(noteText) {
+    if (!noteText) return { tasks: [], cleanNote: noteText || '' };
+    const extracted = [];
+    const clean = noteText.replace(/\{\{([^{}]+)\}\}/g, (_, inner) => {
+        const trimmed = inner.trim();
+        if (trimmed) extracted.push(trimmed);
+        return trimmed;
+    });
+    return { tasks: extracted, cleanNote: clean };
+}
+
 // Set a task note: extract results, sync mentions, return cleaned note
-function syncTaskNote(task, rawNote) {
-    const { results: texts, cleanNote } = extractResults(rawNote);
+function syncTaskNote(task, rawNote, allTasks) {
+    // Extract {{...}} → new tasks; [[...]] → new results. Both strip
+    // the markers, keeping the inner text.
+    const { tasks: inlineTasks, cleanNote: noteAfterTasks } = extractInlineTasks(rawNote);
+    const { results: texts, cleanNote } = extractResults(noteAfterTasks);
     task.note = cleanNote;
 
     // Extract mentions from raw note (before stripping) for people registry + results
@@ -735,6 +751,21 @@ function syncTaskNote(task, rawNote) {
         });
     });
     saveResults(allResults);
+
+    // Append new tasks from {{...}} markers to the caller's tasks array
+    // so it gets persisted in the same saveTasks() call.
+    if (Array.isArray(allTasks) && inlineTasks.length > 0) {
+        const week = task.week || getCurrentYearWeek();
+        inlineTasks.forEach(text => {
+            allTasks.push({
+                id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+                text,
+                done: false,
+                week,
+                created: new Date().toISOString(),
+            });
+        });
+    }
 
     // Sync people registry using raw note
     syncMentions(task.text, rawNote);
@@ -1739,6 +1770,7 @@ document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaK
 <script type="module" src="/components/place-card.js"></script>
 <script type="module" src="/components/entity-callout.js"></script>
 <script type="module" src="/components/entity-mention.js"></script>
+<script type="module" src="/components/inline-action.js"></script>
 <script type="module" src="/components/people-page.js"></script>
 <script type="module" src="/components/results-page.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -2076,7 +2108,17 @@ function linkMentions(html, people, companies) {
     if (!html) return html;
     people = people || loadPeople();
     companies = companies || loadCompanies();
-    return html.replace(/(^|[\s\n(\[>])@([a-zA-ZæøåÆØÅ][a-zA-ZæøåÆØÅ0-9_-]*)/g, (m, pre, name) => {
+    let out = html.replace(/\{\{([^{}]+)\}\}/g, (_m, inner) => {
+        const t = inner.trim();
+        if (!t) return '';
+        return `<inline-action kind="task" label="${escapeHtml(t)}"></inline-action>`;
+    });
+    out = out.replace(/\[\[([^\[\]]+)\]\]/g, (_m, inner) => {
+        const t = inner.trim();
+        if (!t) return '';
+        return `<inline-action kind="result" label="${escapeHtml(t)}"></inline-action>`;
+    });
+    return out.replace(/(^|[\s\n(\[>])@([a-zA-ZæøåÆØÅ][a-zA-ZæøåÆØÅ0-9_-]*)/g, (m, pre, name) => {
         const lc = name.toLowerCase();
         const c = companies.find(x => x.key === lc);
         if (c) {
@@ -3769,6 +3811,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
     <script type="module" src="/components/place-card.js"></script>
     <script type="module" src="/components/entity-callout.js"></script>
 <script type="module" src="/components/entity-mention.js"></script>
+<script type="module" src="/components/inline-action.js"></script>
 <script type="module" src="/components/people-page.js"></script>
 <script type="module" src="/components/results-page.js"></script>
     <style>
@@ -7142,14 +7185,62 @@ activateTab(initialParams.tab || 'people');
 
             fs.mkdirSync(path.join(dataDir(), folder), { recursive: true });
             const filePath = path.join(dataDir(), folder, file);
+
+            // On EXPLICIT save (not autosave), process inline-create markers:
+            //   {{X}} → create a new task with text X
+            //   [[X]] → create a new result with text X
+            // Both have their markers stripped (inner text kept) before
+            // the file is written, so the on-disk content is clean.
+            let finalContent = content;
+            let createdTasks = 0;
+            let createdResults = 0;
+            if (!autosave) {
+                const noteWeek = (typeof folder === 'string' && /^\d{4}-W\d{2}$/.test(folder)) ? folder : getCurrentYearWeek();
+                const inline = extractInlineTasks(finalContent);
+                if (inline.tasks.length > 0) {
+                    const allTasks = loadTasks();
+                    inline.tasks.forEach(text => {
+                        allTasks.push({
+                            id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+                            text,
+                            done: false,
+                            week: noteWeek,
+                            created: new Date().toISOString(),
+                        });
+                    });
+                    saveTasks(allTasks);
+                    createdTasks = inline.tasks.length;
+                    finalContent = inline.cleanNote;
+                }
+                const ext = extractResults(finalContent);
+                if (ext.results.length > 0) {
+                    const noteMentions = extractMentions(content);
+                    let allResults = loadResults();
+                    ext.results.forEach(text => {
+                        const textMentions = extractMentions(text);
+                        const allMentions = [...new Set([...noteMentions, ...textMentions])];
+                        allResults.push({
+                            id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+                            text,
+                            week: noteWeek,
+                            people: allMentions,
+                            created: new Date().toISOString(),
+                        });
+                    });
+                    saveResults(allResults);
+                    createdResults = ext.results.length;
+                    finalContent = ext.cleanNote;
+                }
+            }
+
             if (append && fs.existsSync(filePath)) {
-                fs.appendFileSync(filePath, '\n\n' + content, 'utf-8');
+                fs.appendFileSync(filePath, '\n\n' + finalContent, 'utf-8');
             } else {
-                fs.writeFileSync(filePath, content, 'utf-8');
+                fs.writeFileSync(filePath, finalContent, 'utf-8');
             }
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: true, path: `/${folder}/${file}` }));
+            res.end(JSON.stringify({ ok: true, path: `/${folder}/${file}`, content: finalContent, createdTasks, createdResults }));
 
             const now = new Date().toISOString();
             const existing = getNoteMeta(folder, file);
@@ -7519,7 +7610,7 @@ activateTab(initialParams.tab || 'people');
         if (src && tgt) {
             const parts = [tgt.note, src.text, src.note].filter(Boolean);
             const mergedNote = parts.join('\n');
-            syncTaskNote(tgt, mergedNote);
+            syncTaskNote(tgt, mergedNote, tasks);
             const filtered = tasks.filter(t => t.id !== body.srcId);
             // Remove results for deleted src task
             saveResults(loadResults().filter(r => r.taskId !== body.srcId));
@@ -8355,7 +8446,7 @@ activateTab(initialParams.tab || 'people');
         const task = tasks.find(t => t.id === editTaskMatch[1]);
         if (task) {
             if (body.text) task.text = body.text.trim();
-            if (body.note !== undefined) syncTaskNote(task, body.note);
+            if (body.note !== undefined) syncTaskNote(task, body.note, tasks);
             else syncMentions(task.text, task.note);
             saveTasks(tasks);
         }

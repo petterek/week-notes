@@ -290,7 +290,7 @@ class NoteEditor extends WNElement {
             this._countdownLeft -= 1;
             if (this._countdownLeft <= 0) {
                 this._stopCountdown();
-                if (this._dirty && !this._saving) this.save(false);
+                if (this._dirty && !this._saving) this.save(false, true);
                 return;
             }
             this._updateSaveBtnLabel();
@@ -503,7 +503,7 @@ class NoteEditor extends WNElement {
         window.location.href = '/';
     }
 
-    async save(closeAfter = true) {
+    async save(closeAfter = true, autosave = false) {
         if (!this._contentEl) return;
         const folder = this._weekSel.value.trim();
         let file = this._fileEl.value.trim();
@@ -525,7 +525,13 @@ class NoteEditor extends WNElement {
         try {
             const payload = { folder, file, content, themes, type };
             if (presentationStyle) payload.presentationStyle = presentationStyle;
+            if (autosave) payload.autosave = true;
             const data = await this.service.save(payload);
+            // Server may strip {{...}} / [[...]] markers and create entities on
+            // explicit save; reflect the cleaned content in the editor.
+            if (data && typeof data.content === 'string' && data.content !== content) {
+                this._contentEl.value = data.content;
+            }
             if (pinned !== this._initialPinned && this.service.setPinned) {
                 try { await this.service.setPinned(folder, file, pinned); } catch (_) {}
                 this._initialPinned = pinned;
