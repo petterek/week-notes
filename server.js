@@ -1605,6 +1605,50 @@ document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaK
     document.addEventListener('note:present', handlePresent);
     document.addEventListener('note:edit', handleEdit);
 
+    // Task lifecycle cross-list refresh:
+    //   - <task-open-list> exposes taskCreated()/taskCompleted()/taskUncompleted()
+    //   - <task-completed>  exposes taskCompleted()/taskUncompleted()
+    //   The shell forwards the matching global event to every list instance.
+    function notify(selector, method, detail) {
+        function walk(root) {
+            root.querySelectorAll(selector).forEach(function(el){
+                if (typeof el[method] === 'function') el[method](detail);
+            });
+            root.querySelectorAll('*').forEach(function(el){
+                if (el.shadowRoot) walk(el.shadowRoot);
+            });
+        }
+        walk(document);
+    }
+    document.addEventListener('task:created', function(e){
+        notify('task-open-list', 'taskCreated', e.detail || {});
+    });
+    document.addEventListener('task:completed', function(e){
+        notify('task-open-list', 'taskCompleted', e.detail || {});
+        notify('task-completed', 'taskCompleted', e.detail || {});
+    });
+    document.addEventListener('task:uncompleted', function(e){
+        notify('task-open-list', 'taskUncompleted', e.detail || {});
+        notify('task-completed', 'taskUncompleted', e.detail || {});
+    });
+
+    //   <task-completed> emits 'task-completed:undo' when the user clicks
+    //   Angre. Toggle the task back via the service and dispatch
+    //   'task:uncompleted' so every list refreshes via its method.
+    document.addEventListener('task-completed:undo', function(e){
+        var id = e.detail && e.detail.id;
+        if (!id) return;
+        e.preventDefault();
+        var reg = window['week-note-services'];
+        var svc = reg && reg.tasks_service;
+        if (!svc || typeof svc.toggle !== 'function') return;
+        Promise.resolve(svc.toggle(id)).then(function(){
+            document.dispatchEvent(new CustomEvent('task:uncompleted', {
+                bubbles: true, detail: { id: id },
+            }));
+        });
+    });
+
     // element-selected from <global-search>: route to the right URL by type.
     document.addEventListener('element-selected', function(e){
         var d = e.detail || {};
@@ -3648,7 +3692,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             'meeting-create:created', 'meeting-create:cancel', 'meeting-create:error',
             'note-editor:saved', 'note-editor:cancel',
             'task:created', 'task:create-failed',
-            'task-open-list:completed',
+            'task:completed', 'task:uncompleted',
             'markdown-preview:scroll',
             'calendar:week-changed',
             'context-selected',

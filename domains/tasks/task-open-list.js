@@ -87,13 +87,13 @@ class TaskOpenList extends WNElement {
     connectedCallback() {
         super.connectedCallback();
         if (this.service) this._load();
-        this._onTaskCreated = () => this.refresh();
-        document.addEventListener('task:created', this._onTaskCreated);
     }
 
-    disconnectedCallback() {
-        if (this._onTaskCreated) document.removeEventListener('task:created', this._onTaskCreated);
-    }
+    // Notification methods. The host page listens for global task events
+    // and calls the matching method on each list component.
+    taskCreated()     { this.refresh(); }
+    taskCompleted()   { this.refresh(); }
+    taskUncompleted() { this.refresh(); }
 
     attributeChangedCallback(name, oldVal, newVal) {
         super.attributeChangedCallback(name, oldVal, newVal);
@@ -146,7 +146,7 @@ class TaskOpenList extends WNElement {
                         console.error('task-open-list: toggle failed', err);
                     }
                     this.refresh();
-                    this.dispatchEvent(new CustomEvent('task-open-list:completed', {
+                    this.dispatchEvent(new CustomEvent('task:completed', {
                         bubbles: true, composed: true, detail: { id: res.id, comment: res.comment || '' },
                     }));
                 });

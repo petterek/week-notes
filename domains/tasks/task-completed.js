@@ -49,10 +49,17 @@ class TaskCompleted extends WNElement {
 
     css() { return STYLES; }
 
+    refresh() { if (this.service) this._load(); }
+
     connectedCallback() {
         super.connectedCallback();
         if (this.service) this._load();
     }
+
+    // Notification methods. The host page listens for global task events
+    // and calls the matching method on each list component.
+    taskCompleted()   { this.refresh(); }
+    taskUncompleted() { this.refresh(); }
 
     attributeChangedCallback(name, oldVal, newVal) {
         super.attributeChangedCallback(name, oldVal, newVal);
