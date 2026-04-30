@@ -715,12 +715,27 @@ function extractResults(noteText) {
 function extractInlineTasks(noteText) {
     if (!noteText) return { tasks: [], cleanNote: noteText || '' };
     const extracted = [];
-    const clean = noteText.replace(/\{\{([^{}]+)\}\}/g, (_, inner) => {
+    const clean = noteText.replace(/\{\{([^{}]+)\}\}/g, (m, inner) => {
+        // Close markers ({{!id}}) are handled separately by extractCloseMarkers.
+        if (inner.trim().startsWith('!')) return m;
         const trimmed = inner.trim();
         if (trimmed) extracted.push(trimmed);
         return trimmed;
     });
     return { tasks: extracted, cleanNote: clean };
+}
+
+// Pull {{!taskId}} close markers out of the note. Returns the list of task
+// IDs to close and the note with markers stripped (whitespace tidied).
+function extractCloseMarkers(noteText) {
+    if (!noteText) return { closedIds: [], cleanNote: noteText || '' };
+    const ids = [];
+    const clean = noteText.replace(/\{\{!\s*([^{}\s]+)\s*\}\}/g, (_, id) => {
+        const trimmed = String(id).trim();
+        if (trimmed) ids.push(trimmed);
+        return '';
+    });
+    return { closedIds: ids, cleanNote: clean };
 }
 
 // Set a task note: extract results, sync mentions, return cleaned note
@@ -7524,6 +7539,7 @@ activateTab(initialParams.tab || 'people');
             let finalContent = content;
             let createdTasks = 0;
             let createdResults = 0;
+            let closedTasks = 0;
             if (!autosave) {
                 const noteWeek = (typeof folder === 'string' && /^\d{4}-W\d{2}$/.test(folder)) ? folder : getCurrentYearWeek();
                 const inline = extractInlineTasks(finalContent);
@@ -7541,6 +7557,24 @@ activateTab(initialParams.tab || 'people');
                     saveTasks(allTasks);
                     createdTasks = inline.tasks.length;
                     finalContent = inline.cleanNote;
+                }
+                const closeMarks = extractCloseMarkers(finalContent);
+                if (closeMarks.closedIds.length > 0) {
+                    const allTasks = loadTasks();
+                    let changed = false;
+                    const nowIso = new Date().toISOString();
+                    for (const id of closeMarks.closedIds) {
+                        const t = allTasks.find(t => t.id === id);
+                        if (t && !t.done) {
+                            t.done = true;
+                            t.completedWeek = noteWeek;
+                            t.completedAt = nowIso;
+                            changed = true;
+                        }
+                    }
+                    if (changed) saveTasks(allTasks);
+                    closedTasks = closeMarks.closedIds.length;
+                    finalContent = closeMarks.cleanNote;
                 }
                 const ext = extractResults(finalContent);
                 if (ext.results.length > 0) {
@@ -7570,7 +7604,7 @@ activateTab(initialParams.tab || 'people');
             }
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: true, path: `/${folder}/${file}`, content: finalContent, createdTasks, createdResults }));
+            res.end(JSON.stringify({ ok: true, path: `/${folder}/${file}`, content: finalContent, createdTasks, createdResults, closedTasks }));
 
             const now = new Date().toISOString();
             const existing = getNoteMeta(folder, file);

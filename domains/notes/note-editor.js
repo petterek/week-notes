@@ -251,6 +251,7 @@ class NoteEditor extends WNElement {
         this._renderPreview();
         this._loadThemeSuggestions();
         this._installHashTagAutocomplete();
+        this._installCloseTaskAutocomplete();
 
         this._saveBtn.addEventListener('click', () => this.save(false));
         if (saveCloseBtn) saveCloseBtn.addEventListener('click', () => this.save(true));
@@ -627,6 +628,132 @@ class NoteEditor extends WNElement {
             if (!btn) return;
             e.preventDefault();
             accept(btn.dataset.add);
+        });
+    }
+
+    _installCloseTaskAutocomplete() {
+        if (!this._contentEl) return;
+        const ta = this._contentEl;
+        const tasksSvc = (typeof this.serviceFor === 'function') ? this.serviceFor('task') : null;
+        if (!tasksSvc || typeof tasksSvc.list !== 'function') return;
+
+        const pop = document.createElement('div');
+        pop.className = 'ne-closetask-pop';
+        pop.hidden = true;
+        Object.assign(pop.style, {
+            position: 'fixed', zIndex: '1000',
+            background: 'var(--surface, #fff)',
+            border: '1px solid var(--border, #ccc)',
+            borderRadius: '6px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+            maxHeight: '240px', overflow: 'auto',
+            padding: '4px 0', minWidth: '240px',
+            font: 'inherit',
+        });
+        this.shadowRoot.appendChild(pop);
+
+        let openTasks = null;
+        const ensureLoaded = async () => {
+            if (openTasks) return openTasks;
+            try {
+                const all = await tasksSvc.list();
+                openTasks = (Array.isArray(all) ? all : []).filter(t => !t.done);
+            } catch (_) { openTasks = []; }
+            return openTasks;
+        };
+
+        let activeIdx = -1;
+        let matchStart = -1;
+        let matchEnd = -1;
+        let currentItems = [];
+
+        const close = () => {
+            pop.hidden = true; activeIdx = -1; matchStart = -1; matchEnd = -1;
+            currentItems = []; pop.innerHTML = '';
+        };
+
+        const renderList = (items) => {
+            if (!items.length) { close(); return; }
+            currentItems = items;
+            pop.innerHTML = items.map((t, i) => `
+                <button type="button" data-id="${escapeHtml(t.id)}" style="display:block;width:100%;text-align:left;background:${i === activeIdx ? 'var(--accent-soft,#e7f1fb)' : 'transparent'};color:${i === activeIdx ? 'var(--accent,#06c)' : 'inherit'};border:none;padding:5px 12px;cursor:pointer;font:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">✓ ${escapeHtml(t.text || '(uten tekst)')}<span style="opacity:0.55;font-size:0.85em"> · ${escapeHtml(t.week || '')}</span></button>
+            `).join('');
+            pop.hidden = false;
+        };
+
+        const positionPop = () => {
+            const pos = this._caretCoords(ta);
+            const r = ta.getBoundingClientRect();
+            pop.style.left = (r.left + pos.left + 2) + 'px';
+            pop.style.top  = (r.top  + pos.top  + pos.height + 2) + 'px';
+        };
+
+        const update = async () => {
+            const caret = ta.selectionStart;
+            if (caret !== ta.selectionEnd) { close(); return; }
+            const text = ta.value;
+            // Find '{{!' looking back. Stop at line break, '}', or '{{' nesting break.
+            const upto = text.slice(0, caret);
+            const idx = upto.lastIndexOf('{{!');
+            if (idx < 0) { close(); return; }
+            const between = upto.slice(idx + 3);
+            if (/[\n}]/.test(between)) { close(); return; }
+            // Don't trigger if a '}}' has already been typed inside this fragment.
+            await ensureLoaded();
+            if (!openTasks || !openTasks.length) { close(); return; }
+            const f = between.trim().toLowerCase();
+            const matches = openTasks.filter(t => !f || (t.text || '').toLowerCase().includes(f)).slice(0, 8);
+            if (!matches.length) { close(); return; }
+            matchStart = idx;
+            matchEnd = caret;
+            if (activeIdx >= matches.length) activeIdx = matches.length - 1;
+            if (activeIdx < 0) activeIdx = 0;
+            renderList(matches);
+            positionPop();
+        };
+
+        const accept = (taskId) => {
+            if (matchStart < 0) return;
+            // Replace '{{!filter' (and any trailing '}}' if user already typed it) with '{{!id}} '.
+            let endIdx = matchEnd;
+            // If the user already typed '}}' right after the caret, swallow it.
+            if (ta.value.slice(endIdx, endIdx + 2) === '}}') endIdx += 2;
+            const insert = `{{!${taskId}}} `;
+            const before = ta.value.slice(0, matchStart);
+            const after = ta.value.slice(endIdx);
+            ta.value = before + insert + after;
+            const pos = matchStart + insert.length;
+            try { ta.setSelectionRange(pos, pos); } catch (_) {}
+            close();
+            this._renderPreview();
+            this._markDirty();
+            ta.focus();
+        };
+
+        ta.addEventListener('input', update);
+        ta.addEventListener('click', update);
+        ta.addEventListener('keyup', (e) => {
+            if (['ArrowUp', 'ArrowDown', 'Enter', 'Escape', 'Tab'].includes(e.key)) return;
+            update();
+        });
+        ta.addEventListener('keydown', (e) => {
+            if (pop.hidden) return;
+            const items = pop.querySelectorAll('button[data-id]');
+            if (!items.length) return;
+            if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx = (activeIdx + 1) % items.length; renderList(currentItems); }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx = (activeIdx - 1 + items.length) % items.length; renderList(currentItems); }
+            else if (e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault();
+                const id = items[activeIdx >= 0 ? activeIdx : 0].dataset.id;
+                accept(id);
+            } else if (e.key === 'Escape') { e.preventDefault(); close(); }
+        });
+        ta.addEventListener('blur', () => setTimeout(close, 150));
+        pop.addEventListener('mousedown', (e) => {
+            const btn = e.target.closest('button[data-id]');
+            if (!btn) return;
+            e.preventDefault();
+            accept(btn.dataset.id);
         });
     }
 
