@@ -10,6 +10,11 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (note editor: keep {{!id}} in source, render as ~~text~~)
+- Når du velger en oppgave i `{{!`-popoveren settes nå `{{!<id>}}` inn i selve teksten (kompakt og stabil mens man redigerer).
+- Forhåndsvisningen viser `{{!<id>}}` som `~~<oppgavetekst>~~` (gjennomstreking).
+- Ved eksplisitt lagring erstatter serveren `{{!<id>}}` med `~~<oppgavetekst>~~` i den lagrede markdownen, og lukker oppgaven.
+
 ### 2026-04-30 (note editor: commit explicit saves to git)
 - Ved eksplisitt lagring av et notat committes endringen automatisk til kontekstens git-repo (`data/<ctx>/`) med melding `Opprett`/`Oppdater <uke>/<fil>`. Autosave committes ikke.
 - Ved init/oppdatering legges `.*.autosave` i `.gitignore` slik at midlertidige autosave-filer aldri havner i historikken.

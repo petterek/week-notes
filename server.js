@@ -7586,27 +7586,32 @@ activateTab(initialParams.tab || 'people');
                     createdTasks = inline.tasks.length;
                     finalContent = inline.cleanNote;
                 }
-                const closeMarks = extractCloseMarkers(finalContent);
-                if (closeMarks.closedIds.length > 0) {
+                // Process '{{!<id>}}' close markers: close the matching open
+                // task and replace the marker with '~~<task text>~~' so the
+                // saved file renders as strikethrough. Keeps a stable visual
+                // record in the note while the source stays compact when
+                // typing.
+                {
                     const allTasks = loadTasks();
-                    let changed = false;
-                    const nowIso = new Date().toISOString();
-                    for (const id of closeMarks.closedIds) {
-                        const t = allTasks.find(t => t.id === id);
-                        if (t && !t.done) {
+                    const re = /\{\{!\s*([^{}\s]+)\s*\}\}/g;
+                    const seen = new Set();
+                    finalContent = finalContent.replace(re, (m, id) => {
+                        const t = allTasks.find(x => x.id === id);
+                        if (!t) return m; // unknown id — leave marker as-is
+                        if (!t.done) {
                             t.done = true;
                             t.completedWeek = noteWeek;
-                            t.completedAt = nowIso;
-                            changed = true;
+                            t.completedAt = new Date().toISOString();
+                            if (!seen.has(id)) { closedTasks++; seen.add(id); }
                         }
-                    }
-                    if (changed) saveTasks(allTasks);
-                    closedTasks = closeMarks.closedIds.length;
-                    finalContent = closeMarks.cleanNote;
+                        return `~~${t.text || id}~~`;
+                    });
+                    if (seen.size > 0) saveTasks(allTasks);
                 }
-                // Also close any open task whose text appears as __<task text>__
-                // in the (already-cleaned) note content. The marker stays in
-                // the file so the saved markdown renders as bold visual cue.
+                // Also close any open task whose text appears verbatim as
+                // '~~<task text>~~' (e.g. user-typed strikethrough or the
+                // already-substituted marker on a re-save). The marker is
+                // left in place.
                 {
                     const allTasks = loadTasks();
                     const openByText = allTasks.filter(t => !t.done && t.text);

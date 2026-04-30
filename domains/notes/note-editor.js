@@ -324,12 +324,44 @@ class NoteEditor extends WNElement {
             return;
         }
         if (!this._previewEl) return;
-        this._previewEl.value = this._contentEl ? this._contentEl.value : '';
+        const raw = this._contentEl ? this._contentEl.value : '';
+        this._previewEl.value = this._previewTransform(raw);
+    }
+
+    // Replace '{{!<id>}}' close markers with '~~<task text>~~' for preview
+    // rendering only. The textarea/source keeps the compact id form; the
+    // server applies the same substitution on explicit save.
+    _previewTransform(md) {
+        if (!md) return md;
+        const map = this._taskTextById;
+        if (!map) {
+            // Lazy-load on first preview render. When ready, re-render.
+            this._loadTaskTexts();
+        }
+        return md.replace(/\{\{!\s*([^{}\s]+)\s*\}\}/g, (m, id) => {
+            const text = map && map[id];
+            if (!text) return m;
+            return `~~${text}~~`;
+        });
+    }
+
+    _loadTaskTexts() {
+        if (this._taskTextLoading) return;
+        this._taskTextLoading = true;
+        const svc = (typeof this.serviceFor === 'function') ? this.serviceFor('task') : null;
+        if (!svc || typeof svc.list !== 'function') { this._taskTextById = {}; return; }
+        Promise.resolve(svc.list()).then(all => {
+            const map = {};
+            (Array.isArray(all) ? all : []).forEach(t => { if (t && t.id) map[t.id] = t.text || ''; });
+            this._taskTextById = map;
+            this._renderPreview();
+        }).catch(() => { this._taskTextById = {}; });
     }
 
     _publishPreview() {
         if (!this._pipRoot || !this._pipWindow) return;
-        const md = this._contentEl ? this._contentEl.value : '';
+        const raw = this._contentEl ? this._contentEl.value : '';
+        const md = this._previewTransform(raw);
         try {
             const m = this._pipWindow.marked;
             this._pipRoot.innerHTML = (m && m.parse) ? m.parse(md) : escapeHtml(md);
@@ -714,14 +746,13 @@ class NoteEditor extends WNElement {
 
         const accept = (taskId) => {
             if (matchStart < 0) return;
-            const task = (openTasks || []).find(t => t.id === taskId);
-            const text = (task && task.text) ? task.text : taskId;
-            // Replace '{{!filter' (and trailing '}}' if user typed it) with the
-            // bold marker '__<task text>__'. The server matches this on save and
-            // closes the task; the marker remains as a bold visual cue.
+            // Insert the close marker as '{{!<id>}}' so the textarea stays
+            // compact and stable. The preview renders this as
+            // '~~<task text>~~' (strikethrough); the server replaces the
+            // marker with the strikethrough form on explicit save.
             let endIdx = matchEnd;
             if (ta.value.slice(endIdx, endIdx + 2) === '}}') endIdx += 2;
-            const insert = `~~${text}~~`;
+            const insert = `{{!${taskId}}} `;
             const before = ta.value.slice(0, matchStart);
             const after = ta.value.slice(endIdx);
             ta.value = before + insert + after;
