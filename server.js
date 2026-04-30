@@ -3441,11 +3441,13 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             'today-calendar': {
                 desc: `<p><strong>&lt;today-calendar&gt;</strong> is a sidebar widget that shows <em>today</em>'s meetings inside a single-day <code>&lt;week-calendar&gt;</code> column. Used on the home page below <code>&lt;upcoming-meetings&gt;</code>.</p>
                     <p><strong>Domain:</strong> <code>meetings</code> &mdash; primary service from <code>meetings_service</code> (<code>list({ week })</code> + <code>listTypes()</code>). Also fetches <code>/api/contexts</code> for <code>workHours</code> / <code>visibleStartHour</code> / <code>visibleEndHour</code> and propagates them to the inner grid.</p>
+                    <p><strong>Create.</strong> A <code>+ Nytt</code> button in the heading and a right-click / dblclick on the grid both open an overlay with <code>&lt;meeting-create&gt;</code>. Pre-fills date/time from the picked slot (or today, blank time, when opened from the header button), with end = start + <code>defaultMeetingMinutes</code> from settings. Esc / backdrop / ✕ closes. On <code>meeting-create:created</code> the overlay closes and the grid re-loads.</p>
                     <p><strong>Auto-advance.</strong> Listens to <code>nav-meta:newDay</code> on <code>document</code>, so when the wall clock crosses midnight the heading and grid roll over without a page reload. Also re-loads on <code>context-selected</code>.</p>
                     <p><strong>Events.</strong> Forwards <code>week-calendar:item-selected</code> and <code>open-item-selected</code> from the inner grid (bubbles).</p>`,
                 tag: 'today-calendar',
                 attrs: [
                     { name: 'meetings_service', type: 'text', default: 'MockMeetingsService' },
+                    { name: 'settings_service', type: 'text', default: 'MockSettingsService' },
                 ],
             },
             'results-page': {

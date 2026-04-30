@@ -10,6 +10,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (today-calendar create)
+- **`<today-calendar>`** can now create meetings: a `+ Nytt` button in the heading and a right-click / dblclick on the grid open an overlay with `<meeting-create>` (pre-filled with today's date or the picked slot). On save the overlay closes and the grid reloads.
+
 ### 2026-04-29 (today calendar on home)
 - **`<today-calendar>`** added to the home page sidebar, below `<upcoming-meetings>`. Wraps a single-day `<week-calendar>` (start = end = today) and loads today's meetings from the meetings service. Picks up the active context's `workHours` / `visibleStartHour` / `visibleEndHour` from `/api/contexts`. Auto-rolls over at midnight via `nav-meta:newDay` and re-loads on `context-selected`. Heading shows the localized day + date.
 

@@ -22,6 +22,14 @@ import { WNElement, html, isoWeek, unsafeHTML } from './_shared.js';
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 
+function addMinutes(hhmm, mins) {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm || ''); if (!m) return hhmm;
+    let total = (+m[1]) * 60 + (+m[2]) + (+mins || 0);
+    total = Math.max(0, Math.min(23 * 60 + 59, total));
+    const h = Math.floor(total / 60), mi = total % 60;
+    return pad2(h) + ':' + pad2(mi);
+}
+
 function todayStr() {
     const d = new Date();
     return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
@@ -60,17 +68,46 @@ const STYLES = `
         font-family: var(--font-heading); font-weight: 400;
         color: var(--accent); border-bottom: 1px solid var(--border-soft);
         padding-bottom: 6px; margin: 18px 0 10px; font-size: 1.05em;
+        display: flex; align-items: center; gap: 8px;
     }
+    .side-h .label { flex: 1; }
+    .new-btn {
+        padding: 2px 10px; border: 1px solid var(--accent); background: var(--accent);
+        color: var(--text-on-accent); border-radius: 5px; cursor: pointer;
+        font: inherit; font-size: 0.85em;
+    }
+    .new-btn:hover { background: var(--accent-strong); }
     .today-cal-link {
         margin-top: 8px; text-align: right; font-size: 0.85em;
     }
     .today-cal-link a { color: var(--accent); text-decoration: none; }
     week-calendar { display: block; }
+    .overlay {
+        display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+        z-index: 1000; align-items: flex-start; justify-content: center;
+        padding: 5vh 16px; box-sizing: border-box; overflow-y: auto;
+    }
+    .overlay.open { display: flex; }
+    .overlay-card {
+        background: var(--surface); border: 1px solid var(--border-soft);
+        border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+        padding: 18px 20px; width: min(560px, 100%); box-sizing: border-box;
+    }
+    .overlay-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .overlay-head h2 {
+        margin: 0; font-family: var(--font-heading); font-weight: 400;
+        color: var(--accent); font-size: 1.1em; flex: 1;
+    }
+    .overlay-head button {
+        background: transparent; border: 0; color: var(--text-muted);
+        font-size: 1.3em; cursor: pointer; padding: 0 4px;
+    }
+    .overlay-head button:hover { color: var(--text-strong); }
 `;
 
 class TodayCalendar extends WNElement {
     static get domain() { return 'meetings'; }
-    static get observedAttributes() { return ['meetings_service']; }
+    static get observedAttributes() { return ['meetings_service', 'settings_service', 'context']; }
 
     css() { return STYLES; }
 
@@ -84,12 +121,19 @@ class TodayCalendar extends WNElement {
         document.addEventListener('nav-meta:newDay', this._onNewDay);
         this._onCtx = () => { this._loadSettings().then(() => this._apply()); };
         document.addEventListener('context-selected', this._onCtx);
+        this._onEsc = (ev) => {
+            if (ev.key !== 'Escape') return;
+            const overlay = this.shadowRoot && this.shadowRoot.querySelector('[data-create-panel]');
+            if (overlay && overlay.classList.contains('open')) this._closeCreate();
+        };
+        document.addEventListener('keydown', this._onEsc);
         this._loadSettings().then(() => this._apply());
     }
 
     disconnectedCallback() {
         if (this._onNewDay) document.removeEventListener('nav-meta:newDay', this._onNewDay);
         if (this._onCtx)    document.removeEventListener('context-selected', this._onCtx);
+        if (this._onEsc)    document.removeEventListener('keydown', this._onEsc);
     }
 
     attributeChangedCallback(name, oldVal, newVal) {
@@ -98,11 +142,80 @@ class TodayCalendar extends WNElement {
     }
 
     render() {
+        const svcAttr = this.getAttribute('meetings_service') || '';
+        const setAttr = this.getAttribute('settings_service') || '';
+        const ctxAttr = this.getAttribute('context') || '';
         return html`
-            <h3 class="side-h">📅 I dag · ${todayLabel()}</h3>
+            <h3 class="side-h">
+                <span class="label">📅 I dag · ${todayLabel()}</span>
+                <button type="button" class="new-btn" data-new title="Nytt møte">+ Nytt</button>
+            </h3>
             ${html`<week-calendar></week-calendar>`}
             <div class="today-cal-link">${unsafeHTML('<a href="/calendar">Åpne kalender →</a>')}</div>
+            <div class="overlay" data-create-panel>
+                <div class="overlay-card" data-overlay-card>
+                    <div class="overlay-head">
+                        <h2>Nytt møte</h2>
+                        <button type="button" data-overlay-close title="Lukk">✕</button>
+                    </div>
+                    ${html`<meeting-create meetings_service="${svcAttr}" settings_service="${setAttr}" context="${ctxAttr}"></meeting-create>`}
+                </div>
+            </div>
         `;
+    }
+
+    _wireOverlay() {
+        if (this._wired) return;
+        this._wired = true;
+        const sr = this.shadowRoot;
+        sr.addEventListener('click', (ev) => {
+            const newBtn = ev.target.closest('[data-new]');
+            if (newBtn) { this._openCreate({}); return; }
+            const closeBtn = ev.target.closest('[data-overlay-close]');
+            if (closeBtn) { this._closeCreate(); return; }
+            const overlay = ev.target.closest('[data-create-panel]');
+            const card = ev.target.closest('[data-overlay-card]');
+            if (overlay && !card) { this._closeCreate(); return; }
+        });
+        sr.addEventListener('datePeriodSelected', (ev) => {
+            const d = ev.detail || {};
+            const type = (d.type && d.type !== 'none') ? d.type : '';
+            this._openCreate({ date: d.date, time: d.time, type });
+        });
+        sr.addEventListener('meeting-create:created', () => {
+            this._closeCreate();
+            this._apply();
+        });
+        sr.addEventListener('meeting-create:cancel', () => this._closeCreate());
+    }
+
+    _openCreate({ date, time, type } = {}) {
+        const sr = this.shadowRoot;
+        const overlay = sr.querySelector('[data-create-panel]');
+        const form = sr.querySelector('meeting-create');
+        if (!overlay || !form) return;
+        const useDate = date || this._date;
+        if (useDate) form.setAttribute('date', useDate); else form.removeAttribute('date');
+        if (time) {
+            form.setAttribute('start', time);
+            const dur = (this._settings && +this._settings.defaultMeetingMinutes) || 60;
+            form.setAttribute('end', addMinutes(time, dur));
+        } else {
+            form.removeAttribute('start');
+            form.removeAttribute('end');
+        }
+        if (type) form.setAttribute('type', type); else form.removeAttribute('type');
+        overlay.classList.add('open');
+        setTimeout(() => {
+            const root = form.shadowRoot;
+            const t = root && root.querySelector('input[name=title]');
+            if (t) t.focus();
+        }, 30);
+    }
+
+    _closeCreate() {
+        const overlay = this.shadowRoot && this.shadowRoot.querySelector('[data-create-panel]');
+        if (overlay) overlay.classList.remove('open');
     }
 
     async _loadSettings() {
@@ -157,6 +270,7 @@ class TodayCalendar extends WNElement {
         this.requestRender();
         // Wait for next microtask so the fresh shadow DOM is ready
         await Promise.resolve();
+        this._wireOverlay();
         const cal = this.shadowRoot.querySelector('week-calendar');
         if (!cal) return;
         cal.setAttribute('start-date', this._date);
