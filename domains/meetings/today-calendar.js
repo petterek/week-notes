@@ -150,7 +150,7 @@ class TodayCalendar extends WNElement {
         return html`
             <h3 class="side-h">
                 <span class="label">📅 I dag · ${todayLabel()}</span>
-                <button type="button" class="new-btn" data-new title="Nytt møte">+ Nytt</button>
+                <button type="button" class="new-btn" data-new title="Nytt møte">+</button>
             </h3>
             ${html`<week-calendar></week-calendar>`}
             <div class="today-cal-link">${unsafeHTML('<a href="/calendar">Åpne kalender →</a>')}</div>

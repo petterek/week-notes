@@ -200,7 +200,7 @@ class TaskOpenList extends WNElement {
         const headerWithAdd = (countLabel) => html`
             <h3 class="side-h">
                 <span class="side-h-title">Åpne oppgaver${countLabel ? ' · ' + countLabel : ''}</span>
-                <button type="button" class="add-btn" data-act="add" title="Ny oppgave">+ Nytt</button>
+                <button type="button" class="add-btn" data-act="add" title="Ny oppgave">+</button>
             </h3>
         `;
         const tasksSvcPath = this.getAttribute('tasks_service') || '';
