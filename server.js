@@ -8799,6 +8799,60 @@ activateTab(initialParams.tab || 'people');
         return;
     }
 
+    // API: list/preview/run data migrations for a context.
+    // GET  → dry-run (preview what would change).
+    // POST → actually run, with optional { quarantine, commit }.
+    const ctxMigrateMatch = pathname.match(/^\/api\/contexts\/([^/]+)\/migrations$/);
+    if (ctxMigrateMatch && (req.method === 'GET' || req.method === 'POST')) {
+        const id = safeName(ctxMigrateMatch[1]);
+        if (!listContexts().includes(id)) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Kontekst finnes ikke' }));
+            return;
+        }
+        const runMigrate = (opts) => {
+            const args = ['scripts/migrate-context.js', '--ctx', id, '--json'];
+            if (opts.dryRun) args.push('--dry-run');
+            if (opts.quarantine) args.push('--quarantine');
+            if (opts.commit) args.push('--commit');
+            if (opts.only && opts.only.length) args.push('--only', opts.only.join(','));
+            try {
+                const out = require('child_process').execFileSync(process.execPath, args, {
+                    cwd: __dirname,
+                    encoding: 'utf-8',
+                    timeout: 120000,
+                });
+                let parsed = null;
+                try { parsed = JSON.parse(out); } catch {}
+                return parsed
+                    ? Object.assign({ ok: true }, parsed)
+                    : { ok: true, output: out };
+            } catch (e) {
+                return { ok: false, error: e.message, output: (e.stdout || '') + (e.stderr || '') };
+            }
+        };
+        if (req.method === 'GET') {
+            const r = runMigrate({ dryRun: true });
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(r));
+            return;
+        }
+        let body = '';
+        req.on('data', c => body += c);
+        req.on('end', () => {
+            let opts = {};
+            try { opts = JSON.parse(body || '{}'); } catch {}
+            const r = runMigrate({
+                quarantine: !!opts.quarantine,
+                commit: opts.commit !== false,
+                only: Array.isArray(opts.only) ? opts.only : null,
+            });
+            res.writeHead(r.ok ? 200 : 500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(r));
+        });
+        return;
+    }
+
     // API: get rendered note content
     const noteViewMatch = pathname.match(/^\/api\/notes\/([^/]+)\/([^/]+)\/render$/);
     if (noteViewMatch && req.method === 'GET') {

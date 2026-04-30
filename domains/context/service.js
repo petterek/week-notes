@@ -36,4 +36,7 @@ export const ContextService = {
     gitStatus:          (id)        => req('GET',    `/api/contexts/${enc(id)}/git`),
     push:               (id)        => req('POST',   `/api/contexts/${enc(id)}/push`),
     pull:               (id)        => req('POST',   `/api/contexts/${enc(id)}/pull`),
+
+    previewMigrations:  (id)        => req('GET',    `/api/contexts/${enc(id)}/migrations`),
+    runMigrations:      (id, opts)  => req('POST',   `/api/contexts/${enc(id)}/migrations`, opts || {}),
 };

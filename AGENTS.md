@@ -249,6 +249,13 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3001/settings
   `## 📜 Changelog` section above Features; add a bullet under the
   current date for every notable change being shipped, then include
   the README update in the push.
+- **Release tags as migration anchors.** When shipping a breaking data
+  shape change, first tag the previous stable point on GitHub
+  (`git tag -a vN <sha> && git push origin vN`). New entries in
+  `scripts/migrate-context.js` should use the `appliesBeforeTag('vN')`
+  helper so contexts whose `.week-notes` marker pre-dates the tag get
+  migrated; never hard-code arbitrary commit SHAs in `appliesTo`.
+  Current tags: `v1` → `fc809ad`.
 
 ---
 

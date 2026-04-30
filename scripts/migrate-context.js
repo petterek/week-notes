@@ -48,6 +48,29 @@ function isAncestor(maybeAncestor, descendant) {
     } catch { return false; }
 }
 
+function resolveRef(ref) {
+    // Resolve a git ref (tag/branch/sha) to a full SHA. Returns null if unknown.
+    try {
+        return execSync(`git rev-parse ${ref}^{commit}`, { cwd: REPO_ROOT, encoding: 'utf-8' }).trim();
+    } catch { return null; }
+}
+
+// Convention: anchor `appliesTo` cutoffs on release tags, not arbitrary
+// commit hashes. Use `appliesBeforeTag('v1')` so a migration runs when
+// the context's marker points at a commit *older than* the tag (or at an
+// untagged/unknown state).
+function appliesBeforeTag(tag) {
+    const tagSha = resolveRef(tag);
+    if (!tagSha) return () => false;
+    return (markerHash /*, dir */) => {
+        if (!markerHash || markerHash === 'unknown') return true;
+        // Marker is "before tag" iff marker is an ancestor of tag AND
+        // marker !== tag itself.
+        if (markerHash === tagSha) return false;
+        return isAncestor(markerHash, tagSha);
+    };
+}
+
 function readMarker(dir) {
     try {
         return JSON.parse(fs.readFileSync(path.join(dir, MARKER), 'utf-8'));
@@ -321,8 +344,20 @@ const MIGRATIONS = [
         },
         run: migrateGitignore,
     },
-    // Future migrations: append here. Each can use `appliesTo: (hash, dir) => …`
-    // with `isAncestor(hash, currentHead())`-style cutoffs if needed.
+    // Future migrations: append here.
+    //
+    // Convention: tie cutoffs to release tags, not arbitrary commits, e.g.:
+    //
+    //   {
+    //       id: 'rename-foo',
+    //       description: 'Rename foo → bar in tasks.json',
+    //       appliesTo: appliesBeforeTag('v1'),  // runs if marker pre-dates v1
+    //       run: migrateFoo,
+    //   }
+    //
+    // Tag releases on GitHub (`git tag -a vN <sha> && git push origin vN`)
+    // before introducing breaking data shape changes, so contexts always
+    // have a stable anchor to compare their `.week-notes` marker against.
 ];
 
 // ------------------------------------------------------------------
@@ -333,9 +368,12 @@ function migrateCtx(ctxId, opts) {
     const dir = path.join(DATA_ROOT, ctxId);
     if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
         console.error(`Context not found: ${ctxId}`);
-        return false;
+        return null;
     }
-    const log = (...args) => console.log(...args);
+    const lines = [];
+    const log = opts.json
+        ? ((...args) => lines.push(args.join(' ')))
+        : ((...args) => console.log(...args));
     const head = currentHead();
     const marker = readMarker(dir);
     const fromHash = (marker && marker.version) || 'unknown';
@@ -346,10 +384,22 @@ function migrateCtx(ctxId, opts) {
         log(`  ✓ already at HEAD; checking migrations defensively…`);
     }
 
+    const onlySet = opts.only && opts.only.length ? new Set(opts.only) : null;
+    const migrationStates = MIGRATIONS.map(m => ({
+        id: m.id,
+        description: m.description,
+        applies: !!m.appliesTo(fromHash, dir),
+    }));
+
     let totalChanges = 0;
     const ranIds = [];
     for (const mig of MIGRATIONS) {
-        if (!mig.appliesTo(fromHash, dir)) continue;
+        const applies = mig.appliesTo(fromHash, dir);
+        if (!applies) continue;
+        if (onlySet && !onlySet.has(mig.id)) {
+            log(`  ⊝ ${mig.id}: skipped (not selected)`);
+            continue;
+        }
         log(`  → ${mig.id}: ${mig.description}`);
         const n = mig.run(dir, { dryRun: !!opts.dryRun, log });
         log(`    (${n} change${n === 1 ? '' : 's'})`);
@@ -365,9 +415,14 @@ function migrateCtx(ctxId, opts) {
     const inv = inventoryContext(dir, { dryRun: !!opts.dryRun, quarantine: !!opts.quarantine, log });
     if (inv.unknowns.length > 0 && !opts.dryRun && opts.quarantine) totalChanges += inv.unknowns.length;
 
-    if (!opts.dryRun && head !== 'unknown') {
+    // Only bump the marker when we ran *all* applicable migrations
+    // (otherwise we'd lose track of pending ones).
+    const ranAll = !onlySet;
+    if (!opts.dryRun && head !== 'unknown' && ranAll) {
         writeMarker(dir, head);
         log(`  marker → ${head}`);
+    } else if (!opts.dryRun && !ranAll) {
+        log(`  (selective run: marker not bumped)`);
     } else if (opts.dryRun) {
         log(`  (dry-run: marker not updated)`);
     }
@@ -375,14 +430,24 @@ function migrateCtx(ctxId, opts) {
     if (opts.commit && !opts.dryRun && totalChanges > 0) {
         try {
             execSync(`git add -A`, { cwd: dir });
-            execSync(`git -c user.email="ukenotater@local" -c user.name="Ukenotater" commit -m "Migrer kontekst (${ranIds.join(', ') || 'ingen migreringer'}) til ${head.slice(0, 7)}" --no-verify`, { cwd: dir });
+            execSync(`git -c user.email="ukenotater@local" -c user.name="Ukenotater" commit -m "Migrer kontekst (${ranIds.join(', ') || 'ingen migreringer'})${ranAll ? ` til ${head.slice(0, 7)}` : ''}" --no-verify`, { cwd: dir });
             log(`  ✓ committed in ${ctxId}`);
         } catch (e) {
             log(`  (git commit failed or nothing to commit: ${e.message.split('\n')[0]})`);
         }
     }
 
-    return true;
+    return {
+        ctx: ctxId,
+        marker: fromHash,
+        target: head,
+        migrations: migrationStates,
+        ranIds,
+        totalChanges,
+        unknowns: inv.unknowns.map(u => u.relPath),
+        jsonProblems: inv.jsonProblems,
+        output: lines.join('\n'),
+    };
 }
 
 function main() {
@@ -393,6 +458,8 @@ function main() {
         dryRun: false,
         commit: false,
         quarantine: false,
+        json: false,
+        only: null,
     };
     for (let i = 0; i < args.length; i++) {
         const a = args[i];
@@ -401,9 +468,13 @@ function main() {
         else if (a === '--dry-run') opts.dryRun = true;
         else if (a === '--commit') opts.commit = true;
         else if (a === '--quarantine') opts.quarantine = true;
+        else if (a === '--json') opts.json = true;
+        else if (a === '--only') opts.only = String(args[++i] || '').split(',').map(s => s.trim()).filter(Boolean);
         else if (a === '-h' || a === '--help') {
-            console.log('Usage: node scripts/migrate-context.js [--ctx <id> | --all] [--dry-run] [--commit] [--quarantine]');
+            console.log('Usage: node scripts/migrate-context.js [--ctx <id> | --all] [--dry-run] [--commit] [--quarantine] [--json] [--only id1,id2]');
             console.log('  --quarantine  move unknown root files / non-md files in week dirs into _quarantine/<timestamp>/');
+            console.log('  --json        emit a JSON report (suppresses normal stdout logging)');
+            console.log('  --only        run only the listed migrations (marker is not bumped on selective runs)');
             return;
         } else {
             console.error(`Unknown arg: ${a}`);
@@ -421,7 +492,14 @@ function main() {
             .map(d => d.name)
         : [opts.ctx];
 
-    for (const id of targets) migrateCtx(id, opts);
+    const results = [];
+    for (const id of targets) {
+        const r = migrateCtx(id, opts);
+        if (r) results.push(r);
+    }
+    if (opts.json) {
+        process.stdout.write(JSON.stringify(opts.all ? results : (results[0] || null), null, 2) + '\n');
+    }
 }
 
 main();

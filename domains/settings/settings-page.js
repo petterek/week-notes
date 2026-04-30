@@ -625,6 +625,17 @@ class SettingsPage extends WNElement {
                         <button type="button" data-git-disconnect style="margin-left:auto;color:var(--danger);border-color:var(--danger)">🔌 Koble fra</button>
                     </div>
                     <div class="git-status-msg" data-git-msg style="margin-top:8px;font-size:0.85em"></div>
+                    <fieldset style="margin-top:14px">
+                        <legend>Migreringer</legend>
+                        <p style="font-size:0.85em;color:var(--text-muted);margin:0 0 8px">Datamigreringer for å bringe kontekstmappen i samsvar med gjeldende app-versjon.</p>
+                        <div data-mig-list style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">⏳ Laster…</div>
+                        <pre data-mig-output style="background:var(--bg);border:1px solid var(--border-soft);border-radius:6px;padding:8px;font-size:0.82em;white-space:pre-wrap;max-height:240px;overflow:auto;margin:0;display:none"></pre>
+                        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                            <button type="button" data-mig-preview>🔍 Forhåndsvis</button>
+                            <label style="font-size:0.85em;display:inline-flex;align-items:center;gap:4px"><input type="checkbox" data-mig-quarantine> Quarantine ukjente filer</label>
+                            <button type="button" data-mig-run style="margin-left:auto">▶️ Kjør valgte</button>
+                        </div>
+                    </fieldset>
                 </fieldset>
             </div>
             <div class="actions">
@@ -1003,6 +1014,79 @@ class SettingsPage extends WNElement {
             action('Pull', () => ctxSvc.pull(id));
         });
         wire('[data-git-refresh]', () => this._loadGitInfo(detailEl));
+
+        const migOut = detailEl.querySelector('[data-mig-output]');
+        const migList = detailEl.querySelector('[data-mig-list]');
+        const migQuar = detailEl.querySelector('[data-mig-quarantine]');
+        const migRunBtn = detailEl.querySelector('[data-mig-run]');
+
+        const renderMigList = (migrations) => {
+            if (!migList) return;
+            if (!migrations || !migrations.length) {
+                migList.innerHTML = '<div style="font-size:0.85em;color:var(--text-muted)">Ingen migreringer registrert.</div>';
+                if (migRunBtn) migRunBtn.disabled = true;
+                return;
+            }
+            const pending = migrations.filter(m => m.applies);
+            migList.innerHTML = migrations.map(m => {
+                const checked = m.applies ? 'checked' : '';
+                const dim = m.applies ? '' : 'opacity:0.55;';
+                const tag = m.applies
+                    ? '<span style="background:var(--accent);color:var(--accent-fg);font-size:0.7em;padding:1px 6px;border-radius:8px;margin-left:6px">PENDING</span>'
+                    : '<span style="color:var(--text-muted);font-size:0.7em;margin-left:6px">opp-til-dato</span>';
+                return `<label style="display:flex;align-items:flex-start;gap:6px;font-size:0.85em;${dim}">
+                    <input type="checkbox" data-mig-id="${escapeHtml(m.id)}" ${checked} ${m.applies ? '' : 'disabled'} style="margin-top:3px">
+                    <span><code style="font-size:0.95em">${escapeHtml(m.id)}</code>${tag}<br><span style="color:var(--text-muted)">${escapeHtml(m.description || '')}</span></span>
+                </label>`;
+            }).join('');
+            if (migRunBtn) migRunBtn.disabled = pending.length === 0;
+        };
+
+        const loadMig = async () => {
+            if (!migList) return;
+            migList.innerHTML = '⏳ Laster…';
+            try {
+                const r = await this.serviceFor('context').previewMigrations(id);
+                renderMigList(r && r.migrations);
+                if (migOut && r && r.output) {
+                    migOut.style.display = 'block';
+                    migOut.textContent = r.output;
+                }
+            } catch (e) {
+                migList.innerHTML = '<div style="color:var(--danger)">❌ ' + escapeHtml(e.message || String(e)) + '</div>';
+            }
+        };
+        if (!detailEl.dataset.migLoaded) {
+            detailEl.dataset.migLoaded = '1';
+            loadMig();
+        }
+
+        wire('[data-mig-preview]', loadMig);
+        wire('[data-mig-run]', async () => {
+            const selected = Array.from(detailEl.querySelectorAll('[data-mig-id]:checked')).map(el => el.dataset.migId);
+            if (!selected.length) {
+                alert('Ingen migreringer valgt.');
+                return;
+            }
+            if (!confirm('Kjør ' + selected.length + ' migrering(er) på ' + id + '?\n\n' + selected.join(', ') + '\n\nDette skriver endringer til disk og committer dem i kontekstens git-repo.')) return;
+            if (migOut) {
+                migOut.style.display = 'block';
+                migOut.textContent = '⏳ Kjører migrering…';
+            }
+            try {
+                const r = await this.serviceFor('context').runMigrations(id, {
+                    only: selected,
+                    quarantine: !!(migQuar && migQuar.checked),
+                    commit: true,
+                });
+                if (migOut) migOut.textContent = (r && r.output) || (r && r.error) || '(ingen utdata)';
+                renderMigList(r && r.migrations);
+                this._loadGitInfo(detailEl);
+            } catch (e) {
+                if (migOut) migOut.textContent = '❌ ' + (e.message || e);
+            }
+        });
+
         wire('[data-git-disconnect]', async () => {
             const c = this._contexts.find(x => x.id === id);
             const name = (c && c.settings && c.settings.name) || id;

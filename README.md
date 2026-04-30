@@ -10,6 +10,12 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (migrate-context: tag-anchored cutoffs)
+- Nytt hjelper `appliesBeforeTag('vN')` i `scripts/migrate-context.js` slik at framtidige migreringer kan ankres på release-tags i stedet for vilkårlige commit-SHAer. Konvensjonen er dokumentert i `AGENTS.md` under Git workflow. Første ankertag er `v1` (på `fc809ad`).
+
+### 2026-04-30 (settings: migreringer på Git-fanen)
+- Git-fanen viser nå alle registrerte datamigreringer for konteksten, hvilke som er ventende (PENDING) versus opp-til-dato, og lar deg krysse av og kjøre kun de manglende. Forhåndsvisning og `Quarantine ukjente filer`-veksling er tilgjengelig før du kjører. Drives av nye API-endepunkt `GET/POST /api/contexts/:id/migrations` som skaller ut til `scripts/migrate-context.js --json` (med nye `--json` og `--only id1,id2` flagg).
+
 ### 2026-04-30 (migrate-context: inventory + quarantine + gitignore baseline)
 - `scripts/migrate-context.js` får (1) en inventering som flagger ukjente filer i kontekstrota og ikke-`.md`-filer i ukemapper, (2) `--quarantine`-flagg som flytter dem til `_quarantine/<tidsstempel>/`, og (3) ny migrering `gitignore-baseline` som legger til `.*.swp`, `.*.swo`, `.*.autosave` i `.gitignore`. JSON-strukturen til kjente rotfiler (`settings/tasks/results/people/meetings/meeting-types/companies/places/notes-meta`) valideres også.
 
