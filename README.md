@@ -10,6 +10,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (workflow: develop branch)
+- Daglig arbeid skjer nå på `develop`-grenen. `main` flyttes kun framover ved release, og hver release-commit på `main` får tag `vN`. Workflow er dokumentert i `AGENTS.md` under "Git workflow".
+
 ### 2026-04-30 (migrate-context: tag-anchored cutoffs)
 - Nytt hjelper `appliesBeforeTag('vN')` i `scripts/migrate-context.js` slik at framtidige migreringer kan ankres på release-tags i stedet for vilkårlige commit-SHAer. Konvensjonen er dokumentert i `AGENTS.md` under Git workflow. Første ankertag er `v1` (på `fc809ad`).
 

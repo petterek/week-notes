@@ -237,7 +237,17 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3001/settings
   navbar "✓ Commit" button.
 - **The project repo itself** (this directory) is a normal git repo
   with origin `git@github.com:petterek/week-notes.git`, default branch
-  `main`.
+  `main`. **Day-to-day work happens on `develop`.** `main` only moves
+  forward at release time, and each release commit on `main` is tagged
+  `vN` (see "Release tags as migration anchors" below).
+  - Branches: `main` = released, `develop` = next release in progress.
+  - When the user says "release" / "ship v3" / similar:
+    1. ensure `develop` is green and the README changelog is up to date
+    2. `git checkout main && git merge --no-ff develop -m "Release vN"`
+    3. `git tag -a vN -m "vN — <summary>"`
+    4. `git push origin main develop vN`
+    5. update the tag list in this file
+  - Otherwise, commit/push to `develop` only.
 - Every commit must include the trailer:
   ```
   Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
@@ -255,7 +265,7 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3001/settings
   `scripts/migrate-context.js` should use the `appliesBeforeTag('vN')`
   helper so contexts whose `.week-notes` marker pre-dates the tag get
   migrated; never hard-code arbitrary commit SHAs in `appliesTo`.
-  Current tags: `v1` → `fc809ad`.
+  Current tags: `v1` → `fc809ad`, `v2` → `1d083d8`.
 
 ---
 
