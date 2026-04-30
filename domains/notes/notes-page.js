@@ -72,6 +72,8 @@ const STYLES = `
         user-select: none;
     }
     .np-chip:hover { border-color: var(--accent); }
+    .np-chip-n { color: var(--text-muted); font-weight: normal; margin-left: 2px; }
+    .np-chip.active .np-chip-n { color: var(--accent); }
     .np-chip.active {
         background: var(--accent-soft); border-color: var(--accent);
         color: var(--accent); font-weight: 600;
@@ -170,14 +172,19 @@ class NotesPage extends WNElement {
         else if (f === 'weekFrom') this._filters.weekFrom = t.value;
         else if (f === 'weekTo') this._filters.weekTo = t.value;
         else if (f === 'pinnedOnly') this._filters.pinnedOnly = !!t.checked;
-        else if (f === 'themes') {
-            const tags = Array.isArray(t.tags) ? t.tags : [];
-            this._filters.themes = new Set(tags);
-        }
         this._renderResults();
     }
 
     _onClick(e) {
+        const chip = e.composedPath().find(n => n.classList && n.classList.contains('np-chip'));
+        if (chip) {
+            const tag = chip.dataset.theme;
+            if (this._filters.themes.has(tag)) this._filters.themes.delete(tag);
+            else this._filters.themes.add(tag);
+            chip.classList.toggle('active');
+            this._renderResults();
+            return;
+        }
         const clear = e.composedPath().find(n => n.classList && n.classList.contains('np-clear'));
         if (clear) {
             this._filters = { type: '', themes: new Set(), weekFrom: '', weekTo: '', pinnedOnly: false };
@@ -241,11 +248,12 @@ class NotesPage extends WNElement {
             ...TYPES.map(t => html`<option value="${t.id}" ${this._filters.type === t.id ? 'selected' : ''}>${t.icon} ${t.label}</option>`),
         ];
 
-        const activeTags = Array.from(this._filters.themes).join(',');
-        const suggestionAttr = themes.join(',');
         const counts = {};
         for (const n of (this._all || [])) for (const t of (n.themes || [])) counts[t] = (counts[t] || 0) + 1;
-        const countsAttr = JSON.stringify(counts);
+
+        const chips = themes.length
+            ? themes.map(t => html`<span class="np-chip ${this._filters.themes.has(t) ? 'active' : ''}" data-theme="${t}">#${t} <span class="np-chip-n">(${counts[t] || 0})</span></span>`)
+            : html`<span style="color:var(--text-subtle);font-style:italic">Ingen tagger funnet</span>`;
 
         return html`
             <h1 class="np-title">📚 Finn notater</h1>
@@ -268,7 +276,7 @@ class NotesPage extends WNElement {
                 </label>
                 <div class="np-themes">
                     Tagger
-                    <tag-editor data-filter="themes" placeholder="Legg til tag…" value="${activeTags}" suggestions="${suggestionAttr}" counts="${countsAttr}"></tag-editor>
+                    <div class="np-chips">${chips}</div>
                 </div>
                 <div class="np-actions">
                     <span class="np-count" data-count></span>

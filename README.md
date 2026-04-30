@@ -10,6 +10,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (notes filter: chips with counts)
+- **Notater-siden (`/notes`):** filter-tagger vises igjen som klikkbare chips for alle brukte tagger, men hver chip viser nå `#tag (n)` der `n` er antall notater med den taggen.
+
 ### 2026-04-30 (tag-editor: counts on chips and suggestions)
 - **`<tag-editor>`** har nytt valgfritt `counts` attributt (JSON `{tag: number}`). Når satt vises tellingen som `tag (n)` både i chip-listen og i forslagsnedtrekksmenyen.
 - **Notater-siden (`/notes`):** filter-tagger viser nå hvor mange notater som har hver tag, både i forslag og på aktive chips.
