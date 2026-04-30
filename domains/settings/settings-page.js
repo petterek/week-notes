@@ -502,12 +502,17 @@ class SettingsPage extends WNElement {
         const themeGrid = detailEl.querySelector('.theme-grid');
         const themeInput = detailEl.querySelector('input[data-f="theme"]');
         if (themeGrid && themeInput) {
+            const isActiveCtx = c.id === this._active;
             themeGrid.addEventListener('click', (ev) => {
                 const sw = ev.target.closest('.theme-swatch');
                 if (!sw) return;
                 const id = sw.dataset.themeId;
                 themeInput.value = id;
                 themeGrid.querySelectorAll('.theme-swatch').forEach(s => s.classList.toggle('is-selected', s === sw));
+                if (isActiveCtx) {
+                    const link = document.getElementById('themeStylesheet');
+                    if (link) link.href = '/themes/' + id + '.css?ts=' + Date.now();
+                }
             });
         }
 
