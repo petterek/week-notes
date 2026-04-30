@@ -7586,7 +7586,7 @@ activateTab(initialParams.tab || 'people');
                         let changed = false;
                         const nowIso = new Date().toISOString();
                         for (const t of openByText) {
-                            const marker = `__${t.text}__`;
+                            const marker = `~~${t.text}~~`;
                             if (finalContent.includes(marker)) {
                                 t.done = true;
                                 t.completedWeek = noteWeek;

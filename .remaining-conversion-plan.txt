@@ -1,0 +1,15 @@
+Remaining 8 files to convert - Strategy:
+
+QUICK WINS (Standard conversion):
+1. ctx-switcher.js - Already uses shadow + slot, just convert to module
+2. markdown-preview.js - Special case but standard pattern
+3. calendar-page.js - Wrapper component, medium complexity
+4. note-editor.js - Form component, medium complexity
+
+COMPLEX (Need careful handling):
+5. week-section.js - Multi-service async load, larger file
+6. global-search.js - Light DOM modal with document.head styles
+7. settings-page.js - Master/detail with complex state
+8. week-calendar.js - VERY LARGE pure JS component
+
+Plan: Convert quick wins first, then tackle complex ones.

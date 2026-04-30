@@ -721,7 +721,7 @@ class NoteEditor extends WNElement {
             // closes the task; the marker remains as a bold visual cue.
             let endIdx = matchEnd;
             if (ta.value.slice(endIdx, endIdx + 2) === '}}') endIdx += 2;
-            const insert = `__${text}__`;
+            const insert = `~~${text}~~`;
             const before = ta.value.slice(0, matchStart);
             const after = ta.value.slice(endIdx);
             ta.value = before + insert + after;

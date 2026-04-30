@@ -1,0 +1,15 @@
+The following components need to be converted using the same async loading pattern as task-completed:
+
+1. note-card.js - async load via service.card(week, file)
+2. open-tasks.js - async load via service.list()  
+3. task-create.js - simpler, mostly static with submit handler
+4. upcoming-meetings.js - async load via service.list({ upcoming })
+5. week-list.js - async load via service.listWeeks()
+6. week-section.js - multi-service async load
+7. ctx-switcher.js - light DOM with slot, special handling
+8. markdown-preview.js - special: has service check but doesn't use service pattern
+9. note-editor.js - complex form component
+10. global-search.js - light DOM modal
+11. calendar-page.js - wrapper component
+12. week-calendar.js - very complex pure JS component
+13. settings-page.js - complex master/detail form

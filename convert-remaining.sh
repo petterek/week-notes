@@ -1,0 +1,22 @@
+#!/bin/bash
+# Script to help convert remaining components - generates checklist
+
+echo "Remaining files to convert (10):"
+echo ""
+echo "ASYNC LOAD PATTERN:"
+echo "  - upcoming-meetings.js (service.list({upcoming}))"
+echo "  - week-list.js (service.listWeeks())"
+echo ""
+echo "MULTI-SERVICE:"
+echo "  - week-section.js (service.getWeek + tasks + results)"
+echo ""
+echo "LIGHT DOM / SPECIAL:"
+echo "  - ctx-switcher.js (light DOM with slot)"
+echo "  - markdown-preview.js (has service check but doesn't use service)"
+echo "  - note-editor.js (form with service)"
+echo "  - global-search.js (light DOM modal)"
+echo "  - calendar-page.js (wrapper)"
+echo "  - settings-page.js (master/detail)"
+echo ""
+echo "VERY COMPLEX:"
+echo "  - week-calendar.js (large pure JS component with dynamic CSS)"

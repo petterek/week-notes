@@ -10,6 +10,10 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (note editor: close marker rendered as ~~strikethrough~~)
+- Når du velger en oppgave i `{{!`-popoveren settes det nå inn `~~<oppgavetekst>~~` (markdown strikethrough) i stedet for `__...__`. Markøren forblir i den lagrede markdownen og renderes med gjennomstreking i previewet.
+- Server-siden lukker en åpen oppgave hvis innholdet inneholder `~~<eksakt oppgavetekst>~~`. Eldre `{{!<id>}}`-markører fungerer fortsatt og fjernes som før.
+
 ### 2026-04-30 (note editor: close marker rendered as __bold__)
 - Når du velger en oppgave i `{{!`-popoveren settes det nå inn `__<oppgavetekst>__` (markdown bold) i stedet for `{{!<id>}}`. Markøren forblir i den lagrede markdownen og renderes som fet skrift i previewet.
 - Server-siden lukker en åpen oppgave hvis innholdet inneholder `__<eksakt oppgavetekst>__`. Eldre `{{!<id>}}`-markører fungerer fortsatt og fjernes som før.
