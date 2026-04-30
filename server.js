@@ -3354,7 +3354,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             ['Shared',    ['help-modal', 'icon-picker', 'nav-button', 'nav-meta', 'time-picker', 'week-calendar', 'week-pill']],
             ['Context',   ['ctx-switcher']],
             ['Search',    ['global-search']],
-            ['Notes',     ['markdown-preview', 'note-card', 'note-editor']],
+            ['Notes',     ['markdown-preview', 'note-card', 'note-editor', 'note-view']],
             ['Tasks',     ['task-complete-modal', 'task-note-modal', 'task-open-list', 'task-completed', 'task-create', 'task-create-modal']],
             ['Meetings',  ['meeting-create', 'upcoming-meetings', 'today-calendar', 'week-notes-calendar']],
             ['People',    ['company-card', 'entity-callout', 'entity-mention', 'people-page', 'person-card', 'place-card']],
@@ -3791,6 +3791,27 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                                 snippet: '<p>Dette er et <em>kort</em> utdrag fra notatet \u2014 brukes som forhåndsvisning i kortet.</p>',
                             });
                         });
+                    <\/script>`,
+            },
+            'note-view': {
+                desc: `<p><strong>&lt;note-view&gt;</strong> is a modal overlay that loads and renders a note via <code>NotesService.renderHtml(week, file)</code>. Used by global-search to open note hits inline without leaving the current page.</p>
+                    <p><strong>Domain:</strong> <code>notes</code> &mdash; primary service from <code>notes_service</code>. The service must implement <code>renderHtml(week, file)</code> returning the rendered HTML string.</p>
+                    <p><strong>Public API.</strong> <code>el.open('YYYY-WNN/file.md')</code> shows the overlay and triggers a fetch. Setting the <code>open</code> attribute (declarative) does the same when <code>path</code> is set. <code>el.close()</code> hides the overlay.</p>
+                    <p><strong>Lifecycle.</strong> Listens for <code>Esc</code> at the document level while open. Closing emits <code>note-view:close</code> (cancelable, bubbling, composed) with <code>{ path }</code>. Switching <code>path</code> while open re-fetches.</p>
+                    <p><strong>Demo.</strong> Click the button below to open the modal against a mock note &mdash; same component as in production, just wired to <code>MockNotesService</code>.</p>`,
+                rawHtml: `<button id="dbg-nv-open" type="button" style="font:inherit;padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer">Åpne note-view modal</button>
+                    <note-view id="dbg-nv" notes_service="MockNotesService"></note-view>
+                    <script>
+                        (function(){
+                            var btn = document.getElementById('dbg-nv-open');
+                            var nv  = document.getElementById('dbg-nv');
+                            if (!btn || !nv) return;
+                            btn.addEventListener('click', function(){
+                                customElements.whenDefined('note-view').then(function(){
+                                    if (typeof nv.open === 'function') nv.open('${firstNote}');
+                                });
+                            });
+                        })();
                     <\/script>`,
             },
             'task-open-list': {
@@ -4372,6 +4393,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
     <script type="module" src="/components/ctx-switcher.js"></script>
     <script type="module" src="/components/help-modal.js"></script>
     <script type="module" src="/components/note-card.js"></script>
+    <script type="module" src="/components/note-view.js"></script>
     <script type="module" src="/components/task-open-list.js"></script>
     <script type="module" src="/components/task-create.js"></script>
     <script type="module" src="/components/task-create-modal.js"></script>

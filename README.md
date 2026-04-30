@@ -10,6 +10,10 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (note-view: close button + debug page)
+- ✕-knappen i `<note-view>` lukket ikke modalet — click-listeneren stod på host-elementet, men shadow-DOM-eventer blir retargetet til host så `dataset.action`-sjekken matchet aldri. Flyttet listeneren inn i shadowRoot.
+- La til en debug-side for `<note-view>` på `/debug/note-view` med en knapp som åpner et eksempelnotat mot `MockNotesService`.
+
 ### 2026-04-30 (search: note-view modal for note hits)
 - Klikk på et notat-treff i globalt søk åpner nå notatet i et `<note-view>`-modal i stedet for å navigere bort fra siden. Esc/✕ lukker. Krever ingen sidenavigasjon, så søk-konteksten beholdes.
 - Fikset `NotesService.renderHtml`: `/api/notes/.../render` returnerer JSON `{html, ...}`, men servicen sendte hele objektet videre. Henter nå ut `.html`-strengen.

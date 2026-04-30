@@ -84,10 +84,10 @@ class NoteView extends WNElement {
             }
         };
         document.addEventListener('keydown', this._onKey);
-        this.addEventListener('click', (ev) => {
+        this.shadowRoot.addEventListener('click', (ev) => {
             const t = ev.target;
-            if (!t || !t.dataset) return;
-            if (t.dataset.action === 'close' || t.classList.contains('nv-backdrop')) {
+            if (!t) return;
+            if ((t.dataset && t.dataset.action === 'close') || (t.classList && t.classList.contains('nv-backdrop'))) {
                 this.close();
             }
         });
