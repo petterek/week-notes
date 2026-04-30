@@ -1006,7 +1006,12 @@ class SettingsPage extends WNElement {
         wire('[data-git-disconnect]', async () => {
             const c = this._contexts.find(x => x.id === id);
             const name = (c && c.settings && c.settings.name) || id;
-            if (!confirm(`Koble fra "${name}"?\n\nDette vil:\n  • committe alle endringer\n  • pushe til origin\n  • slette den lokale mappen\n\nGit-URLen huskes lokalt så du kan klone den tilbake senere.`)) return;
+            const remote = (c && c.settings && c.settings.remote || '').trim();
+            if (!remote) {
+                alert(`"${name}" har ingen git-remote.\n\nÅ koble fra ville slettet alle data lokalt uten å pushe dem til origin.\n\nLegg til en remote i Git-fanen og lagre først.`);
+                return;
+            }
+            if (!confirm(`Koble fra "${name}"?\n\nDette vil:\n  • committe alle endringer\n  • pushe til origin (${remote})\n  • slette den lokale mappen\n\nGit-URLen huskes lokalt så du kan klone den tilbake senere.`)) return;
             if (msg) { msg.textContent = '⏳ Kobler fra…'; msg.style.color = ''; }
             try {
                 const r = await this.serviceFor('context').disconnect(id);
