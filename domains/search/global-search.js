@@ -126,8 +126,8 @@ class GlobalSearch extends WNElement {
                         + ` data-type="${escapeHtml(r.type)}"`
                         + ` data-identifier="${escapeHtml(ident)}"`
                         + ` style="display:block;text-decoration:none">`
-                        + `<div class="sr-title">${escapeHtml(r.title || '')}</div>`
-                        + (r.subtitle ? `<div class="sr-path">${escapeHtml(r.subtitle)}</div>` : '')
+                        + `<div class="sr-title">${highlight(escapeHtml(r.title || ''), q)}</div>`
+                        + (r.subtitle ? `<div class="sr-path">${highlight(escapeHtml(r.subtitle), q)}</div>` : '')
                         + (snippet ? `<div class="sr-snippet">${snippet}</div>` : '')
                         + '</a>';
                 }).join('');
