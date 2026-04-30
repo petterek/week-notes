@@ -10,6 +10,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (search: semantic toggle)
+- Globalt søk har nå en 🧠-bryter for semantisk (vektor-) søk via `/api/embed-search`. Valget huskes i `localStorage` (`gs.embed`). Standard er fortsatt token-/substring-søket på `/api/search`.
+
 ### 2026-04-30 (search: highlight title and path)
 - Globalt søk markerer nå treff i tittel og sti, ikke bare i utdraget. Filnavntreff (f.eks. `migrasjonP4Arena`) var allerede indeksert, men siden tittel ikke var markert virket det som om de manglet.
 
