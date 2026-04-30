@@ -3019,7 +3019,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                         <li><code>readonly</code> &mdash; ignore clicks.</li>
                     </ul>
                     <p><strong>Property:</strong> <code>el.value</code> (get/set, reflects to attribute).</p>
-                    <p><strong>Event:</strong> <code>icon-picker:change</code> with <code>{ value }</code> when a cell is clicked.</p>`,
+                    <p><strong>Event:</strong> <code>valueChanged</code> with <code>{ value }</code> when a cell is clicked.</p>`,
                 rawHtml: `<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start">
                         <div>
                             <div style="font-size:0.85em;color:var(--text-muted);margin-bottom:4px">Default icons</div>
@@ -3039,10 +3039,10 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                         (function(){
                             var out = document.getElementById('ip-out');
                             function log(id, ev){
-                                out.textContent = '[' + new Date().toLocaleTimeString('nb-NO') + '] ' + id + ' → icon-picker:change ' + JSON.stringify(ev.detail) + '\\n' + out.textContent;
+                                out.textContent = '[' + new Date().toLocaleTimeString('nb-NO') + '] ' + id + ' → valueChanged ' + JSON.stringify(ev.detail) + '\\n' + out.textContent;
                             }
                             ['ip1','ip2','ip3'].forEach(function(id){
-                                document.getElementById(id).addEventListener('icon-picker:change', function(e){ log(id, e); });
+                                document.getElementById(id).addEventListener('valueChanged', function(e){ log(id, e); });
                             });
                         })();
                     <\/script>`,

@@ -3,7 +3,7 @@
  *
  * Shows a grid of icons. One can be selected. Pure presentation
  * component — no server, no service. Use it in a form by reading
- * its `value` property or listening for the `icon-picker:change`
+ * its `value` property or listening for the `valueChanged`
  * event, or by binding a hidden input via the `name` attribute.
  *
  * Attributes:
@@ -26,7 +26,7 @@
  *   element.value (get/set, reflects to attribute and emits event on change).
  *
  * Events:
- *   icon-picker:change — { value } when the user clicks an icon.
+ *   valueChanged — { value } when the user clicks an icon.
  */
 import { WNElement, escapeHtml } from './_shared.js';
 
@@ -161,7 +161,7 @@ class IconPicker extends WNElement {
             const icon = cell.getAttribute('data-icon');
             if (icon == null) return;
             this.value = icon;
-            this.dispatchEvent(new CustomEvent('icon-picker:change', {
+            this.dispatchEvent(new CustomEvent('valueChanged', {
                 bubbles: true, composed: true, detail: { value: icon },
             }));
         });
