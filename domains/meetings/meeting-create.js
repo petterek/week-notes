@@ -85,10 +85,11 @@ class MeetingCreate extends WNElement {
 
     async _loadTypes() {
         if (Array.isArray(this._typesOverride) && this._typesOverride.length) return;
+        const ctx = this.getAttribute('context') || '';
+        if (!ctx) return;
         const svc = this.serviceFor('settings');
         if (!svc || typeof svc.getMeetingTypes !== 'function') return;
         try {
-            const ctx = this.getAttribute('context') || '';
             const list = await svc.getMeetingTypes(ctx);
             this._types = (Array.isArray(list) ? list : []).map(t => ({
                 typeId: String(t.typeId || t.key || ''),

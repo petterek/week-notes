@@ -10,6 +10,10 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (search: navigate to editor; meeting-create: skip empty ctx)
+- Klikk på et notat-treff i globalt søk navigerte til `/note/...` som ikke finnes lenger; bruker nå `/editor/<uke>/<fil>`.
+- `meeting-create` spurte etter `/api/contexts//meeting-types` med tomt context-id før attributtet var satt; tidlig retur når `context` er tomt fjerner 404-spammen i konsollen.
+
 ### 2026-04-30 (search: highlight title and path)
 - Globalt søk markerer nå treff i tittel og sti, ikke bare i utdraget. Filnavntreff (f.eks. `migrasjonP4Arena`) var allerede indeksert, men siden tittel ikke var markert virket det som om de manglet.
 

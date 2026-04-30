@@ -1704,7 +1704,7 @@ document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaK
             if (i < 0) return;
             var week = id.slice(0, i), fileEnc = id.slice(i + 1);
             if (typeof window.openNoteViewModal === 'function') window.openNoteViewModal(week, fileEnc);
-            else go('/note/' + week + '/' + fileEnc);
+            else go('/editor/' + week + '/' + fileEnc);
         } else if (t === 'meeting') {
             // identifier is meeting id; we don't know the week here, so defer to /api/meetings? Keep simple: jump to calendar list.
             go('/calendar#m-' + encodeURIComponent(id));
