@@ -11,19 +11,8 @@
  *
  * Exposed as named export `NotesService` and via `window["week-note-services"].NotesService`.
  */
-async function req(method, path, body, accept) {
-    const opts = { method, headers: {} };
-    if (accept) opts.headers['Accept'] = accept;
-    if (body !== undefined) {
-        opts.headers['Content-Type'] = 'application/json';
-        opts.body = JSON.stringify(body);
-    }
-    const r = await fetch(path, opts);
-    if (!r.ok) throw new Error(method + ' ' + path + ' ' + r.status);
-    const ct = r.headers.get('Content-Type') || '';
-    if (accept === 'text/plain' || ct.startsWith('text/')) return r.text();
-    return ct.includes('json') ? r.json() : r.text();
-}
+import { apiRequest as req } from '/services/_shared/http.js';
+
 
 function noteUrl(week, file, suffix) {
     return `/api/notes/${encodeURIComponent(week)}/${encodeURIComponent(file)}${suffix || ''}`;

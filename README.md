@@ -10,6 +10,10 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (debug services: full CRUD coverage + shared http helper)
+- **Debug:** `/debug/services` now exposes the full method surface of every service — POST, PUT and DELETE are listed alongside the existing GETs (59 methods across 10 services). Verb badges (GET/POST/PUT/DELETE) are color-coded; destructive methods (DELETE + a few POSTs that mutate live state) are highlighted with a red rail and require a confirm before running. Object-shaped params (e.g. `update(id, patch)`) render as a JSON textarea and are parsed before invocation. **Run all** still runs only parameter-less GETs.
+- **Refactor:** every domain service now imports a shared `apiRequest` helper from `domains/_shared/http.js` (served at `/services/_shared/http.js`) — the per-file `req` duplication is gone.
+
 ### 2026-04-30 (debug services: View code in modal)
 - **Debug:** the `</> View code` button on `/debug/services` now opens the source in a centered modal with title/path, a Copy button, and dismiss via the × button, backdrop click, or Escape. Source is fetched lazily and cached per file.
 

@@ -2562,8 +2562,21 @@ const server = http.createServer(async (req, res) => {
     // Serve production service files at /services/<name>.js (used in pageHtml,
     // editor, etc. so components can resolve `service="XService"` via window)
     // and at /debug/services/<name>.js (used by the services debug page,
-    // which imports them as ES modules).
+    // which imports them as ES modules). Also serves shared helpers at
+    // /services/_shared/<file>.js → domains/_shared/<file>.js.
     {
+        const sharedM = pathname.match(/^\/(?:debug\/)?services\/_shared\/([a-z_]+)\.js$/);
+        if (sharedM) {
+            const file = path.join(__dirname, 'domains', '_shared', sharedM[1] + '.js');
+            try {
+                const data = fs.readFileSync(file);
+                res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache' });
+                res.end(data);
+            } catch (e) {
+                res.writeHead(404); res.end('Not found');
+            }
+            return;
+        }
         const m = pathname.match(/^\/(?:debug\/)?services\/([a-z]+)\.js$/);
         if (m) {
             const file = path.join(__dirname, 'domains', m[1], 'service.js');
@@ -2598,7 +2611,15 @@ const server = http.createServer(async (req, res) => {
                 methods: [
                     { name: 'list',             http: 'GET /api/contexts',                       desc: 'All workspaces.', params: [] },
                     { name: 'listDisconnected', http: 'GET /api/contexts/disconnected',          desc: 'Workspaces removed but still on disk.', params: [] },
-                    { name: 'gitStatus',        http: 'GET /api/contexts/:id/git',               desc: 'Git status for a workspace.', params: [{ name: 'id', placeholder: 'e.g. work', optional: false }] },
+                    { name: 'gitStatus',        http: 'GET /api/contexts/:id/git',               desc: 'Git status for a workspace.', params: [{ name: 'id', placeholder: 'e.g. work' }] },
+                    { name: 'create',           http: 'POST /api/contexts',                      desc: 'Create a new workspace.', params: [{ name: 'data', json: true, placeholder: '{"name":"new-ctx","icon":"📁"}' }] },
+                    { name: 'clone',            http: 'POST /api/contexts/clone',                desc: 'Clone a workspace from a remote git repo.', params: [{ name: 'data', json: true, placeholder: '{"name":"new-ctx","remote":"git@…"}' }] },
+                    { name: 'switchTo',         http: 'POST /api/contexts/switch',               desc: 'Switch the active workspace.', params: [{ name: 'id', placeholder: 'e.g. work' }] },
+                    { name: 'commit',           http: 'POST /api/contexts/:id/commit',           desc: 'Commit pending changes in a workspace.', params: [{ name: 'id', placeholder: 'e.g. work' }, { name: 'body', json: true, placeholder: '{"message":"…"}' }] },
+                    { name: 'push',             http: 'POST /api/contexts/:id/push',             desc: 'Push commits to remote.', params: [{ name: 'id', placeholder: 'e.g. work' }] },
+                    { name: 'pull',             http: 'POST /api/contexts/:id/pull',             desc: 'Pull from remote.', params: [{ name: 'id', placeholder: 'e.g. work' }] },
+                    { name: 'disconnect',       http: 'POST /api/contexts/:id/disconnect',       desc: 'Remove workspace from active list (keep on disk).', destructive: true, params: [{ name: 'id', placeholder: 'e.g. work' }] },
+                    { name: 'forgetDisconnected', http: 'DELETE /api/contexts/disconnected/:id', desc: 'Permanently forget a disconnected workspace.', params: [{ name: 'id', placeholder: 'e.g. old-ctx' }] },
                 ],
             },
             {
@@ -2611,6 +2632,10 @@ const server = http.createServer(async (req, res) => {
                         { name: 'upcoming', placeholder: 'days, e.g. 14', optional: true },
                     ] },
                     { name: 'listTypes', http: 'GET /api/meeting-types', desc: 'Meeting type catalogue.', params: [] },
+                    { name: 'create',  http: 'POST /api/meetings',        desc: 'Create a meeting.', params: [{ name: 'data', json: true, placeholder: '{"title":"…","start":"YYYY-MM-DDTHH:MM"}' }] },
+                    { name: 'update',  http: 'PUT /api/meetings/:id',     desc: 'Update a meeting.', params: [{ name: 'id', placeholder: 'meeting id' }, { name: 'patch', json: true, placeholder: '{"title":"…"}' }] },
+                    { name: 'remove',  http: 'DELETE /api/meetings/:id',  desc: 'Delete a meeting.', params: [{ name: 'id', placeholder: 'meeting id' }] },
+                    { name: 'saveTypes', http: 'PUT /api/meeting-types',  desc: 'Replace the meeting-type catalogue.', params: [{ name: 'types', json: true, placeholder: '[{"id":"1on1","label":"1:1","icon":"💬"}]' }] },
                 ],
             },
             {
@@ -2625,6 +2650,9 @@ const server = http.createServer(async (req, res) => {
                     { name: 'card',      http: 'GET /api/notes/:week/:file/card',      desc: 'Sidebar card payload (snippet, type, pin).', params: [{ name: 'week', placeholder: 'YYYY-WNN' }, { name: 'file', placeholder: 'mandag.md' }] },
                     { name: 'raw',       http: 'GET /api/notes/:week/:file/raw',       desc: 'Raw markdown.',  params: [{ name: 'week', placeholder: 'YYYY-WNN' }, { name: 'file', placeholder: 'mandag.md' }] },
                     { name: 'renderHtml',http: 'GET /api/notes/:week/:file/render',    desc: 'Server-rendered HTML.', params: [{ name: 'week', placeholder: 'YYYY-WNN' }, { name: 'file', placeholder: 'mandag.md' }] },
+                    { name: 'save',      http: 'POST /api/save',                       desc: 'Create or overwrite a note.', params: [{ name: 'data', json: true, placeholder: '{"folder":"YYYY-WNN","file":"name.md","content":"…"}' }] },
+                    { name: 'setPinned', http: 'PUT /api/notes/:week/:file/pin',       desc: 'Pin/unpin a note.', params: [{ name: 'week', placeholder: 'YYYY-WNN' }, { name: 'file', placeholder: 'mandag.md' }, { name: 'pinned', placeholder: 'true / false' }] },
+                    { name: 'remove',    http: 'DELETE /api/notes/:week/:file',        desc: 'Delete a note.', params: [{ name: 'week', placeholder: 'YYYY-WNN' }, { name: 'file', placeholder: 'mandag.md' }] },
                 ],
             },
             {
@@ -2632,7 +2660,10 @@ const server = http.createServer(async (req, res) => {
                 title: 'PeopleService',
                 desc: 'People directory.',
                 methods: [
-                    { name: 'list', http: 'GET /api/people', desc: 'All people.', params: [] },
+                    { name: 'list',   http: 'GET /api/people',         desc: 'All people.', params: [] },
+                    { name: 'create', http: 'POST /api/people',        desc: 'Create a person.', params: [{ name: 'person', json: true, placeholder: '{"firstName":"…","lastName":"…"}' }] },
+                    { name: 'update', http: 'PUT /api/people/:id',     desc: 'Update a person.', params: [{ name: 'id', placeholder: 'person id' }, { name: 'patch', json: true, placeholder: '{"firstName":"…"}' }] },
+                    { name: 'remove', http: 'DELETE /api/people/:id',  desc: 'Delete a person.', params: [{ name: 'id', placeholder: 'person id' }] },
                 ],
             },
             {
@@ -2640,7 +2671,10 @@ const server = http.createServer(async (req, res) => {
                 title: 'CompaniesService',
                 desc: 'Companies directory (same module as PeopleService).',
                 methods: [
-                    { name: 'list', http: 'GET /api/companies', desc: 'All companies.', params: [] },
+                    { name: 'list',   http: 'GET /api/companies',         desc: 'All companies.', params: [] },
+                    { name: 'create', http: 'POST /api/companies',        desc: 'Create a company.', params: [{ name: 'company', json: true, placeholder: '{"name":"…"}' }] },
+                    { name: 'update', http: 'PUT /api/companies/:id',     desc: 'Update a company.', params: [{ name: 'id', placeholder: 'company id' }, { name: 'patch', json: true, placeholder: '{"name":"…"}' }] },
+                    { name: 'remove', http: 'DELETE /api/companies/:id',  desc: 'Delete a company.', params: [{ name: 'id', placeholder: 'company id' }] },
                 ],
             },
             {
@@ -2648,7 +2682,10 @@ const server = http.createServer(async (req, res) => {
                 title: 'PlacesService',
                 desc: 'Places used as meeting locations (same module as PeopleService).',
                 methods: [
-                    { name: 'list', http: 'GET /api/places', desc: 'All registered places.', params: [] },
+                    { name: 'list',   http: 'GET /api/places',         desc: 'All registered places.', params: [] },
+                    { name: 'create', http: 'POST /api/places',        desc: 'Create a place.', params: [{ name: 'place', json: true, placeholder: '{"name":"…"}' }] },
+                    { name: 'update', http: 'PUT /api/places/:id',     desc: 'Update a place.', params: [{ name: 'id', placeholder: 'place id' }, { name: 'patch', json: true, placeholder: '{"name":"…"}' }] },
+                    { name: 'remove', http: 'DELETE /api/places/:id',  desc: 'Delete a place.', params: [{ name: 'id', placeholder: 'place id' }] },
                 ],
             },
             {
@@ -2659,6 +2696,9 @@ const server = http.createServer(async (req, res) => {
                     { name: 'list', http: 'GET /api/results[?week=]', desc: 'Results, optionally filtered.', shape: 'filter', params: [
                         { name: 'week', placeholder: 'YYYY-WNN', optional: true },
                     ] },
+                    { name: 'create', http: 'POST /api/results',        desc: 'Create a result.', params: [{ name: 'data', json: true, placeholder: '{"text":"…","week":"YYYY-WNN"}' }] },
+                    { name: 'update', http: 'PUT /api/results/:id',     desc: 'Update a result.', params: [{ name: 'id', placeholder: 'result id' }, { name: 'patch', json: true, placeholder: '{"text":"…"}' }] },
+                    { name: 'remove', http: 'DELETE /api/results/:id',  desc: 'Delete a result.', params: [{ name: 'id', placeholder: 'result id' }] },
                 ],
             },
             {
@@ -2679,6 +2719,11 @@ const server = http.createServer(async (req, res) => {
                     { name: 'getSettings',     http: 'GET /api/contexts/:id/settings',      desc: 'Per-context settings.', params: [{ name: 'id', placeholder: 'e.g. work' }] },
                     { name: 'getMeetingTypes', http: 'GET /api/contexts/:id/meeting-types', desc: 'Meeting types for a context.', params: [{ name: 'id', placeholder: 'e.g. work' }] },
                     { name: 'listThemes',      http: 'GET /api/themes',                     desc: 'All themes.', params: [] },
+                    { name: 'saveSettings',    http: 'PUT /api/contexts/:id/settings',      desc: 'Replace per-context settings.', params: [{ name: 'id', placeholder: 'e.g. work' }, { name: 'body', json: true, placeholder: '{"theme":"paper", …}' }] },
+                    { name: 'saveMeetingTypes',http: 'PUT /api/contexts/:id/meeting-types', desc: 'Replace meeting types for a context.', params: [{ name: 'id', placeholder: 'e.g. work' }, { name: 'types', json: true, placeholder: '[{"id":"1on1","label":"1:1"}]' }] },
+                    { name: 'createTheme',     http: 'POST /api/themes',                    desc: 'Create a custom theme (clone or new).', params: [{ name: 'data', json: true, placeholder: '{"from":"paper","name":"my-theme"}' }] },
+                    { name: 'updateTheme',     http: 'PUT /api/themes/:id',                 desc: 'Update a theme.', params: [{ name: 'id', placeholder: 'theme id' }, { name: 'body', json: true, placeholder: '{"vars":{…}}' }] },
+                    { name: 'removeTheme',     http: 'DELETE /api/themes/:id',              desc: 'Delete a custom theme.', params: [{ name: 'id', placeholder: 'theme id' }] },
                 ],
             },
             {
@@ -2686,7 +2731,13 @@ const server = http.createServer(async (req, res) => {
                 title: 'TaskService',
                 desc: 'Open + completed tasks.',
                 methods: [
-                    { name: 'list', http: 'GET /api/tasks', desc: 'All tasks (open + completed).', params: [] },
+                    { name: 'list',    http: 'GET /api/tasks',                   desc: 'All tasks (open + completed).', params: [] },
+                    { name: 'create',  http: 'POST /api/tasks',                  desc: 'Create a new task.', params: [{ name: 'text', placeholder: 'task description' }] },
+                    { name: 'update',  http: 'PUT /api/tasks/:id',               desc: 'Update a task.', params: [{ name: 'id', placeholder: 'task id' }, { name: 'patch', json: true, placeholder: '{"text":"…"}' }] },
+                    { name: 'remove',  http: 'DELETE /api/tasks/:id',            desc: 'Delete a task.', params: [{ name: 'id', placeholder: 'task id' }] },
+                    { name: 'toggle',  http: 'PUT /api/tasks/:id/toggle',        desc: 'Toggle done/open (with optional completion comment).', params: [{ name: 'id', placeholder: 'task id' }, { name: 'comment', placeholder: 'optional', optional: true }] },
+                    { name: 'merge',   http: 'POST /api/tasks/merge',            desc: 'Merge one task into another.', params: [{ name: 'srcId', placeholder: 'source task id' }, { name: 'tgtId', placeholder: 'target task id' }] },
+                    { name: 'reorder', http: 'POST /api/tasks/reorder',          desc: 'Reorder tasks by id list.', params: [{ name: 'ids', json: true, placeholder: '["id1","id2","id3"]' }] },
                 ],
             },
         ];
@@ -2735,10 +2786,19 @@ ${SERVICES.map(s => `    <link rel="modulepreload" href="/debug/services/${s.key
         .method:first-of-type { border-top: none; }
         .method .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         .method .name { font-family: ui-monospace, monospace; font-size: 0.95em; font-weight: 600; min-width: 130px; }
-        .method .http { font-family: ui-monospace, monospace; font-size: 0.78em; color: var(--text-subtle); background: var(--surface-alt); padding: 2px 6px; border-radius: 4px; }
+        .method .http { font-family: ui-monospace, monospace; font-size: 0.78em; color: var(--text-subtle); background: var(--surface-alt); padding: 2px 6px; border-radius: 4px; font-weight: 600; }
+        .method .http.verb-get    { background: #e6f0ff; color: #1d4ed8; }
+        .method .http.verb-post   { background: #e6f7ec; color: #166534; }
+        .method .http.verb-put    { background: #fff4d6; color: #92400e; }
+        .method .http.verb-delete { background: #fde2e2; color: #b91c1c; }
+        .method.destructive { background: rgba(220, 38, 38, 0.04); border-left: 3px solid #b91c1c; padding-left: 10px; }
+        .method.destructive button[data-run] { background: #b91c1c; }
         .method .desc { color: var(--text-muted); font-size: 0.85em; flex: 1 1 100%; margin-top: 2px; }
-        .method input { font-family: ui-monospace, monospace; font-size: 0.85em; padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text-strong); }
-        .method input.opt { border-style: dashed; }
+        .method input, .method textarea { font-family: ui-monospace, monospace; font-size: 0.85em; padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text-strong); }
+        .method input.opt, .method textarea.opt { border-style: dashed; }
+        .method textarea { min-width: 240px; resize: vertical; }
+        .method label.json-arg { flex: 1 1 240px; }
+        .method label.json-arg textarea { width: 100%; }
         .method label { font-size: 0.78em; color: var(--text-subtle); display: inline-flex; flex-direction: column; gap: 2px; }
         .method button { font-size: 0.85em; padding: 4px 12px; background: var(--accent); color: var(--text-on-accent, white); border: none; border-radius: 4px; cursor: pointer; font-weight: 600; }
         .method button:disabled { opacity: 0.5; cursor: wait; }
@@ -2765,7 +2825,7 @@ ${SERVICES.map(s => `    <link rel="modulepreload" href="/debug/services/${s.key
         <main class="dbg-main">
             <header class="dbg-head">
                 <h1>Production services</h1>
-                <p class="desc">All ${SERVICES.length} production services and their read endpoints, imported as ES modules from <code>domains/&lt;name&gt;/service.js</code> — no globals on <code>window</code>. Calls hit the live <code>/api/*</code> backend. Use <strong>Run all</strong> to invoke every parameter-less GET in one go.</p>
+                <p class="desc">All ${SERVICES.length} production services and their full method surface (GET / POST / PUT / DELETE), imported as ES modules from <code>domains/&lt;name&gt;/service.js</code> — no globals on <code>window</code>. Calls hit the live <code>/api/*</code> backend. Destructive methods (mutating writes / deletes) are highlighted and require confirmation before running. Use <strong>Run all</strong> to invoke every parameter-less GET in one go (writes are skipped).</p>
             </header>
             <div class="toolbar">
                 <button id="btnRunAll" type="button">▶ Run all parameter-less GETs</button>
@@ -2778,17 +2838,28 @@ ${SERVICES.map(s => `    <link rel="modulepreload" href="/debug/services/${s.key
                     <p class="desc">${s.desc} <span style="font-family:ui-monospace,monospace;font-size:0.78em;color:var(--text-subtle);margin-left:6px">· source: <a href="/debug/services/${s.key}.js" style="color:var(--text-subtle)">domains/${s.key}/service.js</a></span></p>
                     ${s.methods.map((m, i) => {
                         const id = `${s.global.toLowerCase()}-${m.name}`;
-                        const inputs = m.params.map(p => `
+                        const inputs = m.params.map(p => {
+                            if (p.json) {
+                                return `
+                            <label class="json-arg">${escapeHtml(p.name)} <span style="opacity:.6">(JSON${p.optional ? ', valgfri' : ''})</span>
+                                <textarea data-param="${escapeHtml(p.name)}" data-json="1" rows="3" placeholder="${escapeHtml(p.placeholder || '{}')}"${p.optional ? ' class="opt"' : ''}></textarea>
+                            </label>`;
+                            }
+                            return `
                             <label>${escapeHtml(p.name)}${p.optional ? ' <span style="opacity:.6">(valgfri)</span>' : ''}
                                 <input type="text" data-param="${escapeHtml(p.name)}" placeholder="${escapeHtml(p.placeholder || '')}"${p.optional ? ' class="opt"' : ''}>
-                            </label>`).join('');
+                            </label>`;
+                        }).join('');
+                        const verb = (m.http || '').split(' ')[0];
+                        const verbClass = verb === 'POST' ? 'verb-post' : verb === 'PUT' ? 'verb-put' : verb === 'DELETE' ? 'verb-delete' : 'verb-get';
+                        const destructive = m.destructive || verb === 'DELETE';
                         return `
-                        <div class="method" data-svc="${s.global}" data-method="${m.name}" data-shape="${m.shape || 'positional'}" data-params='${escapeHtml(JSON.stringify(m.params.map(p => ({ name: p.name, optional: !!p.optional }))))}'>
+                        <div class="method ${destructive ? 'destructive' : ''}" data-svc="${s.global}" data-method="${m.name}" data-shape="${m.shape || 'positional'}" data-destructive="${destructive ? '1' : ''}" data-params='${escapeHtml(JSON.stringify(m.params.map(p => ({ name: p.name, optional: !!p.optional, json: !!p.json }))))}'>
                             <div class="row">
                                 <span class="name">${m.name}(${m.params.map(p => p.name).join(', ')})</span>
-                                <span class="http">${escapeHtml(m.http)}</span>
+                                <span class="http ${verbClass}">${escapeHtml(m.http)}</span>
                                 ${inputs}
-                                <button type="button" data-run="${id}">▶ Run</button>
+                                <button type="button" data-run="${id}">▶ Run${destructive ? ' (destructive)' : ''}</button>
                             </div>
                             <div class="desc">${m.desc}</div>
                             <div class="out" id="out-${id}" hidden></div>
@@ -2841,9 +2912,23 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                 return;
             }
             const declared = JSON.parse(method.dataset.params || '[]');
-            const inputs = method.querySelectorAll('input[data-param]');
+            const inputs = method.querySelectorAll('[data-param]');
             const values = {};
-            inputs.forEach(i => { if (i.value !== '') values[i.dataset.param] = i.value; });
+            try {
+                inputs.forEach(i => {
+                    const raw = i.value;
+                    if (raw === '' || raw == null) return;
+                    if (i.dataset.json === '1') {
+                        values[i.dataset.param] = JSON.parse(raw);
+                    } else {
+                        values[i.dataset.param] = raw;
+                    }
+                });
+            } catch (e) {
+                out.hidden = false; out.classList.add('err');
+                out.innerHTML = '<div class="meta">Invalid JSON in input.</div><pre>' + (e.message || String(e)) + '</pre>';
+                return;
+            }
 
             let args;
             if (method.dataset.shape === 'filter') {
@@ -2854,6 +2939,12 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                 if (declared.some((p, i) => !p.optional && args[i] === undefined)) {
                     out.hidden = false; out.classList.add('err');
                     out.innerHTML = '<div class="meta">Missing required parameter(s).</div><pre></pre>';
+                    return;
+                }
+            }
+
+            if (method.dataset.destructive === '1') {
+                if (!confirm('This will mutate live data via ' + method.dataset.svc + '.' + method.dataset.method + '(). Continue?')) {
                     return;
                 }
             }
@@ -2925,6 +3016,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
         document.getElementById('btnRunAll').addEventListener('click', async () => {
             const methods = document.querySelectorAll('.method');
             for (const m of methods) {
+                if (m.dataset.destructive === '1') continue;
                 const declared = JSON.parse(m.dataset.params || '[]');
                 const required = declared.filter(p => !p.optional);
                 if (required.length === 0) await run(m);

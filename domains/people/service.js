@@ -25,17 +25,8 @@ const PEOPLE = '/api/people';
 const COMPANIES = '/api/companies';
 const PLACES = '/api/places';
 
-async function req(method, path, body) {
-    const opts = { method, headers: {} };
-    if (body !== undefined) {
-        opts.headers['Content-Type'] = 'application/json';
-        opts.body = JSON.stringify(body);
-    }
-    const r = await fetch(path, opts);
-    if (!r.ok) throw new Error(method + ' ' + path + ' ' + r.status);
-    const ct = r.headers.get('Content-Type') || '';
-    return ct.includes('json') ? r.json() : r.text();
-}
+import { apiRequest as req } from '/services/_shared/http.js';
+
 
 export const PeopleService = {
     list:   ()           => req('GET',    PEOPLE),
