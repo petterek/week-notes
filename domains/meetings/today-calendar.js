@@ -83,24 +83,26 @@ const STYLES = `
     .today-cal-link a { color: var(--accent); text-decoration: none; }
     week-calendar { display: block; }
     .overlay {
-        display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4);
-        z-index: 1000; align-items: flex-start; justify-content: center;
-        padding: 5vh 16px; box-sizing: border-box; overflow-y: auto;
+        display: none; position: fixed; inset: 0; background: var(--overlay);
+        z-index: 2000; align-items: center; justify-content: center;
+        padding: 16px; box-sizing: border-box; overflow-y: auto;
     }
     .overlay.open { display: flex; }
     .overlay-card {
-        background: var(--surface); border: 1px solid var(--border-soft);
-        border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.25);
-        padding: 18px 20px; width: min(560px, 100%); box-sizing: border-box;
+        background: var(--bg); color: var(--text-strong);
+        border: 1px solid var(--border); border-radius: 10px;
+        box-shadow: 0 20px 60px var(--shadow);
+        padding: 18px 20px; width: min(520px, 92vw); box-sizing: border-box;
+        font-family: var(--font-family);
     }
-    .overlay-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .overlay-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
     .overlay-head h2 {
         margin: 0; font-family: var(--font-heading); font-weight: 400;
         color: var(--accent); font-size: 1.1em; flex: 1;
     }
     .overlay-head button {
-        background: transparent; border: 0; color: var(--text-muted);
-        font-size: 1.3em; cursor: pointer; padding: 0 4px;
+        background: none; border: none; color: var(--text-muted);
+        font-size: 1.3em; cursor: pointer; padding: 0;
     }
     .overlay-head button:hover { color: var(--text-strong); }
 `;

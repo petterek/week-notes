@@ -97,12 +97,12 @@ const STYLES = `
     .nav button:hover { background: var(--surface-alt); }
     .new-btn { padding: 3px 12px; border: 1px solid var(--accent); background: var(--accent); color: var(--text-on-accent); border-radius: 5px; cursor: pointer; font: inherit; font-size: 0.9em; }
     .new-btn:hover { background: var(--accent-strong); }
-    .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 1000; align-items: flex-start; justify-content: center; padding: 5vh 16px; box-sizing: border-box; overflow-y: auto; }
+    .overlay { display: none; position: fixed; inset: 0; background: var(--overlay); z-index: 2000; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; overflow-y: auto; }
     .overlay.open { display: flex; }
-    .overlay-card { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.25); padding: 18px 20px; width: min(560px, 100%); box-sizing: border-box; }
-    .overlay-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .overlay-card { background: var(--bg); color: var(--text-strong); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 20px 60px var(--shadow); padding: 18px 20px; width: min(520px, 92vw); box-sizing: border-box; font-family: var(--font-family); }
+    .overlay-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
     .overlay-head h2 { margin: 0; font-family: var(--font-heading); font-weight: 400; color: var(--accent); font-size: 1.1em; flex: 1; }
-    .overlay-head button { background: transparent; border: 0; color: var(--text-muted); font-size: 1.3em; cursor: pointer; padding: 0 4px; }
+    .overlay-head button { background: none; border: none; font-size: 1.3em; cursor: pointer; color: var(--text-muted); padding: 0; }
     .overlay-head button:hover { color: var(--text-strong); }
 `;
 
