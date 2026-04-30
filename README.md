@@ -10,6 +10,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (json-table polish)
+- **`<json-table>` ergonomics:** added a fullscreen overlay (⛶ button, Esc to close), a font-size dropdown (XS/S/M/L/XL), nested sub-tables for object/array cells, key/value rendering for plain objects, and horizontal scrolling for wide content. The debug `/services` Table view enables the toggle for any non-empty result.
+
 ### 2026-04-30 (json-table web component)
 - **New component:** `<json-table>` — a reusable shadow-DOM web component that renders an array of objects (`element.data = […]`) as a sortable HTML table with sticky headers. Supports `columns`, `max-height` and `empty-text` attributes; primitives, booleans, numbers, nulls and objects each get their own cell class. Click a header to sort; click again to flip; a third click clears the sort.
 - **Debug services:** the result panel's table view now uses `<json-table>` instead of inline DOM construction.

@@ -2812,6 +2812,7 @@ ${SERVICES.map(s => `    <link rel="modulepreload" href="/debug/services/${s.key
         .out .meta .toggle-view { background: transparent; border: 1px solid var(--border-faint); color: var(--text-subtle); border-radius: 4px; padding: 1px 8px; font-size: 0.95em; line-height: 1.2; cursor: pointer; font-family: ui-monospace, monospace; }
         .out .meta .toggle-view:hover { color: var(--accent); border-color: var(--accent); }
         .out json-table { display: block; margin-top: 4px; }
+        .out json-table[hidden] { display: none; }
         .out.err pre { background: var(--danger-bg, #fee); color: var(--danger, #900); }
         .toolbar { margin-bottom: 14px; }
         .toolbar button { font-size: 0.85em; padding: 4px 12px; background: var(--surface-alt); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; color: var(--text-strong); }
@@ -2978,7 +2979,16 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                 meta.appendChild(close);
                 return meta;
             };
-            const isTabular = (v) => Array.isArray(v) && v.length > 0 && v.every(x => x && typeof x === 'object' && !Array.isArray(x));
+            const isTabular = (v) => {
+                if (Array.isArray(v)) return v.length > 0;
+                if (v && typeof v === 'object') return Object.keys(v).length > 0;
+                return false;
+            };
+            const toTabular = (v) => {
+                if (Array.isArray(v)) return v.map(x => (x && typeof x === 'object' && !Array.isArray(x)) ? x : { value: x });
+                if (v && typeof v === 'object') return Object.entries(v).map(([key, value]) => ({ key, value }));
+                return [];
+            };
             try {
                 const result = await fn.apply(svc, args);
                 const dt = (performance.now() - t0).toFixed(0);
@@ -2992,7 +3002,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                 if (tabular) {
                     const tbl = document.createElement('json-table');
                     tbl.hidden = true;
-                    tbl.data = result;
+                    tbl.data = toTabular(result);
                     out.appendChild(tbl);
                 }
             } catch (e) {
