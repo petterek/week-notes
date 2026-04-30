@@ -7985,13 +7985,16 @@ activateTab(initialParams.tab || 'people');
                 // (was previously written eagerly on context create/clone).
                 if (!fs.existsSync(path.join(repo, WEEK_NOTES_MARKER))) writeMarker(repo);
                 if (gitIsRepo(repo)) {
-                    // Ensure autosave dotfiles never end up in commits.
+                    // Ensure autosave dotfiles and the embed sidecar never end up in commits.
                     const giPath = path.join(repo, '.gitignore');
-                    const want = '.*.autosave\n';
+                    const want = ['.*.autosave', '.cache/'];
                     let cur = '';
                     try { cur = fs.readFileSync(giPath, 'utf-8'); } catch (_) {}
-                    if (!cur.split(/\r?\n/).includes('.*.autosave')) {
-                        fs.writeFileSync(giPath, (cur && !cur.endsWith('\n') ? cur + '\n' : cur) + want, 'utf-8');
+                    const have = new Set(cur.split(/\r?\n/).map(s => s.trim()));
+                    const missing = want.filter(w => !have.has(w));
+                    if (missing.length > 0) {
+                        const next = (cur && !cur.endsWith('\n') ? cur + '\n' : cur) + missing.join('\n') + '\n';
+                        fs.writeFileSync(giPath, next, 'utf-8');
                     }
                     const action = (!existing.created) ? 'Opprett' : 'Oppdater';
                     const subject = `${action} ${folder}/${file}`;

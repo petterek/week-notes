@@ -10,6 +10,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (gitignore: exclude .cache/ embed sidecar)
+- `data/<ctx>/.cache/embeddings.json` (vektor-cachen for embedding-søk) skal ikke i git. La til `.cache/` i `gitignore-baseline`-migrasjonen, som også kjører `git rm --cached -r .cache` for kontekster der filen allerede var committet. Save-stien i serveren legger nå også til `.cache/` i `.gitignore` på første lagring.
+
 ### 2026-04-30 (note-view: close button + debug page)
 - ✕-knappen i `<note-view>` lukket ikke modalet — click-listeneren stod på host-elementet, men shadow-DOM-eventer blir retargetet til host så `dataset.action`-sjekken matchet aldri. Flyttet listeneren inn i shadowRoot.
 - La til en debug-side for `<note-view>` på `/debug/note-view` med en knapp som åpner et eksempelnotat mot `MockNotesService`.
