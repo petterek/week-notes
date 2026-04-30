@@ -10,6 +10,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (debug services page: complete coverage)
+- **Debug:** `/debug/services` now lists all production services accurately. Added `CompaniesService` and `PlacesService` (both exported alongside `PeopleService` from `domains/people/service.js`) and `NotesService.listAll`. Section IDs/anchors are now keyed on the service name so multi-export modules don't collide.
+
 ### 2026-04-30 (services-only: components no longer fetch REST directly)
 - **Refactor:** every active component now goes through its domain service for HTTP — no more direct `fetch('/api/...')` calls in component code.
   - `<settings-page>`: now uses `SettingsService` (listThemes / createTheme / saveSettings) and `ContextService` (list / create / switchTo) instead of raw fetches for contexts, themes, clone, save and switch.

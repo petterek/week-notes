@@ -2619,6 +2619,7 @@ const server = http.createServer(async (req, res) => {
                 desc: 'Weekly notes + per-file metadata, raw + rendered content.',
                 methods: [
                     { name: 'listWeeks', http: 'GET /api/weeks',                       desc: 'All known week ids.', params: [] },
+                    { name: 'listAll',   http: 'GET /api/notes',                       desc: 'All notes across weeks (flat list).', params: [] },
                     { name: 'getWeek',   http: 'GET /api/week/:week',                  desc: 'Week metadata + notes index.', params: [{ name: 'week', placeholder: 'YYYY-WNN' }] },
                     { name: 'meta',      http: 'GET /api/notes/:week/:file/meta',      desc: 'Note metadata (frontmatter etc).', params: [{ name: 'week', placeholder: 'YYYY-WNN' }, { name: 'file', placeholder: 'mandag.md' }] },
                     { name: 'card',      http: 'GET /api/notes/:week/:file/card',      desc: 'Sidebar card payload (snippet, type, pin).', params: [{ name: 'week', placeholder: 'YYYY-WNN' }, { name: 'file', placeholder: 'mandag.md' }] },
@@ -2632,6 +2633,22 @@ const server = http.createServer(async (req, res) => {
                 desc: 'People directory.',
                 methods: [
                     { name: 'list', http: 'GET /api/people', desc: 'All people.', params: [] },
+                ],
+            },
+            {
+                key: 'people', global: 'CompaniesService',
+                title: 'CompaniesService',
+                desc: 'Companies directory (same module as PeopleService).',
+                methods: [
+                    { name: 'list', http: 'GET /api/companies', desc: 'All companies.', params: [] },
+                ],
+            },
+            {
+                key: 'people', global: 'PlacesService',
+                title: 'PlacesService',
+                desc: 'Places used as meeting locations (same module as PeopleService).',
+                methods: [
+                    { name: 'list', http: 'GET /api/places', desc: 'All registered places.', params: [] },
                 ],
             },
             {
@@ -2681,7 +2698,7 @@ const server = http.createServer(async (req, res) => {
     <meta charset="utf-8">
     <title>Debug · services</title>
     <link rel="stylesheet" href="/themes/paper.css">
-${SERVICES.map(s => `    <link rel="modulepreload" href="/debug/services/${s.key}.js">`).join('\n')}
+${SERVICES.map(s => `    <link rel="modulepreload" href="/debug/services/${s.key}.js">`).filter((v, i, a) => a.indexOf(v) === i).join('\n')}
     <style>
         body { font-family: var(--font-family, -apple-system, sans-serif); font-size: var(--font-size, 16px); margin: 0; line-height: 1.55; color: var(--text-strong); background: var(--bg); }
         .dbg-page { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
@@ -2728,23 +2745,23 @@ ${SERVICES.map(s => `    <link rel="modulepreload" href="/debug/services/${s.key
             </nav>
             <h2 style="margin-top:18px">Services</h2>
             <nav class="dbg-nav">
-                ${SERVICES.map(s => `<a href="#svc-${s.key}">${s.global}</a>`).join('')}
+                ${SERVICES.map(s => `<a href="#svc-${s.global.toLowerCase()}">${s.global}</a>`).join('')}
             </nav>
         </aside>
         <main class="dbg-main">
             <header class="dbg-head">
                 <h1>Production services</h1>
-                <p class="desc">All eight production services and their GET endpoints, imported as ES modules from <code>domains/&lt;name&gt;/service.js</code> — no globals on <code>window</code>. Calls hit the live <code>/api/*</code> backend. Use <strong>Run all</strong> to invoke every parameter-less GET in one go.</p>
+                <p class="desc">All ${SERVICES.length} production services and their read endpoints, imported as ES modules from <code>domains/&lt;name&gt;/service.js</code> — no globals on <code>window</code>. Calls hit the live <code>/api/*</code> backend. Use <strong>Run all</strong> to invoke every parameter-less GET in one go.</p>
             </header>
             <div class="toolbar">
                 <button id="btnRunAll" type="button">▶ Run all parameter-less GETs</button>
             </div>
             ${SERVICES.map(s => `
-                <section class="svc" id="svc-${s.key}">
+                <section class="svc" id="svc-${s.global.toLowerCase()}">
                     <h2>${s.title} <span class="glob">import { ${s.global} }</span></h2>
                     <p class="desc">${s.desc} <span style="font-family:ui-monospace,monospace;font-size:0.78em;color:var(--text-subtle);margin-left:6px">· source: <a href="/debug/services/${s.key}.js" style="color:var(--text-subtle)">domains/${s.key}/service.js</a></span></p>
                     ${s.methods.map((m, i) => {
-                        const id = `${s.key}-${m.name}`;
+                        const id = `${s.global.toLowerCase()}-${m.name}`;
                         const inputs = m.params.map(p => `
                             <label>${escapeHtml(p.name)}${p.optional ? ' <span style="opacity:.6">(valgfri)</span>' : ''}
                                 <input type="text" data-param="${escapeHtml(p.name)}" placeholder="${escapeHtml(p.placeholder || '')}"${p.optional ? ' class="opt"' : ''}>
