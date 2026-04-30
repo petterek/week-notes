@@ -373,6 +373,7 @@ class SettingsPage extends WNElement {
                 <button type="button" class="sp-tab-btn is-active" data-tab="general">📝 Generelt</button>
                 <button type="button" class="sp-tab-btn" data-tab="tags">🏷️ Tagger</button>
                 <button type="button" class="sp-tab-btn" data-tab="hours">🕓 Arbeidstid</button>
+                <button type="button" class="sp-tab-btn" data-tab="meetings">📅 Møter</button>
             </div>
             <div class="sp-tab-panel is-active" data-panel="general">
                 <fieldset>
@@ -428,6 +429,16 @@ class SettingsPage extends WNElement {
                 <fieldset>
                     <legend>Arbeidstid (per ukedag)</legend>
                     <div class="wh-grid">${whRows}</div>
+                </fieldset>
+            </div>
+            <div class="sp-tab-panel" data-panel="meetings">
+                <fieldset>
+                    <legend>Generelt</legend>
+                    <div class="row">
+                        <label>Standard møtelengde (min)
+                            <input type="number" min="5" max="600" step="5" data-f="defaultMeetingMinutes" value="${escapeHtml(s.defaultMeetingMinutes || 60)}" style="width:90px">
+                        </label>
+                    </div>
                 </fieldset>
                 <fieldset>
                     <legend>Møtetyper</legend>
@@ -542,6 +553,7 @@ class SettingsPage extends WNElement {
             upcomingMeetingsDays: parseInt(f('upcomingMeetingsDays'), 10) || 14,
             visibleStartHour: Math.max(0, Math.min(23, parseInt(f('visibleStartHour'), 10) || 0)),
             visibleEndHour: Math.max(1, Math.min(24, parseInt(f('visibleEndHour'), 10) || 24)),
+            defaultMeetingMinutes: Math.max(5, Math.min(600, parseInt(f('defaultMeetingMinutes'), 10) || 60)),
             workHours: wh,
             meetingTypes: this._collectMeetingTypes(detailEl),
         };

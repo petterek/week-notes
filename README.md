@@ -10,6 +10,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (settings: Møter tab)
+- **Settings:** added a `📅 Møter` tab. Moved **Møtetyper** out of the Arbeidstid tab into Møter, and added a per-context **Standard møtelengde (min)** field there (saved as `defaultMeetingMinutes`). Visible-hours and arbeidstid stay where they are.
+
 ### 2026-04-30 (icon-picker for context icon)
 - **Settings:** the context icon (both in the detail form and in the `+ Ny kontekst` modal) is now a button that opens a popover with `<icon-picker>` (5×5 grid of 25 icons in two groups: Liv, Hobby — including ⛳ golf). Same shared popover infrastructure as the meeting-type icons; the icon set switches based on `data-icon-set` on the button.
 
