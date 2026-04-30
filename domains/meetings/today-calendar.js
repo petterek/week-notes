@@ -257,6 +257,11 @@ class TodayCalendar extends WNElement {
                     color: t.color || '', allDay: !!(t.allDay || t.fullDay),
                 }));
                 cal.eventTypes = eventTypes;
+                // Share the same type list with <meeting-create> so its dropdown
+                // matches the right-click menu (avoids relying on settings_service
+                // being able to resolve the active context).
+                const mc = this.shadowRoot.querySelector('meeting-create');
+                if (mc) mc.types = eventTypes;
             }
             // Only today's meetings
             return (list || []).filter(m => m.date === this._date).map(m => meetingToItem(m, typeMap));
