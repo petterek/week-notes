@@ -83,6 +83,19 @@ const STYLES = `
     .nc-mode-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
     .nc-pane { display: none; }
     .nc-pane.active { display: block; }
+    .rail-disconnected { margin-top: 12px; border-top: 1px solid var(--border-soft); padding-top: 8px; }
+    .rail-disconnected summary { cursor: pointer; font-size: 0.9em; color: var(--text-muted); padding: 4px 6px; }
+    .rail-disconnected summary:hover { color: var(--text-strong); }
+    .dc-list { list-style: none; padding: 0; margin: 4px 0 0; display: flex; flex-direction: column; gap: 2px; }
+    .dc-item { display: flex; align-items: stretch; gap: 4px; }
+    .dc-clone { flex: 1; display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid transparent; border-radius: 4px; background: transparent; cursor: pointer; text-align: left; font: inherit; color: var(--text-strong); }
+    .dc-clone:hover { background: var(--surface-alt); border-color: var(--border-soft); }
+    .dc-ic { font-size: 1.1em; }
+    .dc-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+    .dc-meta strong { font-size: 0.92em; font-weight: 500; }
+    .dc-remote { font-size: 0.78em; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dc-forget { width: 28px; padding: 0; border: 1px solid transparent; background: transparent; color: var(--text-muted); cursor: pointer; border-radius: 4px; }
+    .dc-forget:hover { background: var(--surface-alt); color: var(--danger); border-color: var(--border-soft); }
     .rail-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid transparent; border-radius: 6px; background: transparent; cursor: pointer; text-align: left; font: inherit; color: var(--text-strong); }
     .rail-item:hover { background: var(--surface-alt); }
     .rail-item.selected { border-color: var(--accent); background: var(--surface-alt); }
@@ -212,13 +225,15 @@ class SettingsPage extends WNElement {
                 railEl.textContent = 'Tjenester ikke koblet til.';
                 return;
             }
-            const [ctxResp, themeResp] = await Promise.all([
+            const [ctxResp, themeResp, dcResp] = await Promise.all([
                 ctxSvc.list(),
-                settingsSvc.listThemes().catch(() => [])
+                settingsSvc.listThemes().catch(() => []),
+                ctxSvc.listDisconnected().catch(() => []),
             ]);
             this._active = ctxResp.active;
             this._contexts = ctxResp.contexts || [];
             this._themes = (themeResp && themeResp.themes || themeResp || []).map(t => typeof t === 'string' ? { id: t, name: t } : t);
+            this._disconnected = Array.isArray(dcResp) ? dcResp : [];
             if (!this._selected) this._selected = this._active || (this._contexts[0] && this._contexts[0].id);
             this._renderRail(railEl);
             this._renderDetail(detailEl);
@@ -241,7 +256,25 @@ class SettingsPage extends WNElement {
                 ${isActive ? '<span class="badge" title="Aktiv">●</span>' : ''}
             </button>`;
         }).join('');
-        railEl.innerHTML = items + `<button type="button" class="rail-add" data-rail-add>+ Ny kontekst</button>`;
+        const disconnected = Array.isArray(this._disconnected) ? this._disconnected : [];
+        const dcBlock = disconnected.length === 0 ? '' : `
+            <details class="rail-disconnected" data-rail-dc${disconnected.length ? ' open' : ''}>
+                <summary>🔌 Frakoblede (${disconnected.length})</summary>
+                <ul class="dc-list">
+                    ${disconnected.map(d => `
+                        <li class="dc-item">
+                            <button type="button" class="dc-clone" data-dc-clone data-remote="${escapeHtml(d.remote || '')}" data-name="${escapeHtml(d.name || d.id)}" title="Klon tilbake">
+                                <span class="dc-ic">${escapeHtml(d.icon || '📁')}</span>
+                                <span class="dc-meta">
+                                    <strong>${escapeHtml(d.name || d.id)}</strong>
+                                    <span class="dc-remote">${escapeHtml(d.remote || '')}</span>
+                                </span>
+                            </button>
+                            <button type="button" class="dc-forget" data-dc-forget="${escapeHtml(d.id)}" title="Glem denne">✕</button>
+                        </li>`).join('')}
+                </ul>
+            </details>`;
+        railEl.innerHTML = items + `<button type="button" class="rail-add" data-rail-add>+ Ny kontekst</button>` + dcBlock;
         railEl.querySelectorAll('.rail-item').forEach(el => {
             el.addEventListener('click', () => {
                 this._selected = el.dataset.id;
@@ -251,6 +284,29 @@ class SettingsPage extends WNElement {
         });
         const addBtn = railEl.querySelector('[data-rail-add]');
         if (addBtn) addBtn.addEventListener('click', () => this._openNewContext());
+        railEl.querySelectorAll('[data-dc-clone]').forEach(b => {
+            b.addEventListener('click', () => {
+                this._openNewContext();
+                const overlay = this.shadowRoot.querySelector('.nc-overlay');
+                if (!overlay) return;
+                this._setNcMode(overlay, 'clone');
+                const r = overlay.querySelector('[data-nc="cloneRemote"]');
+                const n = overlay.querySelector('[data-nc="cloneName"]');
+                if (r) r.value = b.dataset.remote || '';
+                if (n) n.value = b.dataset.name || '';
+                if (r) r.focus();
+            });
+        });
+        railEl.querySelectorAll('[data-dc-forget]').forEach(b => {
+            b.addEventListener('click', async (ev) => {
+                ev.stopPropagation();
+                const id = b.dataset.dcForget;
+                try { await this.serviceFor('context').forgetDisconnected(id); }
+                catch (e) { alert('Feilet: ' + (e.message || e)); return; }
+                this._disconnected = (this._disconnected || []).filter(d => d.id !== id);
+                this._renderRail(railEl);
+            });
+        });
     }
 
     _openNewContext() {
@@ -566,6 +622,7 @@ class SettingsPage extends WNElement {
                         <button type="button" data-git-push>⬆️ Push</button>
                         <button type="button" data-git-pull>⬇️ Pull</button>
                         <button type="button" data-git-refresh>🔄 Oppdater</button>
+                        <button type="button" data-git-disconnect style="margin-left:auto;color:var(--danger);border-color:var(--danger)">🔌 Koble fra</button>
                     </div>
                     <div class="git-status-msg" data-git-msg style="margin-top:8px;font-size:0.85em"></div>
                 </fieldset>
@@ -946,6 +1003,21 @@ class SettingsPage extends WNElement {
             action('Pull', () => ctxSvc.pull(id));
         });
         wire('[data-git-refresh]', () => this._loadGitInfo(detailEl));
+        wire('[data-git-disconnect]', async () => {
+            const c = this._contexts.find(x => x.id === id);
+            const name = (c && c.settings && c.settings.name) || id;
+            if (!confirm(`Koble fra "${name}"?\n\nDette vil:\n  • committe alle endringer\n  • pushe til origin\n  • slette den lokale mappen\n\nGit-URLen huskes lokalt så du kan klone den tilbake senere.`)) return;
+            if (msg) { msg.textContent = '⏳ Kobler fra…'; msg.style.color = ''; }
+            try {
+                const r = await this.serviceFor('context').disconnect(id);
+                if (r && r.ok === false) throw new Error(r.error || 'Operasjonen feilet');
+                if (msg) { msg.textContent = '✓ Koblet fra'; msg.style.color = 'var(--accent)'; }
+                this._selected = null;
+                await this.refresh();
+            } catch (e) {
+                if (msg) { msg.textContent = '❌ ' + (e.message || 'Feilet'); msg.style.color = 'var(--danger)'; }
+            }
+        });
     }
 
     _renderGitInfo(el, data) {
