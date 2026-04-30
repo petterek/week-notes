@@ -37,12 +37,11 @@ const STYLES = `
         }
         .side-h-title { display: flex; align-items: baseline; gap: 6px; }
         .add-btn {
-            background: var(--success); color: var(--text-on-accent);
-            border: none; border-radius: 6px; padding: 4px 10px;
-            font: inherit; font-size: 0.85em; font-weight: 600;
-            cursor: pointer;
+            padding: 2px 10px; border: 1px solid var(--accent); background: var(--accent);
+            color: var(--text-on-accent); border-radius: 5px; cursor: pointer;
+            font: inherit; font-size: 0.85em;
         }
-        .add-btn:hover { background: var(--success-strong); filter: brightness(0.95); }
+        .add-btn:hover { background: var(--accent-strong); }
         .empty-quiet { color: var(--text-subtle); font-style: italic; margin: 0; }
         .sidebar-tasks { display: flex; flex-direction: column; gap: 6px; }
         .sidebar-task { padding: 6px 8px; border-radius: 6px; background: var(--surface); }
@@ -201,7 +200,7 @@ class TaskOpenList extends WNElement {
         const headerWithAdd = (countLabel) => html`
             <h3 class="side-h">
                 <span class="side-h-title">Åpne oppgaver${countLabel ? ' · ' + countLabel : ''}</span>
-                <button type="button" class="add-btn" data-act="add" title="Ny oppgave">＋</button>
+                <button type="button" class="add-btn" data-act="add" title="Ny oppgave">+ Nytt</button>
             </h3>
         `;
         const tasksSvcPath = this.getAttribute('tasks_service') || '';
