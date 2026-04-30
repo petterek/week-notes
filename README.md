@@ -10,6 +10,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (tag editor component)
+- **New `<tag-editor>` component:** chip-style tag input replacing the comma-separated text field on the **Innstillinger → Tagger** tab. Type and press Enter (or comma) to add a tag, click × to remove, Backspace on empty input removes the last chip, optional `suggestions` dropdown with arrow-key navigation. Form-associated (works inside both shadow DOM forms and plain `data-f` collectors).
+
 ### 2026-04-30 (json-table polish)
 - **`<json-table>` ergonomics:** added a fullscreen overlay (⛶ button, Esc to close), a font-size dropdown (XS/S/M/L/XL), nested sub-tables for object/array cells, key/value rendering for plain objects, and horizontal scrolling for wide content. The debug `/services` Table view enables the toggle for any non-empty result.
 

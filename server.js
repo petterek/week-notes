@@ -1773,6 +1773,7 @@ document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaK
 <script type="module" src="/components/entity-mention.js"></script>
 <script type="module" src="/components/inline-action.js"></script>
 <script type="module" src="/components/icon-picker.js"></script>
+<script type="module" src="/components/tag-editor.js"></script>
 <script type="module" src="/components/people-page.js"></script>
 <script type="module" src="/components/results-page.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -4140,6 +4141,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
 <script type="module" src="/components/entity-mention.js"></script>
 <script type="module" src="/components/inline-action.js"></script>
 <script type="module" src="/components/icon-picker.js"></script>
+<script type="module" src="/components/tag-editor.js"></script>
 <script type="module" src="/components/people-page.js"></script>
 <script type="module" src="/components/results-page.js"></script>
     <style>
@@ -4936,8 +4938,8 @@ document.addEventListener('keydown', function(e) {
                     <div class="ctx-detail-section">
                         <h3>🏷️ Tagger</h3>
                         <p class="section-hint">Tagger (tema) tilgjengelig for autofullføring i notatredigereren og som filter på <a href="/notes">notater-siden</a>.</p>
-                        <label>Tilgjengelige tagger (kommaseparert)
-                            <input type="text" name="availableThemes" value="${escapeHtml((Array.isArray(c.settings.availableThemes) ? c.settings.availableThemes : []).join(', '))}" placeholder="planlegging, retro, status, kunde">
+                        <label>Tilgjengelige tagger
+                            <tag-editor name="availableThemes" value="${escapeHtml((Array.isArray(c.settings.availableThemes) ? c.settings.availableThemes : []).join(','))}" placeholder="Skriv tag og trykk Enter…"></tag-editor>
                         </label>
                     </div>
                     </div>

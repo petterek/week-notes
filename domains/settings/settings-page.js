@@ -428,11 +428,8 @@ class SettingsPage extends WNElement {
             <div class="sp-tab-panel" data-panel="tags">
                 <fieldset>
                     <legend>Tilgjengelige tagger</legend>
-                    <p style="font-size:0.85em;color:var(--text-muted);margin:0 0 10px">Tagger (tema) for autofullføring i notatredigereren og som filter på notater-siden.</p>
-                    <label style="display:block">Tagger (kommaseparert)
-                        <input type="text" data-f="availableThemes" value="${escapeHtml(tags.join(', '))}" placeholder="planlegging, retro, status, kunde">
-                    </label>
-                    ${tags.length ? `<div class="tag-list">${tags.map(t => `<span class="tag-chip">#${escapeHtml(t)}</span>`).join('')}</div>` : ''}
+                    <p style="font-size:0.85em;color:var(--text-muted);margin:0 0 10px">Tagger (tema) for autofullføring i notatredigereren og som filter på notater-siden. Skriv en tag og trykk Enter eller komma for å legge til.</p>
+                    <tag-editor data-f="availableThemes" value="${escapeHtml(tags.join(','))}" placeholder="Legg til tag…"></tag-editor>
                 </fieldset>
             </div>
             <div class="sp-tab-panel" data-panel="hours">
@@ -610,6 +607,7 @@ class SettingsPage extends WNElement {
             const el = detailEl.querySelector(`[data-f="${k}"]`);
             if (!el) return '';
             if (el.tagName === 'BUTTON') return el.dataset.iconValue || '';
+            if (el.tagName === 'TAG-EDITOR') return el.tags || [];
             return el.value;
         };
         const wh = DAY_NAMES.map((_, i) => {
@@ -626,12 +624,13 @@ class SettingsPage extends WNElement {
                 end: pad(m[3]) + ':' + m[4],
             };
         });
+        const tagsVal = f('availableThemes');
         return {
             icon: f('icon').trim(),
             name: f('name').trim(),
             description: f('description'),
             theme: f('theme'),
-            availableThemes: f('availableThemes').split(',').map(s => s.trim()).filter(Boolean),
+            availableThemes: Array.isArray(tagsVal) ? tagsVal : String(tagsVal || '').split(',').map(s => s.trim()).filter(Boolean),
             upcomingMeetingsDays: parseInt(f('upcomingMeetingsDays'), 10) || 14,
             visibleStartHour: Math.max(0, Math.min(23, parseInt(f('visibleStartHour'), 10) || 0)),
             visibleEndHour: Math.max(1, Math.min(24, parseInt(f('visibleEndHour'), 10) || 24)),
