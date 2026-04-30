@@ -10,6 +10,14 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (summarize: lokal modell + ekstern i ny app-settings-fane)
+- Ny **📝 Oppsummer**-fane under Applikasjonsinnstillinger med samme tabell-/pill-mønster som Søk-fanen. Velg modell og slå funksjonen av/på.
+- Modellutvalg: **GitHub Models · gpt-4o-mini** (☁ Ekstern, krever `gh auth login` / `GH_TOKEN` — best kvalitet, anbefalt) + lokale seq2seq-modeller `distilbart-cnn-6-6/12-6`, `bart-large-cnn`, `t5-small`, `mT5_multilingual_XLSum`.
+- Lokale modeller kjøres i ny `summarize-worker.js` (mirror av `embed-worker.js`) med `transformers.js` `summarization`-pipeline. Lange ukenotater chunkes (~600 ord) før oppsummering.
+- Eksisterende «✨ Oppsummer»-knapp på uke-visningen velger automatisk lokal worker når funksjonen er på og en lokal modell er valgt; ellers kalles GitHub Models som før.
+- Nye endepunkter: `GET /api/summarize/status`, `GET /api/summarize/events` (SSE), `DELETE /api/app-settings/models/:id` håndterer både embed- og oppsummerings-modeller.
+- Justert overlay-stil for «+ Nytt møte» i kalender og hjem-sidens dagsplan slik at den matcher «Lag oppgave»-modalet (samme bakgrunn, bredde, sentrering).
+
 ### 2026-04-30 (search: BM25-cache, app-settings panel, model picker)
 - BM25 inverted index caches til `data/<ctx>/.cache/search-index.json` (signatur-versjonert) for rask kald-start; tokens-tabellen lagres komprimert.
 - Ny **Applikasjonsinnstillinger**-seksjon på `/settings` med faner **👋 Velkommen** og **🔍 Søk**. Pillen i hver kort fungerer som av/på-bryter (Aktiv / Stoppet).

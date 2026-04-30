@@ -274,11 +274,13 @@ class SettingsPage extends WNElement {
         this._selected = null;
         this.refresh();
         this._initAppSettings();
+        this._initSummarizeSettings();
     }
 
     disconnectedCallback() {
         super.disconnectedCallback?.();
         if (this._vsSse) { try { this._vsSse.close(); } catch {} this._vsSse = null; }
+        if (this._smSse) { try { this._smSse.close(); } catch {} this._smSse = null; }
     }
 
     async _initAppSettings() {
@@ -527,6 +529,172 @@ class SettingsPage extends WNElement {
         openSse();
     }
 
+    async _initSummarizeSettings() {
+        const root = this.shadowRoot;
+        const $ = (k) => root.querySelector(`[data-sm="${k}"]`);
+        const tbody = $('tbody');
+        const status = $('status');
+        const saveStatus = $('saveStatus');
+        if (!tbody) return;
+
+        let models = [];
+        let appSettings = null;
+        const load = async () => {
+            try {
+                const r = await fetch('/api/app-settings');
+                const d = await r.json();
+                models = d.summarizeModels || [];
+                appSettings = d.settings;
+                return true;
+            } catch { return false; }
+        };
+        await load();
+
+        const escapeHtml = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        let liveState = null;
+
+        const renderTable = () => {
+            const activeId = appSettings && appSettings.summarization.enabled ? appSettings.summarization.model : null;
+            const loadingId = (liveState && liveState.phase === 'loading') ? liveState.model : null;
+            const loadingPct = (liveState && liveState.progress && typeof liveState.progress.pct === 'number')
+                ? Math.round(liveState.progress.pct) : null;
+            tbody.innerHTML = models.map(m => {
+                const isActive = m.id === activeId;
+                const isLoading = m.id === loadingId;
+                const downloaded = m.downloaded || isActive;
+                let statusCell;
+                if (m.remote) {
+                    statusCell = `<span class="vs-status-ok">☁ Ekstern</span>`;
+                } else if (isLoading) {
+                    const pctTxt = loadingPct != null ? (loadingPct + '%') : '…';
+                    statusCell = `<div class="vs-row-prog">
+                        <span class="vs-status-loading">⬇ Laster ${pctTxt}</span>
+                        <div class="vs-row-bar"><div class="vs-row-fill" style="width:${loadingPct != null ? loadingPct : 5}%"></div></div>
+                    </div>`;
+                } else if (downloaded) {
+                    statusCell = `<span class="vs-status-ok">✓ Lastet ned</span>`;
+                } else {
+                    statusCell = `<span class="vs-status-no">Ikke lastet ned</span>`;
+                }
+                let actions;
+                if (isLoading) {
+                    actions = `<button class="vs-action" disabled>Laster…</button>`;
+                } else if (isActive) {
+                    actions = `<button class="vs-action is-active-btn" disabled>Aktiv</button>`;
+                } else if (m.remote) {
+                    actions = `<button class="vs-action" data-sm-act="${escapeHtml(m.id)}">Aktiver</button>`;
+                } else if (downloaded) {
+                    actions = `<button class="vs-action" data-sm-act="${escapeHtml(m.id)}">Aktiver</button>
+                        <button class="vs-action vs-action-danger" data-sm-del="${escapeHtml(m.id)}" title="Slett nedlastet modell">Slett</button>`;
+                } else {
+                    actions = `<button class="vs-action" data-sm-act="${escapeHtml(m.id)}">⬇ Last ned</button>`;
+                }
+                const sizeTxt = m.remote ? '—' : ('~' + m.sizeMb + 'MB');
+                return `<tr class="${isActive ? 'is-active' : ''}${isLoading ? ' is-loading' : ''}">
+                    <td><div class="vs-name">${escapeHtml(m.label)}${m.recommended ? ' <small style="display:inline;color:var(--accent);font-weight:600;margin-left:4px">Anbefalt</small>' : ''}<small>${escapeHtml(m.id)}</small></div></td>
+                    <td>${sizeTxt}</td>
+                    <td>${escapeHtml(m.languages)}</td>
+                    <td>${escapeHtml(m.description)}</td>
+                    <td>${statusCell}</td>
+                    <td style="text-align:right; white-space:nowrap">${actions}</td>
+                </tr>`;
+            }).join('');
+        };
+        renderTable();
+
+        const setPill = (phase, label) => {
+            status.className = 'vs-pill vs-pill-btn vs-pill-' + phase;
+            status.textContent = label;
+        };
+        const refreshPill = () => {
+            if (!appSettings) return;
+            if (liveState && (liveState.phase === 'loading' || liveState.phase === 'ready' || liveState.phase === 'error')) return;
+            if (appSettings.summarization.enabled) setPill('ready', 'Aktiv');
+            else {
+                const cur = models.find(m => m.id === appSettings.summarization.model);
+                if (cur && !cur.remote && !cur.downloaded) setPill('disabled', '⬇ Last ned og aktiver');
+                else setPill('disabled', 'Stoppet');
+            }
+        };
+        refreshPill();
+
+        const activate = async (modelId) => {
+            saveStatus.textContent = 'Aktiverer…';
+            try {
+                const body = { summarization: { enabled: true, model: modelId } };
+                const r = await fetch('/api/app-settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                const d = await r.json();
+                if (d.ok) {
+                    saveStatus.textContent = '✓ Aktivert';
+                    await load(); renderTable(); refreshPill();
+                } else saveStatus.textContent = '✗ ' + (d.error || 'Feil');
+            } catch (e) { saveStatus.textContent = '✗ ' + e.message; }
+            finally { setTimeout(() => { saveStatus.textContent = ''; }, 3000); }
+        };
+        const del = async (modelId) => {
+            const m = models.find(x => x.id === modelId);
+            if (!m) return;
+            if (!confirm('Slette nedlastede filer for ' + m.label + '?\n\nDu kan laste den ned igjen senere.')) return;
+            saveStatus.textContent = 'Sletter…';
+            try {
+                const r = await fetch('/api/app-settings/models/' + encodeURIComponent(modelId), { method: 'DELETE' });
+                const d = await r.json();
+                if (d.ok) {
+                    saveStatus.textContent = '✓ Slettet';
+                    await load(); renderTable(); refreshPill();
+                } else saveStatus.textContent = '✗ ' + (d.error || 'Feil');
+            } catch (e) { saveStatus.textContent = '✗ ' + e.message; }
+            finally { setTimeout(() => { saveStatus.textContent = ''; }, 3000); }
+        };
+        tbody.addEventListener('click', (ev) => {
+            const a = ev.target.closest('[data-sm-act]');
+            const d = ev.target.closest('[data-sm-del]');
+            if (a) activate(a.dataset.smAct);
+            else if (d) del(d.dataset.smDel);
+        });
+
+        status.addEventListener('click', async () => {
+            if (!appSettings) return;
+            const newEnabled = !appSettings.summarization.enabled;
+            saveStatus.textContent = newEnabled ? 'Aktiverer…' : 'Slår av…';
+            try {
+                const body = { summarization: { enabled: newEnabled, model: appSettings.summarization.model } };
+                const r = await fetch('/api/app-settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                const d = await r.json();
+                saveStatus.textContent = d.ok ? '✓ Lagret' : ('✗ ' + (d.error || 'Feil'));
+                await load(); renderTable(); refreshPill();
+            } catch (e) { saveStatus.textContent = '✗ ' + e.message; }
+            finally { setTimeout(() => { saveStatus.textContent = ''; }, 2500); }
+        });
+
+        const applyState = (s) => {
+            if (!s) return;
+            liveState = s;
+            if (s.phase === 'disabled') refreshPill();
+            else if (s.phase === 'loading') {
+                const pct = s.progress && typeof s.progress.pct === 'number' ? Math.round(s.progress.pct) : null;
+                setPill('loading', pct != null ? ('Laster ' + pct + '%') : 'Laster…');
+            } else if (s.phase === 'ready') {
+                setPill('ready', 'Aktiv');
+                load().then(() => { renderTable(); refreshPill(); });
+                return;
+            } else if (s.phase === 'error') {
+                setPill('error', 'Feil');
+                status.title = 'Klikk for å prøve på nytt — ' + (s.error || 'feil ved lasting');
+            }
+            renderTable();
+        };
+
+        const openSse = () => {
+            try {
+                this._smSse = new EventSource('/api/summarize/events');
+                this._smSse.onmessage = (ev) => { try { applyState(JSON.parse(ev.data)); } catch {} };
+                this._smSse.onerror = () => { try { this._smSse.close(); } catch {} this._smSse = null; setTimeout(openSse, 3000); };
+            } catch {}
+        };
+        openSse();
+    }
+
     render() {
         if (!this.service) return this.renderNoService();
         return html`
@@ -535,6 +703,7 @@ class SettingsPage extends WNElement {
                 <div class="app-tabs" role="tablist">
                     <button type="button" class="app-tab is-active" role="tab" data-app-tab="welcome">👋 Velkommen</button>
                     <button type="button" class="app-tab" role="tab" data-app-tab="embeddings">🔍 Søk</button>
+                    <button type="button" class="app-tab" role="tab" data-app-tab="summarize">📝 Oppsummer</button>
                 </div>
                 <div class="app-tab-panels">
                     <div class="app-tab-panel is-active" data-app-panel="welcome">
@@ -587,6 +756,24 @@ class SettingsPage extends WNElement {
                                     <tr><th>Navn</th><th>Størrelse</th><th>Språk</th><th>Beskrivelse</th><th>Status</th><th></th></tr>
                                 </thead>
                                 <tbody data-vs="tbody"><tr><td colspan="6">Laster…</td></tr></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="app-tab-panel" data-app-panel="summarize">
+                        <div class="app-card">
+                            <div class="app-head">
+                                <strong>📝 Oppsummering av uker</strong>
+                                <button type="button" class="vs-pill vs-pill-disabled vs-pill-btn" data-sm="status" title="Klikk for å slå på/av">Stoppet</button>
+                                <div class="vs-actions">
+                                    <span class="vs-save-status" data-sm="saveStatus"></span>
+                                </div>
+                            </div>
+                            <p class="app-help">Velg modell for &laquo;✨ Oppsummer&raquo;-knappen på uke-visningen. <strong>Ekstern</strong> bruker GitHub Models (gpt-4o-mini, krever <code>gh auth login</code>) — best kvalitet og norsk støtte. <strong>Lokale</strong> modeller kjøres i en worker-tråd og lastes ned til <code>models/</code> første gang. Lokale seq2seq-modeller er trent for engelsk; norsk gir merkbart svakere resultater (mT5 multilingual er det eneste reelle alternativet).</p>
+                            <table class="vs-table" data-sm="table">
+                                <thead>
+                                    <tr><th>Navn</th><th>Størrelse</th><th>Språk</th><th>Beskrivelse</th><th>Status</th><th></th></tr>
+                                </thead>
+                                <tbody data-sm="tbody"><tr><td colspan="6">Laster…</td></tr></tbody>
                             </table>
                         </div>
                     </div>

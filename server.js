@@ -116,6 +116,58 @@ const EMBED_MODELS = [
 ];
 const DEFAULT_EMBED_MODEL = 'Xenova/multilingual-e5-small';
 
+// Local summarization models (seq2seq). Run via @huggingface/transformers
+// 'summarization' pipeline in summarize-worker.js. distilbart-cnn-6-6 is the
+// sweet spot for English; mT5_multilingual_XLSum is the only viable
+// multilingual (incl. Norwegian) option but quality is mediocre.
+const SUMMARIZE_MODELS = [
+    {
+        id: 'remote:github-models/gpt-4o-mini',
+        label: 'GitHub Models · gpt-4o-mini',
+        sizeMb: 0,
+        languages: 'NO/EN/multi',
+        description: 'Ekstern (krever GitHub-token via `gh auth` eller GH_TOKEN). Best kvalitet, ingen nedlasting.',
+        remote: true,
+        recommended: true,
+    },
+    {
+        id: 'Xenova/distilbart-cnn-6-6',
+        label: 'distilbart-cnn-6-6',
+        sizeMb: 150,
+        languages: 'EN',
+        description: 'Lokal. DistilBART trent på CNN/DailyMail. God kvalitet, kun engelsk.',
+    },
+    {
+        id: 'Xenova/distilbart-cnn-12-6',
+        label: 'distilbart-cnn-12-6',
+        sizeMb: 310,
+        languages: 'EN',
+        description: 'Større DistilBART. Bedre kvalitet enn 6-6, kun engelsk.',
+    },
+    {
+        id: 'Xenova/bart-large-cnn',
+        label: 'bart-large-cnn',
+        sizeMb: 440,
+        languages: 'EN',
+        description: 'Full BART-large. Toppkvalitet på engelsk, tung å laste.',
+    },
+    {
+        id: 'Xenova/t5-small',
+        label: 't5-small',
+        sizeMb: 60,
+        languages: 'EN',
+        description: 'T5 small ("summarize: ..."-prefiks). Veldig liten, middels kvalitet.',
+    },
+    {
+        id: 'Xenova/mT5_multilingual_XLSum',
+        label: 'mT5 multilingual XLSum',
+        sizeMb: 580,
+        languages: 'NO/EN/multi',
+        description: 'Flerspråklig (45 språk inkl. norsk). Tung og litt knappe sammendrag.',
+    },
+];
+const DEFAULT_SUMMARIZE_MODEL = 'remote:github-models/gpt-4o-mini';
+
 function getAppSettings() {
     let s = {};
     try { s = JSON.parse(fs.readFileSync(APP_SETTINGS_FILE, 'utf-8')) || {}; } catch {}
@@ -130,6 +182,13 @@ function getAppSettings() {
         s.searchIndex = { enabled: true };
     }
     s.searchIndex.enabled = s.searchIndex.enabled !== false;
+    if (!s.summarization || typeof s.summarization !== 'object') {
+        s.summarization = { enabled: false, model: DEFAULT_SUMMARIZE_MODEL };
+    }
+    if (!s.summarization.model || !SUMMARIZE_MODELS.some(m => m.id === s.summarization.model)) {
+        s.summarization.model = DEFAULT_SUMMARIZE_MODEL;
+    }
+    s.summarization.enabled = !!s.summarization.enabled;
     return s;
 }
 
@@ -146,6 +205,13 @@ function setAppSettings(next) {
     if (next && next.searchIndex) {
         merged.searchIndex = Object.assign({}, cur.searchIndex, next.searchIndex);
         merged.searchIndex.enabled = merged.searchIndex.enabled !== false;
+    }
+    if (next && next.summarization) {
+        merged.summarization = Object.assign({}, cur.summarization, next.summarization);
+        if (!SUMMARIZE_MODELS.some(m => m.id === merged.summarization.model)) {
+            merged.summarization.model = DEFAULT_SUMMARIZE_MODEL;
+        }
+        merged.summarization.enabled = !!merged.summarization.enabled;
     }
     try { fs.mkdirSync(path.dirname(APP_SETTINGS_FILE), { recursive: true }); } catch {}
     fs.writeFileSync(APP_SETTINGS_FILE, JSON.stringify(merged, null, 2));
@@ -1190,11 +1256,19 @@ function getGhToken() {
 }
 
 function summarizeWeek(week) {
+    const app = getAppSettings();
+    const useLocal = app.summarization.enabled && !isRemoteSummarizeModel(app.summarization.model);
     return new Promise((resolve, reject) => {
         const files = getMdFiles(week);
         const tasks = loadTasks().filter(t => t.week === week);
 
-        let context = `Oppsummer hva som skjedde i uke ${week}.\n\nSkriv oppsummeringen på norsk i markdown-format. Vær grundig og dekkende — ta med detaljer, kontekst og diskusjoner fra notatene, ikke bare overskrifter.\n\nStruktur oppsummeringen med følgende seksjoner (bruk ## overskrifter):\n\n## Hovedpunkter\nEt fyldig sammendrag (flere avsnitt) av hva som skjedde i uken. Beskriv møter, diskusjoner, problemstillinger, og beslutninger i prosa. Ta med kontekst og nyanser fra notatene.\n\n## Oppgaver\nList fullførte og pågående oppgaver. Nevn kort hva som ble oppnådd på fullførte oppgaver (bruk notat/kommentar).\n\n## Resultater og beslutninger\nList opp ALLE elementer fra seksjonen \"Resultater\" nedenfor. Hvert resultat som eget punkt. Ikke utelat noen.\n\n## Involverte personer\nList opp ALLE personer fra seksjonen \"Personer\" nedenfor. For hver person: navn, rolle/tittel hvis kjent, og hva de bidro med eller ble nevnt i forbindelse med denne uken.\n\nIkke utelat resultater eller personer. Vær utfyllende under Hovedpunkter.\n\n`;
+        // For remote (gpt-4o-mini) we send a richly-instructed Norwegian
+        // prompt. For local seq2seq models the instructions are noise —
+        // they just summarize whatever text they get — so we feed a
+        // bare concatenation of the week's content instead.
+        let context = useLocal
+            ? `Uke ${week}.\n\n`
+            : `Oppsummer hva som skjedde i uke ${week}.\n\nSkriv oppsummeringen på norsk i markdown-format. Vær grundig og dekkende — ta med detaljer, kontekst og diskusjoner fra notatene, ikke bare overskrifter.\n\nStruktur oppsummeringen med følgende seksjoner (bruk ## overskrifter):\n\n## Hovedpunkter\nEt fyldig sammendrag (flere avsnitt) av hva som skjedde i uken. Beskriv møter, diskusjoner, problemstillinger, og beslutninger i prosa. Ta med kontekst og nyanser fra notatene.\n\n## Oppgaver\nList fullførte og pågående oppgaver. Nevn kort hva som ble oppnådd på fullførte oppgaver (bruk notat/kommentar).\n\n## Resultater og beslutninger\nList opp ALLE elementer fra seksjonen \"Resultater\" nedenfor. Hvert resultat som eget punkt. Ikke utelat noen.\n\n## Involverte personer\nList opp ALLE personer fra seksjonen \"Personer\" nedenfor. For hver person: navn, rolle/tittel hvis kjent, og hva de bidro med eller ble nevnt i forbindelse med denne uken.\n\nIkke utelat resultater eller personer. Vær utfyllende under Hovedpunkter.\n\n`;
 
         for (const f of files) {
             if (f === 'summarize.md') continue;
@@ -1253,6 +1327,13 @@ function summarizeWeek(week) {
                     context += `- @${name}\n`;
                 }
             }
+        }
+
+        if (useLocal) {
+            // Hand off to local summarize-worker. No need for the GitHub
+            // token. Worker chunks long inputs internally.
+            summarizeViaLocalWorker(context).then(resolve).catch(reject);
+            return;
         }
 
         const token = getGhToken();
@@ -2636,6 +2717,119 @@ function vectorSearchViaWorker(q, timeoutMs = 5000) {
         catch (e) { clearTimeout(timer); pendingEmbed.delete(requestId); reject(e); }
     });
 }
+
+// ---- Summarize worker (local seq2seq summarization) ----
+let summarizeWorker = null;
+let summarizeReady = false;
+let summarizeState = { phase: 'disabled', model: null, progress: null, error: null };
+const summarizeSseClients = new Set();
+const pendingSummarize = new Map();
+let summarizeReqSeq = 0;
+
+function summarizeEmit(state) {
+    summarizeState = Object.assign({}, summarizeState, state);
+    const data = JSON.stringify(summarizeState);
+    for (const res of summarizeSseClients) {
+        try { res.write(`data: ${data}\n\n`); } catch {}
+    }
+}
+
+function isRemoteSummarizeModel(id) {
+    const m = SUMMARIZE_MODELS.find(x => x.id === id);
+    return !!(m && m.remote);
+}
+
+function stopSummarizeWorker() {
+    if (!summarizeWorker) { summarizeReady = false; return; }
+    try { summarizeWorker.terminate(); } catch {}
+    summarizeWorker = null;
+    summarizeReady = false;
+    for (const [, p] of pendingSummarize) { clearTimeout(p.timer); p.reject(new Error('summarize-worker stopped')); }
+    pendingSummarize.clear();
+}
+
+function startSummarizeWorker() {
+    if (summarizeWorker) return;
+    const app = getAppSettings();
+    if (!app.summarization.enabled) {
+        summarizeEmit({ phase: 'disabled', model: app.summarization.model, progress: null, error: null });
+        return;
+    }
+    const model = app.summarization.model || DEFAULT_SUMMARIZE_MODEL;
+    if (isRemoteSummarizeModel(model)) {
+        // Remote model has nothing to load. Mark ready immediately.
+        summarizeReady = true;
+        summarizeEmit({ phase: 'ready', model, progress: null, error: null });
+        return;
+    }
+    try {
+        summarizeWorker = new Worker(path.join(__dirname, 'summarize-worker.js'));
+    } catch (e) {
+        console.error('summarize-worker start failed', e.message);
+        summarizeWorker = null;
+        summarizeEmit({ phase: 'error', model, error: e.message });
+        return;
+    }
+    summarizeEmit({ phase: 'loading', model, progress: null, error: null });
+    summarizeWorker.on('message', (msg) => {
+        if (msg.type === 'ready') {
+            summarizeReady = true;
+            console.log(`📝 summarize-worker klar (${msg.model}, ${msg.ms}ms)`);
+            summarizeEmit({ phase: 'ready', model: msg.model, progress: null, error: null });
+        } else if (msg.type === 'modelProgress') {
+            let pct = null;
+            if (typeof msg.progress === 'number') {
+                pct = msg.status === 'progress_total' ? msg.progress * 100 : msg.progress;
+            }
+            summarizeEmit({ phase: 'loading', model: msg.model, progress: { status: msg.status, file: msg.file, pct } });
+        } else if (msg.type === 'summaryResult') {
+            const p = pendingSummarize.get(msg.requestId);
+            if (p) { clearTimeout(p.timer); pendingSummarize.delete(msg.requestId); p.resolve(msg.text || ''); }
+        } else if (msg.type === 'error') {
+            if (msg.requestId != null) {
+                const p = pendingSummarize.get(msg.requestId);
+                if (p) { clearTimeout(p.timer); pendingSummarize.delete(msg.requestId); p.reject(new Error(msg.error)); }
+            } else {
+                console.error('summarize-worker:', msg.error);
+                summarizeEmit({ phase: 'error', error: msg.error });
+            }
+        }
+    });
+    summarizeWorker.on('error', (e) => {
+        console.error('summarize-worker error', e);
+        summarizeEmit({ phase: 'error', error: e.message });
+    });
+    summarizeWorker.on('exit', (code) => {
+        if (code !== 0) console.error('summarize-worker exited with code', code);
+        summarizeWorker = null; summarizeReady = false;
+        for (const [, p] of pendingSummarize) { clearTimeout(p.timer); p.reject(new Error('summarize-worker died')); }
+        pendingSummarize.clear();
+    });
+    try { summarizeWorker.postMessage({ type: 'init', model }); }
+    catch (e) {
+        console.error('summarize init post failed', e.message);
+        summarizeEmit({ phase: 'error', error: e.message });
+    }
+}
+
+function restartSummarizeWorker() {
+    stopSummarizeWorker();
+    startSummarizeWorker();
+}
+
+function summarizeViaLocalWorker(text, timeoutMs = 120000) {
+    return new Promise((resolve, reject) => {
+        if (!summarizeWorker || !summarizeReady) return reject(new Error('summarize-worker ikke klar'));
+        const requestId = ++summarizeReqSeq;
+        const timer = setTimeout(() => {
+            if (pendingSummarize.has(requestId)) { pendingSummarize.delete(requestId); reject(new Error('summarize utløp')); }
+        }, timeoutMs);
+        pendingSummarize.set(requestId, { resolve, reject, timer });
+        try { summarizeWorker.postMessage({ type: 'summarize', text, requestId }); }
+        catch (e) { clearTimeout(timer); pendingSummarize.delete(requestId); reject(e); }
+    });
+}
+
 
 function vectorHitToSearchResult(hit) {
     const m = embedMeta.get(hit.key);
@@ -7994,7 +8188,7 @@ activateTab(initialParams.tab || 'people');
     // App-wide settings (currently just vector-search). Per-context settings
     // remain at /api/contexts/:id/settings.
     if (pathname === '/api/app-settings' && req.method === 'GET') {
-        const modelsAnnotated = EMBED_MODELS.map(m => {
+        const annotateLocal = (m) => {
             const dir = path.join(__dirname, 'models', m.id.replace(/\//g, path.sep));
             let downloaded = false;
             try {
@@ -8002,21 +8196,43 @@ activateTab(initialParams.tab || 'people');
                           || fs.existsSync(path.join(dir, 'onnx', 'model.onnx'));
             } catch {}
             return Object.assign({}, m, { downloaded });
-        });
+        };
+        const modelsAnnotated = EMBED_MODELS.map(annotateLocal);
+        // Remote summarize entries are always "downloaded:true" (no-op).
+        const summarizeModelsAnnotated = SUMMARIZE_MODELS.map(m =>
+            m.remote ? Object.assign({}, m, { downloaded: true }) : annotateLocal(m)
+        );
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, settings: getAppSettings(), models: modelsAnnotated }));
+        res.end(JSON.stringify({
+            ok: true,
+            settings: getAppSettings(),
+            models: modelsAnnotated,
+            summarizeModels: summarizeModelsAnnotated,
+        }));
         return;
     }
     if (pathname.match(/^\/api\/app-settings\/models\/(.+)$/) && req.method === 'DELETE') {
         try {
             const modelId = decodeURIComponent(pathname.match(/^\/api\/app-settings\/models\/(.+)$/)[1]);
-            if (!EMBED_MODELS.some(m => m.id === modelId)) {
+            const inEmbed = EMBED_MODELS.some(m => m.id === modelId);
+            const inSummarize = SUMMARIZE_MODELS.some(m => m.id === modelId);
+            if (!inEmbed && !inSummarize) {
                 res.writeHead(404, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ ok: false, error: 'Ukjent modell' }));
                 return;
             }
+            if (isRemoteSummarizeModel(modelId)) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: 'Ekstern modell kan ikke slettes.' }));
+                return;
+            }
             const settings = getAppSettings();
-            if (settings.vectorSearch.enabled && settings.vectorSearch.model === modelId) {
+            if (inEmbed && settings.vectorSearch.enabled && settings.vectorSearch.model === modelId) {
+                res.writeHead(409, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: 'Kan ikke slette aktiv modell. Slå av først eller bytt modell.' }));
+                return;
+            }
+            if (inSummarize && settings.summarization.enabled && settings.summarization.model === modelId) {
                 res.writeHead(409, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ ok: false, error: 'Kan ikke slette aktiv modell. Slå av først eller bytt modell.' }));
                 return;
@@ -8047,6 +8263,12 @@ activateTab(initialParams.tab || 'people');
                 if (next.searchIndex.enabled) restartSearchWorker();
                 else stopSearchWorker();
             }
+            const sumChanged = before.summarization.enabled !== next.summarization.enabled
+                            || before.summarization.model   !== next.summarization.model;
+            if (sumChanged) {
+                if (next.summarization.enabled) restartSummarizeWorker();
+                else { stopSummarizeWorker(); summarizeEmit({ phase: 'disabled', model: next.summarization.model, progress: null, error: null }); }
+            }
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: true, settings: next }));
         } catch (e) {
@@ -8058,6 +8280,26 @@ activateTab(initialParams.tab || 'people');
     if (pathname === '/api/embed/status' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(Object.assign({ ok: true }, embedState)));
+        return;
+    }
+    if (pathname === '/api/summarize/status' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(Object.assign({ ok: true }, summarizeState)));
+        return;
+    }
+    if (pathname === '/api/summarize/events' && req.method === 'GET') {
+        res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no',
+        });
+        res.write(`data: ${JSON.stringify(summarizeState)}\n\n`);
+        summarizeSseClients.add(res);
+        const keepalive = setInterval(() => { try { res.write(': ping\n\n'); } catch {} }, 30000);
+        const cleanup = () => { clearInterval(keepalive); summarizeSseClients.delete(res); };
+        req.on('close', cleanup);
+        req.on('error', cleanup);
         return;
     }
     // Per-context index stats: read on-disk caches and report sizes.
@@ -10076,5 +10318,6 @@ server.listen(PORT, () => {
     try { ensureAllContextsInitialised(); } catch (e) { console.error('ctx init', e.message); }
     startSearchWorker();
     startEmbedWorker();
+    startSummarizeWorker();
     console.log('Press Ctrl+C to stop');
 });
