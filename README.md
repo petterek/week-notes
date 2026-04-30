@@ -10,6 +10,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (context switch: apply theme immediately)
+- **Context switching:** when switching context (via `<ctx-switcher>` or the Settings rail), the new context's theme is now applied to the page **before** the reload — no more flash of the previous theme while the page reloads.
+
 ### 2026-04-30 (settings: Tema tab + tab cleanup)
 - **Settings:** added a `🎨 Tema` tab and brought back the swatch-grid theme picker — each tile previews the theme's actual palette (bg, surface-head, accent + line tones) and clicking selects it. Replaces the old `<select>`. Custom (non-builtin) themes are marked with a dashed border and a ✎ badge.
 - **Settings → Tema:** added `🧬 Klon valgt tema` (prompts for a name, POSTs `/api/themes`, refreshes the grid and selects the new clone) and a `🎨 Åpne temaeditor ↗` link to the existing `/themes` builder.

@@ -180,6 +180,16 @@ class CtxSwitcher extends WNElement {
             try {
                 const d = await this.service.switchTo(id);
                 if (d && d.ok) {
+                    // Apply the new context's theme immediately so the page
+                    // doesn't flash the old theme while it reloads.
+                    try {
+                        const ctx = (this._state && this._state.contexts || []).find(c => c.id === id);
+                        const theme = ctx && ctx.settings && ctx.settings.theme;
+                        const link = document.getElementById('themeStylesheet');
+                        if (link && theme) {
+                            link.href = '/themes/' + encodeURIComponent(theme) + '.css?ts=' + Date.now();
+                        }
+                    } catch (_) { /* best effort */ }
                     const evt = new CustomEvent('context-selected', {
                         bubbles: true, composed: true, cancelable: true,
                         detail: { id, result: d },

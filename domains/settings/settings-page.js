@@ -589,6 +589,14 @@ class SettingsPage extends WNElement {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id })
             });
+            try {
+                const ctx = (this._contexts || []).find(c => c.id === id);
+                const theme = ctx && ctx.settings && ctx.settings.theme;
+                const link = document.getElementById('themeStylesheet');
+                if (link && theme) {
+                    link.href = '/themes/' + encodeURIComponent(theme) + '.css?ts=' + Date.now();
+                }
+            } catch (_) { /* best effort */ }
             location.reload();
         } catch (_) {
             if (status) status.textContent = '❌ Kunne ikke bytte';
