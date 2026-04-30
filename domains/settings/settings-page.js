@@ -768,7 +768,7 @@ class SettingsPage extends WNElement {
                                     <span class="vs-save-status" data-sm="saveStatus"></span>
                                 </div>
                             </div>
-                            <p class="app-help">Velg modell for &laquo;✨ Oppsummer&raquo;-knappen på uke-visningen. <strong>Ekstern</strong> bruker GitHub Models (gpt-4o-mini, krever <code>gh auth login</code>) — best kvalitet og norsk støtte. <strong>Lokale</strong> modeller kjøres i en worker-tråd og lastes ned til <code>models/</code> første gang. Lokale seq2seq-modeller er trent for engelsk; norsk gir merkbart svakere resultater (mT5 multilingual er det eneste reelle alternativet).</p>
+                            <p class="app-help">Velg modell for &laquo;✨ Oppsummer&raquo;-knappen på uke-visningen. <strong>Ekstern</strong> bruker GitHub Models (gpt-4o-mini, krever <code>gh auth login</code>) — best kvalitet og eneste reelle alternativ for norske notater. <strong>Lokale</strong> modeller kjøres i en worker-tråd og lastes ned til <code>models/</code> første gang. Alle Xenovas oppsummerings-modeller er trent på engelsk (CNN/DailyMail) — norsk vil bli oversatt eller produsere dårlige resultater.</p>
                             <table class="vs-table" data-sm="table">
                                 <thead>
                                     <tr><th>Navn</th><th>Størrelse</th><th>Språk</th><th>Beskrivelse</th><th>Status</th><th></th></tr>

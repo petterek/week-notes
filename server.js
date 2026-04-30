@@ -158,13 +158,6 @@ const SUMMARIZE_MODELS = [
         languages: 'EN',
         description: 'T5 small ("summarize: ..."-prefiks). Veldig liten, middels kvalitet.',
     },
-    {
-        id: 'Xenova/mT5_multilingual_XLSum',
-        label: 'mT5 multilingual XLSum',
-        sizeMb: 580,
-        languages: 'NO/EN/multi',
-        description: 'Flerspråklig (45 språk inkl. norsk). Tung og litt knappe sammendrag.',
-    },
 ];
 const DEFAULT_SUMMARIZE_MODEL = 'remote:github-models/gpt-4o-mini';
 

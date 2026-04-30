@@ -95,3 +95,13 @@ parentPort.on('message', async (msg) => {
         });
     }
 });
+
+// Keep the worker alive after a model load failure so the parent can
+// terminate it (and start a new one with a different model) cleanly,
+// instead of seeing the worker drop with an unhandled-rejection exit.
+process.on('uncaughtException', (e) => {
+    try { parentPort.postMessage({ type: 'error', error: 'uncaught: ' + (e && e.message || String(e)) }); } catch {}
+});
+process.on('unhandledRejection', (e) => {
+    try { parentPort.postMessage({ type: 'error', error: 'unhandled: ' + (e && e.message || String(e)) }); } catch {}
+});
