@@ -10,6 +10,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (migrate-context: inventory + quarantine + gitignore baseline)
+- `scripts/migrate-context.js` får (1) en inventering som flagger ukjente filer i kontekstrota og ikke-`.md`-filer i ukemapper, (2) `--quarantine`-flagg som flytter dem til `_quarantine/<tidsstempel>/`, og (3) ny migrering `gitignore-baseline` som legger til `.*.swp`, `.*.swo`, `.*.autosave` i `.gitignore`. JSON-strukturen til kjente rotfiler (`settings/tasks/results/people/meetings/meeting-types/companies/places/notes-meta`) valideres også.
+
 ### 2026-04-30 (scripts: migrate-context.js)
 - Nytt verktøy `scripts/migrate-context.js` som leser `.week-notes`-versjonen i en kontekst og kjører registrerte datamigreringer (idempotente). Første migrering: `week-iso-format` (`YYYY-NN` → `YYYY-WNN` i mappenavn, `tasks.json`, `results.json`, `notes-meta.json` nøkler, `meetings.json`). Brukt for `arbeid`. Kjør: `node scripts/migrate-context.js --ctx <id> [--dry-run] [--commit]` eller `--all`.
 

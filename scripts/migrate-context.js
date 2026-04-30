@@ -62,6 +62,114 @@ function writeMarker(dir, hash) {
 }
 
 // ------------------------------------------------------------------
+// File inventory
+// ------------------------------------------------------------------
+
+const KNOWN_ROOT_FILES = new Set([
+    '.week-notes',
+    '.gitignore',
+    '.gitattributes',
+    'settings.json',
+    'tasks.json',
+    'results.json',
+    'people.json',
+    'meetings.json',
+    'meeting-types.json',
+    'notes-meta.json',
+    'companies.json',
+    'places.json',
+]);
+const KNOWN_ROOT_DIRS = new Set(['.git']);
+
+function classifyRootEntry(name, isDir) {
+    if (isDir) {
+        if (KNOWN_ROOT_DIRS.has(name)) return { kind: 'system' };
+        if (/^\d{4}-W\d{2}$/.test(name)) return { kind: 'week-dir' };
+        if (/^\d{4}-\d{1,2}$/.test(name)) return { kind: 'legacy-week-dir' };
+        if (name === '_quarantine') return { kind: 'quarantine' };
+        return { kind: 'unknown-dir' };
+    }
+    if (KNOWN_ROOT_FILES.has(name)) return { kind: 'known' };
+    return { kind: 'unknown-file' };
+}
+
+function inventoryContext(ctxDir, opts) {
+    const log = opts.log;
+    const unknowns = []; // { absPath, relPath, isDir }
+
+    const rootEntries = fs.readdirSync(ctxDir, { withFileTypes: true });
+    for (const e of rootEntries) {
+        const c = classifyRootEntry(e.name, e.isDirectory());
+        if (c.kind === 'unknown-file' || c.kind === 'unknown-dir') {
+            unknowns.push({ absPath: path.join(ctxDir, e.name), relPath: e.name, isDir: e.isDirectory() });
+        }
+    }
+
+    // Inside week dirs: anything that isn't a .md file is suspect.
+    for (const e of rootEntries) {
+        if (!e.isDirectory()) continue;
+        if (!/^\d{4}-W\d{2}$/.test(e.name)) continue;
+        const weekDir = path.join(ctxDir, e.name);
+        for (const sub of fs.readdirSync(weekDir, { withFileTypes: true })) {
+            if (sub.isDirectory()) {
+                unknowns.push({ absPath: path.join(weekDir, sub.name), relPath: `${e.name}/${sub.name}`, isDir: true });
+            } else if (!sub.name.toLowerCase().endsWith('.md')) {
+                unknowns.push({ absPath: path.join(weekDir, sub.name), relPath: `${e.name}/${sub.name}`, isDir: false });
+            }
+        }
+    }
+
+    // Validate known JSON files parse + have expected shape.
+    const jsonChecks = [
+        { file: 'settings.json', expect: 'object' },
+        { file: 'tasks.json', expect: 'array' },
+        { file: 'results.json', expect: 'array' },
+        { file: 'people.json', expect: 'array' },
+        { file: 'meetings.json', expect: 'array' },
+        { file: 'meeting-types.json', expect: 'array' },
+        { file: 'notes-meta.json', expect: 'object' },
+        { file: 'companies.json', expect: 'array' },
+        { file: 'places.json', expect: 'array' },
+    ];
+    const jsonProblems = [];
+    for (const c of jsonChecks) {
+        const p = path.join(ctxDir, c.file);
+        if (!fs.existsSync(p)) continue;
+        try {
+            const v = JSON.parse(fs.readFileSync(p, 'utf-8'));
+            const ok = c.expect === 'array' ? Array.isArray(v) : (v && typeof v === 'object' && !Array.isArray(v));
+            if (!ok) jsonProblems.push(`  ⚠ ${c.file}: expected ${c.expect}`);
+        } catch (e) {
+            jsonProblems.push(`  ⚠ ${c.file}: parse error (${e.message.split('\n')[0]})`);
+        }
+    }
+
+    if (unknowns.length === 0 && jsonProblems.length === 0) {
+        log('  inventory: ✓ no issues');
+        return { unknowns, jsonProblems };
+    }
+    log('  inventory:');
+    for (const u of unknowns) log(`    • unknown ${u.isDir ? 'dir ' : 'file'} ${u.relPath}`);
+    for (const p of jsonProblems) log(p);
+
+    if (opts.quarantine && !opts.dryRun && unknowns.length > 0) {
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const qDir = path.join(ctxDir, '_quarantine', stamp);
+        fs.mkdirSync(qDir, { recursive: true });
+        for (const u of unknowns) {
+            const dest = path.join(qDir, u.relPath);
+            fs.mkdirSync(path.dirname(dest), { recursive: true });
+            fs.renameSync(u.absPath, dest);
+            log(`    → quarantined ${u.relPath} → _quarantine/${stamp}/${u.relPath}`);
+        }
+    } else if (unknowns.length > 0) {
+        log('    (use --quarantine to move these into _quarantine/<timestamp>/)');
+    }
+
+    return { unknowns, jsonProblems };
+}
+
+// ------------------------------------------------------------------
 // Migrations
 // ------------------------------------------------------------------
 
@@ -173,12 +281,25 @@ function rewriteJsonArray(ctxDir, file, fixer, opts) {
     return total;
 }
 
+function migrateGitignore(ctxDir, opts) {
+    const log = opts.log;
+    const want = ['.*.swp', '.*.swo', '.*.autosave'];
+    const p = path.join(ctxDir, '.gitignore');
+    let cur = '';
+    try { cur = fs.readFileSync(p, 'utf-8'); } catch {}
+    const lines = new Set(cur.split(/\r?\n/).map(s => s.trim()).filter(Boolean));
+    const missing = want.filter(w => !lines.has(w));
+    if (missing.length === 0) return 0;
+    const next = (cur && !cur.endsWith('\n') ? cur + '\n' : cur) + missing.join('\n') + '\n';
+    if (!opts.dryRun) fs.writeFileSync(p, next);
+    log(`  .gitignore: ${missing.length} entr${missing.length === 1 ? 'y' : 'ies'} added (${missing.join(', ')})`);
+    return missing.length;
+}
+
 const MIGRATIONS = [
     {
         id: 'week-iso-format',
         description: 'Convert YYYY-NN week folders/refs to YYYY-WNN (ISO 8601 with W).',
-        // Data-shape detection: applies whenever any YYYY-NN dir or
-        // ref still exists. No hash check needed.
         appliesTo: (_hash, dir) => {
             try {
                 const legacy = fs.readdirSync(dir, { withFileTypes: true })
@@ -187,6 +308,18 @@ const MIGRATIONS = [
             } catch { return false; }
         },
         run: migrateWeekIsoFormat,
+    },
+    {
+        id: 'gitignore-baseline',
+        description: 'Ensure .gitignore covers vim swap files and autosave temp files.',
+        appliesTo: (_hash, dir) => {
+            const want = ['.*.swp', '.*.swo', '.*.autosave'];
+            let cur = '';
+            try { cur = fs.readFileSync(path.join(dir, '.gitignore'), 'utf-8'); } catch {}
+            const lines = new Set(cur.split(/\r?\n/).map(s => s.trim()));
+            return want.some(w => !lines.has(w));
+        },
+        run: migrateGitignore,
     },
     // Future migrations: append here. Each can use `appliesTo: (hash, dir) => …`
     // with `isAncestor(hash, currentHead())`-style cutoffs if needed.
@@ -225,8 +358,12 @@ function migrateCtx(ctxId, opts) {
     }
 
     if (totalChanges === 0) {
-        log(`  no changes needed.`);
+        log(`  no migrations needed.`);
     }
+
+    // Always run inventory after migrations.
+    const inv = inventoryContext(dir, { dryRun: !!opts.dryRun, quarantine: !!opts.quarantine, log });
+    if (inv.unknowns.length > 0 && !opts.dryRun && opts.quarantine) totalChanges += inv.unknowns.length;
 
     if (!opts.dryRun && head !== 'unknown') {
         writeMarker(dir, head);
@@ -255,6 +392,7 @@ function main() {
         all: false,
         dryRun: false,
         commit: false,
+        quarantine: false,
     };
     for (let i = 0; i < args.length; i++) {
         const a = args[i];
@@ -262,8 +400,10 @@ function main() {
         else if (a === '--all') opts.all = true;
         else if (a === '--dry-run') opts.dryRun = true;
         else if (a === '--commit') opts.commit = true;
+        else if (a === '--quarantine') opts.quarantine = true;
         else if (a === '-h' || a === '--help') {
-            console.log('Usage: node scripts/migrate-context.js [--ctx <id> | --all] [--dry-run] [--commit]');
+            console.log('Usage: node scripts/migrate-context.js [--ctx <id> | --all] [--dry-run] [--commit] [--quarantine]');
+            console.log('  --quarantine  move unknown root files / non-md files in week dirs into _quarantine/<timestamp>/');
             return;
         } else {
             console.error(`Unknown arg: ${a}`);
