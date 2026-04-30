@@ -67,8 +67,8 @@ const STYLES = `
     .app-card { background: transparent; border: 0; border-radius: 0; padding: 0; position: relative; }
     .app-sep { border: 0; border-top: 1px solid var(--border-soft); margin: 14px 0; }
     .app-card.welcome h3 { margin: 0 0 6px; font-size: 1.05em; color: var(--text-strong); }
-    .app-card.welcome > p { margin: 0 0 14px; color: var(--text-muted); max-width: 70ch; line-height: 1.5; }
-    .welcome-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; max-width: 80ch; }
+    .app-card.welcome > p { margin: 0 0 14px; color: var(--text-muted); line-height: 1.5; }
+    .welcome-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
     .welcome-list li { color: var(--text-muted); font-size: 0.92em; line-height: 1.5; }
     .welcome-list strong { color: var(--text-strong); font-weight: 600; white-space: nowrap; }
     .welcome-list code { font-family: ui-monospace, monospace; font-size: 0.92em; background: var(--surface-alt); padding: 1px 4px; border-radius: 3px; }
