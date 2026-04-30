@@ -7400,7 +7400,7 @@ activateTab(initialParams.tab || 'people');
         const body = `
         <div class="breadcrumb"><a href="/">Ukenotater</a> / Oppgaver</div>
         <h1>☑️ Oppgaver</h1>
-        <task-create id="taskCreate" autofocus-on-connect style="margin-bottom:20px;display:block"></task-create>
+        <task-create id="taskCreate" tasks_service="week-note-services.tasks_service" autofocus-on-connect style="margin-bottom:20px;display:block"></task-create>
         <div style="margin-bottom:16px"><label style="cursor:pointer;font-size:0.9em;color:var(--text-muted);user-select:none"><input type="checkbox" id="showDone" onchange="localStorage.setItem('showDone',this.checked);renderTasks()" style="margin-right:6px" />Vis fullførte oppgaver</label></div>
         <div id="taskList"></div>
         ${commentModalHtml()}

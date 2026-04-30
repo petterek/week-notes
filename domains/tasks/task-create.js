@@ -1,7 +1,7 @@
 /**
  * <task-create> — reusable "new task" input + button.
  *
- * POSTs the input value to /api/tasks and dispatches a
+ * Calls `service.create(text)` (TaskService) and dispatches a
  * `task:created` event (bubbles, composed) with detail
  *   { task, tasks }
  * so the host page/component can refresh its list.
@@ -9,9 +9,9 @@
  * Attributes:
  *   placeholder    — input placeholder text (default "Ny oppgave...")
  *   button-label   — submit button text (default "Legg til")
- *   endpoint       — API endpoint (default "/api/tasks")
  *   compact        — boolean attr; renders a slimmer variant
  *   autofocus-on-connect — boolean; focus the input on mount
+ *   tasks_service  — service path attribute (e.g. "week-note-services.tasks_service")
  *
  * Public API:
  *   element.focus()  — focus the input
@@ -101,16 +101,14 @@ class TaskCreate extends WNElement {
         const text = (this._input.value || '').trim();
         this._err.textContent = '';
         if (!text) { this._input.focus(); return; }
-        const endpoint = this.getAttribute('endpoint') || '/api/tasks';
+        const svc = this.service;
+        if (!svc || typeof svc.create !== 'function') {
+            this._err.textContent = 'Tjeneste ikke koblet til';
+            return;
+        }
         this._btn.disabled = true;
         try {
-            const resp = await fetch(endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text }),
-            });
-            if (!resp.ok) throw new Error('HTTP ' + resp.status);
-            const tasks = await resp.json();
+            const tasks = await svc.create(text);
             const task = Array.isArray(tasks) ? tasks[tasks.length - 1] : null;
             this._input.value = '';
             this._input.focus();

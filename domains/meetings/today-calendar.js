@@ -223,9 +223,9 @@ class TodayCalendar extends WNElement {
 
     async _loadSettings() {
         try {
-            const r = await fetch('/api/contexts');
-            if (!r.ok) return;
-            const d = await r.json();
+            const ctxSvc = this.serviceFor('context');
+            if (!ctxSvc) return;
+            const d = await ctxSvc.list();
             const active = (d.contexts || []).find(c => c.id === d.active) || (d.contexts || [])[0];
             this._settings = (active && active.settings) || null;
         } catch (_) { this._settings = null; }

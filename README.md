@@ -10,6 +10,13 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (services-only: components no longer fetch REST directly)
+- **Refactor:** every active component now goes through its domain service for HTTP — no more direct `fetch('/api/...')` calls in component code.
+  - `<settings-page>`: now uses `SettingsService` (listThemes / createTheme / saveSettings) and `ContextService` (list / create / switchTo) instead of raw fetches for contexts, themes, clone, save and switch.
+  - `<today-calendar>` / `<week-notes-calendar>`: now use `ContextService.list()` to read the active context's settings (added `context_service` attribute on both pages).
+  - `<global-search>`: requires `SearchService.search(q)` — the legacy direct-fetch fallback is gone.
+  - `<task-create>`: now calls `TaskService.create(text)` via `tasks_service`. The `endpoint` attribute is removed; pages must wire `tasks_service`. `<task-create-modal>` forwards `tasks_service` to its inner `<task-create>`, and `<task-open-list>` forwards its own `tasks_service` to the modal.
+
 ### 2026-04-30 (context switch: apply theme immediately)
 - **Context switching:** when switching context (via `<ctx-switcher>` or the Settings rail), the new context's theme is now applied to the page **before** the reload — no more flash of the previous theme while the page reloads.
 

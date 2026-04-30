@@ -204,7 +204,8 @@ class TaskOpenList extends WNElement {
                 <button type="button" class="add-btn" data-act="add" title="Ny oppgave">＋</button>
             </h3>
         `;
-        const modals = html`<task-complete-modal></task-complete-modal><task-create-modal></task-create-modal><task-note-modal></task-note-modal>`;
+        const tasksSvcPath = this.getAttribute('tasks_service') || '';
+        const modals = html`<task-complete-modal></task-complete-modal><task-create-modal tasks_service="${tasksSvcPath}"></task-create-modal><task-note-modal></task-note-modal>`;
         if (!this._state) return html`${headerWithAdd('')}<p class="empty-quiet">Laster…</p>${modals}`;
         if (this._state.error) return html`${headerWithAdd('')}<p class="empty-quiet">Kunne ikke laste oppgaver</p>${modals}`;
 

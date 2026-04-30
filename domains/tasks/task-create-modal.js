@@ -12,9 +12,9 @@
  * working.
  *
  * Attributes:
- *   modal-title   — modal heading (default "Ny oppgave")
- *   placeholder   — forwarded to <task-create>
- *   endpoint      — forwarded to <task-create>
+ *   modal-title    — modal heading (default "Ny oppgave")
+ *   placeholder    — forwarded to <task-create>
+ *   tasks_service  — forwarded to <task-create>
  */
 import { WNElement, html } from './_shared.js';
 
@@ -51,14 +51,14 @@ const STYLES = `
 `;
 
 class TaskCreateModal extends WNElement {
-    static get observedAttributes() { return ['modal-title', 'placeholder', 'endpoint']; }
+    static get observedAttributes() { return ['modal-title', 'placeholder', 'tasks_service']; }
 
     css() { return STYLES; }
 
     render() {
         const title = this.getAttribute('modal-title') || 'Ny oppgave';
         const placeholder = this.getAttribute('placeholder') || 'Beskriv oppgaven…';
-        const endpoint = this.getAttribute('endpoint') || '/api/tasks';
+        const svcPath = this.getAttribute('tasks_service') || '';
         return html`
             <div class="backdrop" data-backdrop>
                 <div class="card" role="dialog" aria-modal="true">
@@ -68,7 +68,7 @@ class TaskCreateModal extends WNElement {
                     </div>
                     <task-create
                         placeholder="${placeholder}"
-                        endpoint="${endpoint}"
+                        tasks_service="${svcPath}"
                     ></task-create>
                 </div>
             </div>

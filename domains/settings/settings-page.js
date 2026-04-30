@@ -195,13 +195,19 @@ class SettingsPage extends WNElement {
         if (!railEl || !detailEl) return;
 
         try {
+            const ctxSvc = this.serviceFor('context');
+            const settingsSvc = this.service;
+            if (!ctxSvc || !settingsSvc) {
+                railEl.textContent = 'Tjenester ikke koblet til.';
+                return;
+            }
             const [ctxResp, themeResp] = await Promise.all([
-                fetch('/api/contexts').then(r => r.json()),
-                fetch('/api/themes').then(r => r.json()).catch(() => ({ themes: [] }))
+                ctxSvc.list(),
+                settingsSvc.listThemes().catch(() => [])
             ]);
             this._active = ctxResp.active;
             this._contexts = ctxResp.contexts || [];
-            this._themes = (themeResp.themes || themeResp || []).map(t => typeof t === 'string' ? { id: t, name: t } : t);
+            this._themes = (themeResp && themeResp.themes || themeResp || []).map(t => typeof t === 'string' ? { id: t, name: t } : t);
             if (!this._selected) this._selected = this._active || (this._contexts[0] && this._contexts[0].id);
             this._renderRail(railEl);
             this._renderDetail(detailEl);
@@ -322,14 +328,15 @@ class SettingsPage extends WNElement {
             status.style.color = 'var(--danger, #c53030)';
             return;
         }
+        const ctxSvc = this.serviceFor('context');
         const send = async (force) => {
             status.style.color = '';
             status.textContent = force ? '⏳ Oppretter (bekreftet)…' : '⏳ Oppretter…';
-            const r = await fetch('/api/contexts', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(Object.assign({}, data, { force: !!force })),
-            });
-            return r.json();
+            try {
+                return await ctxSvc.create(Object.assign({}, data, { force: !!force }));
+            } catch (e) {
+                return { ok: false, error: e.message || String(e) };
+            }
         };
         try {
             let d = await send(false);
@@ -535,14 +542,11 @@ class SettingsPage extends WNElement {
                     if (!name || !name.trim()) return;
                     cloneBtn.disabled = true;
                     try {
-                        const r = await fetch('/api/themes', {
-                            method: 'POST', headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ from: fromId, name: name.trim() }),
-                        });
-                        const d = await r.json();
-                        if (!r.ok || d.error) throw new Error(d.error || 'Klon feilet');
+                        const settingsSvc = this.service;
+                        const d = await settingsSvc.createTheme({ from: fromId, name: name.trim() });
+                        if (!d || d.error) throw new Error((d && d.error) || 'Klon feilet');
                         // refresh themes list
-                        const list = await fetch('/api/themes').then(rr => rr.json());
+                        const list = await settingsSvc.listThemes();
                         this._themes = (list || []).map(t => typeof t === 'string' ? { id: t, name: t } : t);
                         // re-render the grid
                         const newId = d.id || (d.theme && d.theme.id) || name.trim().toLowerCase().replace(/\s+/g, '-');
@@ -585,10 +589,8 @@ class SettingsPage extends WNElement {
         const status = detailEl.querySelector('[data-status]');
         if (status) status.textContent = '⏳ Bytter…';
         try {
-            await fetch('/api/contexts/switch', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id })
-            });
+            const ctxSvc = this.serviceFor('context');
+            await ctxSvc.switchTo(id);
             try {
                 const ctx = (this._contexts || []).find(c => c.id === id);
                 const theme = ctx && ctx.settings && ctx.settings.theme;
@@ -767,12 +769,9 @@ class SettingsPage extends WNElement {
         const merged = Object.assign({}, ctx.settings || {}, this._collectForm(detailEl));
         if (status) { status.textContent = '⏳ Lagrer…'; status.style.color = ''; }
         try {
-            const r = await fetch('/api/contexts/' + encodeURIComponent(ctx.id) + '/settings', {
-                method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(merged)
-            });
-            const data = await r.json();
-            if (!r.ok || data.error) throw new Error(data.error || ('HTTP ' + r.status));
+            const settingsSvc = this.service;
+            const data = await settingsSvc.saveSettings(ctx.id, merged);
+            if (data && data.error) throw new Error(data.error);
             if (status) { status.textContent = '✓ Lagret'; status.style.color = 'var(--accent)'; }
             // Refresh underlying data, but keep selection.
             const keep = this._selected;

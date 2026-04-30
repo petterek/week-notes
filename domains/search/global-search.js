@@ -139,10 +139,12 @@ class GlobalSearch extends WNElement {
             lastQuery = q;
             if (!q) { resultsEl.innerHTML = ''; return; }
             const svc = this.service;
-            const p = (svc && typeof svc.search === 'function')
-                ? Promise.resolve(svc.search(q))
-                : fetch('/api/search?q=' + encodeURIComponent(q)).then(r => r.json());
-            p.then(data => {
+            if (!svc || typeof svc.search !== 'function') {
+                resultsEl.innerHTML = '<p style="color:var(--danger)">Søketjeneste ikke koblet til</p>';
+                return;
+            }
+            Promise.resolve(svc.search(q))
+                .then(data => {
                     if (lastQuery !== q) return;
                     render(Array.isArray(data) ? data : [], q);
                 })
