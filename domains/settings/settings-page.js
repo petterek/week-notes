@@ -78,6 +78,11 @@ const STYLES = `
     .nc-actions .save:hover { background: var(--accent-strong); }
     .nc-actions .cancel { background: var(--surface); color: var(--text-strong); border: 1px solid var(--border); }
     .nc-status { font-size: 0.9em; color: var(--text-muted); }
+    .nc-modes { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--border-soft); }
+    .nc-mode-btn { background: transparent; border: none; border-bottom: 2px solid transparent; padding: 6px 12px; font: inherit; font-size: 0.92em; color: var(--text-muted-warm); cursor: pointer; margin-bottom: -1px; }
+    .nc-mode-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+    .nc-pane { display: none; }
+    .nc-pane.active { display: block; }
     .rail-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid transparent; border-radius: 6px; background: transparent; cursor: pointer; text-align: left; font: inherit; color: var(--text-strong); }
     .rail-item:hover { background: var(--surface-alt); }
     .rail-item.selected { border-color: var(--accent); background: var(--surface-alt); }
@@ -260,25 +265,40 @@ class SettingsPage extends WNElement {
                         <button type="button" data-nc-close title="Lukk">✕</button>
                     </div>
                     <form class="nc-form" data-nc-form>
-                        <label>Navn
-                            <input type="text" data-nc="name" required placeholder="Jobb">
-                        </label>
-                        <div class="row">
-                            <label>Ikon
-                                <button type="button" data-nc="icon" data-icon-set="context" data-icon-value="📁" class="icon-btn" title="Velg ikon">📁</button>
+                        <div class="nc-modes" role="tablist">
+                            <button type="button" class="nc-mode-btn active" data-nc-mode="create">✨ Ny</button>
+                            <button type="button" class="nc-mode-btn" data-nc-mode="clone">📥 Klon fra git</button>
+                        </div>
+                        <div class="nc-pane active" data-nc-pane="create">
+                            <label>Navn
+                                <input type="text" data-nc="name" placeholder="Jobb">
                             </label>
-                            <label>Beskrivelse
-                                <input type="text" data-nc="description" placeholder="Kort beskrivelse">
+                            <div class="row">
+                                <label>Ikon
+                                    <button type="button" data-nc="icon" data-icon-set="context" data-icon-value="📁" class="icon-btn" title="Velg ikon">📁</button>
+                                </label>
+                                <label>Beskrivelse
+                                    <input type="text" data-nc="description" placeholder="Kort beskrivelse">
+                                </label>
+                            </div>
+                            <label>Git remote <span style="color:var(--text-subtle);font-weight:normal">(valgfritt)</span>
+                                <input type="text" data-nc="remote" placeholder="git@github.com:user/repo.git">
                             </label>
                         </div>
-                        <label>Git remote <span style="color:var(--text-subtle);font-weight:normal">(valgfritt)</span>
-                            <input type="text" data-nc="remote" placeholder="git@github.com:user/repo.git">
-                        </label>
+                        <div class="nc-pane" data-nc-pane="clone">
+                            <label>Git remote URL
+                                <input type="text" data-nc="cloneRemote" placeholder="git@github.com:user/repo.git">
+                            </label>
+                            <label>Navn <span style="color:var(--text-subtle);font-weight:normal">(valgfritt — utledes fra repo)</span>
+                                <input type="text" data-nc="cloneName" placeholder="Overstyr navn">
+                            </label>
+                            <p style="font-size:0.85em;color:var(--text-muted);margin:4px 0 0">Kloner et eksisterende week-notes-repo fra git og legger til som ny kontekst.</p>
+                        </div>
                         <div class="nc-actions">
                             <span class="nc-status" data-nc-status></span>
                             <span class="spacer"></span>
                             <button type="button" class="cancel" data-nc-close>Avbryt</button>
-                            <button type="submit" class="save">💾 Opprett</button>
+                            <button type="submit" class="save" data-nc-submit>💾 Opprett</button>
                         </div>
                     </form>
                 </div>
@@ -301,16 +321,38 @@ class SettingsPage extends WNElement {
                     this._openIconPicker(ncIconBtn, overlay.querySelector('.nc-card'));
                 });
             }
+            overlay.querySelectorAll('[data-nc-mode]').forEach(btn => {
+                btn.addEventListener('click', () => this._setNcMode(overlay, btn.dataset.ncMode));
+            });
         } else {
             overlay.querySelectorAll('input').forEach(i => { i.value = ''; });
             const iconBtn = overlay.querySelector('[data-nc="icon"]');
             if (iconBtn) { iconBtn.dataset.iconValue = '📁'; iconBtn.textContent = '📁'; }
             const status = overlay.querySelector('[data-nc-status]');
             if (status) { status.textContent = ''; status.style.color = ''; }
+            this._setNcMode(overlay, 'create');
         }
         overlay.classList.add('open');
+        this._setNcMode(overlay, 'create');
         setTimeout(() => {
             const t = overlay.querySelector('[data-nc="name"]');
+            if (t) t.focus();
+        }, 30);
+    }
+
+    _setNcMode(overlay, mode) {
+        overlay.querySelectorAll('[data-nc-mode]').forEach(b => {
+            b.classList.toggle('active', b.dataset.ncMode === mode);
+        });
+        overlay.querySelectorAll('[data-nc-pane]').forEach(p => {
+            p.classList.toggle('active', p.dataset.ncPane === mode);
+        });
+        const submitBtn = overlay.querySelector('[data-nc-submit]');
+        if (submitBtn) submitBtn.textContent = mode === 'clone' ? '📥 Klon' : '💾 Opprett';
+        overlay.dataset.ncMode = mode;
+        setTimeout(() => {
+            const sel = mode === 'clone' ? '[data-nc="cloneRemote"]' : '[data-nc="name"]';
+            const t = overlay.querySelector(sel);
             if (t) t.focus();
         }, 30);
     }
@@ -323,23 +365,40 @@ class SettingsPage extends WNElement {
             if (el.tagName === 'BUTTON') return (el.dataset.iconValue || '').trim();
             return (el.value || '').trim();
         };
-        const data = {
-            name: get('name'),
-            icon: get('icon') || '📁',
-            description: get('description'),
-            remote: get('remote'),
-        };
-        if (!data.name) {
-            status.textContent = 'Navn er påkrevd';
-            status.style.color = 'var(--danger, #c53030)';
-            return;
-        }
+        const mode = overlay.dataset.ncMode || 'create';
         const ctxSvc = this.serviceFor('context');
+        let payload, action, label;
+        if (mode === 'clone') {
+            const remote = get('cloneRemote');
+            if (!remote) {
+                status.textContent = 'Git remote er påkrevd';
+                status.style.color = 'var(--danger, #c53030)';
+                return;
+            }
+            payload = { remote, name: get('cloneName') };
+            action = (force) => ctxSvc.clone(Object.assign({}, payload, { force: !!force }));
+            label = 'Kloner';
+        } else {
+            const data = {
+                name: get('name'),
+                icon: get('icon') || '📁',
+                description: get('description'),
+                remote: get('remote'),
+            };
+            if (!data.name) {
+                status.textContent = 'Navn er påkrevd';
+                status.style.color = 'var(--danger, #c53030)';
+                return;
+            }
+            payload = data;
+            action = (force) => ctxSvc.create(Object.assign({}, data, { force: !!force }));
+            label = 'Oppretter';
+        }
         const send = async (force) => {
             status.style.color = '';
-            status.textContent = force ? '⏳ Oppretter (bekreftet)…' : '⏳ Oppretter…';
+            status.textContent = `⏳ ${label}${force ? ' (bekreftet)' : ''}…`;
             try {
-                return await ctxSvc.create(Object.assign({}, data, { force: !!force }));
+                return await action(force);
             } catch (e) {
                 return { ok: false, error: e.message || String(e) };
             }
@@ -354,7 +413,7 @@ class SettingsPage extends WNElement {
                 status.style.color = 'var(--danger, #c53030)';
                 return;
             }
-            status.textContent = '✓ Opprettet';
+            status.textContent = mode === 'clone' ? '✓ Klonet' : '✓ Opprettet';
             status.style.color = 'var(--accent)';
             this._selected = d.id;
             await this.refresh();

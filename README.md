@@ -10,6 +10,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (settings: legg til kontekst fra git)
+- Dialogen «Ny kontekst» har nå to faner: ✨ Ny (opprett tom) og 📥 Klon fra git (kloner et eksisterende week-notes-repo). Begge går gjennom samme `needsConfirm`-flyt for repos som mangler `.week-notes`-markør.
+
 ### 2026-04-30 (settings: Git-fane per kontekst)
 - Ny fane `📦 Git` på innstillinger viser status (rent/dirty), remote og siste commit for valgt kontekst, med knapper for Commit, Push, Pull og Oppdater.
 - `remote`-feltet flyttet inn i Git-fanen og inkluderes i `_collectForm` slik at endringer lagres via `PUT /api/contexts/:id/settings`.
