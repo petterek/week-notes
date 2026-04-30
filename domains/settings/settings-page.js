@@ -114,7 +114,13 @@ const STYLES = `
     .sp-tab-btn.is-active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
     .sp-tab-panel { display: none; }
     .sp-tab-panel.is-active { display: block; }
-    .tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .tag-list { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; padding: 0; list-style: none; }
+    .tag-list-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--surface-alt); border-radius: 6px; }
+    .tag-list-item .tag-name { flex: 1; color: var(--text-strong); font-family: ui-monospace, monospace; font-size: 0.92em; }
+    .tag-list-item .tag-name::before { content: '#'; color: var(--text-muted); margin-right: 2px; }
+    .tag-list-empty { padding: 12px; text-align: center; color: var(--text-muted); font-style: italic; background: var(--surface-alt); border-radius: 6px; }
+    .tag-edit-bar { display: flex; gap: 8px; margin-top: 10px; }
+    .tag-edit-bar button { padding: 6px 14px; }
     .tag-chip { background: var(--accent-soft); color: var(--accent); padding: 2px 10px; border-radius: 12px; font-size: 0.82em; }
     .mt-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
     .mt-row { display: grid; grid-template-columns: 60px 44px 130px 1fr 78px auto 36px; gap: 8px; align-items: center; }
@@ -428,8 +434,20 @@ class SettingsPage extends WNElement {
             <div class="sp-tab-panel" data-panel="tags">
                 <fieldset>
                     <legend>Tilgjengelige tagger</legend>
-                    <p style="font-size:0.85em;color:var(--text-muted);margin:0 0 10px">Tagger (tema) for autofullføring i notatredigereren og som filter på notater-siden. Skriv en tag og trykk Enter eller komma for å legge til.</p>
-                    <tag-editor data-f="availableThemes" value="${escapeHtml(tags.join(','))}" placeholder="Legg til tag…"></tag-editor>
+                    <p style="font-size:0.85em;color:var(--text-muted);margin:0 0 10px">Tagger (tema) for autofullføring i notatredigereren og som filter på notater-siden.</p>
+                    <div data-tag-view${tags.length === 0 ? ' hidden' : ''}>
+                        <ul class="tag-list">
+                            ${tags.map(t => `<li class="tag-list-item"><span class="tag-name">${escapeHtml(t)}</span></li>`).join('')}
+                        </ul>
+                    </div>
+                    <div data-tag-empty class="tag-list-empty"${tags.length === 0 ? '' : ' hidden'}>Ingen tagger ennå.</div>
+                    <div data-tag-edit hidden>
+                        <tag-editor data-f="availableThemes" value="${escapeHtml(tags.join(','))}" placeholder="Legg til tag…"></tag-editor>
+                    </div>
+                    <div class="tag-edit-bar">
+                        <button type="button" class="primary" data-tag-edit-btn>✏️ Rediger tagger</button>
+                        <button type="button" data-tag-done-btn hidden>✓ Ferdig</button>
+                    </div>
                 </fieldset>
             </div>
             <div class="sp-tab-panel" data-panel="hours">
@@ -579,7 +597,45 @@ class SettingsPage extends WNElement {
         const swBtn = detailEl.querySelector('[data-switch]');
         if (swBtn) swBtn.addEventListener('click', () => this._switchTo(c.id, detailEl));
 
+        const tagEditBtn = detailEl.querySelector('[data-tag-edit-btn]');
+        const tagDoneBtn = detailEl.querySelector('[data-tag-done-btn]');
+        if (tagEditBtn && tagDoneBtn) {
+            tagEditBtn.addEventListener('click', () => this._toggleTagEdit(detailEl, true));
+            tagDoneBtn.addEventListener('click', () => this._toggleTagEdit(detailEl, false));
+        }
+
         detailEl.querySelector('.save').addEventListener('click', () => this._save(c, detailEl));
+    }
+
+    _toggleTagEdit(detailEl, editing) {
+        const view = detailEl.querySelector('[data-tag-view]');
+        const empty = detailEl.querySelector('[data-tag-empty]');
+        const edit = detailEl.querySelector('[data-tag-edit]');
+        const editBtn = detailEl.querySelector('[data-tag-edit-btn]');
+        const doneBtn = detailEl.querySelector('[data-tag-done-btn]');
+        const te = detailEl.querySelector('tag-editor[data-f="availableThemes"]');
+        if (editing) {
+            if (view) view.hidden = true;
+            if (empty) empty.hidden = true;
+            if (edit) edit.hidden = false;
+            if (editBtn) editBtn.hidden = true;
+            if (doneBtn) doneBtn.hidden = false;
+            setTimeout(() => {
+                const inp = te && te.shadowRoot && te.shadowRoot.querySelector('input');
+                if (inp) inp.focus();
+            }, 50);
+        } else {
+            if (edit) edit.hidden = true;
+            if (editBtn) editBtn.hidden = false;
+            if (doneBtn) doneBtn.hidden = true;
+            const tags = (te && te.tags) ? te.tags.slice() : [];
+            if (view) {
+                view.hidden = tags.length === 0;
+                const ul = view.querySelector('.tag-list');
+                if (ul) ul.innerHTML = tags.map(t => `<li class="tag-list-item"><span class="tag-name">${escapeHtml(t)}</span></li>`).join('');
+            }
+            if (empty) empty.hidden = tags.length > 0;
+        }
     }
 
     async _switchTo(id, detailEl) {

@@ -10,6 +10,10 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (tag editor: list view + notes page)
+- **Innstillinger → Tagger:** vises nå som en lesbar liste (`#tag` per rad) med en **✏️ Rediger tagger**-knapp. Klikk for å bytte til `<tag-editor>` (chip-redigering), så **✓ Ferdig** for å gå tilbake til listevisning. Husk å trykke **💾 Lagre** for å lagre endringene.
+- **Notater-siden (`/notes`):** filterchipsene er erstattet med `<tag-editor>` — typ inn for å legge til, × eller Backspace for å fjerne, autocomplete fra eksisterende tagger i notatene.
+
 ### 2026-04-30 (note editor: tag chips + #hashtag autocomplete)
 - **Notat-redigerer** bruker nå `<tag-editor>` (samme komponent som i Innstillinger) for tag-feltet, med forslag automatisk hentet fra konteksten via `GET /api/notes/themes` (ny `NotesService.listThemes()`).
 - **Hashtag autocomplete in textarea:** type `#tag…` and a popover offers matching available tags. Selecting one removes `#tag` from the markdown text and adds the tag to the chip list. Arrow keys / Enter / Escape supported.
