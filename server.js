@@ -1562,7 +1562,7 @@ function pageHtml(title, body, extraNavLinks, opts) {
     <link id="themeStylesheet" rel="stylesheet" href="/themes/${theme}.css">
     <link rel="stylesheet" href="/style.css">
 </head>
-<body><header id="appHeader">${nav}</header><main id="content">${body}</main><entity-callout id="appEntityCallout"></entity-callout><help-modal></help-modal><script>
+<body><header id="appHeader">${nav}</header><main id="content">${body}</main><entity-callout id="appEntityCallout"></entity-callout><help-modal></help-modal><footer id="shortcutsBar" class="shortcuts-bar" aria-label="Hurtigtaster"><span><kbd>Alt</kbd>+<kbd>N</kbd> Nytt notat</span><span><kbd>Ctrl</kbd>+<kbd>S</kbd> Lagre</span><span><kbd>Ctrl</kbd>+<kbd>Enter</kbd> Bekreft i dialog</span><span><kbd>Esc</kbd> Lukk dialog</span><span><kbd>?</kbd> Hjelp</span></footer><script>
 // ----- Entity callout host: listen for hover-* events bubbling from cards
 // (composed events cross every shadow boundary) and drive the dumb
 // <entity-callout> singleton. Services are loaded lazily on first hover. -----
@@ -1774,6 +1774,15 @@ function pageHtml(title, body, extraNavLinks, opts) {
 })();
 
 document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaKey)return;var btn=document.querySelector('.nav-links nav-button[data-key="'+e.key.toLowerCase()+'"]');if(btn){e.preventDefault();var href=btn.getAttribute('href');if(window.spaNavigate&&window.spaNavigate(href))return;window.location.href=href;}});
+
+// Global "?" hotkey opens the help modal (skip when typing in inputs).
+document.addEventListener('keydown', function(e){
+    if (e.key !== '?' || e.ctrlKey || e.metaKey || e.altKey) return;
+    var t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    var hm = document.querySelector('help-modal');
+    if (hm && typeof hm.open === 'function') { e.preventDefault(); hm.open(); }
+});
 
 // Highlight the active nav-button based on current pathname.
 (function(){
