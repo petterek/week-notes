@@ -21,7 +21,11 @@ function noteUrl(week, file, suffix) {
 export const NotesService = {
     save:       (data)            => req('POST',   '/api/save', data),
     raw:        (week, file)      => req('GET',    noteUrl(week, file, '/raw'), undefined, 'text/plain'),
-    renderHtml: (week, file)      => req('GET',    noteUrl(week, file, '/render'), undefined, 'text/html'),
+    renderHtml: async (week, file) => {
+        const r = await req('GET', noteUrl(week, file, '/render'));
+        if (r && typeof r === 'object' && typeof r.html === 'string') return r.html;
+        return typeof r === 'string' ? r : '';
+    },
     meta:       (week, file)      => req('GET',    noteUrl(week, file, '/meta')),
     card:       (week, file)      => req('GET',    noteUrl(week, file, '/card')),
     setPinned:  (week, file, pinned) => req('PUT', noteUrl(week, file, '/pin'), { pinned: !!pinned }),

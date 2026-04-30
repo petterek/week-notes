@@ -1693,6 +1693,26 @@ document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaK
         });
     });
 
+    // Open a note in a modal overlay using <note-view>. Used by the
+    // global-search element-selected handler so clicking a note hit shows
+    // the rendered note instead of navigating away from the current page.
+    window.openNoteViewModal = function(week, fileEnc) {
+        if (!week || !fileEnc) return;
+        var existing = document.querySelector('note-view[data-search-modal]');
+        if (existing) existing.remove();
+        var v = document.createElement('note-view');
+        v.setAttribute('notes_service', 'week-note-services.notes_service');
+        v.setAttribute('data-search-modal', '1');
+        v.addEventListener('note-view:close', function(){
+            try { v.remove(); } catch (_) {}
+        });
+        document.body.appendChild(v);
+        // open() opens the overlay and fetches/renders; setting via attribute
+        // also works but the imperative API gives us a clean callsite.
+        if (typeof v.open === 'function') v.open(week + '/' + fileEnc);
+        else v.setAttribute('path', week + '/' + fileEnc), v.setAttribute('open', '');
+    };
+
     // element-selected from <global-search>: route to the right URL by type.
     document.addEventListener('element-selected', function(e){
         var d = e.detail || {};

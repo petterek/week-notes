@@ -10,6 +10,10 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (search: note-view modal for note hits)
+- Klikk på et notat-treff i globalt søk åpner nå notatet i et `<note-view>`-modal i stedet for å navigere bort fra siden. Esc/✕ lukker. Krever ingen sidenavigasjon, så søk-konteksten beholdes.
+- Fikset `NotesService.renderHtml`: `/api/notes/.../render` returnerer JSON `{html, ...}`, men servicen sendte hele objektet videre. Henter nå ut `.html`-strengen.
+
 ### 2026-04-30 (search/embed: relations + note-card results)
 - Søkeindeksen (token + embedding) inkluderer nå også notatets _relasjoner_: tags/temaer (`#tag`), `@mentions` (personer/firma), `{{oppgave}}`-referanser og `[[resultat]]`-referanser. Et notat som nevner `@anna` finnes nå på `anna`, og embeddinger fanger relasjoner i den semantiske rangeringen.
 - Globalt søk-modal viser notat-treff som `<note-card>` (samme presentasjon som /notes), med tema-pils og snippet i stedet for en flat lenke. Andre typer (oppgaver, møter, personer, resultater) bruker fortsatt den enkle lenke-raden.
