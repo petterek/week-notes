@@ -13,6 +13,22 @@ import { WNElement, html, escapeHtml } from './_shared.js';
 
 const DAY_NAMES = ['Mandag', 'Tirsdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lørdag', 'Søndag'];
 
+// 7 columns × 6 rows = 42. Grouped row-by-row by situation.
+const MEETING_ICONS = [
+    // Work / business
+    '💼', '💻', '📊', '📈', '🤝', '📞', '📧',
+    // Meetings / social
+    '👥', '🗣️', '🎤', '📅', '☕', '🍽️', '🎉',
+    // Sport / fitness
+    '🏃', '🏋️', '⚽', '🎾', '🏊', '🚴', '🧘',
+    // Home / family
+    '🏠', '👨‍👩‍👧', '🛋️', '🍳', '🧺', '🛒', '🐕',
+    // Travel / transport
+    '✈️', '🚗', '🚄', '🏨', '🌍', '🗺️', '⛵',
+    // Misc / personal
+    '🎓', '📚', '🎨', '🎵', '🎮', '🎬', '🌳',
+];
+
 const DEFAULT_MEETING_TYPES = [
     { key: 'meeting',  label: 'Møte',        icon: '👥', color: '#4a90e2', defaultMinutes: 60 },
     { key: '1on1',     label: '1:1',         icon: '☕', color: '#a05a2c', defaultMinutes: 30 },
@@ -93,7 +109,8 @@ const STYLES = `
     .mt-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
     .mt-row { display: grid; grid-template-columns: 60px 44px 130px 1fr 78px auto 36px; gap: 8px; align-items: center; }
     .mt-row input { padding: 4px 8px; font-size: 0.92em; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text-strong); }
-    .mt-row input[data-mt-icon] { text-align: center; font-size: 1.05em; }
+    .mt-row button[data-mt-icon] { padding: 0; height: 28px; font-size: 1.15em; cursor: pointer; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text-strong); display: flex; align-items: center; justify-content: center; }
+    .mt-row button[data-mt-icon]:hover { background: var(--surface-alt); border-color: var(--accent); }
     .mt-row input[data-mt-color] { padding: 0; height: 28px; width: 100%; cursor: pointer; }
     .mt-row input[data-mt-min] { text-align: right; }
     .mt-row label.mt-allday { display: flex; align-items: center; gap: 4px; font-size: 0.85em; color: var(--text-muted); white-space: nowrap; cursor: pointer; }
@@ -104,6 +121,8 @@ const STYLES = `
     .mt-add:hover { background: var(--surface-alt); }
     .hours-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start; }
     @media (max-width: 700px) { .hours-grid { grid-template-columns: 1fr; } }
+    .mt-icon-pop { position: absolute; z-index: 200; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,0.15); padding: 6px; display: none; }
+    .mt-icon-pop[data-open] { display: block; }
 `;
 
 function timeOpts(selected) {
@@ -430,7 +449,9 @@ class SettingsPage extends WNElement {
         if (mtList) {
             mtList.addEventListener('click', (ev) => {
                 const del = ev.target.closest('[data-mt-del]');
-                if (del) del.closest('.mt-row').remove();
+                if (del) { del.closest('.mt-row').remove(); return; }
+                const iconBtn = ev.target.closest('[data-mt-icon]');
+                if (iconBtn) { ev.stopPropagation(); this._openIconPicker(iconBtn, detailEl); }
             });
         }
         if (mtAdd && mtList) {
@@ -493,6 +514,53 @@ class SettingsPage extends WNElement {
         };
     }
 
+    _openIconPicker(btn, detailEl) {
+        let pop = detailEl.querySelector('.mt-icon-pop');
+        if (!pop) {
+            pop = document.createElement('div');
+            pop.className = 'mt-icon-pop';
+            const ip = document.createElement('icon-picker');
+            ip.setAttribute('columns', '7');
+            ip.setAttribute('icons', JSON.stringify(MEETING_ICONS));
+            pop.appendChild(ip);
+            detailEl.appendChild(pop);
+            ip.addEventListener('valueChanged', (ev) => {
+                const target = pop._target;
+                if (target) {
+                    const v = ev.detail && ev.detail.value || '';
+                    target.dataset.iconValue = v;
+                    target.textContent = v || '·';
+                }
+                pop.removeAttribute('data-open');
+                pop._target = null;
+            });
+            // close on outside click / Esc
+            document.addEventListener('click', (ev) => {
+                if (!pop.hasAttribute('data-open')) return;
+                if (pop.contains(ev.target) || ev.target === pop._target) return;
+                pop.removeAttribute('data-open');
+                pop._target = null;
+            });
+            document.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Escape' && pop.hasAttribute('data-open')) {
+                    pop.removeAttribute('data-open');
+                    pop._target = null;
+                }
+            });
+        }
+        const ip = pop.querySelector('icon-picker');
+        const current = btn.dataset.iconValue || '';
+        ip.value = current;
+        pop._target = btn;
+        // Position relative to detailEl (which we ensure is positioned)
+        if (getComputedStyle(detailEl).position === 'static') detailEl.style.position = 'relative';
+        const dRect = detailEl.getBoundingClientRect();
+        const bRect = btn.getBoundingClientRect();
+        pop.style.top = (bRect.bottom - dRect.top + 4) + 'px';
+        pop.style.left = (bRect.left - dRect.left) + 'px';
+        pop.setAttribute('data-open', '');
+    }
+
     _mtRowHtml(mt, i) {
         const icon = escapeHtml(mt && mt.icon || '');
         const key = escapeHtml(mt && (mt.key || mt.typeId) || '');
@@ -501,7 +569,7 @@ class SettingsPage extends WNElement {
         const allDay = !!(mt && (mt.allDay || mt.fullDay));
         const mins = (mt && mt.defaultMinutes != null && mt.defaultMinutes !== '') ? String(mt.defaultMinutes) : '';
         return `<div class="mt-row" data-mt-row="${i}">
-            <input type="text" data-mt-icon value="${icon}" placeholder="🤝" maxlength="4">
+            <button type="button" data-mt-icon data-icon-value="${icon}" title="Velg ikon">${icon || '·'}</button>
             <input type="color" data-mt-color value="${color}" title="Farge">
             <input type="text" data-mt-key value="${key}" placeholder="meeting">
             <input type="text" data-mt-label value="${label}" placeholder="Etikett">
@@ -519,7 +587,7 @@ class SettingsPage extends WNElement {
         rows.forEach(r => {
             const key = (r.querySelector('[data-mt-key]').value || '').trim().toLowerCase();
             if (!key) return;
-            const icon = (r.querySelector('[data-mt-icon]').value || '').trim();
+            const icon = (r.querySelector('[data-mt-icon]').dataset.iconValue || '').trim();
             const label = (r.querySelector('[data-mt-label]').value || '').trim() || key;
             const colorEl = r.querySelector('[data-mt-color]');
             const color = (colorEl && colorEl.value || '').trim();
