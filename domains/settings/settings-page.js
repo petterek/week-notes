@@ -13,14 +13,20 @@ import { WNElement, html, escapeHtml } from './_shared.js';
 
 const DAY_NAMES = ['Mandag', 'Tirsdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lørdag', 'Søndag'];
 
-// Grouped icon set for meeting types — 7 cols per group.
+// Grouped icon set for meeting types — 7 cols × 2 rows = 14 per group.
 const MEETING_ICON_GROUPS = [
-    { name: 'Jobb',     icons: ['💼', '💻', '📊', '📈', '🤝', '📞', '📧'] },
-    { name: 'Møter',    icons: ['👥', '🗣️', '🎤', '📅', '☕', '🍽️', '🎉'] },
-    { name: 'Trening',  icons: ['🏃', '🏋️', '⚽', '🎾', '🏊', '🚴', '🧘'] },
-    { name: 'Hjem',     icons: ['🏠', '👨‍👩‍👧', '🛋️', '🍳', '🧺', '🛒', '🐕'] },
-    { name: 'Reise',    icons: ['✈️', '🚗', '🚄', '🏨', '🌍', '🗺️', '⛵'] },
-    { name: 'Annet',    icons: ['🎓', '📚', '🎨', '🎵', '🎮', '🎬', '🌳'] },
+    { name: 'Jobb',     icons: ['💼', '💻', '📊', '📈', '🤝', '📞', '📧',
+                                '🗂️', '📝', '🖥️', '⌨️', '🖱️', '🏢', '🧾'] },
+    { name: 'Møter',    icons: ['👥', '🗣️', '🎤', '📅', '☕', '🍽️', '🎉',
+                                '🍻', '🥂', '🍕', '🍣', '🎂', '🪑', '📋'] },
+    { name: 'Trening',  icons: ['🏃', '🏋️', '⚽', '🎾', '🏊', '🚴', '🧘',
+                                '🥊', '⛳', '🏐', '🏀', '🏓', '🛹', '🏆'] },
+    { name: 'Hjem',     icons: ['🏠', '👨‍👩‍👧', '🛋️', '🍳', '🧺', '🛒', '🐕',
+                                '🐈', '🛏️', '🧹', '🧼', '🪴', '🧸', '🔧'] },
+    { name: 'Reise',    icons: ['✈️', '🚗', '🚄', '🏨', '🌍', '🗺️', '⛵',
+                                '🚌', '🚲', '🏖️', '🏔️', '🏝️', '🎒', '🧳'] },
+    { name: 'Annet',    icons: ['🎓', '📚', '🎨', '🎵', '🎮', '🎬', '🌳',
+                                '🎸', '🎤', '🖼️', '🪐', '🔬', '🧪', '🧠'] },
 ];
 
 const DEFAULT_MEETING_TYPES = [
