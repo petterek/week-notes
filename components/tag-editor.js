@@ -55,7 +55,7 @@ function parseCsv(s) {
 
 export class TagEditor extends WNElement {
     static formAssociated = true;
-    static get observedAttributes() { return ['value', 'suggestions', 'placeholder', 'name']; }
+    static get observedAttributes() { return ['value', 'suggestions', 'placeholder', 'name', 'counts']; }
 
     constructor() {
         super();
@@ -101,10 +101,25 @@ export class TagEditor extends WNElement {
 
     css() { return STYLES; }
 
+    _counts() {
+        const raw = this.getAttribute('counts');
+        if (!raw) return null;
+        try { const o = JSON.parse(raw); return (o && typeof o === 'object') ? o : null; }
+        catch (_) { return null; }
+    }
+
+    _label(tag) {
+        const c = this._counts();
+        if (c && Object.prototype.hasOwnProperty.call(c, tag)) {
+            return `${tag} (${c[tag]})`;
+        }
+        return tag;
+    }
+
     _suggestionsHtml() {
         const sugs = this._suggestions();
         const showList = !!sugs.length && this._focused;
-        const list = sugs.map((s, i) => `<button type="button" data-add="${escapeHtml(s)}" class="${i === this._activeIdx ? 'active' : ''}">${escapeHtml(s)}</button>`).join('');
+        const list = sugs.map((s, i) => `<button type="button" data-add="${escapeHtml(s)}" class="${i === this._activeIdx ? 'active' : ''}">${escapeHtml(this._label(s))}</button>`).join('');
         return { list, hidden: !showList };
     }
 
@@ -118,7 +133,7 @@ export class TagEditor extends WNElement {
 
     render() {
         const placeholder = this.getAttribute('placeholder') || 'Legg til tag…';
-        const chips = this._tags.map(t => html`<span class="chip" data-tag="${t}">${t}<button type="button" aria-label="Fjern ${t}" data-remove="${t}">×</button></span>`);
+        const chips = this._tags.map(t => html`<span class="chip" data-tag="${t}">${this._label(t)}<button type="button" aria-label="Fjern ${t}" data-remove="${t}">×</button></span>`);
         const { list, hidden } = this._suggestionsHtml();
         return html`<div class="box">${chips}<div class="suggest" style="flex:1"><input type="text" placeholder="${placeholder}" autocomplete="off" /><div class="suggest-list" ${hidden ? html`hidden` : html``}>${unsafeHTML(list)}</div></div></div>`;
     }

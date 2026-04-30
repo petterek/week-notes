@@ -243,6 +243,9 @@ class NotesPage extends WNElement {
 
         const activeTags = Array.from(this._filters.themes).join(',');
         const suggestionAttr = themes.join(',');
+        const counts = {};
+        for (const n of (this._all || [])) for (const t of (n.themes || [])) counts[t] = (counts[t] || 0) + 1;
+        const countsAttr = JSON.stringify(counts);
 
         return html`
             <h1 class="np-title">📚 Finn notater</h1>
@@ -265,7 +268,7 @@ class NotesPage extends WNElement {
                 </label>
                 <div class="np-themes">
                     Tagger
-                    <tag-editor data-filter="themes" placeholder="Legg til tag…" value="${activeTags}" suggestions="${suggestionAttr}"></tag-editor>
+                    <tag-editor data-filter="themes" placeholder="Legg til tag…" value="${activeTags}" suggestions="${suggestionAttr}" counts="${countsAttr}"></tag-editor>
                 </div>
                 <div class="np-actions">
                     <span class="np-count" data-count></span>
