@@ -10,6 +10,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (scripts: migrate-context.js)
+- Nytt verktøy `scripts/migrate-context.js` som leser `.week-notes`-versjonen i en kontekst og kjører registrerte datamigreringer (idempotente). Første migrering: `week-iso-format` (`YYYY-NN` → `YYYY-WNN` i mappenavn, `tasks.json`, `results.json`, `notes-meta.json` nøkler, `meetings.json`). Brukt for `arbeid`. Kjør: `node scripts/migrate-context.js --ctx <id> [--dry-run] [--commit]` eller `--all`.
+
 ### 2026-04-30 (settings: koble fra og klon tilbake)
 - Git-fanen har nå en `🔌 Koble fra`-knapp som committer + pusher + sletter den lokale mappen, og husker remote-URL-en i `data/.disconnected.json`.
 - Skinnen viser en sammenleggbar `🔌 Frakoblede`-liste med klon-tilbake (åpner Ny kontekst i klone-modus med remote/navn forhåndsutfylt) og glem (`✕`).
