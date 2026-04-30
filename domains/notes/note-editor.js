@@ -807,6 +807,20 @@ class NoteEditor extends WNElement {
     setContent(s) { if (this._contentEl) this._contentEl.value = s == null ? '' : String(s); }
 
     cancel() {
+        // Discard any pending autosave temp file before navigating away.
+        try {
+            const folder = this._weekSel ? this._weekSel.value.trim() : '';
+            const file = this._fileEl ? this._fileEl.value.trim() : '';
+            if (folder && file) {
+                const f = file.endsWith('.md') ? file : file + '.md';
+                fetch('/api/save/autosave', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folder, file: f }),
+                    keepalive: true,
+                }).catch(() => {});
+            }
+        } catch (_) {}
         const evt = new CustomEvent('note-editor:cancel', { bubbles: true, composed: true, cancelable: true });
         if (!this.dispatchEvent(evt)) return;
         if (window.spaNavigate && window.spaNavigate('/')) return;

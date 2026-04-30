@@ -10,6 +10,14 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (note editor: commit explicit saves to git)
+- Ved eksplisitt lagring av et notat committes endringen automatisk til kontekstens git-repo (`data/<ctx>/`) med melding `Opprett`/`Oppdater <uke>/<fil>`. Autosave committes ikke.
+- Ved init/oppdatering legges `.*.autosave` i `.gitignore` slik at midlertidige autosave-filer aldri havner i historikken.
+
+### 2026-04-30 (note editor: autosave to temp file)
+- Autosave skriver nå til en skjult midlertidig fil `.<file>.autosave` ved siden av notatet i stedet for å overskrive selve notatet.
+- Ved eksplisitt lagring eller Avbryt fjernes temp-filen. Ny endepunkt: `DELETE /api/save/autosave`.
+
 ### 2026-04-30 (note editor: close marker rendered as ~~strikethrough~~)
 - Når du velger en oppgave i `{{!`-popoveren settes det nå inn `~~<oppgavetekst>~~` (markdown strikethrough) i stedet for `__...__`. Markøren forblir i den lagrede markdownen og renderes med gjennomstreking i previewet.
 - Server-siden lukker en åpen oppgave hvis innholdet inneholder `~~<eksakt oppgavetekst>~~`. Eldre `{{!<id>}}`-markører fungerer fortsatt og fjernes som før.

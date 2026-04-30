@@ -7504,6 +7504,34 @@ activateTab(initialParams.tab || 'people');
         return;
     }
 
+    // API: discard autosave temp file (called when user cancels editor)
+    if (pathname === '/api/save/autosave' && req.method === 'DELETE') {
+        try {
+            const body = JSON.parse(await readBody(req) || '{}');
+            const { folder, file } = body;
+            if (!folder || !file || file.includes('/') || file.includes('\\') || folder.includes('/') || folder.includes('\\')) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Ugyldig mappe eller filnavn' }));
+                return;
+            }
+            const tmpPath = path.join(dataDir(), folder, '.' + file + '.autosave');
+            const resolved = path.resolve(tmpPath);
+            if (!resolved.startsWith(path.resolve(dataDir()))) {
+                res.writeHead(403, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Forbidden' }));
+                return;
+            }
+            let removed = false;
+            try { if (fs.existsSync(tmpPath)) { fs.unlinkSync(tmpPath); removed = true; } } catch (_) {}
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, removed }));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Serverfeil: ' + e.message }));
+        }
+        return;
+    }
+
     // API: save file
     if (pathname === '/api/save' && req.method === 'POST') {
         try {
@@ -7619,11 +7647,27 @@ activateTab(initialParams.tab || 'people');
                 }
             }
 
+            if (autosave) {
+                // Autosave goes to a sibling temp file so the real note isn't
+                // touched until the user explicitly saves. The temp file is
+                // a hidden dotfile next to the real file: `.<file>.autosave`.
+                const tmpPath = path.join(dataDir(), folder, '.' + file + '.autosave');
+                fs.writeFileSync(tmpPath, finalContent, 'utf-8');
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: true, autosave: true, path: `/${folder}/${file}`, tmp: true }));
+                return;
+            }
+
             if (append && fs.existsSync(filePath)) {
                 fs.appendFileSync(filePath, '\n\n' + finalContent, 'utf-8');
             } else {
                 fs.writeFileSync(filePath, finalContent, 'utf-8');
             }
+            // Remove any stale autosave temp file now that we've persisted.
+            try {
+                const tmpPath = path.join(dataDir(), folder, '.' + file + '.autosave');
+                if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+            } catch (_) {}
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: true, path: `/${folder}/${file}`, content: finalContent, createdTasks, createdResults, closedTasks }));
@@ -7646,6 +7690,26 @@ activateTab(initialParams.tab || 'people');
             if (!existing.created) updates.created = now;
             setNoteMeta(folder, file, updates);
             syncMentions(content);
+
+            // Commit the note (and its sidecar metadata) to the per-context
+            // git repo so we keep history. Best-effort, never blocks the
+            // response. Only runs on explicit save.
+            try {
+                const repo = dataDir();
+                if (gitIsRepo(repo)) {
+                    // Ensure autosave dotfiles never end up in commits.
+                    const giPath = path.join(repo, '.gitignore');
+                    const want = '.*.autosave\n';
+                    let cur = '';
+                    try { cur = fs.readFileSync(giPath, 'utf-8'); } catch (_) {}
+                    if (!cur.split(/\r?\n/).includes('.*.autosave')) {
+                        fs.writeFileSync(giPath, (cur && !cur.endsWith('\n') ? cur + '\n' : cur) + want, 'utf-8');
+                    }
+                    const action = (!existing.created) ? 'Opprett' : 'Oppdater';
+                    const subject = `${action} ${folder}/${file}`;
+                    gitCommitAll(repo, subject);
+                }
+            } catch (_) {}
         } catch (e) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Serverfeil: ' + e.message }));
