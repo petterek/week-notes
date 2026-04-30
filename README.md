@@ -11,7 +11,8 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 ## 📜 Changelog
 
 ### 2026-04-30 (settings: Tema tab + tab cleanup)
-- **Settings:** added a `🎨 Tema` tab and brought back the swatch-grid theme picker — each tile previews the theme's actual palette (bg, surface-head, accent + line tones) and clicking selects it. Replaces the old `<select>`.
+- **Settings:** added a `🎨 Tema` tab and brought back the swatch-grid theme picker — each tile previews the theme's actual palette (bg, surface-head, accent + line tones) and clicking selects it. Replaces the old `<select>`. Custom (non-builtin) themes are marked with a dashed border and a ✎ badge.
+- **Settings → Tema:** added `🧬 Klon valgt tema` (prompts for a name, POSTs `/api/themes`, refreshes the grid and selects the new clone) and a `🎨 Åpne temaeditor ↗` link to the existing `/themes` builder.
 - **Settings:** moved **Kommende møter (dager)** from Generelt to the `📅 Møter` tab next to Standard møtelengde.
 - Tab order is now: Generelt, Tema, Tagger, Arbeidstid, Møter.
 

@@ -136,9 +136,14 @@ const STYLES = `
     button.icon-btn { width: 60px; height: 32px; padding: 0; font-size: 1.2em; cursor: pointer; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text-strong); display: inline-flex; align-items: center; justify-content: center; }
     button.icon-btn:hover { background: var(--surface-alt); border-color: var(--accent); }
     .theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-top: 6px; }
-    .theme-swatch { display: flex; flex-direction: column; align-items: stretch; cursor: pointer; padding: 6px; border: 1px solid var(--border-faint); border-radius: 6px; background: var(--bg); transition: border-color 0.12s, box-shadow 0.12s, transform 0.08s; }
+    .theme-swatch { position: relative; display: flex; flex-direction: column; align-items: stretch; cursor: pointer; padding: 6px; border: 1px solid var(--border-faint); border-radius: 6px; background: var(--bg); transition: border-color 0.12s, box-shadow 0.12s, transform 0.08s; font: inherit; color: var(--text-strong); }
     .theme-swatch:hover { border-color: var(--border); transform: translateY(-1px); }
     .theme-swatch.is-selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+    .theme-swatch.is-custom { border-style: dashed; }
+    .theme-badge { position: absolute; top: 4px; right: 6px; font-size: 0.78em; color: var(--accent); background: var(--surface); border: 1px solid var(--border-faint); border-radius: 10px; padding: 0 6px; line-height: 16px; font-weight: 600; }
+    .theme-actions { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .theme-actions button, .theme-actions a { padding: 5px 12px; border-radius: 5px; cursor: pointer; font: inherit; font-size: 0.88em; border: 1px solid var(--border); background: var(--surface); color: var(--text-strong); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+    .theme-actions button:hover, .theme-actions a:hover { background: var(--surface-alt); }
     .theme-preview { display: flex; flex-direction: column; height: 64px; border-radius: 4px; overflow: hidden; border: 1px solid rgba(0,0,0,0.08); }
     .theme-bar { height: 14px; flex: 0 0 14px; }
     .theme-body { flex: 1; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; justify-content: flex-start; }
@@ -407,6 +412,10 @@ class SettingsPage extends WNElement {
                     <p style="font-size:0.85em;color:var(--text-muted);margin:0 0 10px">Visuelt tema for denne konteksten. Klikk en flis for å velge.</p>
                     <input type="hidden" data-f="theme" value="${escapeHtml(s.theme || 'paper')}">
                     <div class="theme-grid">${this._themes.map(t => this._themeSwatchHtml(t, s.theme || 'paper')).join('')}</div>
+                    <div class="theme-actions">
+                        <button type="button" data-theme-clone>🧬 Klon valgt tema</button>
+                        <a href="/themes" target="_blank" rel="noopener">🎨 Åpne temaeditor ↗</a>
+                    </div>
                 </fieldset>
             </div>
             <div class="sp-tab-panel" data-panel="tags">
@@ -503,17 +512,50 @@ class SettingsPage extends WNElement {
         const themeInput = detailEl.querySelector('input[data-f="theme"]');
         if (themeGrid && themeInput) {
             const isActiveCtx = c.id === this._active;
+            const applyLive = (id) => {
+                if (!isActiveCtx) return;
+                const link = document.getElementById('themeStylesheet');
+                if (link) link.href = '/themes/' + id + '.css?ts=' + Date.now();
+            };
             themeGrid.addEventListener('click', (ev) => {
                 const sw = ev.target.closest('.theme-swatch');
                 if (!sw) return;
                 const id = sw.dataset.themeId;
                 themeInput.value = id;
                 themeGrid.querySelectorAll('.theme-swatch').forEach(s => s.classList.toggle('is-selected', s === sw));
-                if (isActiveCtx) {
-                    const link = document.getElementById('themeStylesheet');
-                    if (link) link.href = '/themes/' + id + '.css?ts=' + Date.now();
-                }
+                applyLive(id);
             });
+            const cloneBtn = detailEl.querySelector('[data-theme-clone]');
+            if (cloneBtn) {
+                cloneBtn.addEventListener('click', async () => {
+                    const fromId = themeInput.value || 'paper';
+                    const fromTheme = this._themes.find(t => t.id === fromId);
+                    const baseName = (fromTheme && fromTheme.name || fromId) + ' (kopi)';
+                    const name = prompt('Navn på det nye temaet:', baseName);
+                    if (!name || !name.trim()) return;
+                    cloneBtn.disabled = true;
+                    try {
+                        const r = await fetch('/api/themes', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ from: fromId, name: name.trim() }),
+                        });
+                        const d = await r.json();
+                        if (!r.ok || d.error) throw new Error(d.error || 'Klon feilet');
+                        // refresh themes list
+                        const list = await fetch('/api/themes').then(rr => rr.json());
+                        this._themes = (list || []).map(t => typeof t === 'string' ? { id: t, name: t } : t);
+                        // re-render the grid
+                        const newId = d.id || (d.theme && d.theme.id) || name.trim().toLowerCase().replace(/\s+/g, '-');
+                        themeInput.value = newId;
+                        themeGrid.innerHTML = this._themes.map(t => this._themeSwatchHtml(t, newId)).join('');
+                        applyLive(newId);
+                    } catch (e) {
+                        alert('Klon feilet: ' + (e.message || e));
+                    } finally {
+                        cloneBtn.disabled = false;
+                    }
+                });
+            }
         }
 
         const mtList = detailEl.querySelector('[data-mt-list]');
@@ -647,13 +689,15 @@ class SettingsPage extends WNElement {
         const id = t.id;
         const name = t.name || id;
         const sel = id === current ? ' is-selected' : '';
+        const custom = t.builtin === false;
         const bg = escapeHtml(v.bg || '#fff');
         const surfaceHead = escapeHtml(v['surface-head'] || v.surface || bg);
         const border = escapeHtml(v['border-faint'] || v.border || '#ccc');
         const accent = escapeHtml(v.accent || '#333');
         const muted = escapeHtml(v['text-muted-warm'] || v['text-muted'] || accent);
         const subtle = escapeHtml(v['text-subtle'] || muted);
-        return `<button type="button" class="theme-swatch${sel}" data-theme-id="${escapeHtml(id)}" title="${escapeHtml(name)}">
+        return `<button type="button" class="theme-swatch${sel}${custom ? ' is-custom' : ''}" data-theme-id="${escapeHtml(id)}" title="${escapeHtml(name)}${custom ? ' (egendefinert)' : ''}">
+            ${custom ? `<span class="theme-badge" title="Egendefinert">✎</span>` : ''}
             <span class="theme-preview" style="background:${bg};">
                 <span class="theme-bar" style="background:${surfaceHead};border-bottom:1px solid ${border};"></span>
                 <span class="theme-body">
