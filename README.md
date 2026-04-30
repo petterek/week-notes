@@ -11,7 +11,7 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 ## 📜 Changelog
 
 ### 2026-04-30 (icon-picker in meeting types)
-- **Settings → Møtetyper:** the icon column is now a button that opens a popover with `<icon-picker>` (7×6 grid of 42 icons covering work, meetings, sport, home, travel and personal). Click to pick; popover closes on selection, outside click or Esc.
+- **Settings → Møtetyper:** the icon column is now a button that opens a popover with `<icon-picker>` (42 icons in 6 groups: Jobb, Møter, Trening, Hjem, Reise, Annet). Click to pick; popover closes on selection, outside click or Esc.
 
 ### 2026-04-30 (`<icon-picker>`)
 - New generic **`<icon-picker>`** component (Shared) — a configurable grid-based emoji / icon picker. Supports a flat `icons` JSON list (strings or `{icon, name}` objects), a sectioned `groups` mode, configurable `columns`/`size`, optional hidden form input via `name`, and a `readonly` flag. Emits `valueChanged` with `{value}` on selection. Demo at `/debug/icon-picker`.

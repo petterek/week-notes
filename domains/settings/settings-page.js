@@ -13,20 +13,14 @@ import { WNElement, html, escapeHtml } from './_shared.js';
 
 const DAY_NAMES = ['Mandag', 'Tirsdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lørdag', 'Søndag'];
 
-// 7 columns × 6 rows = 42. Grouped row-by-row by situation.
-const MEETING_ICONS = [
-    // Work / business
-    '💼', '💻', '📊', '📈', '🤝', '📞', '📧',
-    // Meetings / social
-    '👥', '🗣️', '🎤', '📅', '☕', '🍽️', '🎉',
-    // Sport / fitness
-    '🏃', '🏋️', '⚽', '🎾', '🏊', '🚴', '🧘',
-    // Home / family
-    '🏠', '👨‍👩‍👧', '🛋️', '🍳', '🧺', '🛒', '🐕',
-    // Travel / transport
-    '✈️', '🚗', '🚄', '🏨', '🌍', '🗺️', '⛵',
-    // Misc / personal
-    '🎓', '📚', '🎨', '🎵', '🎮', '🎬', '🌳',
+// Grouped icon set for meeting types — 7 cols per group.
+const MEETING_ICON_GROUPS = [
+    { name: 'Jobb',     icons: ['💼', '💻', '📊', '📈', '🤝', '📞', '📧'] },
+    { name: 'Møter',    icons: ['👥', '🗣️', '🎤', '📅', '☕', '🍽️', '🎉'] },
+    { name: 'Trening',  icons: ['🏃', '🏋️', '⚽', '🎾', '🏊', '🚴', '🧘'] },
+    { name: 'Hjem',     icons: ['🏠', '👨‍👩‍👧', '🛋️', '🍳', '🧺', '🛒', '🐕'] },
+    { name: 'Reise',    icons: ['✈️', '🚗', '🚄', '🏨', '🌍', '🗺️', '⛵'] },
+    { name: 'Annet',    icons: ['🎓', '📚', '🎨', '🎵', '🎮', '🎬', '🌳'] },
 ];
 
 const DEFAULT_MEETING_TYPES = [
@@ -521,7 +515,7 @@ class SettingsPage extends WNElement {
             pop.className = 'mt-icon-pop';
             const ip = document.createElement('icon-picker');
             ip.setAttribute('columns', '7');
-            ip.setAttribute('icons', JSON.stringify(MEETING_ICONS));
+            ip.setAttribute('groups', JSON.stringify(MEETING_ICON_GROUPS));
             pop.appendChild(ip);
             detailEl.appendChild(pop);
             ip.addEventListener('valueChanged', (ev) => {
