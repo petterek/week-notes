@@ -14,12 +14,21 @@
 const { parentPort } = require('worker_threads');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 let docs = [];
 let invertedIndex = new Map(); // token -> Set<docIdx>
 let currentContextDir = null;
 let watcher = null;
 let rebuildTimer = null;
+
+// Bump when the cache shape changes (e.g. doc fields added, tokenization
+// rules changed). Mismatched cache files are silently rebuilt.
+const CACHE_VERSION = 1;
+
+function cachePathFor(contextDir) {
+    return path.join(contextDir, '.cache', 'search-index.json');
+}
 
 function tokenize(s) {
     return String(s || '')
@@ -41,6 +50,23 @@ function readJson(p) {
     try { return JSON.parse(fs.readFileSync(p, 'utf-8')); } catch { return null; }
 }
 
+// Pull "relations" out of a markdown note: @mentions (people/companies),
+// {{task}} references, [[result]] references. Returns a flat array of
+// strings. Used to enrich the searchable blob for a note so e.g. searching
+// for a person's name surfaces the notes that mention them.
+function extractRelations(text) {
+    const out = [];
+    if (!text) return out;
+    const mentionRe = /(?:^|[\s\n(\[>])@([a-zA-ZæøåÆØÅ][a-zA-ZæøåÆØÅ0-9_-]*)/g;
+    let m;
+    while ((m = mentionRe.exec(text)) !== null) out.push('@' + m[1]);
+    const taskRe = /\{\{([^{}]+)\}\}/g;
+    while ((m = taskRe.exec(text)) !== null) out.push(m[1].trim());
+    const resultRe = /\[\[([^\[\]]+)\]\]/g;
+    while ((m = resultRe.exec(text)) !== null) out.push(m[1].trim());
+    return out;
+}
+
 function isWeekDir(name) {
     return /^\d{4}-W\d{2}$/.test(name);
 }
@@ -60,10 +86,79 @@ function pushDoc(doc) {
     return idx;
 }
 
-function buildIndex(contextDir) {
+// Cheap fingerprint of all source files that feed the index. mtime+size is
+// good enough for invalidation in a single-process cache; collisions only
+// matter if a file is replaced at exactly the same byte length within the
+// fs mtime resolution and is also semantically different — vanishingly rare.
+function computeSignature(contextDir) {
+    const parts = [];
+    let entries;
+    try { entries = fs.readdirSync(contextDir, { withFileTypes: true }); } catch { return ''; }
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const e of entries) {
+        if (!e.isDirectory() || !isWeekDir(e.name)) continue;
+        let files;
+        try { files = fs.readdirSync(path.join(contextDir, e.name)); } catch { continue; }
+        files.sort();
+        for (const f of files) {
+            if (!f.endsWith('.md')) continue;
+            try {
+                const st = fs.statSync(path.join(contextDir, e.name, f));
+                parts.push(`${e.name}/${f}:${st.size}:${st.mtimeMs}`);
+            } catch {}
+        }
+    }
+    for (const j of ['notes-meta.json', 'tasks.json', 'meetings.json', 'people.json', 'results.json']) {
+        try {
+            const st = fs.statSync(path.join(contextDir, j));
+            parts.push(`${j}:${st.size}:${st.mtimeMs}`);
+        } catch {
+            parts.push(`${j}:absent`);
+        }
+    }
+    return crypto.createHash('sha1').update(parts.join('|')).digest('hex');
+}
+
+function loadCache(contextDir, signature) {
+    const p = cachePathFor(contextDir);
+    if (!fs.existsSync(p)) return false;
+    try {
+        const raw = JSON.parse(fs.readFileSync(p, 'utf-8'));
+        if (raw.version !== CACHE_VERSION) return false;
+        if (raw.signature !== signature) return false;
+        if (!Array.isArray(raw.docs) || !raw.tokens) return false;
+        docs = raw.docs;
+        invertedIndex = new Map();
+        for (const tok of Object.keys(raw.tokens)) {
+            invertedIndex.set(tok, new Set(raw.tokens[tok]));
+        }
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function saveCache(contextDir, signature) {
+    const p = cachePathFor(contextDir);
+    try {
+        fs.mkdirSync(path.dirname(p), { recursive: true });
+        const tokens = {};
+        for (const [tok, set] of invertedIndex) tokens[tok] = Array.from(set);
+        const data = { version: CACHE_VERSION, signature, docs, tokens };
+        const tmp = p + '.tmp';
+        fs.writeFileSync(tmp, JSON.stringify(data));
+        fs.renameSync(tmp, p);
+    } catch (e) {
+        // Cache writes are best-effort; never fail the build.
+        parentPort.postMessage({ type: 'error', error: 'search cache save: ' + e.message });
+    }
+}
+
+function buildIndexUncached(contextDir) {
     docs = [];
     invertedIndex = new Map();
-    currentContextDir = contextDir;
+
+    const notesMeta = readJson(path.join(contextDir, 'notes-meta.json')) || {};
 
     // ---- Notes (week .md files) ----
     let entries;
@@ -78,16 +173,22 @@ function buildIndex(contextDir) {
             let content = '';
             try { content = fs.readFileSync(path.join(contextDir, week, f), 'utf-8'); } catch { continue; }
             const name = f.replace(/\.md$/, '');
+            const meta = notesMeta[week + '/' + f] || {};
+            const tags = Array.isArray(meta.tags) ? meta.tags
+                : (Array.isArray(meta.themes) ? meta.themes : []);
+            const relations = extractRelations(content);
+            const relBlob = [...tags.map(t => '#' + t), ...relations].join(' ');
             const idx = pushDoc({
                 type: 'note',
                 identifier: week + '/' + encodeURIComponent(f),
                 title: name,
                 subtitle: week + '/' + f,
                 href: '/' + week + '/' + encodeURIComponent(f),
-                searchText: f + '\n' + content,
+                searchText: f + '\n' + relBlob + '\n' + content,
                 body: content
             });
             addToIndex(idx, f);
+            addToIndex(idx, relBlob);
             addToIndex(idx, content);
         }
     }
@@ -173,6 +274,20 @@ function buildIndex(contextDir) {
     }
 }
 
+// Reports back the source of the index for the caller's status message:
+//   'cache'   — loaded from disk, no rebuild
+//   'fresh'   — full rebuild (cache miss or stale)
+function buildIndex(contextDir) {
+    currentContextDir = contextDir;
+    const sig = computeSignature(contextDir);
+    if (sig && loadCache(contextDir, sig)) {
+        return { source: 'cache', signature: sig };
+    }
+    buildIndexUncached(contextDir);
+    if (sig) saveCache(contextDir, sig);
+    return { source: 'fresh', signature: sig };
+}
+
 function isWatchableChange(filename) {
     if (!filename) return true; // watcher emitted without a name; rebuild to be safe
     const base = path.basename(filename);
@@ -194,14 +309,15 @@ function scheduleRebuild() {
         if (!dir) return;
         try {
             const t0 = Date.now();
-            buildIndex(dir);
+            const r = buildIndex(dir);
             parentPort.postMessage({
                 type: 'indexed',
                 contextDir: dir,
                 docCount: docs.length,
                 tokenCount: invertedIndex.size,
                 ms: Date.now() - t0,
-                trigger: 'watch'
+                trigger: 'watch',
+                source: r.source
             });
         } catch (e) {
             parentPort.postMessage({ type: 'error', error: 'rebuild failed: ' + (e && e.message || e) });
@@ -287,7 +403,7 @@ parentPort.on('message', (msg) => {
     try {
         if (msg.type === 'reindex') {
             const t0 = Date.now();
-            buildIndex(msg.contextDir);
+            const r = buildIndex(msg.contextDir);
             startWatcher(msg.contextDir);
             parentPort.postMessage({
                 type: 'indexed',
@@ -295,7 +411,8 @@ parentPort.on('message', (msg) => {
                 docCount: docs.length,
                 tokenCount: invertedIndex.size,
                 ms: Date.now() - t0,
-                trigger: 'manual'
+                trigger: 'manual',
+                source: r.source
             });
         } else if (msg.type === 'query') {
             const t0 = Date.now();

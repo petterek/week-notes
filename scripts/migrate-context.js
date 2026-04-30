@@ -306,17 +306,34 @@ function rewriteJsonArray(ctxDir, file, fixer, opts) {
 
 function migrateGitignore(ctxDir, opts) {
     const log = opts.log;
-    const want = ['.*.swp', '.*.swo', '.*.autosave'];
+    const want = ['.*.swp', '.*.swo', '.*.autosave', '.cache/'];
     const p = path.join(ctxDir, '.gitignore');
     let cur = '';
     try { cur = fs.readFileSync(p, 'utf-8'); } catch {}
     const lines = new Set(cur.split(/\r?\n/).map(s => s.trim()).filter(Boolean));
     const missing = want.filter(w => !lines.has(w));
-    if (missing.length === 0) return 0;
-    const next = (cur && !cur.endsWith('\n') ? cur + '\n' : cur) + missing.join('\n') + '\n';
-    if (!opts.dryRun) fs.writeFileSync(p, next);
-    log(`  .gitignore: ${missing.length} entr${missing.length === 1 ? 'y' : 'ies'} added (${missing.join(', ')})`);
-    return missing.length;
+    let changes = 0;
+    if (missing.length > 0) {
+        const next = (cur && !cur.endsWith('\n') ? cur + '\n' : cur) + missing.join('\n') + '\n';
+        if (!opts.dryRun) fs.writeFileSync(p, next);
+        log(`  .gitignore: ${missing.length} entr${missing.length === 1 ? 'y' : 'ies'} added (${missing.join(', ')})`);
+        changes += missing.length;
+    }
+    // Untrack any .cache/ files that were committed before the rule existed.
+    try {
+        const tracked = require('child_process')
+            .execFileSync('git', ['-C', ctxDir, 'ls-files', '.cache'], { encoding: 'utf-8' })
+            .split('\n').filter(Boolean);
+        if (tracked.length > 0) {
+            if (!opts.dryRun) {
+                require('child_process')
+                    .execFileSync('git', ['-C', ctxDir, 'rm', '--cached', '-r', '--quiet', '.cache'], { stdio: 'ignore' });
+            }
+            log(`  .cache: untracked ${tracked.length} file(s) (still on disk)`);
+            changes += tracked.length;
+        }
+    } catch {}
+    return changes;
 }
 
 const MIGRATIONS = [
@@ -334,13 +351,20 @@ const MIGRATIONS = [
     },
     {
         id: 'gitignore-baseline',
-        description: 'Ensure .gitignore covers vim swap files and autosave temp files.',
+        description: 'Ensure .gitignore covers vim swap files, autosave temp files and the .cache/ embed sidecar.',
         appliesTo: (_hash, dir) => {
-            const want = ['.*.swp', '.*.swo', '.*.autosave'];
+            const want = ['.*.swp', '.*.swo', '.*.autosave', '.cache/'];
             let cur = '';
             try { cur = fs.readFileSync(path.join(dir, '.gitignore'), 'utf-8'); } catch {}
             const lines = new Set(cur.split(/\r?\n/).map(s => s.trim()));
-            return want.some(w => !lines.has(w));
+            if (want.some(w => !lines.has(w))) return true;
+            // Also re-run if .cache/ is still tracked in git despite being ignored.
+            try {
+                const out = require('child_process')
+                    .execFileSync('git', ['-C', dir, 'ls-files', '.cache'], { encoding: 'utf-8' });
+                if (out.trim()) return true;
+            } catch {}
+            return false;
         },
         run: migrateGitignore,
     },

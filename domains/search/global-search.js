@@ -13,6 +13,9 @@
  *   search:open, search:close
  */
 import { WNElement, html, escapeHtml } from './_shared.js';
+import './note-card.js';
+
+function decodeFile(enc) { try { return decodeURIComponent(enc); } catch { return enc; } }
 
 function highlight(escaped, q) {
     if (!q) return escaped;
@@ -42,6 +45,8 @@ function ensureStyles() {
         global-search .page-modal { display: none; position: fixed; inset: 0; background: var(--overlay); z-index: 1000; align-items: center; justify-content: center; }
         global-search .gs-card { background: var(--bg); border: 1px solid var(--border-soft); border-radius: 10px; padding: 18px 20px; width: min(720px, 92vw); max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px var(--shadow); }
         global-search .gs-input-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+        global-search .gs-mode { display: inline-flex; align-items: center; gap: 4px; font-size: 0.85em; color: var(--text-muted); cursor: pointer; user-select: none; white-space: nowrap; }
+        global-search .gs-mode input { margin: 0; }
         global-search .gs-input { flex: 1; font-size: 1.05em; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-strong); outline: none; }
         global-search .gs-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent); }
         global-search .gs-close { background: none; border: none; font-size: 1.3em; cursor: pointer; color: var(--text-muted); }
@@ -88,6 +93,10 @@ class GlobalSearch extends WNElement {
                         <input id="gsInput" class="gs-input" type="text"
                             placeholder="Søk i notater, oppgaver, møter, personer, resultater…"
                             autocomplete="off" />
+                        <label class="gs-mode" title="Bruk semantisk søk (vektor-embeddings)">
+                            <input id="gsEmbed" type="checkbox" />
+                            <span>🧠 semantisk</span>
+                        </label>
                         <button class="gs-close" title="Lukk (Esc)" type="button">✕</button>
                     </div>
                     <div id="gsResults" class="gs-results"></div>
@@ -99,8 +108,27 @@ class GlobalSearch extends WNElement {
         const trigger = this.querySelector('.gs-trigger');
         const modal = this.querySelector('#globalSearchModal');
         const input = this.querySelector('#gsInput');
+        const embedToggle = this.querySelector('#gsEmbed');
         const resultsEl = this.querySelector('#gsResults');
         const closeBtn = this.querySelector('.gs-close');
+
+        try { embedToggle.checked = localStorage.getItem('gs.embed') === '1'; } catch {}
+
+        // Hide the 🧠 toggle entirely if semantic search is disabled in app
+        // settings. We re-check whenever the modal opens so toggling the
+        // setting in /settings shows up without a full reload.
+        const embedLabel = embedToggle.closest('.gs-mode');
+        const refreshEmbedAvailability = () => {
+            fetch('/api/embed/status').then(r => r.json()).then(d => {
+                const avail = d && d.phase && d.phase !== 'disabled';
+                if (embedLabel) embedLabel.style.display = avail ? '' : 'none';
+                if (!avail && embedToggle.checked) {
+                    embedToggle.checked = false;
+                    try { localStorage.setItem('gs.embed', '0'); } catch {}
+                }
+            }).catch(() => {});
+        };
+        refreshEmbedAvailability();
 
         let debounceTimer = null;
         let lastQuery = '';
@@ -119,31 +147,57 @@ class GlobalSearch extends WNElement {
                 if (!groups[t]) return;
                 const meta = TYPE_META[t];
                 markup += `<h3 class="sr-group">${meta.icon} ${meta.label} <span class="sr-count">${groups[t].length}</span></h3>`;
-                markup += groups[t].map(r => {
-                    const snippet = r.snippet ? highlight(escapeHtml(r.snippet), q) : '';
-                    const ident = r.identifier == null ? '' : String(r.identifier);
-                    return `<a href="${r.href}" class="search-result"`
-                        + ` data-type="${escapeHtml(r.type)}"`
-                        + ` data-identifier="${escapeHtml(ident)}"`
-                        + ` style="display:block;text-decoration:none">`
-                        + `<div class="sr-title">${highlight(escapeHtml(r.title || ''), q)}</div>`
-                        + (r.subtitle ? `<div class="sr-path">${highlight(escapeHtml(r.subtitle), q)}</div>` : '')
-                        + (snippet ? `<div class="sr-snippet">${snippet}</div>` : '')
-                        + '</a>';
-                }).join('');
+                if (t === 'note') {
+                    markup += groups[t].map((r, i) => {
+                        const ident = r.identifier == null ? '' : String(r.identifier);
+                        return `<note-card class="search-result" data-type="note" data-identifier="${escapeHtml(ident)}" data-idx="${i}"></note-card>`;
+                    }).join('');
+                } else {
+                    markup += groups[t].map(r => {
+                        const snippet = r.snippet ? highlight(escapeHtml(r.snippet), q) : '';
+                        const ident = r.identifier == null ? '' : String(r.identifier);
+                        return `<a href="${r.href}" class="search-result"`
+                            + ` data-type="${escapeHtml(r.type)}"`
+                            + ` data-identifier="${escapeHtml(ident)}"`
+                            + ` style="display:block;text-decoration:none">`
+                            + `<div class="sr-title">${highlight(escapeHtml(r.title || ''), q)}</div>`
+                            + (r.subtitle ? `<div class="sr-path">${highlight(escapeHtml(r.subtitle), q)}</div>` : '')
+                            + (snippet ? `<div class="sr-snippet">${snippet}</div>` : '')
+                            + '</a>';
+                    }).join('');
+                }
             });
             resultsEl.innerHTML = markup;
+
+            // Hydrate note-card elements with data after innerHTML replace.
+            if (groups.note) {
+                const cards = resultsEl.querySelectorAll('note-card[data-type="note"]');
+                cards.forEach((card, i) => {
+                    const r = groups.note[i];
+                    if (!r) return;
+                    const ident = String(r.identifier || '');
+                    const slash = ident.indexOf('/');
+                    if (slash < 0) return;
+                    const week = ident.slice(0, slash);
+                    const file = decodeFile(ident.slice(slash + 1));
+                    const name = r.title || file.replace(/\.md$/, '');
+                    const snippet = r.snippet ? highlight(escapeHtml(r.snippet), q) : '';
+                    card.setData({ week, file, name, type: 'note', snippet });
+                });
+            }
         };
 
         const doSearch = (q) => {
             lastQuery = q;
             if (!q) { resultsEl.innerHTML = ''; return; }
             const svc = this.service;
-            if (!svc || typeof svc.search !== 'function') {
+            const useEmbed = !!embedToggle.checked;
+            const fn = useEmbed ? svc && svc.embedSearch : svc && svc.search;
+            if (!svc || typeof fn !== 'function') {
                 resultsEl.innerHTML = '<p style="color:var(--danger)">Søketjeneste ikke koblet til</p>';
                 return;
             }
-            Promise.resolve(svc.search(q))
+            Promise.resolve(fn.call(svc, q))
                 .then(data => {
                     if (lastQuery !== q) return;
                     render(Array.isArray(data) ? data : [], q);
@@ -151,10 +205,17 @@ class GlobalSearch extends WNElement {
                 .catch(() => { resultsEl.innerHTML = '<p style="color:var(--danger)">Søkefeil</p>'; });
         };
 
+        embedToggle.addEventListener('change', () => {
+            try { localStorage.setItem('gs.embed', embedToggle.checked ? '1' : '0'); } catch {}
+            const q = input.value.trim();
+            if (q) doSearch(q);
+        });
+
         const open = (prefill) => {
             const evt = new CustomEvent('search:open', { bubbles: true, cancelable: true, detail: { prefill } });
             if (!this.dispatchEvent(evt)) return;
             modal.style.display = 'flex';
+            refreshEmbedAvailability();
             if (typeof prefill === 'string') input.value = prefill;
             setTimeout(() => { input.focus(); input.select(); }, 0);
             const q = input.value.trim();
@@ -209,12 +270,40 @@ class GlobalSearch extends WNElement {
             fireSelected(a, e);
         });
 
+        // <note-card> events (from note results). 'view' → element-selected.
+        // 'edit' has a real <a href="/editor/..."> — let it navigate, but close modal.
+        // 'delete' → suppress in search context.
+        resultsEl.addEventListener('view', (e) => {
+            const card = e.target.closest('note-card.search-result');
+            if (!card) return;
+            const fp = (e.detail && e.detail.filePath) || card.dataset.identifier || '';
+            e.preventDefault();
+            this.dispatchEvent(new CustomEvent('element-selected', {
+                bubbles: true, cancelable: true,
+                detail: { type: 'note', identifier: fp },
+            }));
+            close();
+        });
+        resultsEl.addEventListener('edit', () => { close(); });
+        resultsEl.addEventListener('delete', (e) => { e.preventDefault(); });
+
         input.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
-                const first = resultsEl.querySelector('a.search-result');
+                const firstNote = resultsEl.querySelector('note-card.search-result');
+                const firstLink = resultsEl.querySelector('a.search-result');
+                const first = firstNote || firstLink;
                 if (first) {
                     e.preventDefault();
-                    fireSelected(first, null);
+                    if (first.tagName === 'NOTE-CARD') {
+                        const fp = first.dataset.identifier || '';
+                        this.dispatchEvent(new CustomEvent('element-selected', {
+                            bubbles: true, cancelable: true,
+                            detail: { type: 'note', identifier: fp },
+                        }));
+                        close();
+                    } else {
+                        fireSelected(first, null);
+                    }
                 }
             } else if (e.key === 'Escape') {
                 e.preventDefault(); close();

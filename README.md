@@ -10,9 +10,37 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (search: BM25-cache, app-settings panel, model picker)
+- BM25 inverted index caches til `data/<ctx>/.cache/search-index.json` (signatur-versjonert) for rask kald-start; tokens-tabellen lagres komprimert.
+- Ny **Applikasjonsinnstillinger**-seksjon på `/settings` med faner **👋 Velkommen** og **🔍 Søk**. Pillen i hver kort fungerer som av/på-bryter (Aktiv / Stoppet).
+- Embedding-modeller vises som tabell med Navn|Størrelse|Språk|Beskrivelse|Status|Handling. Aktiv rad har grønn ramme; nedlasting viser progress-bar i Status-cellen og "⬇ Laster X%".
+- Slett-knapp per modell rydder opp `models/<id>/`. Aktiv modell kan ikke slettes — slå av først.
+- Når søk er stoppet og valgt modell ikke er på disk, leser pillen "⬇ Last ned og aktiver".
+- Modellutvalg utvidet fra 5 til 12: la til `bge-base-en-v1.5`, `all-mpnet-base-v2`, `paraphrase-multilingual-mpnet-base-v2`, `gte-small`, `gte-base`, `jina-embeddings-v2-small-en`, `snowflake-arctic-embed-s`.
+- Reverse indeks (BM25) kan slås av/på globalt; SSE-stream normaliserer `progress_total` (0..1) til prosent.
+- Ny per-kontekst **🔍 Indekser**-fane med stats fra `GET /api/contexts/:id/index-stats` (filstørrelser, dok-antall, modell, dim).
+
+### 2026-04-30 (gitignore: exclude .cache/ embed sidecar)
+- `data/<ctx>/.cache/embeddings.json` (vektor-cachen for embedding-søk) skal ikke i git. La til `.cache/` i `gitignore-baseline`-migrasjonen, som også kjører `git rm --cached -r .cache` for kontekster der filen allerede var committet. Save-stien i serveren legger nå også til `.cache/` i `.gitignore` på første lagring.
+
+### 2026-04-30 (note-view: close button + debug page)
+- ✕-knappen i `<note-view>` lukket ikke modalet — click-listeneren stod på host-elementet, men shadow-DOM-eventer blir retargetet til host så `dataset.action`-sjekken matchet aldri. Flyttet listeneren inn i shadowRoot.
+- La til en debug-side for `<note-view>` på `/debug/note-view` med en knapp som åpner et eksempelnotat mot `MockNotesService`.
+
+### 2026-04-30 (search: note-view modal for note hits)
+- Klikk på et notat-treff i globalt søk åpner nå notatet i et `<note-view>`-modal i stedet for å navigere bort fra siden. Esc/✕ lukker. Krever ingen sidenavigasjon, så søk-konteksten beholdes.
+- Fikset `NotesService.renderHtml`: `/api/notes/.../render` returnerer JSON `{html, ...}`, men servicen sendte hele objektet videre. Henter nå ut `.html`-strengen.
+
+### 2026-04-30 (search/embed: relations + note-card results)
+- Søkeindeksen (token + embedding) inkluderer nå også notatets _relasjoner_: tags/temaer (`#tag`), `@mentions` (personer/firma), `{{oppgave}}`-referanser og `[[resultat]]`-referanser. Et notat som nevner `@anna` finnes nå på `anna`, og embeddinger fanger relasjoner i den semantiske rangeringen.
+- Globalt søk-modal viser notat-treff som `<note-card>` (samme presentasjon som /notes), med tema-pils og snippet i stedet for en flat lenke. Andre typer (oppgaver, møter, personer, resultater) bruker fortsatt den enkle lenke-raden.
+
 ### 2026-04-30 (search: navigate to editor; meeting-create: skip empty ctx)
 - Klikk på et notat-treff i globalt søk navigerte til `/note/...` som ikke finnes lenger; bruker nå `/editor/<uke>/<fil>`.
 - `meeting-create` spurte etter `/api/contexts//meeting-types` med tomt context-id før attributtet var satt; tidlig retur når `context` er tomt fjerner 404-spammen i konsollen.
+
+### 2026-04-30 (search: semantic toggle)
+- Globalt søk har nå en 🧠-bryter for semantisk (vektor-) søk via `/api/embed-search`. Valget huskes i `localStorage` (`gs.embed`). Standard er fortsatt token-/substring-søket på `/api/search`.
 
 ### 2026-04-30 (search: highlight title and path)
 - Globalt søk markerer nå treff i tittel og sti, ikke bare i utdraget. Filnavntreff (f.eks. `migrasjonP4Arena`) var allerede indeksert, men siden tittel ikke var markert virket det som om de manglet.

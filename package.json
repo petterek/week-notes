@@ -8,6 +8,7 @@
   },
   "type": "commonjs",
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "marked": "^17.0.5"
   }
 }

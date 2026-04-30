@@ -10,4 +10,5 @@ import { apiRequest as req } from '/services/_shared/http.js';
 
 export const SearchService = {
     search: (q) => req('GET', '/api/search?q=' + encodeURIComponent(q || '')),
+    embedSearch: (q) => req('GET', '/api/embed-search?q=' + encodeURIComponent(q || '')),
 };
