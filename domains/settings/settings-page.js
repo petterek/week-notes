@@ -70,7 +70,7 @@ const STYLES = `
     .app-card.welcome > p { margin: 0 0 14px; color: var(--text-muted); max-width: 70ch; line-height: 1.5; }
     .welcome-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; max-width: 80ch; }
     .welcome-list li { color: var(--text-muted); font-size: 0.92em; line-height: 1.5; }
-    .welcome-list strong { color: var(--text-strong); font-weight: 600; }
+    .welcome-list strong { color: var(--text-strong); font-weight: 600; white-space: nowrap; }
     .welcome-list code { font-family: ui-monospace, monospace; font-size: 0.92em; background: var(--surface-alt); padding: 1px 4px; border-radius: 3px; }
     .welcome-meta { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 0.85em; color: var(--text-muted); padding-top: 10px; border-top: 1px solid var(--border-soft); }
     .welcome-meta a { color: var(--accent); text-decoration: none; }
