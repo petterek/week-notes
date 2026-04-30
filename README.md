@@ -10,6 +10,11 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (notes: rename themes → tags, with backward compat)
+- **`/api/save`** aksepterer nå `tags` (eller fortsatt `themes`) i body. På lagring skrives det samme arrayet til både `meta.tags` og `meta.themes`.
+- **API-responser** (`GET /api/notes`, `GET /api/notes/:week/:file/{meta,card}`) speiler verdien i begge feltene `tags` og `themes`.
+- **Klientkode** leser fra `n.tags || n.themes`; interne navn som `_filters.themes` → `_filters.tags`, `data-theme=` → `data-tag=`, `_themesEl` → `_tagsEl`, `.np-themes` → `.np-tags`, `.ne-themes` → `.ne-tags`. Eksisterende notater fortsetter å virke.
+
 ### 2026-04-30 (notes page: use note-card)
 - **Notater-siden (`/notes`)** bruker nå `<note-card>`-komponenten for hver treff i listen, så type-ikon, themes/tagger, og handlinger (👁️ vis, ✏️ rediger, 🗑️ slett) er konsistent med resten av appen. Uke-etiketten vises til venstre for hvert kort.
 

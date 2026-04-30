@@ -7493,7 +7493,7 @@ activateTab(initialParams.tab || 'people');
     if (pathname === '/api/save' && req.method === 'POST') {
         try {
             const body = JSON.parse(await readBody(req));
-            const { folder, file, content, append, type, presentationStyle, autosave, themes } = body;
+            const { folder, file, content, append, type, presentationStyle, autosave, themes, tags } = body;
 
             if (!folder || !file || typeof content !== 'string') {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -7578,11 +7578,14 @@ activateTab(initialParams.tab || 'people');
             if (!autosave) saves.push(now);
             const updates = { type: type || existing.type || 'note', modified: now, saves };
             if (presentationStyle) updates.presentationStyle = presentationStyle;
-            if (Array.isArray(themes)) {
-                updates.themes = themes
+            const incomingTags = Array.isArray(tags) ? tags : (Array.isArray(themes) ? themes : null);
+            if (incomingTags) {
+                const norm = incomingTags
                     .map(t => String(t || '').trim())
                     .filter(Boolean)
                     .filter((t, i, arr) => arr.indexOf(t) === i);
+                updates.tags = norm;
+                updates.themes = norm;
             }
             if (!existing.created) updates.created = now;
             setNoteMeta(folder, file, updates);
@@ -8861,8 +8864,10 @@ activateTab(initialParams.tab || 'people');
     if (metaMatch && req.method === 'GET') {
         const [, week, file] = metaMatch;
         const meta = getNoteMeta(week, decodeURIComponent(file));
+        const metaTags = Array.isArray(meta.tags) ? meta.tags : (Array.isArray(meta.themes) ? meta.themes : []);
+        const merged = { ...meta, tags: metaTags, themes: metaTags };
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(meta));
+        res.end(JSON.stringify(merged));
         return;
     }
 
@@ -8913,13 +8918,15 @@ activateTab(initialParams.tab || 'people');
             const files = getMdFiles(week).filter(f => f !== 'summarize.md');
             for (const file of files) {
                 const meta = getNoteMeta(week, file);
+                const tagsArr = Array.isArray(meta.tags) ? meta.tags : (Array.isArray(meta.themes) ? meta.themes : []);
                 out.push({
                     week,
                     file,
                     name: file.replace(/\.md$/, ''),
                     type: meta.type || 'note',
                     pinned: !!meta.pinned,
-                    themes: Array.isArray(meta.themes) ? meta.themes : [],
+                    tags: tagsArr,
+                    themes: tagsArr,
                     created: meta.created || '',
                     modified: meta.modified || '',
                 });
@@ -8983,6 +8990,7 @@ activateTab(initialParams.tab || 'people');
         }
         const name = file.replace(/\.md$/, '');
         const snippet = linkMentions(escapeHtml(noteSnippet(raw, 220)));
+        const cardTags = Array.isArray(meta.tags) ? meta.tags : (Array.isArray(meta.themes) ? meta.themes : []);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             ok: true,
@@ -8990,7 +8998,8 @@ activateTab(initialParams.tab || 'people');
             type: meta.type || 'note',
             pinned: !!meta.pinned,
             presentationStyle: meta.presentationStyle || null,
-            themes: Array.isArray(meta.themes) ? meta.themes : [],
+            tags: cardTags,
+            themes: cardTags,
             snippet,
         }));
         return;

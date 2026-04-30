@@ -59,7 +59,7 @@ const STYLES = `
         display: flex; align-items: center; gap: 8px; padding-top: 18px;
         font-size: 0.9em; color: var(--text);
     }
-    .np-themes {
+    .np-tags {
         grid-column: 1 / -1;
         display: flex; flex-direction: column; gap: 4px;
         font-size: 0.85em; color: var(--text-muted-warm);
@@ -115,7 +115,7 @@ class NotesPage extends WNElement {
         this._error = null;
         this._filters = {
             type: '',
-            themes: new Set(),
+            tags: new Set(),
             weekFrom: '',
             weekTo: '',
             pinnedOnly: false,
@@ -170,16 +170,16 @@ class NotesPage extends WNElement {
     _onClick(e) {
         const chip = e.composedPath().find(n => n.classList && n.classList.contains('np-chip'));
         if (chip) {
-            const tag = chip.dataset.theme;
-            if (this._filters.themes.has(tag)) this._filters.themes.delete(tag);
-            else this._filters.themes.add(tag);
+            const tag = chip.dataset.tag;
+            if (this._filters.tags.has(tag)) this._filters.tags.delete(tag);
+            else this._filters.tags.add(tag);
             chip.classList.toggle('active');
             this._renderResults();
             return;
         }
         const clear = e.composedPath().find(n => n.classList && n.classList.contains('np-clear'));
         if (clear) {
-            this._filters = { type: '', themes: new Set(), weekFrom: '', weekTo: '', pinnedOnly: false };
+            this._filters = { type: '', tags: new Set(), weekFrom: '', weekTo: '', pinnedOnly: false };
             this.requestRender();
             return;
         }
@@ -211,23 +211,23 @@ class NotesPage extends WNElement {
 
     _filtered() {
         if (!this._all) return [];
-        const { type, themes, weekFrom, weekTo, pinnedOnly } = this._filters;
+        const { type, tags, weekFrom, weekTo, pinnedOnly } = this._filters;
         return this._all.filter(n => {
             if (type && n.type !== type) return false;
             if (pinnedOnly && !n.pinned) return false;
             if (weekFrom && n.week < weekFrom) return false;
             if (weekTo && n.week > weekTo) return false;
-            if (themes.size > 0) {
-                const ns = new Set(n.themes || []);
-                for (const t of themes) if (!ns.has(t)) return false;
+            if (tags.size > 0) {
+                const ns = new Set(n.tags || n.themes || []);
+                for (const t of tags) if (!ns.has(t)) return false;
             }
             return true;
         });
     }
 
-    _allThemes() {
+    _allTags() {
         const set = new Set();
-        for (const n of (this._all || [])) for (const t of (n.themes || [])) set.add(t);
+        for (const n of (this._all || [])) for (const t of (n.tags || n.themes || [])) set.add(t);
         return [...set].sort((a, b) => a.localeCompare(b, 'no'));
     }
 
@@ -250,7 +250,7 @@ class NotesPage extends WNElement {
         const weeks = this._allWeeks();
         const minWeek = weeks[0] || '';
         const maxWeek = weeks[weeks.length - 1] || '';
-        const themes = this._allThemes();
+        const tagsList = this._allTags();
 
         const typeOptions = [
             html`<option value="">Alle typer</option>`,
@@ -258,10 +258,10 @@ class NotesPage extends WNElement {
         ];
 
         const counts = {};
-        for (const n of (this._all || [])) for (const t of (n.themes || [])) counts[t] = (counts[t] || 0) + 1;
+        for (const n of (this._all || [])) for (const t of (n.tags || n.themes || [])) counts[t] = (counts[t] || 0) + 1;
 
-        const chips = themes.length
-            ? themes.map(t => html`<span class="np-chip ${this._filters.themes.has(t) ? 'active' : ''}" data-theme="${t}">#${t} <span class="np-chip-n">(${counts[t] || 0})</span></span>`)
+        const chips = tagsList.length
+            ? tagsList.map(t => html`<span class="np-chip ${this._filters.tags.has(t) ? 'active' : ''}" data-tag="${t}">#${t} <span class="np-chip-n">(${counts[t] || 0})</span></span>`)
             : html`<span style="color:var(--text-subtle);font-style:italic">Ingen tagger funnet</span>`;
 
         return html`
@@ -283,7 +283,7 @@ class NotesPage extends WNElement {
                     <input type="checkbox" data-filter="pinnedOnly" ${this._filters.pinnedOnly ? 'checked' : ''}>
                     📌 Bare festede
                 </label>
-                <div class="np-themes">
+                <div class="np-tags">
                     Tagger
                     <div class="np-chips">${chips}</div>
                 </div>
@@ -324,7 +324,7 @@ class NotesPage extends WNElement {
             const card = document.createElement('note-card');
             card.setData({
                 week: n.week, file: n.file, name: n.name,
-                type: n.type, pinned: n.pinned, themes: n.themes || [],
+                type: n.type, pinned: n.pinned, themes: n.tags || n.themes || [],
             });
             wrap.appendChild(wk);
             wrap.appendChild(card);

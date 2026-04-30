@@ -112,7 +112,7 @@ class NoteCard extends WNElement {
             ? unsafeHTML(`<button type="button" class="note-icon-btn" data-act="present" title="Presenter ${escapeHtml(name)}">🎤</button>`)
             : '';
         const snippet = d.snippet ? unsafeHTML(`<div class="note-body">${d.snippet}</div>`) : '';
-        const themes = Array.isArray(d.themes) ? d.themes : [];
+        const themes = Array.isArray(d.tags) ? d.tags : (Array.isArray(d.themes) ? d.themes : []);
         const themesHtml = themes.length
             ? unsafeHTML(`<div class="note-themes">${themes.map(t =>
                 `<span class="note-theme">#${escapeHtml(t)}</span>`).join('')}</div>`)

@@ -188,7 +188,7 @@ class NoteEditor extends WNElement {
             <div class="ne-row ne-row-taxonomy${this._initialType === 'presentation' ? ' is-presentation' : ''}">
                 <label style="flex:1; min-width:240px">
                     Tema
-                    <tag-editor class="ne-themes" value="${escapeHtml((this._initialThemes || []).join(','))}" placeholder="Legg til tag…"></tag-editor>
+                    <tag-editor class="ne-tags" value="${escapeHtml((this._initialThemes || []).join(','))}" placeholder="Legg til tag…"></tag-editor>
                 </label>
                 <label class="ne-pres">
                     Stil
@@ -230,7 +230,7 @@ class NoteEditor extends WNElement {
 
         this._weekSel = this.shadowRoot.querySelector('.ne-week');
         this._fileEl = this.shadowRoot.querySelector('.ne-file');
-        this._themesEl = this.shadowRoot.querySelector('.ne-themes');
+        this._tagsEl = this.shadowRoot.querySelector('.ne-tags');
         this._typeEl = this.shadowRoot.querySelector('.ne-type');
         this._presStyleEl = this.shadowRoot.querySelector('.ne-pres-style');
         this._pinnedEl = this.shadowRoot.querySelector('.ne-pinned');
@@ -264,7 +264,7 @@ class NoteEditor extends WNElement {
         const markDirty = () => this._markDirty();
         this._contentEl.addEventListener('input', () => { this._renderPreview(); markDirty(); });
         this._fileEl.addEventListener('input', () => { if (this._detached) this._publishPreview(); markDirty(); });
-        if (this._themesEl) this._themesEl.addEventListener('change', markDirty);
+        if (this._tagsEl) this._tagsEl.addEventListener('change', markDirty);
         if (this._pinnedEl) this._pinnedEl.addEventListener('change', markDirty);
         if (this._presStyleEl) this._presStyleEl.addEventListener('change', markDirty);
         if (this._typeEl) {
@@ -444,8 +444,9 @@ class NoteEditor extends WNElement {
         try {
             if (this.service.meta) {
                 const meta = await this.service.meta(week, file);
-                const themes = Array.isArray(meta && meta.themes) ? meta.themes : [];
-                if (this._themesEl) this._themesEl.tags = themes;
+                const tagsArr = Array.isArray(meta && meta.tags) ? meta.tags
+                    : (Array.isArray(meta && meta.themes) ? meta.themes : []);
+                if (this._tagsEl) this._tagsEl.tags = tagsArr;
                 const type = (meta && meta.type) || 'note';
                 this._initialType = type;
                 if (this._typeEl) this._typeEl.value = type;
@@ -477,11 +478,11 @@ class NoteEditor extends WNElement {
     }
 
     async _loadThemeSuggestions() {
-        if (!this._themesEl || !this.service || !this.service.listThemes) return;
+        if (!this._tagsEl || !this.service || !this.service.listThemes) return;
         try {
             const list = await this.service.listThemes();
             if (Array.isArray(list) && list.length) {
-                this._themesEl.setAttribute('suggestions', list.join(','));
+                this._tagsEl.setAttribute('suggestions', list.join(','));
                 this._availableThemes = list.map(t => String(t).toLowerCase());
             }
         } catch (_) {}
@@ -546,7 +547,7 @@ class NoteEditor extends WNElement {
             const frag = text.slice(i + 1, caret);
             if (!frag) { close(); return; }
             const f = frag.toLowerCase();
-            const existing = (this._themesEl && this._themesEl.tags) ? this._themesEl.tags : [];
+            const existing = (this._tagsEl && this._tagsEl.tags) ? this._tagsEl.tags : [];
             const matches = list.filter(t => !existing.includes(t) && t.startsWith(f)).slice(0, 8);
             if (!matches.length) { close(); return; }
             matchStart = i;
@@ -565,9 +566,9 @@ class NoteEditor extends WNElement {
             ta.value = before + after;
             // Move cursor to where the # used to be.
             try { ta.setSelectionRange(matchStart, matchStart); } catch (_) {}
-            if (this._themesEl) {
-                const cur = this._themesEl.tags || [];
-                if (!cur.includes(tag)) this._themesEl.tags = cur.concat([tag]);
+            if (this._tagsEl) {
+                const cur = this._tagsEl.tags || [];
+                if (!cur.includes(tag)) this._tagsEl.tags = cur.concat([tag]);
             }
             close();
             this._renderPreview();
@@ -660,8 +661,8 @@ class NoteEditor extends WNElement {
         const folder = this._weekSel.value.trim();
         let file = this._fileEl.value.trim();
         const content = this._contentEl.value;
-        const themes = (this._themesEl && Array.isArray(this._themesEl.tags))
-            ? this._themesEl.tags.slice()
+        const tags = (this._tagsEl && Array.isArray(this._tagsEl.tags))
+            ? this._tagsEl.tags.slice()
             : [];
         const type = this._typeEl ? this._typeEl.value : 'note';
         const presentationStyle = (type === 'presentation' && this._presStyleEl) ? this._presStyleEl.value : '';
@@ -674,7 +675,7 @@ class NoteEditor extends WNElement {
         if (!file.endsWith('.md')) file += '.md';
         this._setStatus('Lagrer…');
         try {
-            const payload = { folder, file, content, themes, type };
+            const payload = { folder, file, content, tags, type };
             if (presentationStyle) payload.presentationStyle = presentationStyle;
             if (autosave) payload.autosave = true;
             const data = await this.service.save(payload);
