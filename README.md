@@ -10,6 +10,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (icon-picker for context icon)
+- **Settings:** the context icon (both in the detail form and in the `+ Ny kontekst` modal) is now a button that opens a popover with `<icon-picker>` (5×5 grid of 25 icons in two groups: Liv, Hobby — including ⛳ golf). Same shared popover infrastructure as the meeting-type icons; the icon set switches based on `data-icon-set` on the button.
+
 ### 2026-04-30 (icon-picker in meeting types)
 - **Settings → Møtetyper:** the icon column is now a button that opens a popover with `<icon-picker>` (84 icons in 6 groups of 14: Jobb, Møter, Trening, Hjem, Reise, Annet). Click to pick; popover closes on selection, outside click or Esc.
 

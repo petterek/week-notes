@@ -29,6 +29,16 @@ const MEETING_ICON_GROUPS = [
                                 '🎸', '🎤', '🖼️', '🪐', '🔬', '🧪', '🧠'] },
 ];
 
+// Context icons — 5 cols × 5 rows = 25 in two groups.
+const CONTEXT_ICON_GROUPS = [
+    { name: 'Liv',    icons: ['💼', '🏠', '👨‍👩‍👧', '🎓', '🧑‍💻',
+                              '🎨', '🎵', '📚', '🧘', '✈️',
+                              '🏖️', '⛺', '🌳'] },
+    { name: 'Hobby',  icons: ['⛳', '🏌️', '🏃', '🚴', '⚽',
+                              '🎾', '🎸', '🎮', '🍳', '📷',
+                              '🐕', '🐈'] },
+];
+
 const DEFAULT_MEETING_TYPES = [
     { key: 'meeting',  label: 'Møte',        icon: '👥', color: '#4a90e2', defaultMinutes: 60 },
     { key: '1on1',     label: '1:1',         icon: '☕', color: '#a05a2c', defaultMinutes: 30 },
@@ -123,6 +133,8 @@ const STYLES = `
     @media (max-width: 700px) { .hours-grid { grid-template-columns: 1fr; } }
     .mt-icon-pop { position: absolute; z-index: 200; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,0.15); padding: 6px; display: none; }
     .mt-icon-pop[data-open] { display: block; }
+    button.icon-btn { width: 60px; height: 32px; padding: 0; font-size: 1.2em; cursor: pointer; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text-strong); display: inline-flex; align-items: center; justify-content: center; }
+    button.icon-btn:hover { background: var(--surface-alt); border-color: var(--accent); }
 `;
 
 function timeOpts(selected) {
@@ -224,7 +236,7 @@ class SettingsPage extends WNElement {
                         </label>
                         <div class="row">
                             <label>Ikon
-                                <input type="text" data-nc="icon" maxlength="4" placeholder="💼" value="📁">
+                                <button type="button" data-nc="icon" data-icon-set="context" data-icon-value="📁" class="icon-btn" title="Velg ikon">📁</button>
                             </label>
                             <label>Beskrivelse
                                 <input type="text" data-nc="description" placeholder="Kort beskrivelse">
@@ -253,8 +265,17 @@ class SettingsPage extends WNElement {
                 ev.preventDefault();
                 this._submitNewContext(overlay);
             });
+            const ncIconBtn = overlay.querySelector('[data-nc="icon"]');
+            if (ncIconBtn) {
+                ncIconBtn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    this._openIconPicker(ncIconBtn, overlay.querySelector('.nc-card'));
+                });
+            }
         } else {
-            overlay.querySelectorAll('input').forEach(i => { if (i.dataset.nc !== 'icon') i.value = ''; });
+            overlay.querySelectorAll('input').forEach(i => { i.value = ''; });
+            const iconBtn = overlay.querySelector('[data-nc="icon"]');
+            if (iconBtn) { iconBtn.dataset.iconValue = '📁'; iconBtn.textContent = '📁'; }
             const status = overlay.querySelector('[data-nc-status]');
             if (status) { status.textContent = ''; status.style.color = ''; }
         }
@@ -267,7 +288,12 @@ class SettingsPage extends WNElement {
 
     async _submitNewContext(overlay) {
         const status = overlay.querySelector('[data-nc-status]');
-        const get = (k) => (overlay.querySelector(`[data-nc="${k}"]`).value || '').trim();
+        const get = (k) => {
+            const el = overlay.querySelector(`[data-nc="${k}"]`);
+            if (!el) return '';
+            if (el.tagName === 'BUTTON') return (el.dataset.iconValue || '').trim();
+            return (el.value || '').trim();
+        };
         const data = {
             name: get('name'),
             icon: get('icon') || '📁',
@@ -353,7 +379,7 @@ class SettingsPage extends WNElement {
                     <legend>Generelt</legend>
                     <div class="row">
                         <label>Ikon
-                            <input type="text" data-f="icon" value="${escapeHtml(s.icon || '')}" maxlength="4" style="width:60px">
+                            <button type="button" data-f="icon" data-icon-set="context" data-icon-value="${escapeHtml(s.icon || '')}" class="icon-btn" title="Velg ikon">${escapeHtml(s.icon || '·')}</button>
                         </label>
                         <label style="flex:1; min-width:200px">Navn
                             <input type="text" data-f="name" value="${escapeHtml(s.name || '')}">
@@ -444,6 +470,11 @@ class SettingsPage extends WNElement {
             });
         });
 
+        const ctxIconBtn = detailEl.querySelector('[data-f="icon"]');
+        if (ctxIconBtn && ctxIconBtn.tagName === 'BUTTON') {
+            ctxIconBtn.addEventListener('click', (ev) => { ev.stopPropagation(); this._openIconPicker(ctxIconBtn, detailEl); });
+        }
+
         const mtList = detailEl.querySelector('[data-mt-list]');
         const mtAdd = detailEl.querySelector('[data-mt-add]');
         if (mtList) {
@@ -484,7 +515,9 @@ class SettingsPage extends WNElement {
     _collectForm(detailEl) {
         const f = (k) => {
             const el = detailEl.querySelector(`[data-f="${k}"]`);
-            return el ? el.value : '';
+            if (!el) return '';
+            if (el.tagName === 'BUTTON') return el.dataset.iconValue || '';
+            return el.value;
         };
         const wh = DAY_NAMES.map((_, i) => {
             const row = detailEl.querySelector(`[data-wh-row="${i}"]`);
@@ -514,16 +547,14 @@ class SettingsPage extends WNElement {
         };
     }
 
-    _openIconPicker(btn, detailEl) {
-        let pop = detailEl.querySelector('.mt-icon-pop');
+    _openIconPicker(btn, container) {
+        let pop = container.querySelector(':scope > .mt-icon-pop');
         if (!pop) {
             pop = document.createElement('div');
             pop.className = 'mt-icon-pop';
             const ip = document.createElement('icon-picker');
-            ip.setAttribute('columns', '7');
-            ip.setAttribute('groups', JSON.stringify(MEETING_ICON_GROUPS));
             pop.appendChild(ip);
-            detailEl.appendChild(pop);
+            container.appendChild(pop);
             ip.addEventListener('valueChanged', (ev) => {
                 const target = pop._target;
                 if (target) {
@@ -534,7 +565,6 @@ class SettingsPage extends WNElement {
                 pop.removeAttribute('data-open');
                 pop._target = null;
             });
-            // close on outside click / Esc
             document.addEventListener('click', (ev) => {
                 if (!pop.hasAttribute('data-open')) return;
                 if (pop.contains(ev.target) || ev.target === pop._target) return;
@@ -549,12 +579,21 @@ class SettingsPage extends WNElement {
             });
         }
         const ip = pop.querySelector('icon-picker');
-        const current = btn.dataset.iconValue || '';
-        ip.value = current;
+        const set = btn.dataset.iconSet || 'meeting';
+        if (pop._set !== set) {
+            if (set === 'context') {
+                ip.setAttribute('columns', '5');
+                ip.setAttribute('groups', JSON.stringify(CONTEXT_ICON_GROUPS));
+            } else {
+                ip.setAttribute('columns', '7');
+                ip.setAttribute('groups', JSON.stringify(MEETING_ICON_GROUPS));
+            }
+            pop._set = set;
+        }
+        ip.value = btn.dataset.iconValue || '';
         pop._target = btn;
-        // Position relative to detailEl (which we ensure is positioned)
-        if (getComputedStyle(detailEl).position === 'static') detailEl.style.position = 'relative';
-        const dRect = detailEl.getBoundingClientRect();
+        if (getComputedStyle(container).position === 'static') container.style.position = 'relative';
+        const dRect = container.getBoundingClientRect();
         const bRect = btn.getBoundingClientRect();
         pop.style.top = (bRect.bottom - dRect.top + 4) + 'px';
         pop.style.left = (bRect.left - dRect.left) + 'px';
