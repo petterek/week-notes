@@ -8895,6 +8895,12 @@ activateTab(initialParams.tab || 'people');
 
     // API: aggregate index of every note across every week, metadata only.
     // Used by /notes page for filtering by type/themes/date.
+    if (pathname === '/api/notes/themes' && req.method === 'GET') {
+        const themes = getContextThemes();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(themes));
+        return;
+    }
     if (pathname === '/api/notes' && req.method === 'GET') {
         let weekDirs = [];
         try {

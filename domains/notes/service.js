@@ -28,5 +28,6 @@ export const NotesService = {
     remove:     (week, file)      => req('DELETE', noteUrl(week, file)),
     listWeeks:  ()                => req('GET',    '/api/weeks'),
     listAll:    ()                => req('GET',    '/api/notes'),
+    listThemes: ()                => req('GET',    '/api/notes/themes'),
     getWeek:    (week)            => req('GET',    `/api/week/${encodeURIComponent(week)}`),
 };

@@ -187,8 +187,8 @@ class NoteEditor extends WNElement {
             </div>
             <div class="ne-row ne-row-taxonomy${this._initialType === 'presentation' ? ' is-presentation' : ''}">
                 <label style="flex:1; min-width:240px">
-                    Tema (kommaseparert)
-                    <input type="text" class="ne-themes" placeholder="f.eks. planlegging, retro" value="${escapeHtml((this._initialThemes || []).join(', '))}">
+                    Tema
+                    <tag-editor class="ne-themes" value="${escapeHtml((this._initialThemes || []).join(','))}" placeholder="Legg til tag…"></tag-editor>
                 </label>
                 <label class="ne-pres">
                     Stil
@@ -249,6 +249,8 @@ class NoteEditor extends WNElement {
         this.loadWeeks(this._initialWeek);
         if (this._editing) this.loadExisting(this._initialWeek, this._initialFile);
         this._renderPreview();
+        this._loadThemeSuggestions();
+        this._installHashTagAutocomplete();
 
         this._saveBtn.addEventListener('click', () => this.save(false));
         if (saveCloseBtn) saveCloseBtn.addEventListener('click', () => this.save(true));
@@ -262,7 +264,7 @@ class NoteEditor extends WNElement {
         const markDirty = () => this._markDirty();
         this._contentEl.addEventListener('input', () => { this._renderPreview(); markDirty(); });
         this._fileEl.addEventListener('input', () => { if (this._detached) this._publishPreview(); markDirty(); });
-        if (this._themesEl) this._themesEl.addEventListener('input', markDirty);
+        if (this._themesEl) this._themesEl.addEventListener('change', markDirty);
         if (this._pinnedEl) this._pinnedEl.addEventListener('change', markDirty);
         if (this._presStyleEl) this._presStyleEl.addEventListener('change', markDirty);
         if (this._typeEl) {
@@ -443,7 +445,7 @@ class NoteEditor extends WNElement {
             if (this.service.meta) {
                 const meta = await this.service.meta(week, file);
                 const themes = Array.isArray(meta && meta.themes) ? meta.themes : [];
-                if (this._themesEl) this._themesEl.value = themes.join(', ');
+                if (this._themesEl) this._themesEl.tags = themes;
                 const type = (meta && meta.type) || 'note';
                 this._initialType = type;
                 if (this._typeEl) this._typeEl.value = type;
@@ -472,6 +474,156 @@ class NoteEditor extends WNElement {
             if (isNaN(d.getTime())) return iso;
             return d.toLocaleString('nb-NO', { dateStyle: 'medium', timeStyle: 'short' });
         } catch (_) { return iso; }
+    }
+
+    async _loadThemeSuggestions() {
+        if (!this._themesEl || !this.service || !this.service.listThemes) return;
+        try {
+            const list = await this.service.listThemes();
+            if (Array.isArray(list) && list.length) {
+                this._themesEl.setAttribute('suggestions', list.join(','));
+                this._availableThemes = list.map(t => String(t).toLowerCase());
+            }
+        } catch (_) {}
+    }
+
+    _installHashTagAutocomplete() {
+        if (!this._contentEl) return;
+        // Build the popover lazily inside this component's shadow DOM.
+        const ta = this._contentEl;
+        const pop = document.createElement('div');
+        pop.className = 'ne-hashtag-pop';
+        pop.hidden = true;
+        Object.assign(pop.style, {
+            position: 'fixed', zIndex: '1000',
+            background: 'var(--surface, #fff)',
+            border: '1px solid var(--border, #ccc)',
+            borderRadius: '6px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+            maxHeight: '200px', overflow: 'auto',
+            padding: '4px 0', minWidth: '160px',
+            font: 'inherit',
+        });
+        this.shadowRoot.appendChild(pop);
+
+        let activeIdx = -1;
+        let matchStart = -1;
+        let matchText = '';
+
+        const close = () => {
+            pop.hidden = true;
+            activeIdx = -1; matchStart = -1; matchText = '';
+            pop.innerHTML = '';
+        };
+
+        const renderList = (items) => {
+            if (!items.length) { close(); return; }
+            pop.innerHTML = items.map((t, i) => `
+                <button type="button" data-add="${escapeHtml(t)}" style="display:block;width:100%;text-align:left;background:${i === activeIdx ? 'var(--accent-soft,#e7f1fb)' : 'transparent'};color:${i === activeIdx ? 'var(--accent,#06c)' : 'inherit'};border:none;padding:4px 12px;cursor:pointer;font:inherit">#${escapeHtml(t)}</button>
+            `).join('');
+            pop.hidden = false;
+        };
+
+        const positionPop = () => {
+            const pos = this._caretCoords(ta);
+            const r = ta.getBoundingClientRect();
+            pop.style.left = (r.left + pos.left + 2) + 'px';
+            pop.style.top  = (r.top  + pos.top  + pos.height + 2) + 'px';
+        };
+
+        const update = () => {
+            const list = this._availableThemes;
+            if (!list || !list.length) { close(); return; }
+            const caret = ta.selectionStart;
+            if (caret !== ta.selectionEnd) { close(); return; }
+            // Look back from caret for the start of #tag pattern; stop on whitespace or boundary.
+            const text = ta.value;
+            let i = caret - 1;
+            while (i >= 0 && /[\w-]/.test(text[i])) i--;
+            if (i < 0 || text[i] !== '#') { close(); return; }
+            // Must be at start of value or preceded by whitespace.
+            if (i > 0 && !/\s/.test(text[i - 1])) { close(); return; }
+            const frag = text.slice(i + 1, caret);
+            if (!frag) { close(); return; }
+            const f = frag.toLowerCase();
+            const existing = (this._themesEl && this._themesEl.tags) ? this._themesEl.tags : [];
+            const matches = list.filter(t => !existing.includes(t) && t.startsWith(f)).slice(0, 8);
+            if (!matches.length) { close(); return; }
+            matchStart = i;
+            matchText = '#' + frag;
+            if (activeIdx >= matches.length) activeIdx = matches.length - 1;
+            if (activeIdx < 0) activeIdx = 0;
+            renderList(matches);
+            positionPop();
+        };
+
+        const accept = (tag) => {
+            if (matchStart < 0) return;
+            // Remove '#tag' from textarea, add to tag-editor.
+            const before = ta.value.slice(0, matchStart);
+            const after = ta.value.slice(matchStart + matchText.length);
+            ta.value = before + after;
+            // Move cursor to where the # used to be.
+            try { ta.setSelectionRange(matchStart, matchStart); } catch (_) {}
+            if (this._themesEl) {
+                const cur = this._themesEl.tags || [];
+                if (!cur.includes(tag)) this._themesEl.tags = cur.concat([tag]);
+            }
+            close();
+            this._renderPreview();
+            this._markDirty();
+            ta.focus();
+        };
+
+        ta.addEventListener('input', update);
+        ta.addEventListener('click', update);
+        ta.addEventListener('keyup', (e) => {
+            if (['ArrowUp', 'ArrowDown', 'Enter', 'Escape', 'Tab'].includes(e.key)) return;
+            update();
+        });
+        ta.addEventListener('keydown', (e) => {
+            if (pop.hidden) return;
+            const items = pop.querySelectorAll('button[data-add]');
+            if (!items.length) return;
+            if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx = (activeIdx + 1) % items.length; renderList(Array.from(items).map(b => b.dataset.add)); }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx = (activeIdx - 1 + items.length) % items.length; renderList(Array.from(items).map(b => b.dataset.add)); }
+            else if (e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault();
+                const tag = items[activeIdx >= 0 ? activeIdx : 0].dataset.add;
+                accept(tag);
+            } else if (e.key === 'Escape') { e.preventDefault(); close(); }
+        });
+        ta.addEventListener('blur', () => setTimeout(close, 150));
+        pop.addEventListener('mousedown', (e) => {
+            const btn = e.target.closest('button[data-add]');
+            if (!btn) return;
+            e.preventDefault();
+            accept(btn.dataset.add);
+        });
+    }
+
+    _caretCoords(ta) {
+        // Mirror-div technique: build an offscreen <div> with the same styling
+        // as the textarea up to the caret, ending with a span at the caret.
+        const cs = getComputedStyle(ta);
+        const div = document.createElement('div');
+        const props = ['boxSizing','width','height','overflowX','overflowY','borderTopWidth','borderRightWidth','borderBottomWidth','borderLeftWidth','paddingTop','paddingRight','paddingBottom','paddingLeft','fontStyle','fontVariant','fontWeight','fontStretch','fontSize','fontSizeAdjust','lineHeight','fontFamily','textAlign','textTransform','textIndent','letterSpacing','wordSpacing','tabSize','MozTabSize','whiteSpace','wordWrap'];
+        for (const p of props) div.style[p] = cs[p];
+        div.style.position = 'absolute';
+        div.style.visibility = 'hidden';
+        div.style.whiteSpace = 'pre-wrap';
+        div.style.wordWrap = 'break-word';
+        div.style.top = '0'; div.style.left = '-9999px';
+        const caret = ta.selectionStart;
+        const before = ta.value.substring(0, caret);
+        div.textContent = before;
+        const span = document.createElement('span');
+        span.textContent = ta.value.substring(caret) || '.';
+        div.appendChild(span);
+        document.body.appendChild(div);
+        const rect = { left: span.offsetLeft - ta.scrollLeft, top: span.offsetTop - ta.scrollTop, height: parseFloat(cs.lineHeight) || 18 };
+        document.body.removeChild(div);
+        return rect;
     }
 
     async loadWeeks(selected) {
@@ -508,10 +660,9 @@ class NoteEditor extends WNElement {
         const folder = this._weekSel.value.trim();
         let file = this._fileEl.value.trim();
         const content = this._contentEl.value;
-        const themes = (this._themesEl ? this._themesEl.value : '')
-            .split(',')
-            .map(s => s.trim())
-            .filter(Boolean);
+        const themes = (this._themesEl && Array.isArray(this._themesEl.tags))
+            ? this._themesEl.tags.slice()
+            : [];
         const type = this._typeEl ? this._typeEl.value : 'note';
         const presentationStyle = (type === 'presentation' && this._presStyleEl) ? this._presStyleEl.value : '';
         const pinned = !!(this._pinnedEl && this._pinnedEl.checked);

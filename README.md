@@ -10,6 +10,10 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (note editor: tag chips + #hashtag autocomplete)
+- **Notat-redigerer** bruker nå `<tag-editor>` (samme komponent som i Innstillinger) for tag-feltet, med forslag automatisk hentet fra konteksten via `GET /api/notes/themes` (ny `NotesService.listThemes()`).
+- **Hashtag autocomplete in textarea:** type `#tag…` and a popover offers matching available tags. Selecting one removes `#tag` from the markdown text and adds the tag to the chip list. Arrow keys / Enter / Escape supported.
+
 ### 2026-04-30 (tag editor component)
 - **New `<tag-editor>` component:** chip-style tag input replacing the comma-separated text field on the **Innstillinger → Tagger** tab. Type and press Enter (or comma) to add a tag, click × to remove, Backspace on empty input removes the last chip, optional `suggestions` dropdown with arrow-key navigation. Form-associated (works inside both shadow DOM forms and plain `data-f` collectors).
 
