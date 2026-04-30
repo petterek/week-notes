@@ -135,6 +135,18 @@ const STYLES = `
     .mt-icon-pop[data-open] { display: block; }
     button.icon-btn { width: 60px; height: 32px; padding: 0; font-size: 1.2em; cursor: pointer; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text-strong); display: inline-flex; align-items: center; justify-content: center; }
     button.icon-btn:hover { background: var(--surface-alt); border-color: var(--accent); }
+    .theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-top: 6px; }
+    .theme-swatch { display: flex; flex-direction: column; align-items: stretch; cursor: pointer; padding: 6px; border: 1px solid var(--border-faint); border-radius: 6px; background: var(--bg); transition: border-color 0.12s, box-shadow 0.12s, transform 0.08s; }
+    .theme-swatch:hover { border-color: var(--border); transform: translateY(-1px); }
+    .theme-swatch.is-selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+    .theme-preview { display: flex; flex-direction: column; height: 64px; border-radius: 4px; overflow: hidden; border: 1px solid rgba(0,0,0,0.08); }
+    .theme-bar { height: 14px; flex: 0 0 14px; }
+    .theme-body { flex: 1; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; justify-content: flex-start; }
+    .theme-line { display: block; height: 4px; border-radius: 2px; }
+    .theme-line-1 { width: 80%; }
+    .theme-line-2 { width: 60%; }
+    .theme-line-3 { width: 40%; }
+    .theme-name { text-align: center; font-size: 0.78em; color: var(--text-muted-warm); margin-top: 6px; font-weight: 600; }
 `;
 
 function timeOpts(selected) {
@@ -340,9 +352,6 @@ class SettingsPage extends WNElement {
         if (!c) { detailEl.textContent = 'Ingen kontekst valgt.'; return; }
         const s = c.settings || {};
         const wh = Array.isArray(s.workHours) ? s.workHours : [];
-        const themeOpts = this._themes.map(t =>
-            `<option value="${escapeHtml(t.id)}"${t.id === s.theme ? ' selected' : ''}>${escapeHtml(t.name || t.id)}</option>`
-        ).join('');
         const isActive = c.id === this._active;
 
         const whRows = DAY_NAMES.map((dn, i) => {
@@ -395,10 +404,9 @@ class SettingsPage extends WNElement {
             <div class="sp-tab-panel" data-panel="theme">
                 <fieldset>
                     <legend>Tema</legend>
-                    <p style="font-size:0.85em;color:var(--text-muted);margin:0 0 10px">Visuelt tema for denne konteksten.</p>
-                    <label style="display:block; max-width:280px">Aktivt tema
-                        <select data-f="theme">${themeOpts}</select>
-                    </label>
+                    <p style="font-size:0.85em;color:var(--text-muted);margin:0 0 10px">Visuelt tema for denne konteksten. Klikk en flis for å velge.</p>
+                    <input type="hidden" data-f="theme" value="${escapeHtml(s.theme || 'paper')}">
+                    <div class="theme-grid">${this._themes.map(t => this._themeSwatchHtml(t, s.theme || 'paper')).join('')}</div>
                 </fieldset>
             </div>
             <div class="sp-tab-panel" data-panel="tags">
@@ -489,6 +497,18 @@ class SettingsPage extends WNElement {
         const ctxIconBtn = detailEl.querySelector('[data-f="icon"]');
         if (ctxIconBtn && ctxIconBtn.tagName === 'BUTTON') {
             ctxIconBtn.addEventListener('click', (ev) => { ev.stopPropagation(); this._openIconPicker(ctxIconBtn, detailEl); });
+        }
+
+        const themeGrid = detailEl.querySelector('.theme-grid');
+        const themeInput = detailEl.querySelector('input[data-f="theme"]');
+        if (themeGrid && themeInput) {
+            themeGrid.addEventListener('click', (ev) => {
+                const sw = ev.target.closest('.theme-swatch');
+                if (!sw) return;
+                const id = sw.dataset.themeId;
+                themeInput.value = id;
+                themeGrid.querySelectorAll('.theme-swatch').forEach(s => s.classList.toggle('is-selected', s === sw));
+            });
         }
 
         const mtList = detailEl.querySelector('[data-mt-list]');
@@ -615,6 +635,30 @@ class SettingsPage extends WNElement {
         pop.style.top = (bRect.bottom - dRect.top + 4) + 'px';
         pop.style.left = (bRect.left - dRect.left) + 'px';
         pop.setAttribute('data-open', '');
+    }
+
+    _themeSwatchHtml(t, current) {
+        const v = t.vars || {};
+        const id = t.id;
+        const name = t.name || id;
+        const sel = id === current ? ' is-selected' : '';
+        const bg = escapeHtml(v.bg || '#fff');
+        const surfaceHead = escapeHtml(v['surface-head'] || v.surface || bg);
+        const border = escapeHtml(v['border-faint'] || v.border || '#ccc');
+        const accent = escapeHtml(v.accent || '#333');
+        const muted = escapeHtml(v['text-muted-warm'] || v['text-muted'] || accent);
+        const subtle = escapeHtml(v['text-subtle'] || muted);
+        return `<button type="button" class="theme-swatch${sel}" data-theme-id="${escapeHtml(id)}" title="${escapeHtml(name)}">
+            <span class="theme-preview" style="background:${bg};">
+                <span class="theme-bar" style="background:${surfaceHead};border-bottom:1px solid ${border};"></span>
+                <span class="theme-body">
+                    <span class="theme-line theme-line-1" style="background:${accent};"></span>
+                    <span class="theme-line theme-line-2" style="background:${muted};"></span>
+                    <span class="theme-line theme-line-3" style="background:${subtle};"></span>
+                </span>
+            </span>
+            <span class="theme-name">${escapeHtml(name)}</span>
+        </button>`;
     }
 
     _mtRowHtml(mt, i) {
