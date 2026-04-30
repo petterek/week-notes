@@ -113,7 +113,6 @@ function createContext(rawName, settings, opts) {
     fs.mkdirSync(dir, { recursive: true });
     const cfg = Object.assign({ name: rawName || safe, icon: '📁' }, settings || {});
     fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify(cfg, null, 2));
-    writeMarker(dir);
     gitInitIfNeeded(dir, cfg.name);
     // Configure remote if supplied
     if ((cfg.remote || '').trim() && gitIsRepo(dir)) {
@@ -172,7 +171,6 @@ function cloneContext(remoteUrl, rawName, opts) {
     try { cfg = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf-8')); } catch {}
     cfg = Object.assign({ name: cfg.name || rawName || safe, icon: cfg.icon || '📁', description: cfg.description || '' }, cfg, { remote: url });
     fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify(cfg, null, 2));
-    writeMarker(dir);
     if (!hasMarker && force) {
         // User confirmed; commit the marker so the next push includes it.
         try {
@@ -464,7 +462,6 @@ function ensureAllContextsInitialised() {
     for (const id of listContexts()) {
         const dir = path.join(CONTEXTS_DIR, id);
         gitInitIfNeeded(dir, getContextSettings(id).name || id);
-        if (!fs.existsSync(path.join(dir, WEEK_NOTES_MARKER))) writeMarker(dir);
     }
 }
 
@@ -7701,6 +7698,9 @@ activateTab(initialParams.tab || 'people');
             // response. Only runs on explicit save.
             try {
                 const repo = dataDir();
+                // Lazy-write the .week-notes marker on first explicit save
+                // (was previously written eagerly on context create/clone).
+                if (!fs.existsSync(path.join(repo, WEEK_NOTES_MARKER))) writeMarker(repo);
                 if (gitIsRepo(repo)) {
                     // Ensure autosave dotfiles never end up in commits.
                     const giPath = path.join(repo, '.gitignore');

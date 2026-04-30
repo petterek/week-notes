@@ -10,6 +10,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (kontekst: skriv .week-notes først ved første lagring)
+- `.week-notes`-markøren skrives ikke lenger eagerly når en kontekst opprettes eller klones — den opprettes automatisk ved første eksplisitte note-lagring (`/api/save`). Dette unngår å bumpe versjonen i markøren før brukeren faktisk har gjort noe i konteksten.
+
 ### 2026-04-30 (settings: legg til kontekst fra git)
 - Dialogen «Ny kontekst» har nå to faner: ✨ Ny (opprett tom) og 📥 Klon fra git (kloner et eksisterende week-notes-repo). Begge går gjennom samme `needsConfirm`-flyt for repos som mangler `.week-notes`-markør.
 
