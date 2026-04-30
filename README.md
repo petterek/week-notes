@@ -10,6 +10,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (`<icon-picker>`)
+- New generic **`<icon-picker>`** component (Shared) — a configurable grid-based emoji / icon picker. Supports a flat `icons` JSON list (strings or `{icon, name}` objects), a sectioned `groups` mode, configurable `columns`/`size`, optional hidden form input via `name`, and a `readonly` flag. Emits `icon-picker:change` with `{value}` on selection. Demo at `/debug/icon-picker`.
+
 ### 2026-04-30 (settings: + Ny kontekst, default meeting length)
 - **Settings page** got a `+ Ny kontekst` button at the bottom of the contexts rail. Opens a small modal (name / icon / description / optional git remote), `POST /api/contexts`, then auto-selects the new context. Replaces the legacy SSR `newCtxForm` that disappeared during the SPA port.
 - **Meeting types** now have a per-type `defaultMinutes` field (number input next to the all-day toggle). When you create a meeting from the calendar (header `+ Nytt`, dblclick or right-click), the end time is computed as `start + type.defaultMinutes`, falling back to the context's `defaultMeetingMinutes` and finally 60. Wired in both `<today-calendar>` and `<week-notes-calendar>`.

@@ -1772,6 +1772,7 @@ document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaK
 <script type="module" src="/components/entity-callout.js"></script>
 <script type="module" src="/components/entity-mention.js"></script>
 <script type="module" src="/components/inline-action.js"></script>
+<script type="module" src="/components/icon-picker.js"></script>
 <script type="module" src="/components/people-page.js"></script>
 <script type="module" src="/components/results-page.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -2863,7 +2864,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
 
     if (pathname === '/debug' || pathname.startsWith('/debug/')) {
         const COMPONENT_GROUPS = [
-            ['Shared',    ['help-modal', 'nav-button', 'nav-meta', 'time-picker', 'week-calendar', 'week-pill']],
+            ['Shared',    ['help-modal', 'icon-picker', 'nav-button', 'nav-meta', 'time-picker', 'week-calendar', 'week-pill']],
             ['Context',   ['ctx-switcher']],
             ['Search',    ['global-search']],
             ['Notes',     ['markdown-preview', 'note-card', 'note-editor']],
@@ -3004,6 +3005,47 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                 attrs: [
                     { name: 'context_service', type: 'text', default: 'MockContextService' },
                 ],
+            },
+            'icon-picker': {
+                desc: `<p><strong>&lt;icon-picker&gt;</strong> is a generic emoji / icon picker. Renders a grid of icon buttons; clicking one selects it. Pure presentation &mdash; no service.</p>
+                    <p><strong>Attributes:</strong></p>
+                    <ul>
+                        <li><code>value</code> &mdash; the selected icon string.</li>
+                        <li><code>icons</code> &mdash; JSON array. Items can be plain strings (<code>"📁"</code>) or objects (<code>{icon, name}</code>). When omitted, a built-in default set is used.</li>
+                        <li><code>groups</code> &mdash; JSON array for sectioned mode: <code>[{name, icons}]</code>. Each group's name renders as a small heading above its grid. Takes precedence over <code>icons</code>.</li>
+                        <li><code>columns</code> &mdash; integer, grid columns (default <code>8</code>).</li>
+                        <li><code>size</code> &mdash; pixel cell size (default <code>36</code>).</li>
+                        <li><code>name</code> &mdash; if set, a hidden <code>&lt;input&gt;</code> with that name is rendered, reflecting <code>value</code> for form submission.</li>
+                        <li><code>readonly</code> &mdash; ignore clicks.</li>
+                    </ul>
+                    <p><strong>Property:</strong> <code>el.value</code> (get/set, reflects to attribute).</p>
+                    <p><strong>Event:</strong> <code>icon-picker:change</code> with <code>{ value }</code> when a cell is clicked.</p>`,
+                rawHtml: `<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start">
+                        <div>
+                            <div style="font-size:0.85em;color:var(--text-muted);margin-bottom:4px">Default icons</div>
+                            <icon-picker id="ip1" value="📁"></icon-picker>
+                        </div>
+                        <div>
+                            <div style="font-size:0.85em;color:var(--text-muted);margin-bottom:4px">Custom set, 6 cols, named</div>
+                            <icon-picker id="ip2" columns="6" icons='[{"icon":"💼","name":"Jobb"},{"icon":"🏠","name":"Hjem"},{"icon":"🎮","name":"Spill"},{"icon":"📚","name":"Bok"},{"icon":"🏃","name":"Trening"},{"icon":"☕","name":"Kaffe"}]'></icon-picker>
+                        </div>
+                        <div>
+                            <div style="font-size:0.85em;color:var(--text-muted);margin-bottom:4px">Grouped</div>
+                            <icon-picker id="ip3" columns="6" groups='[{"name":"Faces","icons":["😀","😎","🤔","😴","🥳","🤩"]},{"name":"Travel","icons":["✈️","🚗","🚄","🚲","🛳️","🛵"]}]'></icon-picker>
+                        </div>
+                    </div>
+                    <pre id="ip-out" style="margin-top:14px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;min-height:32px;white-space:pre-wrap"></pre>
+                    <script>
+                        (function(){
+                            var out = document.getElementById('ip-out');
+                            function log(id, ev){
+                                out.textContent = '[' + new Date().toLocaleTimeString('nb-NO') + '] ' + id + ' → icon-picker:change ' + JSON.stringify(ev.detail) + '\\n' + out.textContent;
+                            }
+                            ['ip1','ip2','ip3'].forEach(function(id){
+                                document.getElementById(id).addEventListener('icon-picker:change', function(e){ log(id, e); });
+                            });
+                        })();
+                    <\/script>`,
             },
             'help-modal': {
                 desc: `<p><strong>&lt;help-modal&gt;</strong> is a singleton lazy-loaded modal that displays the project's <code>help.md</code>. The markdown is fetched and rendered through <code>window.marked</code> on first open and cached for subsequent opens.</p>
@@ -3868,6 +3910,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
     <script type="module" src="/components/entity-callout.js"></script>
 <script type="module" src="/components/entity-mention.js"></script>
 <script type="module" src="/components/inline-action.js"></script>
+<script type="module" src="/components/icon-picker.js"></script>
 <script type="module" src="/components/people-page.js"></script>
 <script type="module" src="/components/results-page.js"></script>
     <style>
