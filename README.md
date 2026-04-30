@@ -10,6 +10,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (debug services page: view code)
+- **Debug:** each service section on `/debug/services` now has a `</> View code` button that fetches and displays the service module's source inline (toggle to hide). Lazily loaded; the source is fetched once per section, then cached.
+
 ### 2026-04-30 (debug services page: complete coverage)
 - **Debug:** `/debug/services` now lists all production services accurately. Added `CompaniesService` and `PlacesService` (both exported alongside `PeopleService` from `domains/people/service.js`) and `NotesService.listAll`. Section IDs/anchors are now keyed on the service name so multi-export modules don't collide.
 

@@ -2714,8 +2714,11 @@ ${SERVICES.map(s => `    <link rel="modulepreload" href="/debug/services/${s.key
         .dbg-head h1 { font-family: Georgia, serif; color: var(--accent); font-size: 1.4em; margin: 0 0 4px; }
         .dbg-head .desc { color: var(--text-muted); font-size: 0.9em; margin-bottom: 14px; }
         .svc { background: var(--surface); border: 1px solid var(--border-faint); border-radius: 8px; padding: 14px 18px; margin-bottom: 22px; }
-        .svc > h2 { margin: 0 0 4px; font-family: Georgia, serif; color: var(--accent); font-size: 1.1em; }
+        .svc > h2 { margin: 0 0 4px; font-family: Georgia, serif; color: var(--accent); font-size: 1.1em; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
         .svc > h2 .glob { font-family: ui-monospace, monospace; font-size: 0.8em; color: var(--text-subtle); margin-left: 8px; }
+        .svc .view-code-btn { font-family: ui-monospace, monospace; cursor: pointer; background: var(--surface-head, transparent); border: 1px solid var(--border-faint); color: var(--text-muted); border-radius: 4px; padding: 2px 8px; }
+        .svc .view-code-btn:hover { color: var(--accent); border-color: var(--accent); }
+        .svc pre.src { background: var(--surface-head, #f5f5f5); border: 1px solid var(--border-faint); border-radius: 6px; padding: 10px 14px; font-family: ui-monospace, monospace; font-size: 0.82em; line-height: 1.45; max-height: 480px; overflow: auto; margin: 6px 0 12px; white-space: pre; }
         .svc > .desc { color: var(--text-muted); font-size: 0.9em; margin-bottom: 10px; }
         .method { border-top: 1px solid var(--border-faint); padding: 10px 0; }
         .method:first-of-type { border-top: none; }
@@ -2758,8 +2761,11 @@ ${SERVICES.map(s => `    <link rel="modulepreload" href="/debug/services/${s.key
             </div>
             ${SERVICES.map(s => `
                 <section class="svc" id="svc-${s.global.toLowerCase()}">
-                    <h2>${s.title} <span class="glob">import { ${s.global} }</span></h2>
+                    <h2>${s.title} <span class="glob">import { ${s.global} }</span>
+                        <button type="button" class="view-code-btn" data-src="/debug/services/${s.key}.js" data-target="src-${s.global.toLowerCase()}" style="margin-left:auto;font-size:0.78em">&lt;/&gt; View code</button>
+                    </h2>
                     <p class="desc">${s.desc} <span style="font-family:ui-monospace,monospace;font-size:0.78em;color:var(--text-subtle);margin-left:6px">· source: <a href="/debug/services/${s.key}.js" style="color:var(--text-subtle)">domains/${s.key}/service.js</a></span></p>
+                    <pre class="src" id="src-${s.global.toLowerCase()}" hidden></pre>
                     ${s.methods.map((m, i) => {
                         const id = `${s.global.toLowerCase()}-${m.name}`;
                         const inputs = m.params.map(p => `
@@ -2861,6 +2867,30 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             if (btn) {
                 const method = btn.closest('.method');
                 if (method) run(method);
+                return;
+            }
+            const codeBtn = e.target.closest('button.view-code-btn');
+            if (codeBtn) {
+                const target = document.getElementById(codeBtn.dataset.target);
+                if (!target) return;
+                if (!target.hidden) {
+                    target.hidden = true;
+                    codeBtn.textContent = '</> View code';
+                    return;
+                }
+                if (target.dataset.loaded === '1') {
+                    target.hidden = false;
+                    codeBtn.textContent = '× Hide code';
+                    return;
+                }
+                target.hidden = false;
+                target.textContent = 'Loading…';
+                codeBtn.disabled = true;
+                fetch(codeBtn.dataset.src)
+                    .then(r => r.ok ? r.text() : Promise.reject(new Error('HTTP ' + r.status)))
+                    .then(src => { target.textContent = src; target.dataset.loaded = '1'; codeBtn.textContent = '× Hide code'; })
+                    .catch(err => { target.textContent = 'Failed to load: ' + err.message; })
+                    .finally(() => { codeBtn.disabled = false; });
             }
         });
 
