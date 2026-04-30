@@ -10,6 +10,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (note editor: revert to historical version)
+- Modalvinduet for en historisk versjon har en knapp `↩️ Tilbakestill til denne` som laster innholdet fra det commit'et inn i editoren. Bekreftelsesdialog forhindrer utilsiktet overskriving av ulagrede endringer. Endringen tar ikke effekt før du eksplisitt lagrer.
+
 ### 2026-04-30 (note editor: git history panel)
 - Notatredigereren har nytt `🕘 Historikk`-panel under fotmetadataen som lister commits som har endret denne filen i kontekstens git-repo.
 - Klikk på et innslag åpner en modal som viser markdown for den versjonen (rendret med strikethrough på lukkede oppgaver).

@@ -269,6 +269,7 @@ class NoteEditor extends WNElement {
                     <div class="ne-history-modal-head">
                         <h3 class="ne-history-modal-title">Versjon</h3>
                         <span class="ne-history-modal-meta meta"></span>
+                        <button type="button" class="ne-history-revert">↩️ Tilbakestill til denne</button>
                         <button type="button" class="ne-history-close">Lukk</button>
                     </div>
                     <markdown-preview class="ne-history-modal-body" placeholder="Laster…"></markdown-preview>
@@ -854,11 +855,25 @@ class NoteEditor extends WNElement {
         const modalMeta = this.shadowRoot.querySelector('.ne-history-modal-meta');
         const modalBody = this.shadowRoot.querySelector('markdown-preview.ne-history-modal-body');
         const closeBtn = this.shadowRoot.querySelector('.ne-history-close');
+        const revertBtn = this.shadowRoot.querySelector('.ne-history-revert');
         if (!wrap || !list || !modal) return;
 
-        const closeModal = () => { modal.hidden = true; };
+        const closeModal = () => { modal.hidden = true; this._historyCurrent = null; };
         if (closeBtn) closeBtn.addEventListener('click', closeModal);
         modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+        if (revertBtn) revertBtn.addEventListener('click', () => {
+            const cur = this._historyCurrent;
+            if (!cur || typeof cur.content !== 'string') return;
+            const ok = confirm(`Tilbakestill innholdet til versjon ${cur.shortHash || (cur.hash || '').slice(0, 7)}?\n\nDine ulagrede endringer i editoren overskrives. Endringen lagres ikke før du trykker "Lagre".`);
+            if (!ok) return;
+            if (this._contentEl) {
+                this._contentEl.value = cur.content;
+                this._contentEl.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+            closeModal();
+            this._setStatus(`Tilbakestilt til ${cur.shortHash || (cur.hash || '').slice(0, 7)} – husk å lagre`);
+        });
 
         const render = (items) => {
             if (!items.length) {
@@ -912,10 +927,14 @@ class NoteEditor extends WNElement {
             modalMeta.textContent = btn.querySelector('.h-date').textContent;
             modalBody.value = 'Laster…';
             modal.hidden = false;
+            this._historyCurrent = { hash, shortHash: hash.slice(0, 7), content: null };
             try {
                 const data = await (this.service.versionAt ? this.service.versionAt(folder, f, hash) : null);
-                modalBody.value = (data && data.content) ? this._previewTransform(data.content) : '(tomt)';
+                const content = (data && typeof data.content === 'string') ? data.content : '';
+                this._historyCurrent = { hash, shortHash: hash.slice(0, 7), content };
+                modalBody.value = content ? this._previewTransform(content) : '(tomt)';
             } catch (err) {
+                this._historyCurrent = null;
                 modalBody.value = `*(Kunne ikke hente versjonen: ${err.message || err})*`;
             }
         });
