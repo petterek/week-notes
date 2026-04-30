@@ -8996,6 +8996,67 @@ activateTab(initialParams.tab || 'people');
         return;
     }
 
+    // API: git history for a single note. Returns a list of commits that
+    // touched the file, newest first.
+    const historyMatch = pathname.match(/^\/api\/notes\/([^/]+)\/(.+)\/history$/);
+    if (historyMatch && req.method === 'GET') {
+        const [, week, fileEnc] = historyMatch;
+        const file = decodeURIComponent(fileEnc);
+        if (!/^\d{4}-W\d{2}$/.test(week) || !/^[^/\\]+\.md$/.test(file)) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Ugyldig uke eller filnavn' }));
+            return;
+        }
+        const repo = dataDir();
+        if (!gitIsRepo(repo)) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify([]));
+            return;
+        }
+        const rel = `${week}/${file}`;
+        try {
+            const out = git(repo, `log --format=%H%x09%cI%x09%an%x09%s -- "${rel.replace(/"/g, '\\"')}"`).trim();
+            const items = out ? out.split('\n').map(line => {
+                const [hash, iso, author, ...rest] = line.split('\t');
+                return { hash, shortHash: hash.slice(0, 7), date: iso, author, subject: rest.join('\t') };
+            }) : [];
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(items));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: e.message }));
+        }
+        return;
+    }
+
+    // API: file content at a specific commit.
+    const showMatch = pathname.match(/^\/api\/notes\/([^/]+)\/(.+)\/at\/([0-9a-f]{4,40})$/);
+    if (showMatch && req.method === 'GET') {
+        const [, week, fileEnc, hash] = showMatch;
+        const file = decodeURIComponent(fileEnc);
+        if (!/^\d{4}-W\d{2}$/.test(week) || !/^[^/\\]+\.md$/.test(file)) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Ugyldig uke eller filnavn' }));
+            return;
+        }
+        const repo = dataDir();
+        if (!gitIsRepo(repo)) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Ingen git-historikk' }));
+            return;
+        }
+        const rel = `${week}/${file}`;
+        try {
+            const content = git(repo, `show ${hash}:"${rel.replace(/"/g, '\\"')}"`);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ hash, path: rel, content }));
+        } catch (e) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Fant ikke denne versjonen' }));
+        }
+        return;
+    }
+
     // API: list weeks that have content (notes / results / completed tasks)
     if (pathname === '/api/weeks' && req.method === 'GET') {
         let dirWeeks = [];

@@ -112,6 +112,44 @@ const STYLES = `
         display: flex; gap: 16px; flex-wrap: wrap;
     }
     .ne-meta-footer span strong { color: var(--text-muted); font-weight: 500; }
+
+    .ne-history-wrap { margin-top: 14px; border-top: 1px solid var(--border-soft); padding-top: 10px; }
+    .ne-history-wrap > summary {
+        cursor: pointer; font-size: 0.85em; color: var(--text-muted);
+        user-select: none; list-style: none; padding: 4px 0;
+    }
+    .ne-history-wrap > summary::-webkit-details-marker { display: none; }
+    .ne-history-wrap > summary::before { content: '▸ '; transition: transform 0.15s; display: inline-block; }
+    .ne-history-wrap[open] > summary::before { content: '▾ '; }
+    .ne-history-list { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; max-height: 260px; overflow: auto; }
+    .ne-history-empty, .ne-history-loading { font-size: 0.85em; color: var(--text-subtle); padding: 4px 0; }
+    .ne-history-row {
+        display: grid; grid-template-columns: 80px 130px 1fr; gap: 10px;
+        padding: 5px 8px; border-radius: 4px; cursor: pointer;
+        font-size: 0.85em; align-items: center;
+        background: transparent; border: none; text-align: left; color: inherit;
+    }
+    .ne-history-row:hover { background: var(--surface-alt); }
+    .ne-history-row .h-hash { font-family: var(--font-mono, monospace); color: var(--accent); }
+    .ne-history-row .h-date { color: var(--text-muted); }
+    .ne-history-row .h-subj { color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .ne-history-modal {
+        position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+        display: flex; align-items: center; justify-content: center;
+        z-index: 5000; padding: 24px;
+    }
+    .ne-history-modal[hidden] { display: none; }
+    .ne-history-modal-inner {
+        background: var(--surface, #fff); color: var(--text-strong);
+        border-radius: 10px; padding: 18px;
+        max-width: 900px; width: 100%; max-height: 90vh; display: flex; flex-direction: column; gap: 10px;
+        box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+    }
+    .ne-history-modal-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .ne-history-modal-head h3 { margin: 0; font-size: 1em; color: var(--accent); }
+    .ne-history-modal-head .meta { font-size: 0.85em; color: var(--text-muted); }
+    .ne-history-modal-body { overflow: auto; flex: 1; min-height: 200px; }
 `;
 
 const NOTE_TYPES = [
@@ -220,6 +258,22 @@ class NoteEditor extends WNElement {
                 ${this._initialCreated ? html`<span><strong>Opprettet:</strong> ${this._fmtDate(this._initialCreated)}</span>` : ''}
                 ${this._initialModified ? html`<span><strong>Endret:</strong> ${this._fmtDate(this._initialModified)}</span>` : ''}
             </div>
+            <details class="ne-history-wrap">
+                <summary>🕘 Historikk</summary>
+                <div class="ne-history-list" data-state="idle">
+                    <div class="ne-history-empty">Lagre notatet for å bygge opp historikk.</div>
+                </div>
+            </details>
+            <div class="ne-history-modal" hidden>
+                <div class="ne-history-modal-inner">
+                    <div class="ne-history-modal-head">
+                        <h3 class="ne-history-modal-title">Versjon</h3>
+                        <span class="ne-history-modal-meta meta"></span>
+                        <button type="button" class="ne-history-close">Lukk</button>
+                    </div>
+                    <markdown-preview class="ne-history-modal-body" placeholder="Laster…"></markdown-preview>
+                </div>
+            </div>
         `;
     }
 
@@ -252,6 +306,7 @@ class NoteEditor extends WNElement {
         this._loadThemeSuggestions();
         this._installHashTagAutocomplete();
         this._installCloseTaskAutocomplete();
+        this._installHistoryPanel();
 
         this._saveBtn.addEventListener('click', () => this.save(false));
         if (saveCloseBtn) saveCloseBtn.addEventListener('click', () => this.save(true));
@@ -788,6 +843,81 @@ class NoteEditor extends WNElement {
             if (!btn) return;
             e.preventDefault();
             accept(btn.dataset.id);
+        });
+    }
+
+    _installHistoryPanel() {
+        const wrap = this.shadowRoot.querySelector('.ne-history-wrap');
+        const list = this.shadowRoot.querySelector('.ne-history-list');
+        const modal = this.shadowRoot.querySelector('.ne-history-modal');
+        const modalTitle = this.shadowRoot.querySelector('.ne-history-modal-title');
+        const modalMeta = this.shadowRoot.querySelector('.ne-history-modal-meta');
+        const modalBody = this.shadowRoot.querySelector('markdown-preview.ne-history-modal-body');
+        const closeBtn = this.shadowRoot.querySelector('.ne-history-close');
+        if (!wrap || !list || !modal) return;
+
+        const closeModal = () => { modal.hidden = true; };
+        if (closeBtn) closeBtn.addEventListener('click', closeModal);
+        modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+        const render = (items) => {
+            if (!items.length) {
+                list.innerHTML = '<div class="ne-history-empty">Ingen committet historikk for denne filen ennå.</div>';
+                return;
+            }
+            list.innerHTML = items.map(c => `
+                <button type="button" class="ne-history-row" data-hash="${escapeHtml(c.hash)}">
+                    <span class="h-hash">${escapeHtml(c.shortHash || c.hash.slice(0, 7))}</span>
+                    <span class="h-date">${escapeHtml(this._fmtDate(c.date))}</span>
+                    <span class="h-subj" title="${escapeHtml(c.subject || '')}">${escapeHtml(c.subject || '')}</span>
+                </button>
+            `).join('');
+        };
+
+        const load = async () => {
+            if (list.dataset.state === 'loading' || list.dataset.state === 'loaded') return;
+            const folder = this._weekSel ? this._weekSel.value.trim() : '';
+            const file = this._fileEl ? this._fileEl.value.trim() : '';
+            if (!folder || !file || !this._editing) return;
+            list.dataset.state = 'loading';
+            list.innerHTML = '<div class="ne-history-loading">Henter historikk…</div>';
+            try {
+                const f = file.endsWith('.md') ? file : file + '.md';
+                const items = await (this.service.history ? this.service.history(folder, f) : Promise.resolve([]));
+                render(Array.isArray(items) ? items : []);
+                list.dataset.state = 'loaded';
+            } catch (e) {
+                list.innerHTML = `<div class="ne-history-empty">Kunne ikke hente historikk: ${escapeHtml(e.message || String(e))}</div>`;
+                list.dataset.state = 'idle';
+            }
+        };
+
+        const invalidate = () => { list.dataset.state = 'idle'; };
+        // Refresh after a successful save so the new commit shows up.
+        this.addEventListener('note-editor:saved', () => {
+            invalidate();
+            if (wrap.open) load();
+        });
+
+        wrap.addEventListener('toggle', () => { if (wrap.open) load(); });
+
+        list.addEventListener('click', async (e) => {
+            const btn = e.target.closest('.ne-history-row');
+            if (!btn) return;
+            const hash = btn.dataset.hash;
+            const folder = this._weekSel ? this._weekSel.value.trim() : '';
+            const file = this._fileEl ? this._fileEl.value.trim() : '';
+            const f = file.endsWith('.md') ? file : file + '.md';
+            modalTitle.textContent = `Versjon ${hash.slice(0, 7)}`;
+            modalMeta.textContent = btn.querySelector('.h-date').textContent;
+            modalBody.value = 'Laster…';
+            modal.hidden = false;
+            try {
+                const data = await (this.service.versionAt ? this.service.versionAt(folder, f, hash) : null);
+                modalBody.value = (data && data.content) ? this._previewTransform(data.content) : '(tomt)';
+            } catch (err) {
+                modalBody.value = `*(Kunne ikke hente versjonen: ${err.message || err})*`;
+            }
         });
     }
 

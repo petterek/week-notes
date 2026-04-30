@@ -29,5 +29,7 @@ export const NotesService = {
     listWeeks:  ()                => req('GET',    '/api/weeks'),
     listAll:    ()                => req('GET',    '/api/notes'),
     listThemes: ()                => req('GET',    '/api/notes/themes'),
+    history:    (week, file)      => req('GET',    noteUrl(week, file, '/history')),
+    versionAt:  (week, file, hash) => req('GET',   noteUrl(week, file, '/at/' + encodeURIComponent(hash))),
     getWeek:    (week)            => req('GET',    `/api/week/${encodeURIComponent(week)}`),
 };

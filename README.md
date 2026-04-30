@@ -10,6 +10,11 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (note editor: git history panel)
+- Notatredigereren har nytt `🕘 Historikk`-panel under fotmetadataen som lister commits som har endret denne filen i kontekstens git-repo.
+- Klikk på et innslag åpner en modal som viser markdown for den versjonen (rendret med strikethrough på lukkede oppgaver).
+- Ny API: `GET /api/notes/:week/:file/history` (commit-liste) og `GET /api/notes/:week/:file/at/:hash` (innhold på et bestemt commit).
+
 ### 2026-04-30 (note editor: keep {{!id}} in source, render as ~~text~~)
 - Når du velger en oppgave i `{{!`-popoveren settes nå `{{!<id>}}` inn i selve teksten (kompakt og stabil mens man redigerer).
 - Forhåndsvisningen viser `{{!<id>}}` som `~~<oppgavetekst>~~` (gjennomstreking).
