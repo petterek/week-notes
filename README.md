@@ -10,6 +10,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (debug services: View code in modal)
+- **Debug:** the `</> View code` button on `/debug/services` now opens the source in a centered modal with title/path, a Copy button, and dismiss via the × button, backdrop click, or Escape. Source is fetched lazily and cached per file.
+
 ### 2026-04-30 (debug services page: view code)
 - **Debug:** each service section on `/debug/services` now has a `</> View code` button that fetches and displays the service module's source inline (toggle to hide). Lazily loaded; the source is fetched once per section, then cached.
 

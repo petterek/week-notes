@@ -2719,6 +2719,17 @@ ${SERVICES.map(s => `    <link rel="modulepreload" href="/debug/services/${s.key
         .svc .view-code-btn { font-family: ui-monospace, monospace; cursor: pointer; background: var(--surface-head, transparent); border: 1px solid var(--border-faint); color: var(--text-muted); border-radius: 4px; padding: 2px 8px; }
         .svc .view-code-btn:hover { color: var(--accent); border-color: var(--accent); }
         .svc pre.src { background: var(--surface-head, #f5f5f5); border: 1px solid var(--border-faint); border-radius: 6px; padding: 10px 14px; font-family: ui-monospace, monospace; font-size: 0.82em; line-height: 1.45; max-height: 480px; overflow: auto; margin: 6px 0 12px; white-space: pre; }
+        .code-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 9999; padding: 32px; }
+        .code-modal.open { display: flex; }
+        .code-modal-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; width: min(960px, 100%); max-height: 100%; display: flex; flex-direction: column; box-shadow: 0 18px 48px rgba(0,0,0,0.35); }
+        .code-modal-head { display: flex; align-items: center; gap: 10px; padding: 12px 18px; border-bottom: 1px solid var(--border-faint); }
+        .code-modal-head h3 { margin: 0; font-family: Georgia, serif; color: var(--accent); font-size: 1.05em; }
+        .code-modal-head .src-path { font-family: ui-monospace, monospace; font-size: 0.78em; color: var(--text-subtle); }
+        .code-modal-head .spacer { flex: 1; }
+        .code-modal-head button { cursor: pointer; background: transparent; border: 1px solid var(--border-faint); color: var(--text-muted); border-radius: 4px; padding: 4px 10px; font-family: ui-monospace, monospace; }
+        .code-modal-head button:hover { color: var(--accent); border-color: var(--accent); }
+        .code-modal-body { flex: 1 1 auto; overflow: auto; padding: 0; }
+        .code-modal-body pre { margin: 0; padding: 14px 18px; font-family: ui-monospace, monospace; font-size: 0.82em; line-height: 1.45; white-space: pre; color: var(--text-strong); background: var(--surface-head, #f5f5f5); }
         .svc > .desc { color: var(--text-muted); font-size: 0.9em; margin-bottom: 10px; }
         .method { border-top: 1px solid var(--border-faint); padding: 10px 0; }
         .method:first-of-type { border-top: none; }
@@ -2762,10 +2773,9 @@ ${SERVICES.map(s => `    <link rel="modulepreload" href="/debug/services/${s.key
             ${SERVICES.map(s => `
                 <section class="svc" id="svc-${s.global.toLowerCase()}">
                     <h2>${s.title} <span class="glob">import { ${s.global} }</span>
-                        <button type="button" class="view-code-btn" data-src="/debug/services/${s.key}.js" data-target="src-${s.global.toLowerCase()}" style="margin-left:auto;font-size:0.78em">&lt;/&gt; View code</button>
+                        <button type="button" class="view-code-btn" data-src="/debug/services/${s.key}.js" data-title="${escapeHtml(s.global)}" style="margin-left:auto;font-size:0.78em">&lt;/&gt; View code</button>
                     </h2>
                     <p class="desc">${s.desc} <span style="font-family:ui-monospace,monospace;font-size:0.78em;color:var(--text-subtle);margin-left:6px">· source: <a href="/debug/services/${s.key}.js" style="color:var(--text-subtle)">domains/${s.key}/service.js</a></span></p>
-                    <pre class="src" id="src-${s.global.toLowerCase()}" hidden></pre>
                     ${s.methods.map((m, i) => {
                         const id = `${s.global.toLowerCase()}-${m.name}`;
                         const inputs = m.params.map(p => `
@@ -2787,6 +2797,18 @@ ${SERVICES.map(s => `    <link rel="modulepreload" href="/debug/services/${s.key
                 </section>
             `).join('')}
         </main>
+    </div>
+    <div class="code-modal" id="codeModal" role="dialog" aria-modal="true" aria-labelledby="codeModalTitle">
+        <div class="code-modal-box">
+            <div class="code-modal-head">
+                <h3 id="codeModalTitle">Source</h3>
+                <span class="src-path" id="codeModalPath"></span>
+                <span class="spacer"></span>
+                <button type="button" id="codeModalCopy">Copy</button>
+                <button type="button" id="codeModalClose" aria-label="Close">×</button>
+            </div>
+            <div class="code-modal-body"><pre id="codeModalPre">Loading…</pre></div>
+        </div>
     </div>
     <script type="module">
         // Import each service as an ES module — no globals on window.
@@ -2862,6 +2884,33 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             }
         }
 
+        const codeCache = new Map();
+        const codeModal = document.getElementById('codeModal');
+        const codeModalTitle = document.getElementById('codeModalTitle');
+        const codeModalPath = document.getElementById('codeModalPath');
+        const codeModalPre = document.getElementById('codeModalPre');
+        function closeCodeModal() { codeModal.classList.remove('open'); }
+        function openCodeModal(title, src) {
+            codeModalTitle.textContent = title;
+            codeModalPath.textContent = src;
+            codeModal.classList.add('open');
+            if (codeCache.has(src)) {
+                codeModalPre.textContent = codeCache.get(src);
+                return;
+            }
+            codeModalPre.textContent = 'Loading…';
+            fetch(src)
+                .then(r => r.ok ? r.text() : Promise.reject(new Error('HTTP ' + r.status)))
+                .then(text => { codeCache.set(src, text); if (codeModal.classList.contains('open')) codeModalPre.textContent = text; })
+                .catch(err => { codeModalPre.textContent = 'Failed to load: ' + err.message; });
+        }
+        document.getElementById('codeModalClose').addEventListener('click', closeCodeModal);
+        codeModal.addEventListener('click', (e) => { if (e.target === codeModal) closeCodeModal(); });
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && codeModal.classList.contains('open')) closeCodeModal(); });
+        document.getElementById('codeModalCopy').addEventListener('click', async () => {
+            try { await navigator.clipboard.writeText(codeModalPre.textContent); } catch (_) {}
+        });
+
         document.addEventListener('click', (e) => {
             const btn = e.target.closest('button[data-run]');
             if (btn) {
@@ -2870,28 +2919,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                 return;
             }
             const codeBtn = e.target.closest('button.view-code-btn');
-            if (codeBtn) {
-                const target = document.getElementById(codeBtn.dataset.target);
-                if (!target) return;
-                if (!target.hidden) {
-                    target.hidden = true;
-                    codeBtn.textContent = '</> View code';
-                    return;
-                }
-                if (target.dataset.loaded === '1') {
-                    target.hidden = false;
-                    codeBtn.textContent = '× Hide code';
-                    return;
-                }
-                target.hidden = false;
-                target.textContent = 'Loading…';
-                codeBtn.disabled = true;
-                fetch(codeBtn.dataset.src)
-                    .then(r => r.ok ? r.text() : Promise.reject(new Error('HTTP ' + r.status)))
-                    .then(src => { target.textContent = src; target.dataset.loaded = '1'; codeBtn.textContent = '× Hide code'; })
-                    .catch(err => { target.textContent = 'Failed to load: ' + err.message; })
-                    .finally(() => { codeBtn.disabled = false; });
-            }
+            if (codeBtn) openCodeModal(codeBtn.dataset.title || 'Source', codeBtn.dataset.src);
         });
 
         document.getElementById('btnRunAll').addEventListener('click', async () => {
