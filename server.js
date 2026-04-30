@@ -5,6 +5,7 @@ const path = require('path');
 const { marked } = require('marked');
 const { execSync } = require('child_process');
 const { Worker } = require('worker_threads');
+const crypto = require('crypto');
 
 const PORT = parseInt(process.env.PORT, 10) || 3001;
 const CONTEXTS_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
@@ -2230,6 +2231,207 @@ function searchViaWorker(q, timeoutMs = 5000) {
         }
     });
 }
+
+// ---- Embedding worker (experimental — vector search) ----
+let embedWorker = null;
+let embedReady = false;
+const pendingEmbed = new Map();
+let embedReqSeq = 0;
+
+function buildEmbedDocs() {
+    // Whole-record vectors for v1 (no chunking). Each doc gets a stable
+    // key + content hash so the worker only re-embeds what changed.
+    const docs = [];
+    const sha = (s) => crypto.createHash('sha1').update(s).digest('hex').slice(0, 16);
+
+    // Notes
+    try {
+        const dRoot = dataDir();
+        for (const e of fs.readdirSync(dRoot, { withFileTypes: true })) {
+            if (!e.isDirectory() || !/^\d{4}-W\d{2}$/.test(e.name)) continue;
+            const wkDir = path.join(dRoot, e.name);
+            for (const f of fs.readdirSync(wkDir)) {
+                if (!f.endsWith('.md')) continue;
+                let text = '';
+                try { text = fs.readFileSync(path.join(wkDir, f), 'utf-8'); } catch { continue; }
+                const title = f.replace(/\.md$/, '');
+                docs.push({
+                    key: 'note:' + e.name + '/' + f,
+                    hash: sha(text),
+                    text: title + '\n\n' + text,
+                    meta: { type: 'note', week: e.name, file: f, title },
+                });
+            }
+        }
+    } catch {}
+
+    try {
+        for (const t of loadTasks()) {
+            const text = [t.text, t.comment, t.notes].filter(Boolean).join('\n');
+            if (!text.trim()) continue;
+            docs.push({
+                key: 'task:' + t.id,
+                hash: sha(text + (t.done ? '|done' : '|open')),
+                text,
+                meta: { type: 'task', id: t.id, title: t.text || '', done: !!t.done, week: t.completedWeek || t.week || '' },
+            });
+        }
+    } catch {}
+
+    try {
+        for (const m of loadMeetings()) {
+            const text = [m.title, m.location, m.notes, (m.attendees || []).join(' ')].filter(Boolean).join('\n');
+            if (!text.trim()) continue;
+            const week = m.date ? dateToIsoWeek(new Date(m.date + 'T00:00:00Z')) : '';
+            docs.push({
+                key: 'meeting:' + m.id,
+                hash: sha(text + '|' + (m.date || '') + '|' + (m.start || '')),
+                text,
+                meta: { type: 'meeting', id: m.id, title: m.title || '', date: m.date || '', start: m.start || '', week },
+            });
+        }
+    } catch {}
+
+    try {
+        for (const p of loadPeople()) {
+            const text = [p.name, p.firstName, p.lastName, p.title, p.email, p.phone, p.notes].filter(Boolean).join('\n');
+            if (!text.trim()) continue;
+            const display = p.firstName ? (p.lastName ? p.firstName + ' ' + p.lastName : p.firstName) : (p.name || p.key);
+            docs.push({
+                key: 'person:' + (p.key || ''),
+                hash: sha(text),
+                text,
+                meta: { type: 'person', key: p.key || '', title: display, subtitle: p.title || p.email || '@' + (p.key || '') },
+            });
+        }
+    } catch {}
+
+    try {
+        for (const r of loadResults()) {
+            if (!r.text) continue;
+            docs.push({
+                key: 'result:' + r.id,
+                hash: sha(String(r.text)),
+                text: String(r.text),
+                meta: { type: 'result', id: r.id, title: r.text.length > 60 ? r.text.slice(0, 60) + '…' : r.text, week: r.week || '' },
+            });
+        }
+    } catch {}
+
+    return docs;
+}
+
+// docKey -> meta (kept so vector results can be hydrated to the same shape
+// /api/search returns).
+const embedMeta = new Map();
+
+function startEmbedWorker() {
+    if (embedWorker) return;
+    try {
+        embedWorker = new Worker(path.join(__dirname, 'embed-worker.js'));
+    } catch (e) {
+        console.error('embed-worker start failed', e.message);
+        embedWorker = null;
+        return;
+    }
+    embedWorker.on('message', (msg) => {
+        if (msg.type === 'ready') {
+            embedReady = true;
+            console.log(`🧠 embed-worker klar (${msg.cached} cachet, ${msg.ms}ms)`);
+            // Kick off initial indexing.
+            reindexEmbeddings();
+        } else if (msg.type === 'indexed') {
+            console.log(`🧠 embed-indeks: ${msg.total} dok (+${msg.changed} embedded i ${msg.ms}ms)`);
+        } else if (msg.type === 'queryResult') {
+            const p = pendingEmbed.get(msg.requestId);
+            if (p) { clearTimeout(p.timer); pendingEmbed.delete(msg.requestId); p.resolve(msg.hits || []); }
+        } else if (msg.type === 'error') {
+            if (msg.requestId != null) {
+                const p = pendingEmbed.get(msg.requestId);
+                if (p) { clearTimeout(p.timer); pendingEmbed.delete(msg.requestId); p.reject(new Error(msg.error)); }
+            } else {
+                console.error('embed-worker:', msg.error);
+            }
+        }
+    });
+    embedWorker.on('error', (e) => console.error('embed-worker error', e));
+    embedWorker.on('exit', (code) => {
+        console.error('embed-worker exited with code', code);
+        embedWorker = null; embedReady = false;
+        for (const [, p] of pendingEmbed) { clearTimeout(p.timer); p.reject(new Error('embed-worker died')); }
+        pendingEmbed.clear();
+    });
+    try { embedWorker.postMessage({ type: 'init', contextDir: dataDir() }); }
+    catch (e) { console.error('embed init post failed', e.message); }
+}
+
+function reindexEmbeddings() {
+    if (!embedWorker || !embedReady) return;
+    const docs = buildEmbedDocs();
+    embedMeta.clear();
+    for (const d of docs) embedMeta.set(d.key, d.meta);
+    try { embedWorker.postMessage({ type: 'index', docs: docs.map(({ meta, ...rest }) => rest) }); }
+    catch (e) { console.error('embed index post failed', e.message); }
+}
+
+function vectorSearchViaWorker(q, timeoutMs = 5000) {
+    return new Promise((resolve, reject) => {
+        if (!embedWorker || !embedReady) return reject(new Error('embed-worker ikke klar'));
+        const requestId = ++embedReqSeq;
+        const timer = setTimeout(() => {
+            if (pendingEmbed.has(requestId)) { pendingEmbed.delete(requestId); reject(new Error('embed-søket utløp')); }
+        }, timeoutMs);
+        pendingEmbed.set(requestId, { resolve, reject, timer });
+        try { embedWorker.postMessage({ type: 'query', q, requestId }); }
+        catch (e) { clearTimeout(timer); pendingEmbed.delete(requestId); reject(e); }
+    });
+}
+
+function vectorHitToSearchResult(hit) {
+    const m = embedMeta.get(hit.key);
+    if (!m) return null;
+    if (m.type === 'note') {
+        return {
+            type: 'note',
+            identifier: m.week + '/' + encodeURIComponent(m.file),
+            title: m.title,
+            subtitle: m.week + '/' + m.file,
+            href: '/' + m.week + '/' + encodeURIComponent(m.file),
+            snippet: '',
+            score: hit.score,
+        };
+    }
+    if (m.type === 'task') {
+        return {
+            type: 'task', identifier: m.id, title: m.title || '(uten tittel)',
+            subtitle: (m.done ? '✓ ' : '☐ ') + (m.week || ''),
+            href: '/tasks', snippet: '', score: hit.score,
+        };
+    }
+    if (m.type === 'meeting') {
+        return {
+            type: 'meeting', identifier: m.id, title: m.title || '(uten tittel)',
+            subtitle: (m.date || '') + (m.start ? ' ' + m.start : ''),
+            href: m.week ? `/calendar/${m.week}#m-${encodeURIComponent(m.id)}` : '/calendar',
+            snippet: '', score: hit.score,
+        };
+    }
+    if (m.type === 'person') {
+        return {
+            type: 'person', identifier: m.key, title: m.title, subtitle: m.subtitle,
+            href: '/people#' + encodeURIComponent(m.key),
+            snippet: '', score: hit.score,
+        };
+    }
+    if (m.type === 'result') {
+        return {
+            type: 'result', identifier: m.id, title: m.title, subtitle: m.week,
+            href: '/results', snippet: '', score: hit.score,
+        };
+    }
+    return null;
+}
+
 
 const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
@@ -7501,7 +7703,23 @@ activateTab(initialParams.tab || 'people');
         return;
     }
 
-    // API: discard autosave temp file (called when user cancels editor)
+    if (pathname === '/api/embed-search' && req.method === 'GET') {
+        const q = (url.searchParams.get('q') || '').trim();
+        if (!q) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('[]'); return; }
+        if (!embedReady) { res.writeHead(503, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'embed-worker ikke klar' })); return; }
+        try {
+            const hits = await vectorSearchViaWorker(q);
+            const results = hits.map(vectorHitToSearchResult).filter(Boolean);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(results));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: e.message }));
+        }
+        return;
+    }
+
+
     if (pathname === '/api/save/autosave' && req.method === 'DELETE') {
         try {
             const body = JSON.parse(await readBody(req) || '{}');
@@ -9445,5 +9663,6 @@ server.listen(PORT, () => {
     checkExternalTools();
     try { ensureAllContextsInitialised(); } catch (e) { console.error('ctx init', e.message); }
     startSearchWorker();
+    startEmbedWorker();
     console.log('Press Ctrl+C to stop');
 });

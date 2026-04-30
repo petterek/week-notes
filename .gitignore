@@ -3,6 +3,8 @@ data/
 .server.pid
 .server.port
 weeks-app.zip
+models/
+test-embed.mjs
 
 # Logs
 logs
