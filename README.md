@@ -10,6 +10,13 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (json-table web component)
+- **New component:** `<json-table>` — a reusable shadow-DOM web component that renders an array of objects (`element.data = […]`) as a sortable HTML table with sticky headers. Supports `columns`, `max-height` and `empty-text` attributes; primitives, booleans, numbers, nulls and objects each get their own cell class. Click a header to sort; click again to flip; a third click clears the sort.
+- **Debug services:** the result panel's table view now uses `<json-table>` instead of inline DOM construction.
+
+### 2026-04-30 (debug services: result close + table view)
+- **Debug:** result panels on `/debug/services` now have a close (×) button and — when the result is an array of objects — a `▦ Table` toggle that flips the panel between pretty-printed JSON and a sticky-header table view. Toggling round-trips back to JSON. Works for any list endpoint (tasks, results, meetings, people, themes, etc.).
+
 ### 2026-04-30 (debug services: full CRUD coverage + shared http helper)
 - **Debug:** `/debug/services` now exposes the full method surface of every service — POST, PUT and DELETE are listed alongside the existing GETs (59 methods across 10 services). Verb badges (GET/POST/PUT/DELETE) are color-coded; destructive methods (DELETE + a few POSTs that mutate live state) are highlighted with a red rail and require a confirm before running. Object-shaped params (e.g. `update(id, patch)`) render as a JSON textarea and are parsed before invocation. **Run all** still runs only parameter-less GETs.
 - **Refactor:** every domain service now imports a shared `apiRequest` helper from `domains/_shared/http.js` (served at `/services/_shared/http.js`) — the per-file `req` duplication is gone.

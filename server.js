@@ -2750,6 +2750,7 @@ const server = http.createServer(async (req, res) => {
     <title>Debug · services</title>
     <link rel="stylesheet" href="/themes/paper.css">
 ${SERVICES.map(s => `    <link rel="modulepreload" href="/debug/services/${s.key}.js">`).filter((v, i, a) => a.indexOf(v) === i).join('\n')}
+    <script type="module" src="/components/json-table.js"></script>
     <style>
         body { font-family: var(--font-family, -apple-system, sans-serif); font-size: var(--font-size, 16px); margin: 0; line-height: 1.55; color: var(--text-strong); background: var(--bg); }
         .dbg-page { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
@@ -2804,7 +2805,13 @@ ${SERVICES.map(s => `    <link rel="modulepreload" href="/debug/services/${s.key
         .method button:disabled { opacity: 0.5; cursor: wait; }
         .out { margin-top: 8px; }
         .out pre { margin: 0; padding: 8px 10px; background: var(--surface-alt); border-radius: 6px; max-height: 320px; overflow: auto; font-family: ui-monospace, monospace; font-size: 0.8em; white-space: pre-wrap; word-break: break-word; }
-        .out .meta { font-size: 0.75em; color: var(--text-subtle); margin-bottom: 4px; }
+        .out .meta { font-size: 0.75em; color: var(--text-subtle); margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+        .out .meta > span { flex: 1; }
+        .out .meta .close-out { background: transparent; border: 1px solid var(--border-faint); color: var(--text-subtle); border-radius: 4px; padding: 0 6px; font-size: 1em; line-height: 1.2; cursor: pointer; font-weight: 600; }
+        .out .meta .close-out:hover { color: var(--accent); border-color: var(--accent); }
+        .out .meta .toggle-view { background: transparent; border: 1px solid var(--border-faint); color: var(--text-subtle); border-radius: 4px; padding: 1px 8px; font-size: 0.95em; line-height: 1.2; cursor: pointer; font-family: ui-monospace, monospace; }
+        .out .meta .toggle-view:hover { color: var(--accent); border-color: var(--accent); }
+        .out json-table { display: block; margin-top: 4px; }
         .out.err pre { background: var(--danger-bg, #fee); color: var(--danger, #900); }
         .toolbar { margin-bottom: 14px; }
         .toolbar button { font-size: 0.85em; padding: 4px 12px; background: var(--surface-alt); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; color: var(--text-strong); }
@@ -2903,12 +2910,12 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             const btn = method.querySelector('button[data-run]');
             if (!svc) {
                 out.hidden = false; out.classList.add('err');
-                out.innerHTML = '<div class="meta">' + method.dataset.svc + ' is not imported.</div><pre></pre>';
+                out.innerHTML = '<div class="meta"><span>' + method.dataset.svc + ' is not imported.</span><button type="button" class="close-out" aria-label="Close result" title="Close">×</button></div><pre></pre>';
                 return;
             }
             if (typeof fn !== 'function') {
                 out.hidden = false; out.classList.add('err');
-                out.innerHTML = '<div class="meta">No such method: ' + method.dataset.method + '</div><pre></pre>';
+                out.innerHTML = '<div class="meta"><span>No such method: ' + method.dataset.method + '</span><button type="button" class="close-out" aria-label="Close result" title="Close">×</button></div><pre></pre>';
                 return;
             }
             const declared = JSON.parse(method.dataset.params || '[]');
@@ -2926,7 +2933,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                 });
             } catch (e) {
                 out.hidden = false; out.classList.add('err');
-                out.innerHTML = '<div class="meta">Invalid JSON in input.</div><pre>' + (e.message || String(e)) + '</pre>';
+                out.innerHTML = '<div class="meta"><span>Invalid JSON in input.</span><button type="button" class="close-out" aria-label="Close result" title="Close">×</button></div><pre>' + (e.message || String(e)) + '</pre>';
                 return;
             }
 
@@ -2938,7 +2945,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                 while (args.length && args[args.length - 1] === undefined) args.pop();
                 if (declared.some((p, i) => !p.optional && args[i] === undefined)) {
                     out.hidden = false; out.classList.add('err');
-                    out.innerHTML = '<div class="meta">Missing required parameter(s).</div><pre></pre>';
+                    out.innerHTML = '<div class="meta"><span>Missing required parameter(s).</span><button type="button" class="close-out" aria-label="Close result" title="Close">×</button></div><pre></pre>';
                     return;
                 }
             }
@@ -2952,24 +2959,49 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             btn.disabled = true; out.classList.remove('err'); out.hidden = false;
             out.innerHTML = '<div class="meta">Running…</div><pre></pre>';
             const t0 = performance.now();
+            const buildMeta = (text, opts) => {
+                const meta = document.createElement('div'); meta.className = 'meta';
+                const span = document.createElement('span'); span.textContent = text;
+                meta.appendChild(span);
+                if (opts && opts.tabular) {
+                    const toggle = document.createElement('button');
+                    toggle.type = 'button'; toggle.className = 'toggle-view';
+                    toggle.dataset.mode = 'json';
+                    toggle.title = 'Toggle table / JSON';
+                    toggle.textContent = '▦ Table';
+                    meta.appendChild(toggle);
+                }
+                const close = document.createElement('button');
+                close.type = 'button'; close.className = 'close-out';
+                close.setAttribute('aria-label', 'Close result'); close.title = 'Close';
+                close.textContent = '×';
+                meta.appendChild(close);
+                return meta;
+            };
+            const isTabular = (v) => Array.isArray(v) && v.length > 0 && v.every(x => x && typeof x === 'object' && !Array.isArray(x));
             try {
                 const result = await fn.apply(svc, args);
                 const dt = (performance.now() - t0).toFixed(0);
                 const text = fmt(result);
                 const size = typeof result === 'string' ? result.length + ' chars' : (Array.isArray(result) ? result.length + ' items' : (result && typeof result === 'object' ? Object.keys(result).length + ' keys' : typeof result));
+                const tabular = isTabular(result);
                 out.innerHTML = '';
-                const meta = document.createElement('div'); meta.className = 'meta';
-                meta.textContent = '✓ ' + dt + 'ms · ' + size;
                 const pre = document.createElement('pre'); pre.textContent = text;
-                out.appendChild(meta); out.appendChild(pre);
+                out.appendChild(buildMeta('✓ ' + dt + 'ms · ' + size, { tabular }));
+                out.appendChild(pre);
+                if (tabular) {
+                    const tbl = document.createElement('json-table');
+                    tbl.hidden = true;
+                    tbl.data = result;
+                    out.appendChild(tbl);
+                }
             } catch (e) {
                 const dt = (performance.now() - t0).toFixed(0);
                 out.classList.add('err');
                 out.innerHTML = '';
-                const meta = document.createElement('div'); meta.className = 'meta';
-                meta.textContent = '✗ ' + dt + 'ms';
                 const pre = document.createElement('pre'); pre.textContent = (e && e.message) || String(e);
-                out.appendChild(meta); out.appendChild(pre);
+                out.appendChild(buildMeta('✗ ' + dt + 'ms'));
+                out.appendChild(pre);
             } finally {
                 btn.disabled = false;
             }
@@ -3003,6 +3035,26 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
         });
 
         document.addEventListener('click', (e) => {
+            const closeBtn = e.target.closest('button.close-out');
+            if (closeBtn) {
+                const out = closeBtn.closest('.out');
+                if (out) { out.hidden = true; out.classList.remove('err'); out.innerHTML = ''; }
+                return;
+            }
+            const toggleBtn = e.target.closest('button.toggle-view');
+            if (toggleBtn) {
+                const out = toggleBtn.closest('.out');
+                if (!out) return;
+                const pre = out.querySelector('pre');
+                const tbl = out.querySelector('json-table');
+                if (!pre || !tbl) return;
+                const showTable = toggleBtn.dataset.mode === 'json';
+                pre.hidden = showTable;
+                tbl.hidden = !showTable;
+                toggleBtn.dataset.mode = showTable ? 'table' : 'json';
+                toggleBtn.textContent = showTable ? '{ } JSON' : '▦ Table';
+                return;
+            }
             const btn = e.target.closest('button[data-run]');
             if (btn) {
                 const method = btn.closest('.method');
