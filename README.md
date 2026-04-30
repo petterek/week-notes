@@ -10,6 +10,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (note editor: space after #tag commits as tag)
+- I notatredigereren: når du skriver mellomrom rett etter `#tagName`, fjernes `#tagName` fra teksten og taggen legges til i tag-listen (om den ikke allerede finnes). Fungerer for alle tagger, ikke bare de i forslaglista.
+
 ### 2026-04-30 (notes: rename themes → tags, with backward compat)
 - **`/api/save`** aksepterer nå `tags` (eller fortsatt `themes`) i body. På lagring skrives det samme arrayet til både `meta.tags` og `meta.themes`.
 - **API-responser** (`GET /api/notes`, `GET /api/notes/:week/:file/{meta,card}`) speiler verdien i begge feltene `tags` og `themes`.

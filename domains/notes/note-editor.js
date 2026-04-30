@@ -583,6 +583,33 @@ class NoteEditor extends WNElement {
             update();
         });
         ta.addEventListener('keydown', (e) => {
+            // Space after '#tagName': commit as tag (independent of popover).
+            if (e.key === ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                const caret = ta.selectionStart;
+                if (caret === ta.selectionEnd) {
+                    const text = ta.value;
+                    let i = caret - 1;
+                    while (i >= 0 && /[\w-]/.test(text[i])) i--;
+                    if (i >= 0 && text[i] === '#' && (i === 0 || /\s/.test(text[i - 1]))) {
+                        const word = text.slice(i + 1, caret);
+                        if (word) {
+                            e.preventDefault();
+                            const before = text.slice(0, i);
+                            const after = text.slice(caret);
+                            ta.value = before + after;
+                            try { ta.setSelectionRange(i, i); } catch (_) {}
+                            if (this._tagsEl) {
+                                const cur = this._tagsEl.tags || [];
+                                if (!cur.includes(word)) this._tagsEl.tags = cur.concat([word]);
+                            }
+                            close();
+                            this._renderPreview();
+                            this._markDirty();
+                            return;
+                        }
+                    }
+                }
+            }
             if (pop.hidden) return;
             const items = pop.querySelectorAll('button[data-add]');
             if (!items.length) return;
