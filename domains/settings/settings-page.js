@@ -402,6 +402,7 @@ class SettingsPage extends WNElement {
                 <button type="button" class="sp-tab-btn" data-tab="tags">🏷️ Tagger</button>
                 <button type="button" class="sp-tab-btn" data-tab="hours">🕓 Arbeidstid</button>
                 <button type="button" class="sp-tab-btn" data-tab="meetings">📅 Møter</button>
+                <button type="button" class="sp-tab-btn" data-tab="git">📦 Git</button>
             </div>
             <div class="sp-tab-panel is-active" data-panel="general">
                 <fieldset>
@@ -493,6 +494,23 @@ class SettingsPage extends WNElement {
                     <button type="button" class="mt-add" data-mt-add>+ Ny type</button>
                 </fieldset>
             </div>
+            <div class="sp-tab-panel" data-panel="git">
+                <fieldset>
+                    <legend>Git</legend>
+                    <p style="font-size:0.85em;color:var(--text-muted);margin:0 0 10px">Hver kontekst lagres som sitt eget git-repo i <code>data/${escapeHtml(this._selected || '')}/</code>. Eksplisitte lagringer blir automatisk committet.</p>
+                    <label style="display:block">Remote
+                        <input type="text" data-f="remote" value="${escapeHtml(s.remote || '')}" placeholder="git@github.com:user/repo.git">
+                    </label>
+                    <div class="git-info" data-git-info style="margin-top:12px;font-size:0.9em;color:var(--text-muted)">Henter git-status…</div>
+                    <div class="git-actions" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+                        <button type="button" data-git-commit>✓ Commit endringer</button>
+                        <button type="button" data-git-push>⬆️ Push</button>
+                        <button type="button" data-git-pull>⬇️ Pull</button>
+                        <button type="button" data-git-refresh>🔄 Oppdater</button>
+                    </div>
+                    <div class="git-status-msg" data-git-msg style="margin-top:8px;font-size:0.85em"></div>
+                </fieldset>
+            </div>
             <div class="actions">
                 <span class="status" data-status></span>
                 <button type="button" class="save">💾 Lagre</button>
@@ -508,6 +526,7 @@ class SettingsPage extends WNElement {
                 tabBtns.forEach(b => b.classList.toggle('is-active', b === btn));
                 tabPanels.forEach(p => p.classList.toggle('is-active', p.getAttribute('data-panel') === target));
                 try { localStorage.setItem('spSettingsTab', target); } catch {}
+                if (target === 'git') this._loadGitInfo(detailEl);
             });
         });
         try {
@@ -685,6 +704,7 @@ class SettingsPage extends WNElement {
             icon: f('icon').trim(),
             name: f('name').trim(),
             description: f('description'),
+            remote: (f('remote') || '').trim(),
             theme: f('theme'),
             availableThemes: Array.isArray(tagsVal) ? tagsVal : String(tagsVal || '').split(',').map(s => s.trim()).filter(Boolean),
             upcomingMeetingsDays: parseInt(f('upcomingMeetingsDays'), 10) || 14,
@@ -817,6 +837,76 @@ class SettingsPage extends WNElement {
             out.push(row);
         });
         return out;
+    }
+
+    async _loadGitInfo(detailEl) {
+        const id = this._selected;
+        const info = detailEl.querySelector('[data-git-info]');
+        const msg = detailEl.querySelector('[data-git-msg]');
+        if (!id || !info) return;
+        info.textContent = 'Henter git-status…';
+        if (msg) { msg.textContent = ''; msg.style.color = ''; }
+        try {
+            const ctxSvc = this.serviceFor('context');
+            const data = await ctxSvc.gitStatus(id);
+            this._renderGitInfo(info, data);
+        } catch (e) {
+            info.textContent = 'Kunne ikke hente git-status: ' + (e.message || e);
+        }
+        // Wire actions (idempotent)
+        const wire = (sel, fn) => {
+            const b = detailEl.querySelector(sel);
+            if (!b || b.dataset.wired === '1') return;
+            b.dataset.wired = '1';
+            b.addEventListener('click', fn);
+        };
+        const action = async (label, fn) => {
+            if (!msg) return;
+            msg.textContent = '⏳ ' + label + '…'; msg.style.color = '';
+            try {
+                const r = await fn();
+                if (r && r.ok === false) throw new Error(r.error || 'Operasjonen feilet');
+                msg.textContent = '✓ ' + label + ' OK'; msg.style.color = 'var(--accent)';
+                this._loadGitInfo(detailEl);
+            } catch (e) {
+                msg.textContent = '❌ ' + (e.message || 'Feilet'); msg.style.color = 'var(--danger)';
+            }
+        };
+        wire('[data-git-commit]', () => {
+            const m = prompt('Commit-melding:', 'Manuell commit');
+            if (!m) return;
+            const ctxSvc = this.serviceFor('context');
+            action('Commit', () => ctxSvc.commit(id, { message: m }));
+        });
+        wire('[data-git-push]', () => {
+            const ctxSvc = this.serviceFor('context');
+            action('Push', () => ctxSvc.push(id));
+        });
+        wire('[data-git-pull]', () => {
+            const ctxSvc = this.serviceFor('context');
+            action('Pull', () => ctxSvc.pull(id));
+        });
+        wire('[data-git-refresh]', () => this._loadGitInfo(detailEl));
+    }
+
+    _renderGitInfo(el, data) {
+        if (!data) { el.textContent = '—'; return; }
+        if (!data.isRepo) { el.innerHTML = '<em>Ikke et git-repo enda. Eksplisitte lagringer vil opprette ett.</em>'; return; }
+        const parts = [];
+        parts.push(`<div><strong>Status:</strong> ${data.dirty ? '<span style="color:var(--danger)">● Endringer som ikke er committet</span>' : '<span style="color:var(--accent)">● Rent (alt committet)</span>'}</div>`);
+        if (data.remote) {
+            parts.push(`<div><strong>Remote:</strong> <code>${escapeHtml(data.remote)}</code></div>`);
+        } else {
+            parts.push('<div><strong>Remote:</strong> <em>Ingen</em></div>');
+        }
+        if (data.last) {
+            const d = data.last.date ? new Date(data.last.date).toLocaleString('nb-NO') : '';
+            parts.push(`<div><strong>Siste commit:</strong> <code>${escapeHtml(data.last.hash || '')}</code> · ${escapeHtml(d)}</div>`);
+            if (data.last.subject) parts.push(`<div style="margin-left:1em;color:var(--text-strong)">"${escapeHtml(data.last.subject)}"</div>`);
+        } else {
+            parts.push('<div><em>Ingen commits ennå.</em></div>');
+        }
+        el.innerHTML = parts.join('');
     }
 
     async _save(ctx, detailEl) {
