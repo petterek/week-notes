@@ -1528,16 +1528,16 @@ function navbarHtml(extraNavLinks, opts) {
     var fixed = opts && opts.fixed ? ' app-navbar-fixed' : '';
     return `<nav id="appNav" class="app-navbar${fixed}">
         <div class="nav-inner">
-            <nav-button href="/" text="Ukenotater" size="4"></nav-button>
+            <nav-button href="/" text="Ukenotater" size="4" data-key="h"></nav-button>
             ${contextSwitcherHtml()}
             <div class="nav-links">
                 <nav-button size="2" href="/editor" data-key="n" title="Nytt notat (Alt+N)" icon="📝" text="Nytt notat"></nav-button>
-                <nav-button size="2" href="/calendar" icon="📅" text="Kalender"></nav-button>
-                <nav-button size="2" href="/tasks" icon="✅" text="Oppgaver"></nav-button>
-                <nav-button size="2" href="/people" icon="👥" text="Personer"></nav-button>
-                <nav-button size="2" href="/results" icon="🎯" text="Resultater"></nav-button>
+                <nav-button size="2" href="/calendar" data-key="k" title="Kalender (Alt+K)" icon="📅" text="Kalender"></nav-button>
+                <nav-button size="2" href="/tasks" data-key="o" title="Oppgaver (Alt+O)" icon="✅" text="Oppgaver"></nav-button>
+                <nav-button size="2" href="/people" data-key="p" title="Personer (Alt+P)" icon="👥" text="Personer"></nav-button>
+                <nav-button size="2" href="/results" data-key="r" title="Resultater (Alt+R)" icon="🎯" text="Resultater"></nav-button>
                 <nav-button size="2" href="/notes" icon="📚" text="Notater"></nav-button>
-                <nav-button size="2" href="/settings" icon="⚙️" text="Innstillinger"></nav-button>
+                <nav-button size="2" href="/settings" data-key="s" title="Innstillinger (Alt+S)" icon="⚙️" text="Innstillinger"></nav-button>
             </div>
             <global-search search_service="week-note-services.search_service"></global-search>
             <nav-meta></nav-meta>
@@ -1562,7 +1562,7 @@ function pageHtml(title, body, extraNavLinks, opts) {
     <link id="themeStylesheet" rel="stylesheet" href="/themes/${theme}.css">
     <link rel="stylesheet" href="/style.css">
 </head>
-<body><header id="appHeader">${nav}</header><main id="content">${body}</main><entity-callout id="appEntityCallout"></entity-callout><help-modal></help-modal><footer id="shortcutsBar" class="shortcuts-bar" aria-label="Hurtigtaster"><span><kbd>Alt</kbd>+<kbd>N</kbd> Nytt notat</span><span><kbd>Ctrl</kbd>+<kbd>S</kbd> Lagre</span><span><kbd>Ctrl</kbd>+<kbd>Enter</kbd> Bekreft i dialog</span><span><kbd>Esc</kbd> Lukk dialog</span><span><kbd>?</kbd> Hjelp</span></footer><script>
+<body><header id="appHeader">${nav}</header><main id="content">${body}</main><entity-callout id="appEntityCallout"></entity-callout><help-modal></help-modal><footer id="shortcutsBar" class="shortcuts-bar" aria-label="Hurtigtaster"><span><kbd>Alt</kbd>+<kbd>H</kbd> Hjem</span><span><kbd>Alt</kbd>+<kbd>O</kbd> Oppgaver</span><span><kbd>Alt</kbd>+<kbd>K</kbd> Kalender</span><span><kbd>Alt</kbd>+<kbd>P</kbd> Personer</span><span><kbd>Alt</kbd>+<kbd>R</kbd> Resultater</span><span><kbd>Alt</kbd>+<kbd>N</kbd> Nytt notat</span><span><kbd>Alt</kbd>+<kbd>S</kbd> Innstillinger</span><span><kbd>Ctrl</kbd>+<kbd>S</kbd> Lagre</span><span><kbd>Esc</kbd> Lukk</span><span><kbd>?</kbd> Hjelp</span></footer><script>
 // ----- Entity callout host: listen for hover-* events bubbling from cards
 // (composed events cross every shadow boundary) and drive the dumb
 // <entity-callout> singleton. Services are loaded lazily on first hover. -----
@@ -1773,7 +1773,13 @@ function pageHtml(title, body, extraNavLinks, opts) {
     }
 })();
 
-document.addEventListener('keydown',function(e){if(!e.altKey||e.ctrlKey||e.metaKey)return;var btn=document.querySelector('.nav-links nav-button[data-key="'+e.key.toLowerCase()+'"]');if(btn){e.preventDefault();var href=btn.getAttribute('href');if(window.spaNavigate&&window.spaNavigate(href))return;window.location.href=href;}});
+document.addEventListener('keydown',function(e){
+    if(!e.altKey||e.ctrlKey||e.metaKey)return;
+    var t=e.target;
+    if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable))return;
+    var btn=document.querySelector('#appNav nav-button[data-key="'+e.key.toLowerCase()+'"]');
+    if(btn){e.preventDefault();var href=btn.getAttribute('href');if(window.spaNavigate&&window.spaNavigate(href))return;window.location.href=href;}
+});
 
 // Global "?" hotkey opens the help modal (skip when typing in inputs).
 document.addEventListener('keydown', function(e){
