@@ -10,6 +10,10 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (note editor: close marker rendered as __bold__)
+- Når du velger en oppgave i `{{!`-popoveren settes det nå inn `__<oppgavetekst>__` (markdown bold) i stedet for `{{!<id>}}`. Markøren forblir i den lagrede markdownen og renderes som fet skrift i previewet.
+- Server-siden lukker en åpen oppgave hvis innholdet inneholder `__<eksakt oppgavetekst>__`. Eldre `{{!<id>}}`-markører fungerer fortsatt og fjernes som før.
+
 ### 2026-04-30 (note editor: close tasks via {{!id}})
 - **Lukk-marker `{{!taskId}}`:** ved eksplisitt lagring lukker serveren oppgaven med matching id (setter `done`, `completedWeek`, `completedAt`) og fjerner markøren fra notatet. Antall lukkede returneres som `closedTasks` i save-responsen.
 - **Autocomplete:** når du skriver `{{!` i notatets tekstfelt vises en popover med åpne oppgaver (filtrert på det du skriver etter `{{!`). Pil opp/ned + Enter velger oppgaven og setter inn `{{!<id>}}` for deg.

@@ -7576,6 +7576,28 @@ activateTab(initialParams.tab || 'people');
                     closedTasks = closeMarks.closedIds.length;
                     finalContent = closeMarks.cleanNote;
                 }
+                // Also close any open task whose text appears as __<task text>__
+                // in the (already-cleaned) note content. The marker stays in
+                // the file so the saved markdown renders as bold visual cue.
+                {
+                    const allTasks = loadTasks();
+                    const openByText = allTasks.filter(t => !t.done && t.text);
+                    if (openByText.length) {
+                        let changed = false;
+                        const nowIso = new Date().toISOString();
+                        for (const t of openByText) {
+                            const marker = `__${t.text}__`;
+                            if (finalContent.includes(marker)) {
+                                t.done = true;
+                                t.completedWeek = noteWeek;
+                                t.completedAt = nowIso;
+                                changed = true;
+                                closedTasks++;
+                            }
+                        }
+                        if (changed) saveTasks(allTasks);
+                    }
+                }
                 const ext = extractResults(finalContent);
                 if (ext.results.length > 0) {
                     const noteMentions = extractMentions(content);

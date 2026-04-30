@@ -714,11 +714,14 @@ class NoteEditor extends WNElement {
 
         const accept = (taskId) => {
             if (matchStart < 0) return;
-            // Replace '{{!filter' (and any trailing '}}' if user already typed it) with '{{!id}} '.
+            const task = (openTasks || []).find(t => t.id === taskId);
+            const text = (task && task.text) ? task.text : taskId;
+            // Replace '{{!filter' (and trailing '}}' if user typed it) with the
+            // bold marker '__<task text>__'. The server matches this on save and
+            // closes the task; the marker remains as a bold visual cue.
             let endIdx = matchEnd;
-            // If the user already typed '}}' right after the caret, swallow it.
             if (ta.value.slice(endIdx, endIdx + 2) === '}}') endIdx += 2;
-            const insert = `{{!${taskId}}} `;
+            const insert = `__${text}__`;
             const before = ta.value.slice(0, matchStart);
             const after = ta.value.slice(endIdx);
             ta.value = before + insert + after;
