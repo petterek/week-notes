@@ -10,6 +10,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (notes page: use note-card)
+- **Notater-siden (`/notes`)** bruker nå `<note-card>`-komponenten for hver treff i listen, så type-ikon, themes/tagger, og handlinger (👁️ vis, ✏️ rediger, 🗑️ slett) er konsistent med resten av appen. Uke-etiketten vises til venstre for hvert kort.
+
 ### 2026-04-30 (notes filter: chips with counts)
 - **Notater-siden (`/notes`):** filter-tagger vises igjen som klikkbare chips for alle brukte tagger, men hver chip viser nå `#tag (n)` der `n` er antall notater med den taggen.
 

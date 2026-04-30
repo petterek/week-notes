@@ -92,22 +92,11 @@ const STYLES = `
     .np-clear:hover { color: var(--accent); border-color: var(--accent); }
 
     .np-list { display: flex; flex-direction: column; gap: 6px; }
-    .np-row {
-        display: grid;
-        grid-template-columns: 28px 110px 1fr auto;
-        align-items: center; gap: 12px;
-        padding: 8px 12px; background: var(--surface);
-        border: 1px solid var(--border-faint); border-radius: 6px;
-        text-decoration: none; color: var(--text);
-        cursor: pointer;
+    .np-note { display: grid; grid-template-columns: 110px 1fr; gap: 12px; align-items: start; }
+    .np-note .np-week {
+        color: var(--text-muted-warm); font-family: ui-monospace, monospace;
+        font-size: 0.85em; padding-top: 18px;
     }
-    .np-row:hover { border-color: var(--accent); background: var(--surface-alt); }
-    .np-row .icon { font-size: 1.2em; }
-    .np-row .week { color: var(--text-muted-warm); font-family: ui-monospace, monospace; font-size: 0.85em; }
-    .np-row .name { font-weight: 500; }
-    .np-row .name .pin { margin-right: 6px; }
-    .np-row .tags { color: var(--text-muted); font-size: 0.85em; }
-    .np-row .tags .t { color: var(--accent); margin-left: 6px; }
 
     .np-empty, .np-loading, .np-error {
         padding: 24px; text-align: center; color: var(--text-muted);
@@ -162,6 +151,9 @@ class NotesPage extends WNElement {
         root.addEventListener('input', (e) => this._onInput(e));
         root.addEventListener('change', (e) => this._onInput(e));
         root.addEventListener('click', (e) => this._onClick(e));
+        root.addEventListener('view', (e) => this._onCardEvent(e));
+        root.addEventListener('edit', (e) => this._onCardEvent(e));
+        root.addEventListener('delete', (e) => this._onCardEvent(e));
     }
 
     _onInput(e) {
@@ -191,12 +183,29 @@ class NotesPage extends WNElement {
             this.requestRender();
             return;
         }
-        const row = e.composedPath().find(n => n.classList && n.classList.contains('np-row'));
-        if (row && row.dataset.week && row.dataset.file) {
+    }
+
+    _onCardEvent(e) {
+        const fp = e.detail && e.detail.filePath;
+        if (!fp) return;
+        if (e.type === 'view' || e.type === 'edit') {
             e.preventDefault();
-            const url = '/editor/' + encodeURIComponent(row.dataset.week) + '/' + encodeURIComponent(row.dataset.file);
+            const url = '/editor/' + fp;
             if (window.spaNavigate && window.spaNavigate(url)) return;
             window.location.href = url;
+            return;
+        }
+        if (e.type === 'delete') {
+            e.preventDefault();
+            const [week, fileEnc] = fp.split('/');
+            const file = decodeURIComponent(fileEnc);
+            if (!confirm(`Slette ${file} (${week})?`)) return;
+            const svc = this.serviceFor && this.serviceFor('notes') || this.service;
+            const p = svc && svc.remove ? svc.remove(week, file) : Promise.reject(new Error('no service'));
+            Promise.resolve(p).then(() => {
+                this._all = (this._all || []).filter(n => !(n.week === week && n.file === file));
+                this._renderResults();
+            }).catch(err => alert('Kunne ikke slette: ' + (err && err.message || err)));
         }
     }
 
@@ -305,17 +314,22 @@ class NotesPage extends WNElement {
             list.innerHTML = '<div class="np-empty">Ingen notater matcher filtrene.</div>';
             return;
         }
-        list.innerHTML = filtered.map(n => {
-            const tm = typeMeta(n.type);
-            const pin = n.pinned ? '<span class="pin">📌</span>' : '';
-            const tags = (n.themes || []).map(t => `<span class="t">#${escapeHtml(t)}</span>`).join('');
-            return `<a class="np-row" href="/editor/${encodeURIComponent(n.week)}/${encodeURIComponent(n.file)}" data-week="${escapeHtml(n.week)}" data-file="${escapeHtml(n.file)}">
-                <span class="icon" title="${escapeHtml(tm.label)}">${tm.icon}</span>
-                <span class="week">${escapeHtml(n.week)}</span>
-                <span class="name">${pin}${escapeHtml(n.name)}</span>
-                <span class="tags">${tags}</span>
-            </a>`;
-        }).join('');
+        list.innerHTML = '';
+        for (const n of filtered) {
+            const wrap = document.createElement('div');
+            wrap.className = 'np-note';
+            const wk = document.createElement('span');
+            wk.className = 'np-week';
+            wk.textContent = n.week;
+            const card = document.createElement('note-card');
+            card.setData({
+                week: n.week, file: n.file, name: n.name,
+                type: n.type, pinned: n.pinned, themes: n.themes || [],
+            });
+            wrap.appendChild(wk);
+            wrap.appendChild(card);
+            list.appendChild(wrap);
+        }
     }
 }
 
