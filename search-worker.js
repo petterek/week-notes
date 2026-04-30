@@ -42,7 +42,7 @@ function readJson(p) {
 }
 
 function isWeekDir(name) {
-    return /^\d{4}-\d{2}$/.test(name);
+    return /^\d{4}-W\d{2}$/.test(name);
 }
 
 function dateToIsoWeek(d) {
@@ -51,7 +51,7 @@ function dateToIsoWeek(d) {
     date.setUTCDate(date.getUTCDate() + 4 - dayNum);
     const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
     const weekNum = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
-    return date.getUTCFullYear() + '-' + String(weekNum).padStart(2, '0');
+    return date.getUTCFullYear() + '-W' + String(weekNum).padStart(2, '0');
 }
 
 function pushDoc(doc) {

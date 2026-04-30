@@ -10,6 +10,9 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (search: fix YYYY-WNN week dirs)
+- `search-worker.js` brukte fortsatt det gamle `YYYY-NN`-formatet for ukemapper, og indekserte derfor ingen notater etter at konteksten var migrert til `YYYY-WNN`. Både `isWeekDir`-regexen og `dateToIsoWeek`-helperen oppdatert.
+
 ### 2026-04-30 (workflow: develop branch)
 - Daglig arbeid skjer nå på `develop`-grenen. `main` flyttes kun framover ved release, og hver release-commit på `main` får tag `vN`. Workflow er dokumentert i `AGENTS.md` under "Git workflow".
 
