@@ -10,6 +10,11 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (settings: Tema tab + tab cleanup)
+- **Settings:** added a `🎨 Tema` tab and moved the theme select out of Generelt into it.
+- **Settings:** moved **Kommende møter (dager)** from Generelt to the `📅 Møter` tab next to Standard møtelengde.
+- Tab order is now: Generelt, Tema, Tagger, Arbeidstid, Møter.
+
 ### 2026-04-30 (settings: Møter tab)
 - **Settings:** added a `📅 Møter` tab. Moved **Møtetyper** out of the Arbeidstid tab into Møter, and added a per-context **Standard møtelengde (min)** field there (saved as `defaultMeetingMinutes`). Visible-hours and arbeidstid stay where they are.
 

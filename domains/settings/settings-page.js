@@ -371,6 +371,7 @@ class SettingsPage extends WNElement {
             </div>
             <div class="sp-tabs" role="tablist">
                 <button type="button" class="sp-tab-btn is-active" data-tab="general">📝 Generelt</button>
+                <button type="button" class="sp-tab-btn" data-tab="theme">🎨 Tema</button>
                 <button type="button" class="sp-tab-btn" data-tab="tags">🏷️ Tagger</button>
                 <button type="button" class="sp-tab-btn" data-tab="hours">🕓 Arbeidstid</button>
                 <button type="button" class="sp-tab-btn" data-tab="meetings">📅 Møter</button>
@@ -385,18 +386,19 @@ class SettingsPage extends WNElement {
                         <label style="flex:1; min-width:200px">Navn
                             <input type="text" data-f="name" value="${escapeHtml(s.name || '')}">
                         </label>
-                        <label style="min-width:160px">Tema
-                            <select data-f="theme">${themeOpts}</select>
-                        </label>
                     </div>
                     <label style="display:block">Beskrivelse
                         <textarea data-f="description">${escapeHtml(s.description || '')}</textarea>
                     </label>
-                    <div class="row" style="margin-top:10px">
-                        <label>Kommende møter (dager)
-                            <input type="number" min="1" max="365" data-f="upcomingMeetingsDays" value="${escapeHtml(s.upcomingMeetingsDays || 14)}" style="width:90px">
-                        </label>
-                    </div>
+                </fieldset>
+            </div>
+            <div class="sp-tab-panel" data-panel="theme">
+                <fieldset>
+                    <legend>Tema</legend>
+                    <p style="font-size:0.85em;color:var(--text-muted);margin:0 0 10px">Visuelt tema for denne konteksten.</p>
+                    <label style="display:block; max-width:280px">Aktivt tema
+                        <select data-f="theme">${themeOpts}</select>
+                    </label>
                 </fieldset>
             </div>
             <div class="sp-tab-panel" data-panel="tags">
@@ -437,6 +439,9 @@ class SettingsPage extends WNElement {
                     <div class="row">
                         <label>Standard møtelengde (min)
                             <input type="number" min="5" max="600" step="5" data-f="defaultMeetingMinutes" value="${escapeHtml(s.defaultMeetingMinutes || 60)}" style="width:90px">
+                        </label>
+                        <label>Kommende møter (dager)
+                            <input type="number" min="1" max="365" data-f="upcomingMeetingsDays" value="${escapeHtml(s.upcomingMeetingsDays || 14)}" style="width:90px">
                         </label>
                     </div>
                 </fieldset>
