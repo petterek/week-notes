@@ -13,6 +13,9 @@
  *   search:open, search:close
  */
 import { WNElement, html, escapeHtml } from './_shared.js';
+import './note-card.js';
+
+function decodeFile(enc) { try { return decodeURIComponent(enc); } catch { return enc; } }
 
 function highlight(escaped, q) {
     if (!q) return escaped;
@@ -128,20 +131,44 @@ class GlobalSearch extends WNElement {
                 if (!groups[t]) return;
                 const meta = TYPE_META[t];
                 markup += `<h3 class="sr-group">${meta.icon} ${meta.label} <span class="sr-count">${groups[t].length}</span></h3>`;
-                markup += groups[t].map(r => {
-                    const snippet = r.snippet ? highlight(escapeHtml(r.snippet), q) : '';
-                    const ident = r.identifier == null ? '' : String(r.identifier);
-                    return `<a href="${r.href}" class="search-result"`
-                        + ` data-type="${escapeHtml(r.type)}"`
-                        + ` data-identifier="${escapeHtml(ident)}"`
-                        + ` style="display:block;text-decoration:none">`
-                        + `<div class="sr-title">${highlight(escapeHtml(r.title || ''), q)}</div>`
-                        + (r.subtitle ? `<div class="sr-path">${highlight(escapeHtml(r.subtitle), q)}</div>` : '')
-                        + (snippet ? `<div class="sr-snippet">${snippet}</div>` : '')
-                        + '</a>';
-                }).join('');
+                if (t === 'note') {
+                    markup += groups[t].map((r, i) => {
+                        const ident = r.identifier == null ? '' : String(r.identifier);
+                        return `<note-card class="search-result" data-type="note" data-identifier="${escapeHtml(ident)}" data-idx="${i}"></note-card>`;
+                    }).join('');
+                } else {
+                    markup += groups[t].map(r => {
+                        const snippet = r.snippet ? highlight(escapeHtml(r.snippet), q) : '';
+                        const ident = r.identifier == null ? '' : String(r.identifier);
+                        return `<a href="${r.href}" class="search-result"`
+                            + ` data-type="${escapeHtml(r.type)}"`
+                            + ` data-identifier="${escapeHtml(ident)}"`
+                            + ` style="display:block;text-decoration:none">`
+                            + `<div class="sr-title">${highlight(escapeHtml(r.title || ''), q)}</div>`
+                            + (r.subtitle ? `<div class="sr-path">${highlight(escapeHtml(r.subtitle), q)}</div>` : '')
+                            + (snippet ? `<div class="sr-snippet">${snippet}</div>` : '')
+                            + '</a>';
+                    }).join('');
+                }
             });
             resultsEl.innerHTML = markup;
+
+            // Hydrate note-card elements with data after innerHTML replace.
+            if (groups.note) {
+                const cards = resultsEl.querySelectorAll('note-card[data-type="note"]');
+                cards.forEach((card, i) => {
+                    const r = groups.note[i];
+                    if (!r) return;
+                    const ident = String(r.identifier || '');
+                    const slash = ident.indexOf('/');
+                    if (slash < 0) return;
+                    const week = ident.slice(0, slash);
+                    const file = decodeFile(ident.slice(slash + 1));
+                    const name = r.title || file.replace(/\.md$/, '');
+                    const snippet = r.snippet ? highlight(escapeHtml(r.snippet), q) : '';
+                    card.setData({ week, file, name, type: 'note', snippet });
+                });
+            }
         };
 
         const doSearch = (q) => {
@@ -226,12 +253,40 @@ class GlobalSearch extends WNElement {
             fireSelected(a, e);
         });
 
+        // <note-card> events (from note results). 'view' → element-selected.
+        // 'edit' has a real <a href="/editor/..."> — let it navigate, but close modal.
+        // 'delete' → suppress in search context.
+        resultsEl.addEventListener('view', (e) => {
+            const card = e.target.closest('note-card.search-result');
+            if (!card) return;
+            const fp = (e.detail && e.detail.filePath) || card.dataset.identifier || '';
+            e.preventDefault();
+            this.dispatchEvent(new CustomEvent('element-selected', {
+                bubbles: true, cancelable: true,
+                detail: { type: 'note', identifier: fp },
+            }));
+            close();
+        });
+        resultsEl.addEventListener('edit', () => { close(); });
+        resultsEl.addEventListener('delete', (e) => { e.preventDefault(); });
+
         input.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
-                const first = resultsEl.querySelector('a.search-result');
+                const firstNote = resultsEl.querySelector('note-card.search-result');
+                const firstLink = resultsEl.querySelector('a.search-result');
+                const first = firstNote || firstLink;
                 if (first) {
                     e.preventDefault();
-                    fireSelected(first, null);
+                    if (first.tagName === 'NOTE-CARD') {
+                        const fp = first.dataset.identifier || '';
+                        this.dispatchEvent(new CustomEvent('element-selected', {
+                            bubbles: true, cancelable: true,
+                            detail: { type: 'note', identifier: fp },
+                        }));
+                        close();
+                    } else {
+                        fireSelected(first, null);
+                    }
                 }
             } else if (e.key === 'Escape') {
                 e.preventDefault(); close();

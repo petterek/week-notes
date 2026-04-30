@@ -41,6 +41,23 @@ function readJson(p) {
     try { return JSON.parse(fs.readFileSync(p, 'utf-8')); } catch { return null; }
 }
 
+// Pull "relations" out of a markdown note: @mentions (people/companies),
+// {{task}} references, [[result]] references. Returns a flat array of
+// strings. Used to enrich the searchable blob for a note so e.g. searching
+// for a person's name surfaces the notes that mention them.
+function extractRelations(text) {
+    const out = [];
+    if (!text) return out;
+    const mentionRe = /(?:^|[\s\n(\[>])@([a-zA-ZæøåÆØÅ][a-zA-ZæøåÆØÅ0-9_-]*)/g;
+    let m;
+    while ((m = mentionRe.exec(text)) !== null) out.push('@' + m[1]);
+    const taskRe = /\{\{([^{}]+)\}\}/g;
+    while ((m = taskRe.exec(text)) !== null) out.push(m[1].trim());
+    const resultRe = /\[\[([^\[\]]+)\]\]/g;
+    while ((m = resultRe.exec(text)) !== null) out.push(m[1].trim());
+    return out;
+}
+
 function isWeekDir(name) {
     return /^\d{4}-W\d{2}$/.test(name);
 }
@@ -65,6 +82,8 @@ function buildIndex(contextDir) {
     invertedIndex = new Map();
     currentContextDir = contextDir;
 
+    const notesMeta = readJson(path.join(contextDir, 'notes-meta.json')) || {};
+
     // ---- Notes (week .md files) ----
     let entries;
     try { entries = fs.readdirSync(contextDir, { withFileTypes: true }); } catch { entries = []; }
@@ -78,16 +97,22 @@ function buildIndex(contextDir) {
             let content = '';
             try { content = fs.readFileSync(path.join(contextDir, week, f), 'utf-8'); } catch { continue; }
             const name = f.replace(/\.md$/, '');
+            const meta = notesMeta[week + '/' + f] || {};
+            const tags = Array.isArray(meta.tags) ? meta.tags
+                : (Array.isArray(meta.themes) ? meta.themes : []);
+            const relations = extractRelations(content);
+            const relBlob = [...tags.map(t => '#' + t), ...relations].join(' ');
             const idx = pushDoc({
                 type: 'note',
                 identifier: week + '/' + encodeURIComponent(f),
                 title: name,
                 subtitle: week + '/' + f,
                 href: '/' + week + '/' + encodeURIComponent(f),
-                searchText: f + '\n' + content,
+                searchText: f + '\n' + relBlob + '\n' + content,
                 body: content
             });
             addToIndex(idx, f);
+            addToIndex(idx, relBlob);
             addToIndex(idx, content);
         }
     }

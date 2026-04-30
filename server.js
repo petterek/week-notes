@@ -2238,6 +2238,22 @@ let embedReady = false;
 const pendingEmbed = new Map();
 let embedReqSeq = 0;
 
+// Pull "relations" out of a markdown note: @mentions, {{tasks}}, [[results]].
+// Used to enrich the searchable blob so a note that mentions @anna surfaces
+// when searching for "anna", and tasks/results referenced inline ride along.
+function extractNoteRelations(text) {
+    const out = [];
+    if (!text) return out;
+    const mentionRe = /(?:^|[\s\n(\[>])@([a-zA-ZæøåÆØÅ][a-zA-ZæøåÆØÅ0-9_-]*)/g;
+    let m;
+    while ((m = mentionRe.exec(text)) !== null) out.push('@' + m[1]);
+    const taskRe = /\{\{([^{}]+)\}\}/g;
+    while ((m = taskRe.exec(text)) !== null) out.push(m[1].trim());
+    const resultRe = /\[\[([^\[\]]+)\]\]/g;
+    while ((m = resultRe.exec(text)) !== null) out.push(m[1].trim());
+    return out;
+}
+
 function buildEmbedDocs() {
     // Whole-record vectors for v1 (no chunking). Each doc gets a stable
     // key + content hash so the worker only re-embeds what changed.
@@ -2247,6 +2263,7 @@ function buildEmbedDocs() {
     // Notes
     try {
         const dRoot = dataDir();
+        const notesMeta = (function(){ try { return JSON.parse(fs.readFileSync(notesMetaFile(), 'utf-8')); } catch { return {}; } })();
         for (const e of fs.readdirSync(dRoot, { withFileTypes: true })) {
             if (!e.isDirectory() || !/^\d{4}-W\d{2}$/.test(e.name)) continue;
             const wkDir = path.join(dRoot, e.name);
@@ -2255,10 +2272,16 @@ function buildEmbedDocs() {
                 let text = '';
                 try { text = fs.readFileSync(path.join(wkDir, f), 'utf-8'); } catch { continue; }
                 const title = f.replace(/\.md$/, '');
+                const m = notesMeta[e.name + '/' + f] || {};
+                const tags = Array.isArray(m.tags) ? m.tags
+                    : (Array.isArray(m.themes) ? m.themes : []);
+                const relations = extractNoteRelations(text);
+                const relBlob = [...tags.map(t => '#' + t), ...relations].join(' ');
+                const fullText = title + '\n\n' + (relBlob ? relBlob + '\n\n' : '') + text;
                 docs.push({
                     key: 'note:' + e.name + '/' + f,
-                    hash: sha(text),
-                    text: title + '\n\n' + text,
+                    hash: sha(fullText),
+                    text: fullText,
                     meta: { type: 'note', week: e.name, file: f, title },
                 });
             }
