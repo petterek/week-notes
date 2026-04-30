@@ -26,10 +26,9 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const MODEL_ID = 'Xenova/multilingual-e5-small';
-const DIM = 384;
-
 let extractor = null;
+let modelId = null;
+let dim = 0;
 let contextDir = null;
 let cachePath = null;
 // docKey -> { hash, vector: Float32Array }
@@ -41,10 +40,18 @@ function loadCache() {
     if (!cachePath || !fs.existsSync(cachePath)) return 0;
     try {
         const raw = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
-        if (!raw || raw.dim !== DIM || !raw.entries) return 0;
+        if (!raw || !raw.entries) return 0;
+        // Wrong model or wrong dim → cache is invalid for this run.
+        if (raw.model && modelId && raw.model !== modelId) return 0;
+        if (dim && raw.dim && raw.dim !== dim) return 0;
+        // Adopt dim from cache if not yet known (we'll verify against
+        // the first inference output).
+        if (!dim && raw.dim) dim = raw.dim;
         let n = 0;
-        for (const [k, v] of Object.entries(raw.entries)) {
-            if (!v || !Array.isArray(v.vector) || v.vector.length !== DIM) continue;
+        for (const k of Object.keys(raw.entries)) {
+            const v = raw.entries[k];
+            if (!v || !Array.isArray(v.vector)) continue;
+            if (dim && v.vector.length !== dim) continue;
             vectors.set(k, { hash: v.hash, vector: Float32Array.from(v.vector) });
             n++;
         }
@@ -60,32 +67,42 @@ function saveCacheDebounced() {
 
 function saveCache() {
     if (!cachePath) return;
-    const dir = path.dirname(cachePath);
-    try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+    const dirP = path.dirname(cachePath);
+    try { fs.mkdirSync(dirP, { recursive: true }); } catch {}
     const entries = {};
     for (const [k, { hash, vector }] of vectors) {
         entries[k] = { hash, vector: Array.from(vector) };
     }
     const tmp = cachePath + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify({ dim: DIM, model: MODEL_ID, entries }));
+    fs.writeFileSync(tmp, JSON.stringify({ dim, model: modelId, entries }));
     fs.renameSync(tmp, cachePath);
 }
 
 async function ensureModel() {
     if (extractor) return;
     const { pipeline, env } = await import('@huggingface/transformers');
-    env.allowRemoteModels = false;
+    // Allow downloads on first run; subsequent runs read from local cache.
+    env.allowRemoteModels = true;
     env.localModelPath = path.join(__dirname, 'models');
-    extractor = await pipeline('feature-extraction', MODEL_ID, { dtype: 'q8' });
+    env.cacheDir = path.join(__dirname, 'models');
+    extractor = await pipeline('feature-extraction', modelId, {
+        dtype: 'q8',
+        progress_callback: (p) => {
+            try { parentPort.postMessage({ type: 'modelProgress', model: modelId, ...p }); } catch {}
+        },
+    });
 }
 
 async function embedBatch(prefix, texts) {
+    // e5-family expects "passage: <text>" / "query: <text>". Other models
+    // (MiniLM, bge) ignore the prefix as plain text — slight noise, no
+    // structural problem.
     const inputs = texts.map(t => prefix + ': ' + t);
     const out = await extractor(inputs, { pooling: 'mean', normalize: true });
-    // out.data is a flat Float32Array of length n*DIM
+    if (!dim) dim = Math.floor(out.data.length / texts.length);
     const result = [];
     for (let i = 0; i < texts.length; i++) {
-        result.push(out.data.slice(i * DIM, (i + 1) * DIM));
+        result.push(out.data.slice(i * dim, (i + 1) * dim));
     }
     return result;
 }
@@ -93,7 +110,8 @@ async function embedBatch(prefix, texts) {
 function cosine(a, b) {
     // Both vectors are L2-normalized so dot product = cosine similarity.
     let s = 0;
-    for (let i = 0; i < DIM; i++) s += a[i] * b[i];
+    const n = a.length;
+    for (let i = 0; i < n; i++) s += a[i] * b[i];
     return s;
 }
 
@@ -142,10 +160,11 @@ parentPort.on('message', async (msg) => {
         if (msg.type === 'init') {
             const t0 = Date.now();
             contextDir = msg.contextDir;
+            modelId = msg.model || 'Xenova/multilingual-e5-small';
             cachePath = path.join(contextDir, '.cache', 'embeddings.json');
             const cached = loadCache();
             await ensureModel();
-            parentPort.postMessage({ type: 'ready', cached, docCount: vectors.size, ms: Date.now() - t0 });
+            parentPort.postMessage({ type: 'ready', model: modelId, cached, docCount: vectors.size, ms: Date.now() - t0 });
             return;
         }
         if (msg.type === 'index') {

@@ -10,6 +10,147 @@ const crypto = require('crypto');
 const PORT = parseInt(process.env.PORT, 10) || 3001;
 const CONTEXTS_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const ACTIVE_FILE = path.join(CONTEXTS_DIR, '.active');
+const APP_SETTINGS_FILE = path.join(CONTEXTS_DIR, 'app-settings.json');
+
+// Embedding models offered to the user. All are Xenova feature-extraction
+// pipelines available via @huggingface/transformers. dimension is informational
+// — the worker derives the actual dim from the first inference.
+const EMBED_MODELS = [
+    {
+        id: 'Xenova/multilingual-e5-small',
+        label: 'multilingual-e5-small',
+        dim: 384,
+        sizeMb: 130,
+        languages: 'NO/EN/multi',
+        description: 'Standard. Liten flerspråklig modell, fungerer godt på norsk og engelsk.',
+        recommended: true,
+    },
+    {
+        id: 'Xenova/multilingual-e5-base',
+        label: 'multilingual-e5-base',
+        dim: 768,
+        sizeMb: 280,
+        languages: 'NO/EN/multi',
+        description: 'Større flerspråklig modell. Bedre kvalitet, treigere første gang.',
+    },
+    {
+        id: 'Xenova/paraphrase-multilingual-MiniLM-L12-v2',
+        label: 'paraphrase-multilingual-MiniLM-L12-v2',
+        dim: 384,
+        sizeMb: 120,
+        languages: 'multi',
+        description: 'Flerspråklig MiniLM, optimalisert for parafraser/likhet.',
+    },
+    {
+        id: 'Xenova/all-MiniLM-L6-v2',
+        label: 'all-MiniLM-L6-v2',
+        dim: 384,
+        sizeMb: 25,
+        languages: 'EN',
+        description: 'Liten engelsk-bare modell. Veldig lett, dårlig på norsk.',
+    },
+    {
+        id: 'Xenova/bge-small-en-v1.5',
+        label: 'bge-small-en-v1.5',
+        dim: 384,
+        sizeMb: 35,
+        languages: 'EN',
+        description: 'BGE small (engelsk). God på engelsk, ikke flerspråklig.',
+    },
+    {
+        id: 'Xenova/bge-base-en-v1.5',
+        label: 'bge-base-en-v1.5',
+        dim: 768,
+        sizeMb: 110,
+        languages: 'EN',
+        description: 'BGE base (engelsk). Sterkere retrieval enn small, kun engelsk.',
+    },
+    {
+        id: 'Xenova/all-mpnet-base-v2',
+        label: 'all-mpnet-base-v2',
+        dim: 768,
+        sizeMb: 110,
+        languages: 'EN',
+        description: 'Mpnet base. Toppkvalitet på engelsk. Ikke flerspråklig.',
+    },
+    {
+        id: 'Xenova/paraphrase-multilingual-mpnet-base-v2',
+        label: 'paraphrase-multilingual-mpnet-base-v2',
+        dim: 768,
+        sizeMb: 280,
+        languages: 'multi',
+        description: 'Mpnet flerspråklig. Best kvalitet for flerspråklig likhet, men tung.',
+    },
+    {
+        id: 'Xenova/gte-small',
+        label: 'gte-small',
+        dim: 384,
+        sizeMb: 35,
+        languages: 'EN',
+        description: 'GTE small. Sterk engelsk retrieval i liten størrelse.',
+    },
+    {
+        id: 'Xenova/gte-base',
+        label: 'gte-base',
+        dim: 768,
+        sizeMb: 110,
+        languages: 'EN',
+        description: 'GTE base. Topp engelsk retrieval, mellomstor.',
+    },
+    {
+        id: 'Xenova/jina-embeddings-v2-small-en',
+        label: 'jina-embeddings-v2-small-en',
+        dim: 512,
+        sizeMb: 33,
+        languages: 'EN',
+        description: 'Jina v2 small. Lang kontekst (8k), kun engelsk.',
+    },
+    {
+        id: 'Xenova/snowflake-arctic-embed-s',
+        label: 'snowflake-arctic-embed-s',
+        dim: 384,
+        sizeMb: 33,
+        languages: 'EN',
+        description: 'Snowflake Arctic small. God balanse størrelse/kvalitet på engelsk.',
+    },
+];
+const DEFAULT_EMBED_MODEL = 'Xenova/multilingual-e5-small';
+
+function getAppSettings() {
+    let s = {};
+    try { s = JSON.parse(fs.readFileSync(APP_SETTINGS_FILE, 'utf-8')) || {}; } catch {}
+    if (!s.vectorSearch || typeof s.vectorSearch !== 'object') {
+        s.vectorSearch = { enabled: false, model: DEFAULT_EMBED_MODEL };
+    }
+    if (!s.vectorSearch.model || !EMBED_MODELS.some(m => m.id === s.vectorSearch.model)) {
+        s.vectorSearch.model = DEFAULT_EMBED_MODEL;
+    }
+    s.vectorSearch.enabled = !!s.vectorSearch.enabled;
+    if (!s.searchIndex || typeof s.searchIndex !== 'object') {
+        s.searchIndex = { enabled: true };
+    }
+    s.searchIndex.enabled = s.searchIndex.enabled !== false;
+    return s;
+}
+
+function setAppSettings(next) {
+    const cur = getAppSettings();
+    const merged = Object.assign({}, cur, next || {});
+    if (next && next.vectorSearch) {
+        merged.vectorSearch = Object.assign({}, cur.vectorSearch, next.vectorSearch);
+        if (!EMBED_MODELS.some(m => m.id === merged.vectorSearch.model)) {
+            merged.vectorSearch.model = DEFAULT_EMBED_MODEL;
+        }
+        merged.vectorSearch.enabled = !!merged.vectorSearch.enabled;
+    }
+    if (next && next.searchIndex) {
+        merged.searchIndex = Object.assign({}, cur.searchIndex, next.searchIndex);
+        merged.searchIndex.enabled = merged.searchIndex.enabled !== false;
+    }
+    try { fs.mkdirSync(path.dirname(APP_SETTINGS_FILE), { recursive: true }); } catch {}
+    fs.writeFileSync(APP_SETTINGS_FILE, JSON.stringify(merged, null, 2));
+    return merged;
+}
 
 const WEEK_NOTES_MARKER = '.week-notes';
 const WEEK_NOTES_VERSION = (() => {
@@ -2182,6 +2323,7 @@ const pendingSearches = new Map(); // requestId -> { resolve, reject, timer }
 let searchReqSeq = 0;
 
 function startSearchWorker() {
+    if (!getAppSettings().searchIndex.enabled) return;
     try {
         searchWorker = new Worker(path.join(__dirname, 'search-worker.js'));
     } catch (e) {
@@ -2191,7 +2333,7 @@ function startSearchWorker() {
     }
     searchWorker.on('message', (msg) => {
         if (msg.type === 'indexed') {
-            console.log(`🔎 søkeindeks: ${msg.docCount} dok, ${msg.tokenCount} tokens (${msg.ms}ms, ${msg.trigger || 'manual'})`);
+            console.log(`🔎 søkeindeks: ${msg.docCount} dok, ${msg.tokenCount} tokens (${msg.ms}ms, ${msg.trigger || 'manual'}${msg.source ? ', ' + msg.source : ''})`);
         } else if (msg.type === 'result') {
             const p = pendingSearches.get(msg.requestId);
             if (p) {
@@ -2228,6 +2370,19 @@ function reindexSearch() {
     catch (e) { console.error('reindex post failed', e.message); }
 }
 
+function stopSearchWorker() {
+    if (!searchWorker) return;
+    try { searchWorker.terminate(); } catch {}
+    searchWorker = null;
+    for (const [, p] of pendingSearches) { clearTimeout(p.timer); p.reject(new Error('søkemotor stoppet')); }
+    pendingSearches.clear();
+}
+
+function restartSearchWorker() {
+    stopSearchWorker();
+    if (getAppSettings().searchIndex.enabled) startSearchWorker();
+}
+
 function searchViaWorker(q, timeoutMs = 5000) {
     if (!searchWorker) {
         // Fallback to in-process search if worker isn't available
@@ -2255,8 +2410,18 @@ function searchViaWorker(q, timeoutMs = 5000) {
 // ---- Embedding worker (experimental — vector search) ----
 let embedWorker = null;
 let embedReady = false;
+let embedState = { phase: 'disabled', model: null, progress: null, error: null, docCount: 0 };
+const embedSseClients = new Set();
 const pendingEmbed = new Map();
 let embedReqSeq = 0;
+
+function embedEmit(state) {
+    embedState = Object.assign({}, embedState, state);
+    const data = JSON.stringify(embedState);
+    for (const res of embedSseClients) {
+        try { res.write(`data: ${data}\n\n`); } catch {}
+    }
+}
 
 // Pull "relations" out of a markdown note: @mentions, {{tasks}}, [[results]].
 // Used to enrich the searchable blob so a note that mentions @anna surfaces
@@ -2368,23 +2533,52 @@ function buildEmbedDocs() {
 // /api/search returns).
 const embedMeta = new Map();
 
+function stopEmbedWorker() {
+    if (!embedWorker) { embedReady = false; return; }
+    try { embedWorker.terminate(); } catch {}
+    embedWorker = null;
+    embedReady = false;
+    for (const [, p] of pendingEmbed) { clearTimeout(p.timer); p.reject(new Error('embed-worker stopped')); }
+    pendingEmbed.clear();
+}
+
 function startEmbedWorker() {
     if (embedWorker) return;
+    const app = getAppSettings();
+    if (!app.vectorSearch.enabled) {
+        embedEmit({ phase: 'disabled', model: app.vectorSearch.model, progress: null, error: null, docCount: 0 });
+        return;
+    }
+    const model = app.vectorSearch.model || DEFAULT_EMBED_MODEL;
     try {
         embedWorker = new Worker(path.join(__dirname, 'embed-worker.js'));
     } catch (e) {
         console.error('embed-worker start failed', e.message);
         embedWorker = null;
+        embedEmit({ phase: 'error', model, error: e.message });
         return;
     }
+    embedEmit({ phase: 'loading', model, progress: null, error: null });
     embedWorker.on('message', (msg) => {
         if (msg.type === 'ready') {
             embedReady = true;
-            console.log(`🧠 embed-worker klar (${msg.cached} cachet, ${msg.ms}ms)`);
-            // Kick off initial indexing.
+            console.log(`🧠 embed-worker klar (${msg.model}, ${msg.cached} cachet, ${msg.ms}ms)`);
+            embedEmit({ phase: 'ready', model: msg.model, progress: null, error: null, docCount: msg.docCount });
             reindexEmbeddings();
+        } else if (msg.type === 'modelProgress') {
+            // transformers.js progress callback emits a few statuses.
+            //   initiate / download / done / ready: no pct
+            //   progress:        pct is 0..100 for the named file
+            //   progress_total:  pct is 0..1 fraction of total bytes
+            // Normalize to 0..100 here so the UI can display it directly.
+            let pct = null;
+            if (typeof msg.progress === 'number') {
+                pct = msg.status === 'progress_total' ? msg.progress * 100 : msg.progress;
+            }
+            embedEmit({ phase: 'loading', model: msg.model, progress: { status: msg.status, file: msg.file, pct } });
         } else if (msg.type === 'indexed') {
             console.log(`🧠 embed-indeks: ${msg.total} dok (+${msg.changed} embedded i ${msg.ms}ms)`);
+            embedEmit({ phase: 'ready', docCount: msg.total });
         } else if (msg.type === 'queryResult') {
             const p = pendingEmbed.get(msg.requestId);
             if (p) { clearTimeout(p.timer); pendingEmbed.delete(msg.requestId); p.resolve(msg.hits || []); }
@@ -2394,18 +2588,31 @@ function startEmbedWorker() {
                 if (p) { clearTimeout(p.timer); pendingEmbed.delete(msg.requestId); p.reject(new Error(msg.error)); }
             } else {
                 console.error('embed-worker:', msg.error);
+                embedEmit({ phase: 'error', error: msg.error });
             }
         }
     });
-    embedWorker.on('error', (e) => console.error('embed-worker error', e));
+    embedWorker.on('error', (e) => {
+        console.error('embed-worker error', e);
+        embedEmit({ phase: 'error', error: e.message });
+    });
     embedWorker.on('exit', (code) => {
-        console.error('embed-worker exited with code', code);
+        if (code !== 0) console.error('embed-worker exited with code', code);
         embedWorker = null; embedReady = false;
         for (const [, p] of pendingEmbed) { clearTimeout(p.timer); p.reject(new Error('embed-worker died')); }
         pendingEmbed.clear();
     });
-    try { embedWorker.postMessage({ type: 'init', contextDir: dataDir() }); }
-    catch (e) { console.error('embed init post failed', e.message); }
+    try { embedWorker.postMessage({ type: 'init', contextDir: dataDir(), model }); }
+    catch (e) {
+        console.error('embed init post failed', e.message);
+        embedEmit({ phase: 'error', error: e.message });
+    }
+}
+
+function restartEmbedWorker() {
+    stopEmbedWorker();
+    embedMeta.clear();
+    startEmbedWorker();
 }
 
 function reindexEmbeddings() {
@@ -7784,6 +7991,142 @@ activateTab(initialParams.tab || 'people');
         return;
     }
 
+    // App-wide settings (currently just vector-search). Per-context settings
+    // remain at /api/contexts/:id/settings.
+    if (pathname === '/api/app-settings' && req.method === 'GET') {
+        const modelsAnnotated = EMBED_MODELS.map(m => {
+            const dir = path.join(__dirname, 'models', m.id.replace(/\//g, path.sep));
+            let downloaded = false;
+            try {
+                downloaded = fs.existsSync(path.join(dir, 'onnx', 'model_quantized.onnx'))
+                          || fs.existsSync(path.join(dir, 'onnx', 'model.onnx'));
+            } catch {}
+            return Object.assign({}, m, { downloaded });
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, settings: getAppSettings(), models: modelsAnnotated }));
+        return;
+    }
+    if (pathname.match(/^\/api\/app-settings\/models\/(.+)$/) && req.method === 'DELETE') {
+        try {
+            const modelId = decodeURIComponent(pathname.match(/^\/api\/app-settings\/models\/(.+)$/)[1]);
+            if (!EMBED_MODELS.some(m => m.id === modelId)) {
+                res.writeHead(404, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: 'Ukjent modell' }));
+                return;
+            }
+            const settings = getAppSettings();
+            if (settings.vectorSearch.enabled && settings.vectorSearch.model === modelId) {
+                res.writeHead(409, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: 'Kan ikke slette aktiv modell. Slå av først eller bytt modell.' }));
+                return;
+            }
+            const dir = path.join(__dirname, 'models', modelId.replace(/\//g, path.sep));
+            try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { console.warn('rm model failed', e); }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true }));
+        } catch (e) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+        return;
+    }
+    if (pathname === '/api/app-settings' && req.method === 'PUT') {
+        try {
+            const body = JSON.parse(await readBody(req) || '{}');
+            const before = getAppSettings();
+            const next = setAppSettings(body);
+            const vsChanged = before.vectorSearch.enabled !== next.vectorSearch.enabled
+                           || before.vectorSearch.model   !== next.vectorSearch.model;
+            if (vsChanged) {
+                if (next.vectorSearch.enabled) restartEmbedWorker();
+                else { stopEmbedWorker(); embedEmit({ phase: 'disabled', model: next.vectorSearch.model, progress: null, error: null, docCount: 0 }); }
+            }
+            const siChanged = before.searchIndex.enabled !== next.searchIndex.enabled;
+            if (siChanged) {
+                if (next.searchIndex.enabled) restartSearchWorker();
+                else stopSearchWorker();
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, settings: next }));
+        } catch (e) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+        return;
+    }
+    if (pathname === '/api/embed/status' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(Object.assign({ ok: true }, embedState)));
+        return;
+    }
+    // Per-context index stats: read on-disk caches and report sizes.
+    {
+        const m = pathname.match(/^\/api\/contexts\/([^/]+)\/index-stats$/);
+        if (m && req.method === 'GET') {
+            const id = decodeURIComponent(m[1]);
+            const safe = id.replace(/[^a-zA-Z0-9_-]/g, '');
+            const ctxDir = path.join(CONTEXTS_DIR, safe);
+            const cacheDir = path.join(ctxDir, '.cache');
+            const readCache = (file) => {
+                const p = path.join(cacheDir, file);
+                try {
+                    const st = fs.statSync(p);
+                    let json = null;
+                    try { json = JSON.parse(fs.readFileSync(p, 'utf-8')); } catch {}
+                    return { exists: true, sizeBytes: st.size, mtime: st.mtimeMs, data: json };
+                } catch {
+                    return { exists: false };
+                }
+            };
+            const search = readCache('search-index.json');
+            const embed  = readCache('embeddings.json');
+            const isActive = id === getActiveContext();
+            const out = {
+                ok: true,
+                contextId: id,
+                isActive,
+                search: {
+                    cacheExists: search.exists,
+                    sizeBytes:   search.exists ? search.sizeBytes : 0,
+                    mtime:       search.exists ? search.mtime : null,
+                    docs:        search.exists && search.data && search.data.docs ? Object.keys(search.data.docs).length : null,
+                    tokens:      search.exists && search.data && search.data.tokens ? Object.keys(search.data.tokens).length : null,
+                    version:     search.exists && search.data ? search.data.version : null,
+                },
+                embed: {
+                    cacheExists: embed.exists,
+                    sizeBytes:   embed.exists ? embed.sizeBytes : 0,
+                    mtime:       embed.exists ? embed.mtime : null,
+                    docs:        embed.exists && embed.data && embed.data.entries ? Object.keys(embed.data.entries).length : null,
+                    model:       embed.exists && embed.data ? embed.data.model || null : null,
+                    dim:         embed.exists && embed.data ? embed.data.dim || null : null,
+                },
+                liveEmbed: isActive ? { phase: embedState.phase, docCount: embedState.docCount, model: embedState.model } : null,
+            };
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(out));
+            return;
+        }
+    }
+    // SSE: stream live embed-worker state (load progress, ready, errors).
+    // The same payload as /api/embed/status is emitted on every change.
+    if (pathname === '/api/embed/events' && req.method === 'GET') {
+        res.writeHead(200, {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no',
+        });
+        res.write(`data: ${JSON.stringify(embedState)}\n\n`);
+        embedSseClients.add(res);
+        const keepalive = setInterval(() => { try { res.write(': ping\n\n'); } catch {} }, 30000);
+        const cleanup = () => { clearInterval(keepalive); embedSseClients.delete(res); };
+        req.on('close', cleanup);
+        req.on('error', cleanup);
+        return;
+    }
+
 
     if (pathname === '/api/save/autosave' && req.method === 'DELETE') {
         try {
@@ -8892,6 +9235,7 @@ activateTab(initialParams.tab || 'people');
                 setImmediate(() => {
                     try { pullContextRemote(next); } catch (e) { console.error('bg pull', e.message); }
                     reindexSearch();
+                    if (getAppSettings().vectorSearch.enabled) restartEmbedWorker();
                 });
             } catch (e) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });

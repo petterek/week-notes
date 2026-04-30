@@ -114,6 +114,22 @@ class GlobalSearch extends WNElement {
 
         try { embedToggle.checked = localStorage.getItem('gs.embed') === '1'; } catch {}
 
+        // Hide the 🧠 toggle entirely if semantic search is disabled in app
+        // settings. We re-check whenever the modal opens so toggling the
+        // setting in /settings shows up without a full reload.
+        const embedLabel = embedToggle.closest('.gs-mode');
+        const refreshEmbedAvailability = () => {
+            fetch('/api/embed/status').then(r => r.json()).then(d => {
+                const avail = d && d.phase && d.phase !== 'disabled';
+                if (embedLabel) embedLabel.style.display = avail ? '' : 'none';
+                if (!avail && embedToggle.checked) {
+                    embedToggle.checked = false;
+                    try { localStorage.setItem('gs.embed', '0'); } catch {}
+                }
+            }).catch(() => {});
+        };
+        refreshEmbedAvailability();
+
         let debounceTimer = null;
         let lastQuery = '';
 
@@ -199,6 +215,7 @@ class GlobalSearch extends WNElement {
             const evt = new CustomEvent('search:open', { bubbles: true, cancelable: true, detail: { prefill } });
             if (!this.dispatchEvent(evt)) return;
             modal.style.display = 'flex';
+            refreshEmbedAvailability();
             if (typeof prefill === 'string') input.value = prefill;
             setTimeout(() => { input.focus(); input.select(); }, 0);
             const q = input.value.trim();
