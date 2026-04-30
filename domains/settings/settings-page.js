@@ -14,16 +14,16 @@ import { WNElement, html, escapeHtml } from './_shared.js';
 const DAY_NAMES = ['Mandag', 'Tirsdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lørdag', 'Søndag'];
 
 const DEFAULT_MEETING_TYPES = [
-    { key: 'meeting',  label: 'Møte',        icon: '👥', color: '#4a90e2' },
-    { key: '1on1',     label: '1:1',         icon: '☕', color: '#a05a2c' },
-    { key: 'standup',  label: 'Standup',     icon: '🔄', color: '#7ab648' },
-    { key: 'workshop', label: 'Workshop',    icon: '🛠️', color: '#e08a3c' },
-    { key: 'demo',     label: 'Demo',        icon: '🎬', color: '#9b59b6' },
-    { key: 'planning', label: 'Planlegging', icon: '📋', color: '#3aa3a3' },
-    { key: 'review',   label: 'Gjennomgang', icon: '🔍', color: '#34495e' },
-    { key: 'social',   label: 'Sosialt',     icon: '🎉', color: '#e91e63' },
-    { key: 'call',     label: 'Telefon',     icon: '📞', color: '#16a085' },
-    { key: 'focus',    label: 'Fokus',       icon: '🎯', color: '#d35400' },
+    { key: 'meeting',  label: 'Møte',        icon: '👥', color: '#4a90e2', defaultMinutes: 60 },
+    { key: '1on1',     label: '1:1',         icon: '☕', color: '#a05a2c', defaultMinutes: 30 },
+    { key: 'standup',  label: 'Standup',     icon: '🔄', color: '#7ab648', defaultMinutes: 15 },
+    { key: 'workshop', label: 'Workshop',    icon: '🛠️', color: '#e08a3c', defaultMinutes: 120 },
+    { key: 'demo',     label: 'Demo',        icon: '🎬', color: '#9b59b6', defaultMinutes: 60 },
+    { key: 'planning', label: 'Planlegging', icon: '📋', color: '#3aa3a3', defaultMinutes: 60 },
+    { key: 'review',   label: 'Gjennomgang', icon: '🔍', color: '#34495e', defaultMinutes: 60 },
+    { key: 'social',   label: 'Sosialt',     icon: '🎉', color: '#e91e63', defaultMinutes: 60 },
+    { key: 'call',     label: 'Telefon',     icon: '📞', color: '#16a085', defaultMinutes: 30 },
+    { key: 'focus',    label: 'Fokus',       icon: '🎯', color: '#d35400', defaultMinutes: 60 },
     { key: 'vacation', label: 'Ferie',       icon: '🌴', color: '#2ecc71', allDay: true },
 ];
 
@@ -33,6 +33,25 @@ const STYLES = `
     @media (max-width: 760px) { .sp { grid-template-columns: 1fr; } }
     h1.sp-title { font-family: var(--font-heading); font-weight: 400; color: var(--accent); margin: 0 0 12px; font-size: 1.3em; }
     .sp-rail { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 8px; padding: 8px; overflow: auto; display: flex; flex-direction: column; gap: 4px; }
+    .rail-add { margin-top: 8px; padding: 6px 10px; border: 1px dashed var(--border); background: transparent; color: var(--accent); border-radius: 6px; cursor: pointer; font: inherit; font-size: 0.92em; }
+    .rail-add:hover { background: var(--surface-alt); }
+    .nc-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 1000; align-items: flex-start; justify-content: center; padding: 5vh 16px; box-sizing: border-box; overflow-y: auto; }
+    .nc-overlay.open { display: flex; }
+    .nc-card { background: var(--surface); border: 1px solid var(--border-soft); border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.25); padding: 18px 20px; width: min(480px, 100%); box-sizing: border-box; }
+    .nc-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .nc-head h2 { margin: 0; font-family: var(--font-heading); font-weight: 400; color: var(--accent); font-size: 1.1em; flex: 1; }
+    .nc-head button { background: transparent; border: 0; color: var(--text-muted); font-size: 1.3em; cursor: pointer; padding: 0 4px; }
+    .nc-head button:hover { color: var(--text-strong); }
+    .nc-form label { display: block; font-size: 0.9em; color: var(--text-muted); margin-bottom: 8px; }
+    .nc-form input, .nc-form textarea { width: 100%; box-sizing: border-box; padding: 6px 10px; font: inherit; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text-strong); margin-top: 2px; }
+    .nc-form .row { display: grid; grid-template-columns: 80px 1fr; gap: 8px; }
+    .nc-actions { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
+    .nc-actions .spacer { flex: 1; }
+    .nc-actions button { padding: 5px 12px; border-radius: 5px; cursor: pointer; font: inherit; }
+    .nc-actions .save { background: var(--accent); color: var(--text-on-accent); border: 1px solid var(--accent); }
+    .nc-actions .save:hover { background: var(--accent-strong); }
+    .nc-actions .cancel { background: var(--surface); color: var(--text-strong); border: 1px solid var(--border); }
+    .nc-status { font-size: 0.9em; color: var(--text-muted); }
     .rail-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid transparent; border-radius: 6px; background: transparent; cursor: pointer; text-align: left; font: inherit; color: var(--text-strong); }
     .rail-item:hover { background: var(--surface-alt); }
     .rail-item.selected { border-color: var(--accent); background: var(--surface-alt); }
@@ -72,10 +91,11 @@ const STYLES = `
     .tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
     .tag-chip { background: var(--accent-soft); color: var(--accent); padding: 2px 10px; border-radius: 12px; font-size: 0.82em; }
     .mt-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
-    .mt-row { display: grid; grid-template-columns: 60px 44px 130px 1fr auto 36px; gap: 8px; align-items: center; }
+    .mt-row { display: grid; grid-template-columns: 60px 44px 130px 1fr 78px auto 36px; gap: 8px; align-items: center; }
     .mt-row input { padding: 4px 8px; font-size: 0.92em; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text-strong); }
     .mt-row input[data-mt-icon] { text-align: center; font-size: 1.05em; }
     .mt-row input[data-mt-color] { padding: 0; height: 28px; width: 100%; cursor: pointer; }
+    .mt-row input[data-mt-min] { text-align: right; }
     .mt-row label.mt-allday { display: flex; align-items: center; gap: 4px; font-size: 0.85em; color: var(--text-muted); white-space: nowrap; cursor: pointer; }
     .mt-row label.mt-allday input { width: auto; padding: 0; }
     .mt-row .mt-del { background: transparent; border: 0; color: var(--text-muted); cursor: pointer; font-size: 1em; }
@@ -156,7 +176,7 @@ class SettingsPage extends WNElement {
                 ${isActive ? '<span class="badge" title="Aktiv">●</span>' : ''}
             </button>`;
         }).join('');
-        railEl.innerHTML = items;
+        railEl.innerHTML = items + `<button type="button" class="rail-add" data-rail-add>+ Ny kontekst</button>`;
         railEl.querySelectorAll('.rail-item').forEach(el => {
             el.addEventListener('click', () => {
                 this._selected = el.dataset.id;
@@ -164,6 +184,110 @@ class SettingsPage extends WNElement {
                 this._renderDetail(this.shadowRoot.querySelector('.sp-detail'));
             });
         });
+        const addBtn = railEl.querySelector('[data-rail-add]');
+        if (addBtn) addBtn.addEventListener('click', () => this._openNewContext());
+    }
+
+    _openNewContext() {
+        let overlay = this.shadowRoot.querySelector('.nc-overlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.className = 'nc-overlay';
+            overlay.innerHTML = `
+                <div class="nc-card">
+                    <div class="nc-head">
+                        <h2>Ny kontekst</h2>
+                        <button type="button" data-nc-close title="Lukk">✕</button>
+                    </div>
+                    <form class="nc-form" data-nc-form>
+                        <label>Navn
+                            <input type="text" data-nc="name" required placeholder="Jobb">
+                        </label>
+                        <div class="row">
+                            <label>Ikon
+                                <input type="text" data-nc="icon" maxlength="4" placeholder="💼" value="📁">
+                            </label>
+                            <label>Beskrivelse
+                                <input type="text" data-nc="description" placeholder="Kort beskrivelse">
+                            </label>
+                        </div>
+                        <label>Git remote <span style="color:var(--text-subtle);font-weight:normal">(valgfritt)</span>
+                            <input type="text" data-nc="remote" placeholder="git@github.com:user/repo.git">
+                        </label>
+                        <div class="nc-actions">
+                            <span class="nc-status" data-nc-status></span>
+                            <span class="spacer"></span>
+                            <button type="button" class="cancel" data-nc-close>Avbryt</button>
+                            <button type="submit" class="save">💾 Opprett</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+            this.shadowRoot.appendChild(overlay);
+            const close = () => overlay.classList.remove('open');
+            overlay.querySelectorAll('[data-nc-close]').forEach(b => b.addEventListener('click', close));
+            overlay.addEventListener('click', (ev) => {
+                if (ev.target === overlay) close();
+            });
+            const form = overlay.querySelector('[data-nc-form]');
+            form.addEventListener('submit', (ev) => {
+                ev.preventDefault();
+                this._submitNewContext(overlay);
+            });
+        } else {
+            overlay.querySelectorAll('input').forEach(i => { if (i.dataset.nc !== 'icon') i.value = ''; });
+            const status = overlay.querySelector('[data-nc-status]');
+            if (status) { status.textContent = ''; status.style.color = ''; }
+        }
+        overlay.classList.add('open');
+        setTimeout(() => {
+            const t = overlay.querySelector('[data-nc="name"]');
+            if (t) t.focus();
+        }, 30);
+    }
+
+    async _submitNewContext(overlay) {
+        const status = overlay.querySelector('[data-nc-status]');
+        const get = (k) => (overlay.querySelector(`[data-nc="${k}"]`).value || '').trim();
+        const data = {
+            name: get('name'),
+            icon: get('icon') || '📁',
+            description: get('description'),
+            remote: get('remote'),
+        };
+        if (!data.name) {
+            status.textContent = 'Navn er påkrevd';
+            status.style.color = 'var(--danger, #c53030)';
+            return;
+        }
+        const send = async (force) => {
+            status.style.color = '';
+            status.textContent = force ? '⏳ Oppretter (bekreftet)…' : '⏳ Oppretter…';
+            const r = await fetch('/api/contexts', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(Object.assign({}, data, { force: !!force })),
+            });
+            return r.json();
+        };
+        try {
+            let d = await send(false);
+            if (!d.ok && d.needsConfirm && confirm(d.error + '\n\nVil du opprette .week-notes-fil og fortsette?')) {
+                d = await send(true);
+            }
+            if (!d.ok) {
+                status.textContent = '✗ ' + (d.error || 'Feil');
+                status.style.color = 'var(--danger, #c53030)';
+                return;
+            }
+            status.textContent = '✓ Opprettet';
+            status.style.color = 'var(--accent)';
+            this._selected = d.id;
+            await this.refresh();
+            setTimeout(() => overlay.classList.remove('open'), 400);
+        } catch (e) {
+            status.textContent = '✗ ' + (e.message || e);
+            status.style.color = 'var(--danger, #c53030)';
+        }
     }
 
     _renderDetail(detailEl) {
@@ -375,11 +499,13 @@ class SettingsPage extends WNElement {
         const label = escapeHtml(mt && (mt.label || mt.name) || '');
         const color = escapeHtml(mt && mt.color || '#888888');
         const allDay = !!(mt && (mt.allDay || mt.fullDay));
+        const mins = (mt && mt.defaultMinutes != null && mt.defaultMinutes !== '') ? String(mt.defaultMinutes) : '';
         return `<div class="mt-row" data-mt-row="${i}">
             <input type="text" data-mt-icon value="${icon}" placeholder="🤝" maxlength="4">
             <input type="color" data-mt-color value="${color}" title="Farge">
             <input type="text" data-mt-key value="${key}" placeholder="meeting">
             <input type="text" data-mt-label value="${label}" placeholder="Etikett">
+            <input type="number" data-mt-min value="${escapeHtml(mins)}" placeholder="min" min="5" step="5" title="Standard varighet (min)">
             <label class="mt-allday" title="Heldagshendelse (vises som linje øverst)">
                 <input type="checkbox" data-mt-allday${allDay ? ' checked' : ''}>heldag
             </label>
@@ -399,9 +525,13 @@ class SettingsPage extends WNElement {
             const color = (colorEl && colorEl.value || '').trim();
             const allDayEl = r.querySelector('[data-mt-allday]');
             const allDay = !!(allDayEl && allDayEl.checked);
+            const minEl = r.querySelector('[data-mt-min]');
+            const minRaw = minEl ? (minEl.value || '').trim() : '';
+            const mins = minRaw === '' ? null : parseInt(minRaw, 10);
             const row = { key, icon, label };
             if (color) row.color = color;
             if (allDay) row.allDay = true;
+            if (mins != null && !isNaN(mins) && mins > 0) row.defaultMinutes = mins;
             out.push(row);
         });
         return out;

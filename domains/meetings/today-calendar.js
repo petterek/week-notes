@@ -198,7 +198,10 @@ class TodayCalendar extends WNElement {
         if (useDate) form.setAttribute('date', useDate); else form.removeAttribute('date');
         if (time) {
             form.setAttribute('start', time);
-            const dur = (this._settings && +this._settings.defaultMeetingMinutes) || 60;
+            const t = (this._typeMap && type) ? this._typeMap[type] : null;
+            const dur = (t && +t.defaultMinutes)
+                || (this._settings && +this._settings.defaultMeetingMinutes)
+                || 60;
             form.setAttribute('end', addMinutes(time, dur));
         } else {
             form.removeAttribute('start');
@@ -249,6 +252,7 @@ class TodayCalendar extends WNElement {
             ]);
             const typeMap = {};
             (types || []).forEach(t => { typeMap[t.key] = t; });
+            this._typeMap = typeMap;
             // Feed event types so colors/icons match the main calendar
             const cal = this.shadowRoot.querySelector('week-calendar');
             if (cal) {

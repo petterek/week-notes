@@ -224,7 +224,10 @@ class WeekNotesCalendar extends WNElement {
         if (date) form.setAttribute('date', date); else form.removeAttribute('date');
         if (time) {
             form.setAttribute('start', time);
-            const dur = (this._settings && +this._settings.defaultMeetingMinutes) || 60;
+            const t = (this._typeMap && type) ? this._typeMap[type] : null;
+            const dur = (t && +t.defaultMinutes)
+                || (this._settings && +this._settings.defaultMeetingMinutes)
+                || 60;
             form.setAttribute('end', addMinutes(time, dur));
         } else {
             form.removeAttribute('start');
@@ -292,6 +295,7 @@ class WeekNotesCalendar extends WNElement {
             const types = (typesSvc && typeof typesSvc.listTypes === 'function') ? await typesSvc.listTypes() : [];
             const typeMap = {};
             (types || []).forEach(t => { typeMap[t.key] = t; });
+            this._typeMap = typeMap;
             this._items = (list || []).map(m => meetingToItem(m, typeMap));
             // Feed event types into the inner <week-calendar> for the right-click menu
             // and into <meeting-create> for the type dropdown.

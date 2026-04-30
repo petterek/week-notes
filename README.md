@@ -10,6 +10,10 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-04-30 (settings: + Ny kontekst, default meeting length)
+- **Settings page** got a `+ Ny kontekst` button at the bottom of the contexts rail. Opens a small modal (name / icon / description / optional git remote), `POST /api/contexts`, then auto-selects the new context. Replaces the legacy SSR `newCtxForm` that disappeared during the SPA port.
+- **Meeting types** now have a per-type `defaultMinutes` field (number input next to the all-day toggle). When you create a meeting from the calendar (header `+ Nytt`, dblclick or right-click), the end time is computed as `start + type.defaultMinutes`, falling back to the context's `defaultMeetingMinutes` and finally 60. Wired in both `<today-calendar>` and `<week-notes-calendar>`.
+
 ### 2026-04-30 (today-calendar create)
 - **`<today-calendar>`** can now create meetings: a `+ Nytt` button in the heading and a right-click / dblclick on the grid open an overlay with `<meeting-create>` (pre-filled with today's date or the picked slot). On save the overlay closes and the grid reloads.
 
