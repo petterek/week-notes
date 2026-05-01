@@ -385,14 +385,15 @@ class NoteEditor extends WNElement {
     }
 
     // Preview-only transforms for inline markers:
-    //  - '{{!<id>}}' close markers → '- [x] <task text>' GFM list item
-    //  - '{{?<id>}}' open markers  → '- [ ] <task text>' GFM list item
-    //  - '{{X}}' new-task markers  → '- [ ] X'           GFM list item
-    // Markers are wrapped with blank lines so marked's GFM parser
-    // recognizes them as task-list items even when they sit inline in
-    // the middle of a paragraph. The textarea/source keeps the brace
-    // forms; the server applies the closing/creating substitutions on
-    // explicit save.
+    //  - '{{!<id>}}' close markers → '1. [x] <task text>' GFM list item
+    //  - '{{?<id>}}' open markers  → '1. [ ] <task text>' GFM list item
+    //  - '{{X}}' new-task markers  → '1. [ ] X'           GFM list item
+    // Numbered list form so adjacent markers collapse into a single
+    // ordered task-list. Markers are wrapped with blank lines so
+    // marked's GFM parser recognizes them as task-list items even
+    // when they sit inline in a paragraph. The textarea/source keeps
+    // the brace forms; the server applies the closing/creating
+    // substitutions on explicit save.
     _previewTransform(md) {
         if (!md) return md;
         const map = this._taskTextById;
@@ -403,16 +404,16 @@ class NoteEditor extends WNElement {
         let out = md.replace(/\{\{!\s*([^{}\s]+)\s*\}\}/g, (m, id) => {
             const text = map && map[id];
             if (!text) return m;
-            return `\n\n- [x] ${text}\n\n`;
+            return `\n\n1. [x] ${text}\n\n`;
         });
         out = out.replace(/\{\{\?\s*([^{}\s]+)\s*\}\}/g, (m, id) => {
             const text = map && map[id];
             if (!text) return m;
-            return `\n\n- [ ] ${text}\n\n`;
+            return `\n\n1. [ ] ${text}\n\n`;
         });
         // Inner text must not contain '{' or '}' (so we don't swallow
         // ref markers) and not start with '!' or '?' (ref-marker syntax).
-        out = out.replace(/\{\{([^{}!?][^{}]*)\}\}/g, (_, inner) => `\n\n- [ ] ${inner.trim()}\n\n`);
+        out = out.replace(/\{\{([^{}!?][^{}]*)\}\}/g, (_, inner) => `\n\n1. [ ] ${inner.trim()}\n\n`);
         return out;
     }
 
