@@ -8548,12 +8548,14 @@ activateTab(initialParams.tab || 'people');
                 const inline = extractInlineTasks(finalContent);
                 if (inline.tasks.length > 0) {
                     const allTasks = loadTasks();
+                    const noteRef = `${folder}/${file}`;
                     inline.tasks.forEach(text => {
                         allTasks.push({
                             id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
                             text,
                             done: false,
                             week: noteWeek,
+                            noteRef,
                             created: new Date().toISOString(),
                         });
                     });

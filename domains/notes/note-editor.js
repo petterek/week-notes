@@ -384,9 +384,11 @@ class NoteEditor extends WNElement {
         this._previewEl.value = this._previewTransform(raw);
     }
 
-    // Replace '{{!<id>}}' close markers with '~~<task text>~~' for preview
-    // rendering only. The textarea/source keeps the compact id form; the
-    // server applies the same substitution on explicit save.
+    // Preview-only transforms for inline markers:
+    //  - '{{!<id>}}' close markers → '~~<task text>~~' (strikethrough)
+    //  - '{{X}}' new-task markers  → '**X**' (bold)
+    // The textarea/source keeps the brace forms; the server applies the
+    // closing/creating substitutions on explicit save.
     _previewTransform(md) {
         if (!md) return md;
         const map = this._taskTextById;
@@ -394,11 +396,15 @@ class NoteEditor extends WNElement {
             // Lazy-load on first preview render. When ready, re-render.
             this._loadTaskTexts();
         }
-        return md.replace(/\{\{!\s*([^{}\s]+)\s*\}\}/g, (m, id) => {
+        let out = md.replace(/\{\{!\s*([^{}\s]+)\s*\}\}/g, (m, id) => {
             const text = map && map[id];
             if (!text) return m;
             return `~~${text}~~`;
         });
+        // Inner text must not contain '{' or '}' (so we don't swallow
+        // close markers) and not start with '!' (close-marker syntax).
+        out = out.replace(/\{\{([^{}!][^{}]*)\}\}/g, (_, inner) => `**${inner.trim()}**`);
+        return out;
     }
 
     _loadTaskTexts() {
