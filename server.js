@@ -2896,6 +2896,79 @@ function extractNoteRelations(text) {
     return out;
 }
 
+// Extract structured cross-entity references from a note's raw text.
+// Returns { tasks, results, meetings, people, companies, places } where
+// each is a sorted, deduped list of stable IDs/keys. Used by setNoteMeta
+// in /api/save-note so each note's sidecar carries a manifest of what
+// it references — feeds the relations panel and per-entity backlinks.
+function computeNoteReferences(text) {
+    const refs = { tasks: [], results: [], meetings: [], people: [], companies: [], places: [] };
+    if (!text) return refs;
+
+    // Task reference markers: {{!id}} (closed) and {{?id}} (open).
+    const taskIds = new Set();
+    let m;
+    const taskRefRe = /\{\{[!?]([^{}\s]+)\}\}/g;
+    while ((m = taskRefRe.exec(text)) !== null) taskIds.add(m[1].trim());
+
+    // Result markers: [[label]] — match against existing results by text.
+    const resultLabels = [];
+    const resultLabelRe = /\[\[([^\[\]]+)\]\]/g;
+    while ((m = resultLabelRe.exec(text)) !== null) {
+        const t = m[1].trim();
+        if (t) resultLabels.push(t);
+    }
+    const resultIds = new Set();
+    if (resultLabels.length > 0) {
+        try {
+            const all = loadResults();
+            const byText = new Map();
+            for (const r of all) {
+                if (!r || !r.text) continue;
+                byText.set(String(r.text).trim().toLowerCase(), r.id);
+            }
+            for (const lbl of resultLabels) {
+                const id = byText.get(lbl.toLowerCase());
+                if (id) resultIds.add(id);
+            }
+        } catch {}
+    }
+
+    // @mentions resolve to one of: company, person, place. Companies win
+    // first (linkMentions does the same), then people, then places.
+    const mentionNames = extractMentions(text);
+    const peopleKeys = new Set();
+    const companyKeys = new Set();
+    const placeKeys = new Set();
+    if (mentionNames.length > 0) {
+        let people = [], companies = [], places = [];
+        try { people = loadPeople(); } catch {}
+        try { companies = loadCompanies(); } catch {}
+        try { places = loadPlaces(); } catch {}
+        const compByKey = new Map(companies.filter(c => !c.deleted).map(c => [c.key, c]));
+        const placeByKey = new Map(places.filter(p => !p.deleted).map(p => [p.key, p]));
+        for (const name of mentionNames) {
+            const lc = name.toLowerCase();
+            if (compByKey.has(lc)) { companyKeys.add(lc); continue; }
+            const p = people.find(x => x.name === name || x.key === lc);
+            if (p) { peopleKeys.add(p.key || lc); continue; }
+            if (placeByKey.has(lc)) { placeKeys.add(lc); continue; }
+            // Unresolved mention — syncMentions will create a person
+            // stub elsewhere; record the lowercased name so later lookups
+            // can still find it.
+            peopleKeys.add(lc);
+        }
+    }
+
+    refs.tasks = [...taskIds].sort();
+    refs.results = [...resultIds].sort();
+    refs.meetings = [];
+    refs.people = [...peopleKeys].sort();
+    refs.companies = [...companyKeys].sort();
+    refs.places = [...placeKeys].sort();
+    return refs;
+}
+
 function buildEmbedDocs() {
     // Whole-record vectors for v1 (no chunking). Each doc gets a stable
     // key + content hash so the worker only re-embeds what changed.
@@ -8948,6 +9021,16 @@ activateTab(initialParams.tab || 'people');
                 updates.themes = norm;
             }
             if (!existing.created) updates.created = now;
+            // Cross-entity references — recomputed from finalContent on
+            // each save so the sidecar always reflects what the note
+            // currently links to. Meeting notes carry meetingId as a
+            // first-class field; surface it here too for symmetry.
+            const references = computeNoteReferences(finalContent);
+            const meetingIdForRef = updates.meetingId || existing.meetingId;
+            if (meetingIdForRef && !references.meetings.includes(meetingIdForRef)) {
+                references.meetings = [meetingIdForRef, ...references.meetings];
+            }
+            updates.references = references;
             setNoteMeta(folder, file, updates);
             syncMentions(content);
 
