@@ -791,18 +791,34 @@ class NoteEditor extends WNElement {
         let matchEnd = -1;
         let matchKind = '!'; // '!' = close marker, '?' = open ref
         let currentItems = [];
+        let currentQuery = '';
 
         const close = () => {
             pop.hidden = true; activeIdx = -1; matchStart = -1; matchEnd = -1;
-            currentItems = []; pop.innerHTML = '';
+            currentItems = []; currentQuery = ''; pop.innerHTML = '';
         };
 
-        const renderList = (items) => {
+        const renderList = (items, query) => {
             if (!items.length) { close(); return; }
             currentItems = items;
             const icon = matchKind === '!' ? '✓' : '↗';
-            pop.innerHTML = items.map((t, i) => `
-                <button type="button" data-id="${escapeHtml(t.id)}" style="display:block;width:100%;text-align:left;background:${i === activeIdx ? 'var(--accent-soft,#e7f1fb)' : 'transparent'};color:${i === activeIdx ? 'var(--accent,#06c)' : 'inherit'};border:none;padding:5px 12px;cursor:pointer;font:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${icon} ${escapeHtml(t.text || '(uten tekst)')}<span style="opacity:0.55;font-size:0.85em"> · ${escapeHtml(t.week || '')}</span></button>
+            const words = (query || '').toLowerCase().split(/\s+/).filter(Boolean);
+            const highlight = (s) => {
+                let safe = escapeHtml(s || '');
+                if (!words.length) return safe;
+                // Highlight each word, longest first to avoid nested wrapping.
+                const sorted = [...words].sort((a, b) => b.length - a.length);
+                for (const w of sorted) {
+                    const esc = escapeHtml(w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    safe = safe.replace(new RegExp(esc, 'gi'), m => `<mark style="background:var(--accent-soft,#fffae0);color:inherit;padding:0">${m}</mark>`);
+                }
+                return safe;
+            };
+            const header = words.length
+                ? `<div style="padding:4px 12px 4px;font-size:0.78em;color:var(--text-muted,#666);border-bottom:1px solid var(--border,#eee);background:var(--surface-soft,#fafafa)">🔍 <em>${escapeHtml(query.trim())}</em> — ${items.length} treff</div>`
+                : `<div style="padding:4px 12px 4px;font-size:0.78em;color:var(--text-muted,#666);border-bottom:1px solid var(--border,#eee);background:var(--surface-soft,#fafafa)">🔍 skriv for å søke — ${items.length} oppgave${items.length === 1 ? '' : 'r'}</div>`;
+            pop.innerHTML = header + items.map((t, i) => `
+                <button type="button" data-id="${escapeHtml(t.id)}" style="display:block;width:100%;text-align:left;background:${i === activeIdx ? 'var(--accent-soft,#e7f1fb)' : 'transparent'};color:${i === activeIdx ? 'var(--accent,#06c)' : 'inherit'};border:none;padding:5px 12px;cursor:pointer;font:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${icon} ${highlight(t.text || '(uten tekst)')}<span style="opacity:0.55;font-size:0.85em"> · ${highlight(t.week || '')}</span></button>
             `).join('');
             pop.hidden = false;
         };
@@ -830,14 +846,27 @@ class NoteEditor extends WNElement {
             if (/[\n}]/.test(between)) { close(); return; }
             await ensureLoaded();
             if (!openTasks || !openTasks.length) { close(); return; }
-            const f = between.trim().toLowerCase();
-            const matches = openTasks.filter(t => !f || (t.text || '').toLowerCase().includes(f)).slice(0, 8);
+            // Word-based search: every whitespace-separated word in
+            // the typed query must be a substring of the task text or
+            // its week. Score by how early the first word matches and
+            // by how recent the task is so the most likely target
+            // floats to the top.
+            const words = between.toLowerCase().split(/\s+/).filter(Boolean);
+            const scored = openTasks.map(t => {
+                const hay = ((t.text || '') + ' ' + (t.week || '')).toLowerCase();
+                if (words.length && !words.every(w => hay.includes(w))) return null;
+                const firstHit = words.length ? hay.indexOf(words[0]) : 0;
+                return { t, score: -firstHit + (t.created ? Date.parse(t.created) / 1e10 : 0) };
+            }).filter(Boolean);
+            scored.sort((a, b) => b.score - a.score);
+            const matches = scored.slice(0, 12).map(s => s.t);
             if (!matches.length) { close(); return; }
             matchStart = idx;
             matchEnd = caret;
+            currentQuery = between;
             if (activeIdx >= matches.length) activeIdx = matches.length - 1;
             if (activeIdx < 0) activeIdx = 0;
-            renderList(matches);
+            renderList(matches, between);
             positionPop();
         };
 
@@ -870,8 +899,8 @@ class NoteEditor extends WNElement {
             if (pop.hidden) return;
             const items = pop.querySelectorAll('button[data-id]');
             if (!items.length) return;
-            if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx = (activeIdx + 1) % items.length; renderList(currentItems); }
-            else if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx = (activeIdx - 1 + items.length) % items.length; renderList(currentItems); }
+            if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx = (activeIdx + 1) % items.length; renderList(currentItems, currentQuery); }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx = (activeIdx - 1 + items.length) % items.length; renderList(currentItems, currentQuery); }
             else if (e.key === 'Enter' || e.key === 'Tab') {
                 e.preventDefault();
                 const id = items[activeIdx >= 0 ? activeIdx : 0].dataset.id;
