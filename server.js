@@ -784,6 +784,13 @@ function syncCollection(dirName, items, idField) {
 }
 
 function loadTasks() {
+    return loadCollection('tasks').filter(t => !t.deleted);
+}
+
+function loadAllTasks() {
+    // Includes tombstoned (deleted:true) entries; used so that
+    // <inline-task> references in old notes can still resolve a task
+    // text and render as "deleted".
     return loadCollection('tasks');
 }
 
@@ -9991,8 +9998,10 @@ activateTab(initialParams.tab || 'people');
 
     // API: get all tasks
     if (pathname === '/api/tasks' && req.method === 'GET') {
+        const all = url.searchParams.get('all');
+        const includeDeleted = all === '1' || all === 'true';
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(loadTasks()));
+        res.end(JSON.stringify(includeDeleted ? loadAllTasks() : loadTasks()));
         return;
     }
 
@@ -10132,13 +10141,17 @@ activateTab(initialParams.tab || 'people');
     }
     const deleteMatch = pathname.match(/^\/api\/tasks\/([^/]+)$/);
     if (deleteMatch && req.method === 'DELETE') {
-        let tasks = loadTasks();
-        tasks = tasks.filter(t => t.id !== deleteMatch[1]);
-        saveTasks(tasks);
+        const all = loadAllTasks();
+        const id = deleteMatch[1];
+        const idx = all.findIndex(t => t.id === id);
+        if (idx >= 0) {
+            all[idx] = { ...all[idx], deleted: true, deletedAt: new Date().toISOString() };
+            saveTasks(all);
+        }
         // Remove results for deleted task
-        saveResults(loadResults().filter(r => r.taskId !== deleteMatch[1]));
+        saveResults(loadResults().filter(r => r.taskId !== id));
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(tasks));
+        res.end(JSON.stringify(loadTasks()));
         return;
     }
 

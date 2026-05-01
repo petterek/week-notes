@@ -42,6 +42,15 @@ const STYLES = `
         text-decoration: line-through;
         opacity: 0.7;
     }
+    .wrap.deleted {
+        background: var(--danger-soft, #fde8e8);
+        border-color: var(--danger, #c0392b);
+        opacity: 0.85;
+    }
+    .wrap.deleted .text {
+        text-decoration: line-through;
+        color: var(--danger, #c0392b);
+    }
     input[type="checkbox"] {
         margin: 0;
         cursor: pointer;
@@ -66,7 +75,7 @@ const _instances = new Set();
 function loadTaskMap() {
     if (_taskCache) return Promise.resolve(_taskCache);
     if (_taskCachePromise) return _taskCachePromise;
-    _taskCachePromise = fetch('/api/tasks').then(r => r.json()).then(arr => {
+    _taskCachePromise = fetch('/api/tasks?all=1').then(r => r.json()).then(arr => {
         const map = {};
         if (Array.isArray(arr)) arr.forEach(t => { if (t && t.id) map[t.id] = t; });
         _taskCache = map;
@@ -107,13 +116,19 @@ class InlineTask extends WNElement {
 
     render() {
         const id = this.getAttribute('task-id') || '';
-        const state = (this.getAttribute('state') || 'open') === 'done' ? 'done' : 'open';
-        const checked = state === 'done' ? 'checked' : '';
+        const attrState = (this.getAttribute('state') || 'open') === 'done' ? 'done' : 'open';
         const task = (_taskCache && id) ? _taskCache[id] : null;
+        const isDeleted = !!(task && task.deleted);
+        const state = isDeleted ? 'deleted' : attrState;
+        const checked = state === 'done' ? 'checked' : '';
         const text = task ? (task.text || '') : (id ? '…' : '');
-        return html`<span class="wrap ${state}">
-            <input type="checkbox" ${checked} aria-label="${state === 'done' ? 'Gjenåpne oppgave' : 'Lukk oppgave'}" />
-            <span class="text">${text}</span>
+        const suffix = isDeleted ? ' (slettet)' : '';
+        const cb = isDeleted
+            ? html`<input type="checkbox" disabled aria-label="Slettet oppgave" />`
+            : html`<input type="checkbox" ${checked} aria-label="${state === 'done' ? 'Gjenåpne oppgave' : 'Lukk oppgave'}" />`;
+        return html`<span class="wrap ${state}" title="${isDeleted ? 'Denne oppgaven er slettet' : ''}">
+            ${cb}
+            <span class="text">${text}${suffix}</span>
             <span class="err" hidden></span>
         </span>`;
     }
