@@ -275,8 +275,10 @@ function setActiveContext(name, opts) {
     if (!safe) throw new Error('Ugyldig kontekstnavn');
     if (!listContexts().includes(safe)) throw new Error('Kontekst finnes ikke');
     // Commit any pending changes in the current context before switching
+    let prevCtx = '';
     try {
         const current = (function(){ try { return fs.readFileSync(ACTIVE_FILE, 'utf-8').trim(); } catch { return ''; } })();
+        prevCtx = current;
         if (current && current !== safe && listContexts().includes(current)) {
             const curDir = path.join(CONTEXTS_DIR, current);
             gitInitIfNeeded(curDir, getContextSettings(current).name || current);
@@ -286,6 +288,10 @@ function setActiveContext(name, opts) {
         }
     } catch (e) { console.error('pre-switch commit failed', e.message); }
     fs.writeFileSync(ACTIVE_FILE, safe);
+    // Auto-commit on the previous ctx may have changed its tree; the
+    // new ctx may be pulled below. Drop both caches to be safe.
+    if (prevCtx) _cacheInvalidateContext(prevCtx);
+    _cacheInvalidateContext(safe);
     // Pull the target context if it has a remote configured (skippable so
     // callers can defer the network call to a background task)
     if (!skipPull) {
@@ -300,7 +306,11 @@ function pullContextRemote(name) {
     const targetDir = path.join(CONTEXTS_DIR, safe);
     const targetSettings = getContextSettings(safe);
     if (gitIsRepo(targetDir) && (targetSettings.remote || '').trim()) {
-        try { git(targetDir, 'pull --ff-only --quiet'); }
+        try {
+            git(targetDir, 'pull --ff-only --quiet');
+            // Pull may have rewritten files; drop the whole ctx cache.
+            _cacheInvalidateContext(safe);
+        }
         catch (e) { console.error('git pull failed for', safe, e.message); }
     }
 }
@@ -384,8 +394,13 @@ function cloneContext(remoteUrl, rawName, opts) {
 
 function getContextSettings(name) {
     const safe = safeName(name);
-    try { return JSON.parse(fs.readFileSync(path.join(CONTEXTS_DIR, safe, 'settings.json'), 'utf-8')); }
-    catch { return { name: safe, icon: '📁' }; }
+    const bucket = _ctxCacheBucket(safe);
+    if (bucket && bucket.settings) return { ...bucket.settings };
+    let data;
+    try { data = JSON.parse(fs.readFileSync(path.join(CONTEXTS_DIR, safe, 'settings.json'), 'utf-8')); }
+    catch { data = { name: safe, icon: '📁' }; }
+    if (bucket) bucket.settings = { ...data };
+    return data;
 }
 
 const DISCONNECTED_FILE = path.join(CONTEXTS_DIR, '.disconnected.json');
@@ -497,6 +512,7 @@ function setContextSettings(name, data, opts) {
     }
     fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify(data, null, 2));
     writeMarker(dir);
+    _cacheInvalidateSettings(safe);
     return data;
 }
 
@@ -727,15 +743,83 @@ function readJsonDirAll(dirName) {
     return items;
 }
 
+// ------------------------------------------------------------------
+// In-memory cache keyed by context name. The server is the only writer,
+// so we can keep a strong cache and invalidate at known write/state-
+// change points:
+//   - syncCollection                → invalidate (ctx, collection)
+//   - setNoteMeta/deleteNoteMeta/saveNotesMeta → invalidate (ctx, notes-meta)
+//   - setContextSettings            → invalidate (ctx, settings)
+//   - setActiveContext              → invalidate (prev) + (next) entirely
+//                                     (auto-commit on switch + git pull may
+//                                      change files on disk)
+//   - pullContextRemote / gitPull   → invalidate (ctx) entirely
+//   - migration runs                → invalidate (ctx) entirely
+// Returned values are always cloned so callers can mutate freely without
+// corrupting the cached canonical copy.
+// ------------------------------------------------------------------
+const _ctxCache = new Map(); // ctxId -> { collections: Map<name,arr>, notesMeta?, settings? }
+
+function _ctxCacheBucket(ctx) {
+    if (!ctx) return null;
+    let b = _ctxCache.get(ctx);
+    if (!b) { b = { collections: new Map() }; _ctxCache.set(ctx, b); }
+    return b;
+}
+function _cloneArray(arr) {
+    // Shallow clone array + each item, sufficient for the load-mutate-save
+    // pattern used throughout server.js (push/sort/splice + per-item field
+    // updates).
+    return arr.map(x => (x && typeof x === 'object' && !Array.isArray(x)) ? { ...x } : x);
+}
+function _cacheGetCollection(dirName) {
+    const b = _ctxCacheBucket(getActiveContext());
+    if (!b) return null;
+    const arr = b.collections.get(dirName);
+    return arr ? _cloneArray(arr) : null;
+}
+function _cacheSetCollection(dirName, items) {
+    const b = _ctxCacheBucket(getActiveContext());
+    if (!b) return;
+    b.collections.set(dirName, _cloneArray(items));
+}
+function _cacheInvalidateCollection(dirName, ctx) {
+    const target = ctx || getActiveContext();
+    const b = _ctxCache.get(target);
+    if (b) b.collections.delete(dirName);
+}
+function _cacheInvalidateNotesMeta(ctx) {
+    const target = ctx || getActiveContext();
+    const b = _ctxCache.get(target);
+    if (b) delete b.notesMeta;
+}
+function _cacheInvalidateSettings(ctx) {
+    const target = ctx || getActiveContext();
+    const b = _ctxCache.get(target);
+    if (b) delete b.settings;
+}
+function _cacheInvalidateContext(ctx) {
+    if (ctx) _ctxCache.delete(ctx);
+}
+
 // Reads a per-item collection. Returns the array, or — if the folder
 // doesn't exist yet — falls back to the legacy <entity>.json file.
 function loadCollection(dirName) {
+    const cached = _cacheGetCollection(dirName);
+    if (cached) return cached;
     const fromDir = readJsonDirAll(dirName);
-    if (Array.isArray(fromDir)) return fromDir;
-    try {
-        const arr = JSON.parse(fs.readFileSync(entityLegacyFile(dirName), 'utf-8'));
-        return Array.isArray(arr) ? arr : [];
-    } catch { return []; }
+    let items;
+    if (Array.isArray(fromDir)) {
+        items = fromDir;
+    } else {
+        try {
+            const arr = JSON.parse(fs.readFileSync(entityLegacyFile(dirName), 'utf-8'));
+            items = Array.isArray(arr) ? arr : [];
+        } catch { items = []; }
+    }
+    _cacheSetCollection(dirName, items);
+    // Return a clone so callers can mutate freely.
+    return _cloneArray(items);
 }
 
 // Pick a stable, filesystem-safe filename stem for an item.
@@ -786,6 +870,7 @@ function syncCollection(dirName, items, idField) {
             try { fs.unlinkSync(path.join(dir, fname)); } catch {}
         }
     }
+    _cacheInvalidateCollection(dirName);
 }
 
 function loadTasks() {
@@ -1103,11 +1188,20 @@ function syncTaskNote(task, rawNote, allTasks) {
 }
 
 function loadNotesMeta() {
+    const ctx = getActiveContext();
+    const bucket = _ctxCacheBucket(ctx);
+    if (bucket && bucket.notesMeta) {
+        // Shallow-clone keys so callers can mutate.
+        const out = {};
+        for (const k of Object.keys(bucket.notesMeta)) out[k] = { ...bucket.notesMeta[k] };
+        return out;
+    }
     // New layout: notes-meta/<week>/<file>.json. Falls back to legacy
     // single-file notes-meta.json for unmigrated contexts.
     const dir = notesMetaDir();
+    let result;
     if (fs.existsSync(dir)) {
-        const out = {};
+        result = {};
         let weekDirs;
         try { weekDirs = fs.readdirSync(dir, { withFileTypes: true }); }
         catch { weekDirs = []; }
@@ -1120,14 +1214,21 @@ function loadNotesMeta() {
                 if (!fname.endsWith('.json')) continue;
                 const noteFile = fname.slice(0, -5);
                 try {
-                    out[wd.name + '/' + noteFile] = JSON.parse(fs.readFileSync(path.join(wdir, fname), 'utf-8'));
+                    result[wd.name + '/' + noteFile] = JSON.parse(fs.readFileSync(path.join(wdir, fname), 'utf-8'));
                 } catch {}
             }
         }
-        return out;
+    } else {
+        try { result = JSON.parse(fs.readFileSync(notesMetaFile(), 'utf-8')); }
+        catch { result = {}; }
     }
-    try { return JSON.parse(fs.readFileSync(notesMetaFile(), 'utf-8')); }
-    catch { return {}; }
+    if (bucket) {
+        // Cache a deep-ish copy.
+        const cached = {};
+        for (const k of Object.keys(result)) cached[k] = { ...result[k] };
+        bucket.notesMeta = cached;
+    }
+    return result;
 }
 
 function saveNotesMeta(meta) {
@@ -1170,9 +1271,17 @@ function saveNotesMeta(meta) {
     }
     // Drop the legacy single-file once we've migrated to sidecars.
     try { if (fs.existsSync(notesMetaFile())) fs.unlinkSync(notesMetaFile()); } catch {}
+    _cacheInvalidateNotesMeta();
 }
 
 function getNoteMeta(week, file) {
+    // Cache-fast path: read from the in-memory map if present.
+    const ctx = getActiveContext();
+    const bucket = _ctxCacheBucket(ctx);
+    if (bucket && bucket.notesMeta) {
+        const v = bucket.notesMeta[week + '/' + file];
+        if (v) return { ...v };
+    }
     // Read the sidecar directly when present — O(1) lookup.
     try {
         return JSON.parse(fs.readFileSync(notesMetaSidecarPath(week, file), 'utf-8'));
@@ -1192,6 +1301,7 @@ function setNoteMeta(week, file, data) {
     const fpath = notesMetaSidecarPath(week, file);
     fs.mkdirSync(path.dirname(fpath), { recursive: true });
     fs.writeFileSync(fpath, JSON.stringify(merged, null, 2), 'utf-8');
+    _cacheInvalidateNotesMeta();
 }
 
 function deleteNoteMeta(week, file) {
@@ -1209,6 +1319,7 @@ function deleteNoteMeta(week, file) {
             fs.writeFileSync(notesMetaFile(), JSON.stringify(meta, null, 2), 'utf-8');
         } catch {}
     }
+    _cacheInvalidateNotesMeta();
 }
 
 // Convert a UTC ISO timestamp to local-time { date: "YYYY-MM-DD", time: "HH:MM" }.
@@ -9946,6 +10057,7 @@ activateTab(initialParams.tab || 'people');
         }
         const dir = path.join(CONTEXTS_DIR, id);
         const result = gitPull(dir);
+        _cacheInvalidateContext(id);
         res.writeHead(result.ok ? 200 : 500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
         return;
@@ -9999,6 +10111,10 @@ activateTab(initialParams.tab || 'people');
                 commit: opts.commit !== false,
                 only: Array.isArray(opts.only) ? opts.only : null,
             });
+            // Migrations rewrite the on-disk shape — drop everything
+            // we cached for this context so subsequent reads pick up
+            // the new layout.
+            _cacheInvalidateContext(id);
             res.writeHead(r.ok ? 200 : 500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(r));
         });
