@@ -386,6 +386,7 @@ class NoteEditor extends WNElement {
 
     // Preview-only transforms for inline markers:
     //  - '{{!<id>}}' close markers → '~~<task text>~~' (strikethrough)
+    //  - '{{?<id>}}' open markers  → '**<task text>**' (bold)
     //  - '{{X}}' new-task markers  → '**X**' (bold)
     // The textarea/source keeps the brace forms; the server applies the
     // closing/creating substitutions on explicit save.
@@ -401,9 +402,14 @@ class NoteEditor extends WNElement {
             if (!text) return m;
             return `~~${text}~~`;
         });
+        out = out.replace(/\{\{\?\s*([^{}\s]+)\s*\}\}/g, (m, id) => {
+            const text = map && map[id];
+            if (!text) return m;
+            return `**${text}**`;
+        });
         // Inner text must not contain '{' or '}' (so we don't swallow
-        // close markers) and not start with '!' (close-marker syntax).
-        out = out.replace(/\{\{([^{}!][^{}]*)\}\}/g, (_, inner) => `**${inner.trim()}**`);
+        // ref markers) and not start with '!' or '?' (ref-marker syntax).
+        out = out.replace(/\{\{([^{}!?][^{}]*)\}\}/g, (_, inner) => `**${inner.trim()}**`);
         return out;
     }
 

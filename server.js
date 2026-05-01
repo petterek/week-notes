@@ -1011,14 +1011,16 @@ function extractResults(noteText) {
 }
 
 // {{X}} — double-brace task marker. Inner text becomes a new task entity,
-// the braces are stripped on save (keeps inner text).
+// the braces are stripped on save (keeps inner text). The two reference
+// forms ({{?<id>}} for open, {{!<id>}} for closed) are NOT new-task
+// markers and are skipped.
 function extractInlineTasks(noteText) {
     if (!noteText) return { tasks: [], cleanNote: noteText || '' };
     const extracted = [];
     const clean = noteText.replace(/\{\{([^{}]+)\}\}/g, (m, inner) => {
-        // Close markers ({{!id}}) are handled separately by extractCloseMarkers.
-        if (inner.trim().startsWith('!')) return m;
         const trimmed = inner.trim();
+        // Skip reference forms — they refer to existing tasks.
+        if (trimmed.startsWith('!') || trimmed.startsWith('?')) return m;
         if (trimmed) extracted.push(trimmed);
         return trimmed;
     });
@@ -2008,6 +2010,20 @@ document.addEventListener('keydown', function(e){
         notify('task-completed', 'taskUncompleted', e.detail || {});
     });
 
+    //   <inline-task> emits 'task-closed' (bubbles + composed) when the
+    //   user toggles a checkbox in a rendered note. Forward to the
+    //   standard task:completed/uncompleted events so every list
+    //   refreshes via its existing method.
+    document.addEventListener('task-closed', function(e){
+        var d = e.detail || {};
+        var id = d.taskId;
+        if (!id) return;
+        var ev = d.done ? 'task:completed' : 'task:uncompleted';
+        document.dispatchEvent(new CustomEvent(ev, {
+            bubbles: true, detail: { id: id },
+        }));
+    });
+
     //   <task-completed> emits 'task-completed:undo' when the user clicks
     //   Angre. Toggle the task back via the service and dispatch
     //   'task:uncompleted' so every list refreshes via its method.
@@ -2137,6 +2153,7 @@ document.addEventListener('keydown', function(e){
 <script type="module" src="/components/entity-callout.js"></script>
 <script type="module" src="/components/entity-mention.js"></script>
 <script type="module" src="/components/inline-action.js"></script>
+<script type="module" src="/components/inline-task.js"></script>
 <script type="module" src="/components/icon-picker.js"></script>
 <script type="module" src="/components/tag-editor.js"></script>
 <script type="module" src="/components/people-page.js"></script>
@@ -2476,7 +2493,13 @@ function linkMentions(html, people, companies) {
     if (!html) return html;
     people = people || loadPeople();
     companies = companies || loadCompanies();
-    let out = html.replace(/\{\{([^{}]+)\}\}/g, (_m, inner) => {
+    // Reference forms first: {{?<id>}} (open) and {{!<id>}} (closed).
+    // These render as interactive checkboxes via <inline-task>.
+    let out = html.replace(/\{\{([!?])([^{}\s]+)\}\}/g, (_m, kind, id) => {
+        const state = kind === '!' ? 'done' : 'open';
+        return `<inline-task task-id="${escapeHtml(id)}" state="${state}"></inline-task>`;
+    });
+    out = out.replace(/\{\{([^{}]+)\}\}/g, (_m, inner) => {
         const t = inner.trim();
         if (!t) return '';
         return `<inline-action kind="task" label="${escapeHtml(t)}"></inline-action>`;
@@ -4930,6 +4953,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
     <script type="module" src="/components/entity-callout.js"></script>
 <script type="module" src="/components/entity-mention.js"></script>
 <script type="module" src="/components/inline-action.js"></script>
+<script type="module" src="/components/inline-task.js"></script>
 <script type="module" src="/components/icon-picker.js"></script>
 <script type="module" src="/components/tag-editor.js"></script>
 <script type="module" src="/components/people-page.js"></script>
@@ -8549,40 +8573,51 @@ activateTab(initialParams.tab || 'people');
                 if (inline.tasks.length > 0) {
                     const allTasks = loadTasks();
                     const noteRef = `${folder}/${file}`;
+                    const newIds = [];
                     inline.tasks.forEach(text => {
+                        const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
                         allTasks.push({
-                            id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+                            id,
                             text,
                             done: false,
                             week: noteWeek,
                             noteRef,
                             created: new Date().toISOString(),
                         });
+                        newIds.push(id);
                     });
                     saveTasks(allTasks);
                     createdTasks = inline.tasks.length;
-                    finalContent = inline.cleanNote;
+                    // Rewrite each {{X}} marker (in order) to {{?<newId>}}
+                    // so the saved file keeps a stable ref to the new task.
+                    // Preserve the link so the note can render an interactive
+                    // checkbox and close-from-note works.
+                    let i = 0;
+                    finalContent = finalContent.replace(/\{\{([^{}!?][^{}]*)\}\}/g, (m) => {
+                        if (i >= newIds.length) return m;
+                        return `{{?${newIds[i++]}}}`;
+                    });
                 }
                 // Process '{{!<id>}}' close markers: close the matching open
-                // task and replace the marker with '~~<task text>~~' so the
-                // saved file renders as strikethrough. Keeps a stable visual
-                // record in the note while the source stays compact when
-                // typing.
+                // task. The marker is left in the file so the rendered note
+                // can show a checked checkbox with the task text, and so
+                // close-from-note can flip {{?id}} → {{!id}} in place.
                 {
                     const allTasks = loadTasks();
                     const re = /\{\{!\s*([^{}\s]+)\s*\}\}/g;
                     const seen = new Set();
-                    finalContent = finalContent.replace(re, (m, id) => {
+                    let m;
+                    while ((m = re.exec(finalContent)) !== null) {
+                        const id = m[1];
                         const t = allTasks.find(x => x.id === id);
-                        if (!t) return m; // unknown id — leave marker as-is
+                        if (!t) continue;
                         if (!t.done) {
                             t.done = true;
                             t.completedWeek = noteWeek;
                             t.completedAt = new Date().toISOString();
                             if (!seen.has(id)) { closedTasks++; seen.add(id); }
                         }
-                        return `~~${t.text || id}~~`;
-                    });
+                    }
                     if (seen.size > 0) saveTasks(allTasks);
                 }
                 // Also close any open task whose text appears verbatim as
@@ -10010,7 +10045,53 @@ activateTab(initialParams.tab || 'people');
         return;
     }
 
-    // API: delete task
+    // API: close (or reopen) a task from a rendered note view, also
+    // flipping the {{?<id>}} ↔ {{!<id>}} marker in the source note file
+    // so the rendered checkbox state persists.
+    const closeFromNoteMatch = pathname.match(/^\/api\/tasks\/([^/]+)\/close-from-note$/);
+    if (closeFromNoteMatch && req.method === 'POST') {
+        const id = closeFromNoteMatch[1];
+        let body = {};
+        try { body = JSON.parse(await readBody(req)); } catch {}
+        const wantDone = body.done !== undefined ? !!body.done : true;
+        const tasks = loadTasks();
+        const task = tasks.find(t => t.id === id);
+        if (!task) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Task not found' }));
+            return;
+        }
+        task.done = wantDone;
+        if (wantDone) {
+            task.completedAt = new Date().toISOString();
+            task.completedWeek = getCurrentYearWeek();
+        } else {
+            delete task.completedAt;
+            delete task.completedWeek;
+        }
+        saveTasks(tasks);
+        // Flip the marker in the source file when noteRef is set.
+        let noteUpdated = false;
+        if (task.noteRef && /^[^/]+\/[^/]+\.md$/.test(task.noteRef)) {
+            const filePath = path.join(dataDir(), task.noteRef);
+            try {
+                if (fs.existsSync(filePath)) {
+                    let content = fs.readFileSync(filePath, 'utf-8');
+                    const fromKind = wantDone ? '?' : '!';
+                    const toKind = wantDone ? '!' : '?';
+                    const re = new RegExp(`\\{\\{\\${fromKind}\\s*${id}\\s*\\}\\}`, 'g');
+                    const next = content.replace(re, `{{${toKind}${id}}}`);
+                    if (next !== content) {
+                        fs.writeFileSync(filePath, next, 'utf-8');
+                        noteUpdated = true;
+                    }
+                }
+            } catch (e) { /* non-fatal */ }
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, task, noteUpdated }));
+        return;
+    }
     const deleteMatch = pathname.match(/^\/api\/tasks\/([^/]+)$/);
     if (deleteMatch && req.method === 'DELETE') {
         let tasks = loadTasks();

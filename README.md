@@ -10,6 +10,12 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-05-01 (inline task-checkbokser i renderte notater)
+- `{{X}}`-markører i ukenotater er nå **toveis koblet** til oppgaven: ved lagring rewrites markøren til `{{?<id>}}` (åpen) i filen, og oppgaven får `noteRef` til kildenotatet.
+- I rendret notat vises `{{?<id>}}` / `{{!<id>}}` som en interaktiv checkbox (`<inline-task>`-komponenten) med oppgaveteksten. Klikk veksler done-status via `POST /api/tasks/:id/close-from-note`, som også flipper markøren i kildefilen mellom `?` og `!`.
+- Komponenten emitter et bobblende `task-closed`-event (`{ taskId, done }`); shellen videresender det til de eksisterende `task:completed`/`task:uncompleted`-eventene så åpne/lukkede oppgavelister oppdateres uten reload.
+- Editor-preview gjenkjenner nå alle tre markørformer: `{{X}}` og `{{?id}}` → fet, `{{!id}}` → gjennomstreking.
+
 ### 2026-05-01 (snarveier, snarvei-bar, småfikser)
 - Slim **snarvei-bar** nederst på alle sider med alle aktive hurtigtaster (Alt+H/O/K/P/R/N/S, Esc, ?). Fast plassert; ingen opacity. `?` åpner hjelp-modalet (suppressed når man skriver i input/textarea).
 - Alle Alt+ navigasjons-snarveier dokumentert i `help.md` er nå faktisk koblet (`Alt+H` → Hjem via brand-link, `Alt+O/K/P/R/S` → Oppgaver/Kalender/Personer/Resultater/Innstillinger).
