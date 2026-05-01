@@ -385,35 +385,55 @@ class NoteEditor extends WNElement {
     }
 
     // Preview-only transforms for inline markers:
-    //  - '{{!<id>}}' close markers → '1. [x] <task text>' GFM list item
-    //  - '{{?<id>}}' open markers  → '1. [ ] <task text>' GFM list item
-    //  - '{{X}}' new-task markers  → '1. [ ] X'           GFM list item
-    // Numbered list form so adjacent markers collapse into a single
-    // ordered task-list. Markers are wrapped with blank lines so
-    // marked's GFM parser recognizes them as task-list items even
-    // when they sit inline in a paragraph. The textarea/source keeps
-    // the brace forms; the server applies the closing/creating
-    // substitutions on explicit save.
+    //  - A run of 2+ adjacent markers becomes an ordered task list
+    //    ('1. [ ] text' / '1. [x] text') so marked produces a single
+    //    <ol> with checkbox items.
+    //  - A single marker stays inline as raw '<input type="checkbox">'
+    //    HTML so it renders as a checkbox without forcing a list.
+    //  - '{{X}}' (no id yet) is treated like an open ref using its
+    //    inner text.
+    // The textarea/source keeps the brace forms; the server applies
+    // the closing/creating substitutions on explicit save.
     _previewTransform(md) {
         if (!md) return md;
         const map = this._taskTextById;
         if (!map) {
-            // Lazy-load on first preview render. When ready, re-render.
             this._loadTaskTexts();
         }
-        let out = md.replace(/\{\{!\s*([^{}\s]+)\s*\}\}/g, (m, id) => {
+        // Resolve a marker (kind + id-or-text) to display text + checkbox state.
+        const resolve = (kind, id) => {
+            if (kind === 'X') return { text: id, done: false };
             const text = map && map[id];
-            if (!text) return m;
-            return `\n\n1. [x] ${text}\n\n`;
+            if (!text) return null;
+            return { text, done: kind === '!' };
+        };
+        // Token regex: '{{?id}}', '{{!id}}', or '{{X}}' (typing form).
+        // Inner text of typing form must not start with '!' or '?'.
+        const TOKEN = /\{\{(?:([!?])([^{}\s]+)|([^{}!?][^{}]*))\}\}/g;
+        const RUN = /(?:\{\{(?:[!?][^{}\s]+|[^{}!?][^{}]*)\}\}\s+){1,}\{\{(?:[!?][^{}\s]+|[^{}!?][^{}]*)\}\}/g;
+        const itemFor = (m) => {
+            const km = /\{\{(?:([!?])([^{}\s]+)|([^{}!?][^{}]*))\}\}/.exec(m);
+            const kind = km[1] || 'X';
+            const id = km[2] || (km[3] || '').trim();
+            const r = resolve(kind, id);
+            if (!r) return null;
+            return r.done ? `1. [x] ${r.text}` : `1. [ ] ${r.text}`;
+        };
+        let out = md.replace(RUN, (run) => {
+            const items = run.match(/\{\{(?:[!?][^{}\s]+|[^{}!?][^{}]*)\}\}/g) || [];
+            const lines = items.map(itemFor).filter(Boolean);
+            if (lines.length < 2) return run;
+            return `\n\n${lines.join('\n')}\n\n`;
         });
-        out = out.replace(/\{\{\?\s*([^{}\s]+)\s*\}\}/g, (m, id) => {
-            const text = map && map[id];
+        // Remaining single markers → inline checkbox via raw HTML
+        // (marked passes <input> through inside paragraphs).
+        out = out.replace(TOKEN, (m, kind, id, plain) => {
+            const k = kind || 'X';
+            const text = (k === 'X') ? (plain || '').trim() : (map && map[id]);
             if (!text) return m;
-            return `\n\n1. [ ] ${text}\n\n`;
+            const checked = k === '!' ? ' checked' : '';
+            return `<input type="checkbox" disabled${checked}> ${text}`;
         });
-        // Inner text must not contain '{' or '}' (so we don't swallow
-        // ref markers) and not start with '!' or '?' (ref-marker syntax).
-        out = out.replace(/\{\{([^{}!?][^{}]*)\}\}/g, (_, inner) => `\n\n1. [ ] ${inner.trim()}\n\n`);
         return out;
     }
 

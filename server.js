@@ -2490,16 +2490,31 @@ function escapeHtml(str) {
 // Replace @name in already-escaped/rendered HTML with a link to /people (no @).
 // Uses people + companies registries for display name and type-specific anchor.
 // Markdown pre-processor for task reference markers.
-// Converts '{{?<id>}}' / '{{!<id>}}' into ordered-list-item HTML so
-// adjacent markers in the source collapse into a single <ol> when
-// passed through marked. Result HTML uses <inline-task> elements
-// which upgrade in the browser to interactive checkboxes.
+// Behaviour:
+//   - A run of 2+ adjacent '{{?id}}'/'{{!id}}' markers (separated
+//     only by whitespace) is rewritten as an ordered task list, so
+//     marked renders a single <ol> with one <inline-task> per item.
+//   - A single marker is left inline as raw <inline-task> HTML,
+//     which marked passes through inside the surrounding paragraph.
 function preTaskMarkers(md) {
     if (!md) return md;
-    return md.replace(/\{\{([!?])([^{}\s]+)\}\}/g, (_m, kind, id) => {
+    const taskTag = (kind, id) => {
         const state = kind === '!' ? 'done' : 'open';
-        return `\n\n1. <inline-task task-id="${escapeHtml(id)}" state="${state}"></inline-task>\n\n`;
+        return `<inline-task task-id="${escapeHtml(id)}" state="${state}"></inline-task>`;
+    };
+    // Match runs of 2+ markers separated only by whitespace.
+    const runRe = /\{\{[!?][^{}\s]+\}\}(?:\s+\{\{[!?][^{}\s]+\}\})+/g;
+    let out = md.replace(runRe, run => {
+        const items = run.match(/\{\{([!?])([^{}\s]+)\}\}/g) || [];
+        const lines = items.map(m => {
+            const km = m.match(/\{\{([!?])([^{}\s]+)\}\}/);
+            return `1. ${taskTag(km[1], km[2])}`;
+        }).join('\n');
+        return `\n\n${lines}\n\n`;
     });
+    // Remaining single markers stay inline.
+    out = out.replace(/\{\{([!?])([^{}\s]+)\}\}/g, (_m, kind, id) => taskTag(kind, id));
+    return out;
 }
 
 function linkMentions(html, people, companies) {
