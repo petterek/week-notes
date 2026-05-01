@@ -39,6 +39,50 @@ function currentHead() {
     } catch { return 'unknown'; }
 }
 
+// Latest reachable release tag from the app repo HEAD (e.g. "v2"). Used
+// to derive the migration branch name in the context repo. Returns null
+// when no tag is reachable (or git not available).
+function currentReleaseTag() {
+    try {
+        return execSync('git describe --tags --abbrev=0', { cwd: REPO_ROOT, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }).trim() || null;
+    } catch { return null; }
+}
+
+function isGitRepo(dir) {
+    try {
+        execSync('git rev-parse --git-dir', { cwd: dir, stdio: 'ignore' });
+        return true;
+    } catch { return false; }
+}
+
+// Returns the porcelain status output (empty string = clean). Throws
+// if dir is not a git repo.
+function gitStatus(dir) {
+    return execSync('git status --porcelain', { cwd: dir, encoding: 'utf-8' });
+}
+
+function gitCurrentBranch(dir) {
+    try {
+        const out = execSync('git rev-parse --abbrev-ref HEAD', { cwd: dir, encoding: 'utf-8' }).trim();
+        return out === 'HEAD' ? null : out;
+    } catch { return null; }
+}
+
+function gitBranchExists(dir, name) {
+    try {
+        execSync(`git show-ref --verify --quiet refs/heads/${name}`, { cwd: dir, stdio: 'ignore' });
+        return true;
+    } catch { return false; }
+}
+
+function gitCheckoutOrCreate(dir, branch) {
+    if (gitBranchExists(dir, branch)) {
+        execSync(`git checkout ${branch}`, { cwd: dir, stdio: 'ignore' });
+    } else {
+        execSync(`git checkout -b ${branch}`, { cwd: dir, stdio: 'ignore' });
+    }
+}
+
 function isAncestor(maybeAncestor, descendant) {
     // Returns true if `maybeAncestor` is reachable from `descendant`.
     // Used to decide whether a migration with a `since` cutoff applies.
@@ -507,6 +551,57 @@ function migrateCtx(ctxId, opts) {
     log(`  target: ${head}`);
     if (fromHash === head && marker) {
         log(`  ✓ already at HEAD; checking migrations defensively…`);
+    }
+
+    // Pre-flight: when we'll actually write to disk, make sure the
+    // context repo is clean and switch to a per-release migration branch
+    // so the changes land somewhere reviewable.
+    let migrationBranch = null;
+    let originalBranch = null;
+    if (!opts.dryRun && isGitRepo(dir)) {
+        const dirty = gitStatus(dir).trim();
+        if (dirty) {
+            log(`  ✗ aborted: working tree has uncommitted changes — commit or stash before migrating.`);
+            return {
+                ctx: ctxId,
+                marker: fromHash,
+                target: head,
+                migrations: MIGRATIONS.map(m => ({ id: m.id, description: m.description, applies: !!m.appliesTo(fromHash, dir) })),
+                ranIds: [],
+                totalChanges: 0,
+                unknowns: [],
+                jsonProblems: [],
+                aborted: 'dirty-working-tree',
+                output: lines.join('\n'),
+            };
+        }
+        const tag = currentReleaseTag();
+        if (tag) {
+            migrationBranch = tag;
+            originalBranch = gitCurrentBranch(dir);
+            if (originalBranch !== migrationBranch) {
+                try {
+                    gitCheckoutOrCreate(dir, migrationBranch);
+                    log(`  branch: ${originalBranch || '(detached)'} → ${migrationBranch}`);
+                } catch (e) {
+                    log(`  ✗ aborted: could not checkout ${migrationBranch}: ${e.message.split('\n')[0]}`);
+                    return {
+                        ctx: ctxId,
+                        marker: fromHash,
+                        target: head,
+                        migrations: [],
+                        ranIds: [],
+                        totalChanges: 0,
+                        unknowns: [],
+                        jsonProblems: [],
+                        aborted: 'checkout-failed',
+                        output: lines.join('\n'),
+                    };
+                }
+            } else {
+                log(`  branch: ${migrationBranch} (already on it)`);
+            }
+        }
     }
 
     const onlySet = opts.only && opts.only.length ? new Set(opts.only) : null;
