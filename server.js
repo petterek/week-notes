@@ -550,7 +550,8 @@ function gitIsRepo(dir) {
 function gitInitIfNeeded(dir, contextName) {
     if (gitIsRepo(dir)) return false;
     try {
-        git(dir, 'init -q -b main');
+        const branch = currentReleaseTag() || 'main';
+        git(dir, `init -q -b ${branch}`);
         try { git(dir, `config user.email "ukenotater@local"`); } catch {}
         try { git(dir, `config user.name "Ukenotater"`); } catch {}
         try { git(dir, 'add -A'); } catch {}
@@ -560,6 +561,18 @@ function gitInitIfNeeded(dir, contextName) {
         console.error('git init failed for', dir, e.message);
         return false;
     }
+}
+
+// Latest reachable release tag from the app repo HEAD (e.g. "v2"),
+// or null if no tag is reachable / git is unavailable.
+function currentReleaseTag() {
+    try {
+        return require('child_process').execSync('git describe --tags --abbrev=0', {
+            cwd: __dirname,
+            encoding: 'utf-8',
+            stdio: ['pipe', 'pipe', 'ignore'],
+        }).trim() || null;
+    } catch { return null; }
 }
 
 function gitIsDirty(dir) {
@@ -595,6 +608,14 @@ function gitGetRemote(dir) {
     if (!gitIsRepo(dir)) return null;
     try { return git(dir, 'remote get-url origin').trim() || null; }
     catch { return null; }
+}
+
+function gitCurrentBranch(dir) {
+    if (!gitIsRepo(dir)) return null;
+    try {
+        const out = git(dir, 'rev-parse --abbrev-ref HEAD').trim();
+        return out === 'HEAD' ? null : out;
+    } catch { return null; }
 }
 
 function gitRemoteHasFile(dir, branch, file) {
@@ -9723,8 +9744,9 @@ activateTab(initialParams.tab || 'people');
         const dirty = isRepo ? gitIsDirty(dir) : false;
         const last = isRepo ? gitLastCommit(dir) : null;
         const remote = isRepo ? gitGetRemote(dir) : null;
+        const branch = isRepo ? gitCurrentBranch(dir) : null;
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ isRepo, dirty, last, remote }));
+        res.end(JSON.stringify({ isRepo, dirty, last, remote, branch }));
         return;
     }
 

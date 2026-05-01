@@ -1767,6 +1767,9 @@ class SettingsPage extends WNElement {
         if (!data.isRepo) { el.innerHTML = '<em>Ikke et git-repo enda. Eksplisitte lagringer vil opprette ett.</em>'; return; }
         const parts = [];
         parts.push(`<div><strong>Status:</strong> ${data.dirty ? '<span style="color:var(--danger)">● Endringer som ikke er committet</span>' : '<span style="color:var(--accent)">● Rent (alt committet)</span>'}</div>`);
+        if (data.branch) {
+            parts.push(`<div><strong>Branch:</strong> <code>${escapeHtml(data.branch)}</code></div>`);
+        }
         if (data.remote) {
             parts.push(`<div><strong>Remote:</strong> <code>${escapeHtml(data.remote)}</code></div>`);
         } else {
