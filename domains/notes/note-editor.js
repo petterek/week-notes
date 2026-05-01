@@ -252,7 +252,7 @@ class NoteEditor extends WNElement {
                 <button type="button" class="ne-detach" title="Åpne forhåndsvisning i eget vindu">📤 Detach</button>
                 <button type="button" class="ne-cancel">Avbryt</button>
                 <button type="button" class="ne-save">Lagre</button>
-                <button type="button" class="ne-save-close">Lagre og lukk</button>
+                <button type="button" class="ne-save-close" title="Ctrl+Shift+S">Lagre og lukk</button>
             </div>
             <div class="ne-meta-footer">
                 ${this._initialCreated ? html`<span><strong>Opprettet:</strong> ${this._fmtDate(this._initialCreated)}</span>` : ''}
@@ -330,12 +330,21 @@ class NoteEditor extends WNElement {
                 markDirty();
             });
         }
-        this._contentEl.addEventListener('keydown', (e) => {
+        const saveKeyHandler = (e) => {
             if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
                 e.preventDefault();
-                this.save(false);
+                if (e.shiftKey) this.save(true);
+                else this.save(false);
             }
-        });
+        };
+        this._contentEl.addEventListener('keydown', saveKeyHandler);
+        this._docKeyHandler = (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 's' || e.key === 'S')) {
+                e.preventDefault();
+                this.save(true);
+            }
+        };
+        document.addEventListener('keydown', this._docKeyHandler);
 
         setTimeout(() => this._contentEl.focus(), 0);
     }
@@ -550,6 +559,10 @@ class NoteEditor extends WNElement {
     }
 
     disconnectedCallback() {
+        if (this._docKeyHandler) {
+            document.removeEventListener('keydown', this._docKeyHandler);
+            this._docKeyHandler = null;
+        }
         if (this._pipWindow) {
             try { this._pipWindow.close(); } catch (_) {}
             this._pipWindow = null;
