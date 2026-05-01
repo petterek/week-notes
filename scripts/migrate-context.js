@@ -154,6 +154,7 @@ const KNOWN_ROOT_DIRS = new Set([
     'companies',
     'places',
     'results',
+    'notes-meta',
 ]);
 
 function classifyRootEntry(name, isDir) {
@@ -473,6 +474,50 @@ function migrateSplitEntities(ctxDir, opts) {
     return changes;
 }
 
+// ------------------------------------------------------------------
+// Split notes-meta.json (single keyed map) into one sidecar per note:
+//   notes-meta/<week>/<file>.json
+// where the key "YYYY-WNN/foo.md" becomes notes-meta/YYYY-WNN/foo.md.json.
+// ------------------------------------------------------------------
+function migrateSplitNotesMeta(ctxDir, opts) {
+    const log = opts.log;
+    const legacy = path.join(ctxDir, 'notes-meta.json');
+    if (!fs.existsSync(legacy)) return 0;
+
+    let map;
+    try { map = JSON.parse(fs.readFileSync(legacy, 'utf-8')); }
+    catch (e) {
+        log(`  notes-meta.json: parse error (${e.message.split('\n')[0]}) — skipped`);
+        return 0;
+    }
+    if (!map || typeof map !== 'object' || Array.isArray(map)) {
+        log(`  notes-meta.json: not a keyed object — skipped`);
+        return 0;
+    }
+
+    const root = path.join(ctxDir, 'notes-meta');
+    if (!opts.dryRun) fs.mkdirSync(root, { recursive: true });
+    let written = 0;
+    let skipped = 0;
+    for (const key of Object.keys(map)) {
+        const slash = key.indexOf('/');
+        if (slash < 0) { skipped++; continue; }
+        const week = key.slice(0, slash);
+        const file = key.slice(slash + 1);
+        if (!week || !file) { skipped++; continue; }
+        const wdir = path.join(root, week);
+        const fpath = path.join(wdir, file + '.json');
+        if (!opts.dryRun) {
+            fs.mkdirSync(wdir, { recursive: true });
+            fs.writeFileSync(fpath, JSON.stringify(map[key], null, 2) + '\n');
+        }
+        written++;
+    }
+    if (!opts.dryRun) fs.unlinkSync(legacy);
+    log(`  notes-meta.json → notes-meta/<week>/<file>.json (${written} entr${written === 1 ? 'y' : 'ies'}${skipped ? `, ${skipped} skipped` : ''})`);
+    return written + 1;
+}
+
 const MIGRATIONS = [
     {
         id: 'week-iso-format',
@@ -512,6 +557,12 @@ const MIGRATIONS = [
             return SPLIT_ENTITIES.some(e => fs.existsSync(path.join(dir, e.file)));
         },
         run: migrateSplitEntities,
+    },
+    {
+        id: 'split-notes-meta-to-folders',
+        description: 'Split notes-meta.json into per-note sidecar files under notes-meta/<week>/<file>.json.',
+        appliesTo: (_hash, dir) => fs.existsSync(path.join(dir, 'notes-meta.json')),
+        run: migrateSplitNotesMeta,
     },
     // Future migrations: append here.
     //

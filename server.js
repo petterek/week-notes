@@ -504,6 +504,11 @@ function setContextSettings(name, data, opts) {
 function dataDir() { return path.join(CONTEXTS_DIR, getActiveContext()); }
 function tasksFile() { return path.join(dataDir(), 'tasks.json'); }
 function notesMetaFile() { return path.join(dataDir(), 'notes-meta.json'); }
+function notesMetaDir() { return path.join(dataDir(), 'notes-meta'); }
+function notesMetaSidecarPath(week, file) {
+    // Mirror layout: notes-meta/<week>/<file>.json
+    return path.join(notesMetaDir(), week, file + '.json');
+}
 function peopleFile() { return path.join(dataDir(), 'people.json'); }
 function resultsFile() { return path.join(dataDir(), 'results.json'); }
 function meetingsFile() { return path.join(dataDir(), 'meetings.json'); }
@@ -1098,30 +1103,112 @@ function syncTaskNote(task, rawNote, allTasks) {
 }
 
 function loadNotesMeta() {
+    // New layout: notes-meta/<week>/<file>.json. Falls back to legacy
+    // single-file notes-meta.json for unmigrated contexts.
+    const dir = notesMetaDir();
+    if (fs.existsSync(dir)) {
+        const out = {};
+        let weekDirs;
+        try { weekDirs = fs.readdirSync(dir, { withFileTypes: true }); }
+        catch { weekDirs = []; }
+        for (const wd of weekDirs) {
+            if (!wd.isDirectory()) continue;
+            const wdir = path.join(dir, wd.name);
+            let files;
+            try { files = fs.readdirSync(wdir); } catch { continue; }
+            for (const fname of files) {
+                if (!fname.endsWith('.json')) continue;
+                const noteFile = fname.slice(0, -5);
+                try {
+                    out[wd.name + '/' + noteFile] = JSON.parse(fs.readFileSync(path.join(wdir, fname), 'utf-8'));
+                } catch {}
+            }
+        }
+        return out;
+    }
     try { return JSON.parse(fs.readFileSync(notesMetaFile(), 'utf-8')); }
     catch { return {}; }
 }
 
 function saveNotesMeta(meta) {
-    fs.writeFileSync(notesMetaFile(), JSON.stringify(meta, null, 2), 'utf-8');
+    // Bulk replace: write each entry as its own sidecar, prune any
+    // sidecars whose key isn't present in `meta`. Used only by the
+    // legacy code path that loads-mutates-saves the whole map.
+    const dir = notesMetaDir();
+    fs.mkdirSync(dir, { recursive: true });
+    const wantPaths = new Set();
+    for (const key of Object.keys(meta || {})) {
+        const slash = key.indexOf('/');
+        if (slash < 0) continue;
+        const week = key.slice(0, slash);
+        const file = key.slice(slash + 1);
+        const wdir = path.join(dir, week);
+        fs.mkdirSync(wdir, { recursive: true });
+        const fpath = path.join(wdir, file + '.json');
+        fs.writeFileSync(fpath, JSON.stringify(meta[key], null, 2), 'utf-8');
+        wantPaths.add(fpath);
+    }
+    // Prune orphan sidecars + empty week dirs.
+    let weekDirs;
+    try { weekDirs = fs.readdirSync(dir, { withFileTypes: true }); }
+    catch { weekDirs = []; }
+    for (const wd of weekDirs) {
+        if (!wd.isDirectory()) continue;
+        const wdir = path.join(dir, wd.name);
+        let files;
+        try { files = fs.readdirSync(wdir); } catch { continue; }
+        for (const fname of files) {
+            if (!fname.endsWith('.json')) continue;
+            const fpath = path.join(wdir, fname);
+            if (!wantPaths.has(fpath)) {
+                try { fs.unlinkSync(fpath); } catch {}
+            }
+        }
+        try {
+            if (fs.readdirSync(wdir).length === 0) fs.rmdirSync(wdir);
+        } catch {}
+    }
+    // Drop the legacy single-file once we've migrated to sidecars.
+    try { if (fs.existsSync(notesMetaFile())) fs.unlinkSync(notesMetaFile()); } catch {}
 }
 
 function getNoteMeta(week, file) {
-    const meta = loadNotesMeta();
-    return meta[week + '/' + file] || {};
+    // Read the sidecar directly when present — O(1) lookup.
+    try {
+        return JSON.parse(fs.readFileSync(notesMetaSidecarPath(week, file), 'utf-8'));
+    } catch {}
+    // Fallback: scan the legacy single-file shape if the sidecar
+    // doesn't exist (unmigrated context).
+    if (fs.existsSync(notesMetaFile())) {
+        const meta = loadNotesMeta();
+        return meta[week + '/' + file] || {};
+    }
+    return {};
 }
 
 function setNoteMeta(week, file, data) {
-    const meta = loadNotesMeta();
-    const key = week + '/' + file;
-    meta[key] = { ...(meta[key] || {}), ...data };
-    saveNotesMeta(meta);
+    const cur = getNoteMeta(week, file);
+    const merged = { ...cur, ...data };
+    const fpath = notesMetaSidecarPath(week, file);
+    fs.mkdirSync(path.dirname(fpath), { recursive: true });
+    fs.writeFileSync(fpath, JSON.stringify(merged, null, 2), 'utf-8');
 }
 
 function deleteNoteMeta(week, file) {
-    const meta = loadNotesMeta();
-    delete meta[week + '/' + file];
-    saveNotesMeta(meta);
+    try { fs.unlinkSync(notesMetaSidecarPath(week, file)); } catch {}
+    // Tidy empty week dir.
+    try {
+        const wdir = path.join(notesMetaDir(), week);
+        if (fs.readdirSync(wdir).length === 0) fs.rmdirSync(wdir);
+    } catch {}
+    // Legacy fallback: also strip the entry from the single-file map.
+    if (fs.existsSync(notesMetaFile())) {
+        try {
+            const meta = JSON.parse(fs.readFileSync(notesMetaFile(), 'utf-8'));
+            delete meta[week + '/' + file];
+            fs.writeFileSync(notesMetaFile(), JSON.stringify(meta, null, 2), 'utf-8');
+        } catch {}
+    }
 }
 
 // Convert a UTC ISO timestamp to local-time { date: "YYYY-MM-DD", time: "HH:MM" }.
@@ -2707,7 +2794,7 @@ function buildEmbedDocs() {
     // Notes
     try {
         const dRoot = dataDir();
-        const notesMeta = (function(){ try { return JSON.parse(fs.readFileSync(notesMetaFile(), 'utf-8')); } catch { return {}; } })();
+        const notesMeta = loadNotesMeta();
         for (const e of fs.readdirSync(dRoot, { withFileTypes: true })) {
             if (!e.isDirectory() || !/^\d{4}-W\d{2}$/.test(e.name)) continue;
             const wkDir = path.join(dRoot, e.name);
