@@ -666,69 +666,151 @@ function ensureAllContextsInitialised() {
     }
 }
 
+// ----- Per-item collection storage -------------------------------------
+//
+// Records are stored as one JSON file per item under
+//   data/<ctx>/<entity>/<idOrKey>.json
+//
+// During the transition we still fall back to the legacy single-array
+// JSON file (data/<ctx>/<entity>.json) when the folder doesn't exist
+// yet. The migration `split-entities-to-folders` (run from the settings
+// page) does the one-time conversion and removes the legacy file.
+
+// Filenames are restricted to a safe charset to avoid traversal.
+function sanitizeItemFilename(s) {
+    if (s === undefined || s === null) return '';
+    const str = String(s);
+    return str.replace(/[^A-Za-z0-9._-]/g, '_').replace(/^_+|_+$/g, '').slice(0, 120);
+}
+
+function entityDir(name) { return path.join(dataDir(), name); }
+function entityLegacyFile(name) { return path.join(dataDir(), name + '.json'); }
+
+function readJsonDirAll(dirName) {
+    const dir = entityDir(dirName);
+    let entries;
+    try { entries = fs.readdirSync(dir); } catch { return null; }
+    const items = [];
+    for (const fname of entries) {
+        if (!fname.endsWith('.json')) continue;
+        try {
+            const data = JSON.parse(fs.readFileSync(path.join(dir, fname), 'utf-8'));
+            items.push(data);
+        } catch { /* skip unreadable */ }
+    }
+    return items;
+}
+
+// Reads a per-item collection. Returns the array, or — if the folder
+// doesn't exist yet — falls back to the legacy <entity>.json file.
+function loadCollection(dirName) {
+    const fromDir = readJsonDirAll(dirName);
+    if (Array.isArray(fromDir)) return fromDir;
+    try {
+        const arr = JSON.parse(fs.readFileSync(entityLegacyFile(dirName), 'utf-8'));
+        return Array.isArray(arr) ? arr : [];
+    } catch { return []; }
+}
+
+// Pick a stable, filesystem-safe filename stem for an item.
+// Prefer `key` for human-readable lookups (people/companies/places),
+// fall back to `id`. Generate one if neither is present.
+function itemStem(item, idField) {
+    if (idField && item && item[idField] !== undefined && item[idField] !== '') {
+        const s = sanitizeItemFilename(item[idField]);
+        if (s) return s;
+    }
+    if (item && item.key) {
+        const s = sanitizeItemFilename(item.key);
+        if (s) return s;
+    }
+    if (item && item.id !== undefined && item.id !== '') {
+        const s = sanitizeItemFilename(item.id);
+        if (s) return s;
+    }
+    return 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+// Write the entire collection by syncing the folder: create/update one
+// file per item and remove any orphaned files. Matches the semantics
+// of the old `saveX(array)` calls (bulk replace).
+function syncCollection(dirName, items, idField) {
+    const dir = entityDir(dirName);
+    fs.mkdirSync(dir, { recursive: true });
+    const wantFiles = new Set();
+    const usedStems = new Set();
+    for (const item of (items || [])) {
+        let stem = itemStem(item, idField);
+        // Avoid stem collisions across items (e.g. two people sharing a
+        // key after a merge). Append a short suffix if needed.
+        while (usedStems.has(stem)) {
+            stem = stem + '_' + Math.random().toString(36).slice(2, 5);
+        }
+        usedStems.add(stem);
+        const fname = stem + '.json';
+        wantFiles.add(fname);
+        fs.writeFileSync(path.join(dir, fname), JSON.stringify(item, null, 2), 'utf-8');
+    }
+    // Prune orphans.
+    let existing;
+    try { existing = fs.readdirSync(dir); } catch { existing = []; }
+    for (const fname of existing) {
+        if (!fname.endsWith('.json')) continue;
+        if (!wantFiles.has(fname)) {
+            try { fs.unlinkSync(path.join(dir, fname)); } catch {}
+        }
+    }
+}
+
 function loadTasks() {
-    try { return JSON.parse(fs.readFileSync(tasksFile(), 'utf-8')); }
-    catch { return []; }
+    return loadCollection('tasks');
 }
 
 function saveTasks(tasks) {
-    fs.writeFileSync(tasksFile(), JSON.stringify(tasks, null, 2), 'utf-8');
+    syncCollection('tasks', tasks, 'id');
 }
 
 function loadPeople() {
-    try {
-        const all = JSON.parse(fs.readFileSync(peopleFile(), 'utf-8'));
-        return Array.isArray(all) ? all.filter(p => !p.deleted) : [];
-    }
-    catch { return []; }
+    const all = loadCollection('people');
+    return all.filter(p => !p.deleted);
 }
 
 function loadAllPeople() {
     // Includes tombstoned (deleted:true) entries; used by syncMentions
     // to avoid auto-recreating people that the user explicitly deleted.
-    try { return JSON.parse(fs.readFileSync(peopleFile(), 'utf-8')); }
-    catch { return []; }
+    return loadCollection('people');
 }
 
 function savePeople(people) {
-    fs.writeFileSync(peopleFile(), JSON.stringify(people, null, 2), 'utf-8');
+    syncCollection('people', people, 'key');
 }
 
 function loadMeetings() {
-    try { return JSON.parse(fs.readFileSync(meetingsFile(), 'utf-8')); }
-    catch { return []; }
+    return loadCollection('meetings');
 }
 
 function saveMeetings(meetings) {
-    fs.writeFileSync(meetingsFile(), JSON.stringify(meetings, null, 2), 'utf-8');
+    syncCollection('meetings', meetings, 'id');
 }
 
 function loadCompanies() {
-    try {
-        const all = JSON.parse(fs.readFileSync(companiesFile(), 'utf-8'));
-        return Array.isArray(all) ? all.filter(c => !c.deleted) : [];
-    } catch { return []; }
+    return loadCollection('companies').filter(c => !c.deleted);
 }
 function loadAllCompanies() {
-    try { return JSON.parse(fs.readFileSync(companiesFile(), 'utf-8')); }
-    catch { return []; }
+    return loadCollection('companies');
 }
 function saveCompanies(companies) {
-    fs.writeFileSync(companiesFile(), JSON.stringify(companies, null, 2), 'utf-8');
+    syncCollection('companies', companies, 'key');
 }
 
 function loadPlaces() {
-    try {
-        const all = JSON.parse(fs.readFileSync(placesFile(), 'utf-8'));
-        return Array.isArray(all) ? all.filter(p => !p.deleted) : [];
-    } catch { return []; }
+    return loadCollection('places').filter(p => !p.deleted);
 }
 function loadAllPlaces() {
-    try { return JSON.parse(fs.readFileSync(placesFile(), 'utf-8')); }
-    catch { return []; }
+    return loadCollection('places');
 }
 function savePlaces(places) {
-    fs.writeFileSync(placesFile(), JSON.stringify(places, null, 2), 'utf-8');
+    syncCollection('places', places, 'key');
 }
 
 const DEFAULT_MEETING_TYPES = [
@@ -886,12 +968,11 @@ function syncMentions(...texts) {
 }
 
 function loadResults() {
-    try { return JSON.parse(fs.readFileSync(resultsFile(), 'utf-8')); }
-    catch { return []; }
+    return loadCollection('results');
 }
 
 function saveResults(results) {
-    fs.writeFileSync(resultsFile(), JSON.stringify(results, null, 2), 'utf-8');
+    syncCollection('results', results, 'id');
 }
 
 // Extract [bracketed text] from a note, return { results: string[], cleanNote: string }

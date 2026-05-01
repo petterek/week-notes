@@ -102,7 +102,15 @@ const KNOWN_ROOT_FILES = new Set([
     'companies.json',
     'places.json',
 ]);
-const KNOWN_ROOT_DIRS = new Set(['.git']);
+const KNOWN_ROOT_DIRS = new Set([
+    '.git',
+    'tasks',
+    'meetings',
+    'people',
+    'companies',
+    'places',
+    'results',
+]);
 
 function classifyRootEntry(name, isDir) {
     if (isDir) {
@@ -336,6 +344,91 @@ function migrateGitignore(ctxDir, opts) {
     return changes;
 }
 
+// ------------------------------------------------------------------
+// split-entities-to-folders
+//
+// Converts each <entity>.json (array) into one JSON file per item
+// under <entity>/, then deletes the legacy file.
+//
+//   tasks.json    → tasks/<id>.json
+//   meetings.json → meetings/<id>.json
+//   results.json  → results/<id>.json
+//   people.json   → people/<key>.json   (tombstones kept)
+//   companies.json → companies/<key>.json (tombstones kept)
+//   places.json   → places/<key>.json   (tombstones kept)
+//
+// Idempotent: if the folder already exists for an entity, the legacy
+// file is just removed.
+// ------------------------------------------------------------------
+
+const SPLIT_ENTITIES = [
+    { file: 'tasks.json', dir: 'tasks', idField: 'id' },
+    { file: 'meetings.json', dir: 'meetings', idField: 'id' },
+    { file: 'results.json', dir: 'results', idField: 'id' },
+    { file: 'people.json', dir: 'people', idField: 'key' },
+    { file: 'companies.json', dir: 'companies', idField: 'key' },
+    { file: 'places.json', dir: 'places', idField: 'key' },
+];
+
+function sanitizeStem(s) {
+    if (s === undefined || s === null) return '';
+    return String(s).replace(/[^A-Za-z0-9._-]/g, '_').replace(/^_+|_+$/g, '').slice(0, 120);
+}
+
+function pickStem(item, idField, used) {
+    const candidates = [];
+    if (idField && item && item[idField] !== undefined) candidates.push(item[idField]);
+    if (item && item.key) candidates.push(item.key);
+    if (item && item.id) candidates.push(item.id);
+    for (const c of candidates) {
+        const s = sanitizeStem(c);
+        if (s && !used.has(s)) return s;
+    }
+    // Fall back to a generated stem; collide-safe.
+    let stem = 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    while (used.has(stem)) stem += '_' + Math.random().toString(36).slice(2, 4);
+    return stem;
+}
+
+function migrateSplitEntities(ctxDir, opts) {
+    const log = opts.log;
+    let changes = 0;
+    for (const ent of SPLIT_ENTITIES) {
+        const legacy = path.join(ctxDir, ent.file);
+        const dir = path.join(ctxDir, ent.dir);
+        const hasLegacy = fs.existsSync(legacy);
+        if (!hasLegacy) continue;
+
+        let arr;
+        try { arr = JSON.parse(fs.readFileSync(legacy, 'utf-8')); }
+        catch (e) {
+            log(`  ${ent.file}: parse error (${e.message.split('\n')[0]}) — skipped`);
+            continue;
+        }
+        if (!Array.isArray(arr)) {
+            log(`  ${ent.file}: not an array — skipped`);
+            continue;
+        }
+
+        if (!opts.dryRun) fs.mkdirSync(dir, { recursive: true });
+        const used = new Set();
+        let written = 0;
+        for (const item of arr) {
+            const stem = pickStem(item, ent.idField, used);
+            used.add(stem);
+            const fname = stem + '.json';
+            if (!opts.dryRun) {
+                fs.writeFileSync(path.join(dir, fname), JSON.stringify(item, null, 2) + '\n');
+            }
+            written++;
+        }
+        if (!opts.dryRun) fs.unlinkSync(legacy);
+        log(`  ${ent.file} → ${ent.dir}/ (${written} item${written === 1 ? '' : 's'})`);
+        changes += written + 1;
+    }
+    return changes;
+}
+
 const MIGRATIONS = [
     {
         id: 'week-iso-format',
@@ -367,6 +460,14 @@ const MIGRATIONS = [
             return false;
         },
         run: migrateGitignore,
+    },
+    {
+        id: 'split-entities-to-folders',
+        description: 'Split tasks/meetings/results/people/companies/places JSON arrays into one-file-per-item folders.',
+        appliesTo: (_hash, dir) => {
+            return SPLIT_ENTITIES.some(e => fs.existsSync(path.join(dir, e.file)));
+        },
+        run: migrateSplitEntities,
     },
     // Future migrations: append here.
     //
