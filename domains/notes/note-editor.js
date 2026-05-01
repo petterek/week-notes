@@ -385,15 +385,14 @@ class NoteEditor extends WNElement {
     }
 
     // Preview-only transforms for inline markers:
-    //  - '{{!<id>}}' close markers → '- [x] <task text>' on its own line
-    //  - '{{?<id>}}' open markers  → '- [ ] <task text>' on its own line
-    //  - '{{X}}' new-task markers  → '**X**' (bold; no id yet)
-    // Markers are rewritten to GFM task-list items so marked renders a
-    // real checkbox. To make this work even when the marker sits in
-    // the middle of a paragraph, we surround the substitution with
-    // blank lines so the GFM list parser kicks in. The textarea/
-    // source keeps the brace forms; the server applies the closing/
-    // creating substitutions on explicit save.
+    //  - '{{!<id>}}' close markers → '- [x] <task text>' GFM list item
+    //  - '{{?<id>}}' open markers  → '- [ ] <task text>' GFM list item
+    //  - '{{X}}' new-task markers  → '- [ ] X'           GFM list item
+    // Markers are wrapped with blank lines so marked's GFM parser
+    // recognizes them as task-list items even when they sit inline in
+    // the middle of a paragraph. The textarea/source keeps the brace
+    // forms; the server applies the closing/creating substitutions on
+    // explicit save.
     _previewTransform(md) {
         if (!md) return md;
         const map = this._taskTextById;
@@ -413,7 +412,7 @@ class NoteEditor extends WNElement {
         });
         // Inner text must not contain '{' or '}' (so we don't swallow
         // ref markers) and not start with '!' or '?' (ref-marker syntax).
-        out = out.replace(/\{\{([^{}!?][^{}]*)\}\}/g, (_, inner) => `**${inner.trim()}**`);
+        out = out.replace(/\{\{([^{}!?][^{}]*)\}\}/g, (_, inner) => `\n\n- [ ] ${inner.trim()}\n\n`);
         return out;
     }
 
