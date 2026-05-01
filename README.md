@@ -10,6 +10,13 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-05-01 (snarveier, snarvei-bar, småfikser)
+- Slim **snarvei-bar** nederst på alle sider med alle aktive hurtigtaster (Alt+H/O/K/P/R/N/S, Esc, ?). Fast plassert; ingen opacity. `?` åpner hjelp-modalet (suppressed når man skriver i input/textarea).
+- Alle Alt+ navigasjons-snarveier dokumentert i `help.md` er nå faktisk koblet (`Alt+H` → Hjem via brand-link, `Alt+O/K/P/R/S` → Oppgaver/Kalender/Personer/Resultater/Innstillinger).
+- "Nytt"-knappene på `<task-open-list>` og `<today-calendar>` er stilt likt — kompakt accent-pille med bare `+`.
+- Velkommen-fanen i Applikasjonsinnstillinger: fjernet `max-width`-kappene og satt `white-space: nowrap` på de fete labelne så ingen brytes midt i.
+- `/tasks`: byttet ut udefinert `<open-tasks>` med fungerende `<task-open-list>` (siden var tom).
+
 ### 2026-04-30 (summarize: lokal modell + ekstern i ny app-settings-fane)
 - Ny **📝 Oppsummer**-fane under Applikasjonsinnstillinger med samme tabell-/pill-mønster som Søk-fanen. Velg modell og slå funksjonen av/på.
 - Modellutvalg: **GitHub Models · gpt-4o-mini** (☁ Ekstern, krever `gh auth login` / `GH_TOKEN` — best kvalitet, anbefalt) + lokale seq2seq-modeller `distilbart-cnn-6-6/12-6`, `bart-large-cnn`, `t5-small`. Alle Xenova-modellene er trent på engelsk; for norsk er Ekstern det eneste reelle alternativet.
