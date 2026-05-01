@@ -57,6 +57,12 @@ const STYLES = `
         }
         .row-note-btn:hover { opacity: 1; }
         .row-note-btn.empty { opacity: 0.25; }
+        .row-del-btn {
+            border: 0; background: transparent; cursor: pointer;
+            opacity: 0.35; padding: 0 4px; font-size: 1em;
+            color: #c53030;
+        }
+        .row-del-btn:hover { opacity: 1; }
         .row-note-body {
             margin: 6px 0 2px 26px;
             color: var(--text); font-size: 0.92em;
@@ -83,6 +89,7 @@ function renderTask(t, people, companies) {
                     <span class="row-text">${textHtml}</span>
                     ${weekBadge}
                     <button type="button" class="${noteBtnCls}" data-act="note" data-taskid="${id}" title="${noteBtnTitle}">📓</button>
+                    <button type="button" class="row-del-btn" data-act="delete" data-taskid="${id}" data-tasktext="${t.text || ''}" title="Slett oppgave">✕</button>
                 </div>
                 ${noteBody}
             </div>
@@ -181,6 +188,26 @@ class TaskOpenList extends WNElement {
                     }
                     this.refresh();
                 });
+            });
+            this.shadowRoot.addEventListener('click', (ev) => {
+                const delBtn = ev.target.closest('button[data-act="delete"]');
+                if (!delBtn) return;
+                const id = delBtn.dataset.taskid;
+                const text = delBtn.dataset.tasktext || '';
+                if (!confirm(`Slette oppgaven «${text}»?`)) return;
+                (async () => {
+                    try {
+                        if (this.service && typeof this.service.remove === 'function') {
+                            await this.service.remove(id);
+                        }
+                    } catch (err) {
+                        console.error('task-open-list: delete failed', err);
+                    }
+                    this.refresh();
+                    this.dispatchEvent(new CustomEvent('task:deleted', {
+                        bubbles: true, composed: true, detail: { id },
+                    }));
+                })();
             });
             this.shadowRoot.addEventListener('click', (ev) => {
                 const addBtn = ev.target.closest('button[data-act="add"]');
