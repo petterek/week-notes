@@ -759,13 +759,13 @@ class NoteEditor extends WNElement {
         const tagTrigger = {
             // Detect '#tag' looking back from caret. Must be at start of
             // value or preceded by whitespace.
-            detect: (text, caret) => {
+            detect: (text, caret, opts) => {
                 let i = caret - 1;
                 while (i >= 0 && /[\w-]/.test(text[i])) i--;
                 if (i < 0 || text[i] !== '#') return null;
                 if (i > 0 && !/\s/.test(text[i - 1])) return null;
                 const frag = text.slice(i + 1, caret);
-                if (!frag) return null;
+                if (!frag && !(opts && opts.force)) return null;
                 return { query: frag, start: i, end: caret };
             },
             fetchItems: async () => {
@@ -794,13 +794,13 @@ class NoteEditor extends WNElement {
             // Detect '@word' with the same boundary rules as the legacy
             // mention parser: start of value or preceded by whitespace /
             // bracket / paren / comma / semicolon.
-            detect: (text, caret) => {
+            detect: (text, caret, opts) => {
                 let i = caret - 1;
                 while (i >= 0 && /[a-zA-ZæøåÆØÅ0-9_-]/.test(text[i])) i--;
                 if (i < 0 || text[i] !== '@') return null;
                 if (i > 0 && !/[\s(\[,;]/.test(text[i - 1])) return null;
                 const frag = text.slice(i + 1, caret);
-                if (!frag) return null;
+                if (!frag && !(opts && opts.force)) return null;
                 return { query: frag, start: i, end: caret };
             },
             fetchItems: async () => {

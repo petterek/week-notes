@@ -241,13 +241,25 @@ export function attachAutocomplete(target, config) {
         target.focus();
     }
 
-    async function update() {
+    function detectAny(opts) {
+        if (target.selectionStart !== target.selectionEnd) return null;
+        const value = target.value;
+        const caret = target.selectionStart;
+        for (const trig of triggers) {
+            let det;
+            try { det = trig.detect(value, caret, opts || {}); } catch (_) { det = null; }
+            if (det && det.start != null && det.end != null) return { trig, det };
+        }
+        return null;
+    }
+
+    async function update(opts) {
         if (target.selectionStart !== target.selectionEnd) { close(); return; }
         const value = target.value;
         const caret = target.selectionStart;
         for (const trig of triggers) {
             let det;
-            try { det = trig.detect(value, caret); } catch (_) { det = null; }
+            try { det = trig.detect(value, caret, opts || {}); } catch (_) { det = null; }
             if (!det) continue;
             const { query, start, end } = det;
             if (start == null || end == null) continue;
@@ -284,7 +296,16 @@ export function attachAutocomplete(target, config) {
     function onBlur()    { setTimeout(close, 150); }
 
     function onKeydown(e) {
-        if (pop.hidden) return;
+        if (pop.hidden) {
+            // Tab right after a trigger prefix opens the dropdown unfiltered.
+            if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                if (detectAny({ force: true })) {
+                    e.preventDefault();
+                    update({ force: true });
+                }
+            }
+            return;
+        }
         if (e.key === 'ArrowDown') { e.preventDefault(); setActive(Math.min(activeIdx + 1, currentItems.length - 1)); }
         else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(Math.max(activeIdx - 1, 0)); }
         else if (e.key === 'Enter' || e.key === 'Tab') {
