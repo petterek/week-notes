@@ -25,6 +25,7 @@
  *   note-editor:cancel
  */
 import { WNElement, html, escapeHtml, isoWeek } from './_shared.js';
+import { attachAutocomplete, replaceRange, highlightMatch } from '/components/wn-autocomplete.js';
 
 const STYLES = `
     :host {
@@ -305,8 +306,8 @@ class NoteEditor extends WNElement {
         if (this._editing) this.loadExisting(this._initialWeek, this._initialFile);
         this._renderPreview();
         this._loadThemeSuggestions();
-        this._installHashTagAutocomplete();
-        this._installCloseTaskAutocomplete();
+        this._installAutocompletes();
+        this._installTagSpaceCommit();
         this._installHistoryPanel();
 
         this._saveBtn.addEventListener('click', () => this.save(false));
@@ -559,6 +560,11 @@ class NoteEditor extends WNElement {
     }
 
     disconnectedCallback() {
+        if (this._acHandle) {
+            try { this._acHandle.destroy(); } catch (_) {}
+            this._acHandle = null;
+            this._acAttached = false;
+        }
         if (this._docKeyHandler) {
             document.removeEventListener('keydown', this._docKeyHandler);
             this._docKeyHandler = null;
@@ -626,307 +632,208 @@ class NoteEditor extends WNElement {
         } catch (_) {}
     }
 
-    _installHashTagAutocomplete() {
-        if (!this._contentEl) return;
-        // Build the popover lazily inside this component's shadow DOM.
+    _installTagSpaceCommit() {
+        // Pressing space after '#tagName' commits it as a tag in the
+        // tag-editor and strips the marker from the textarea — works
+        // independently of the autocomplete popover.
+        if (!this._contentEl || this._tagSpaceWired) return;
         const ta = this._contentEl;
-        const pop = document.createElement('div');
-        pop.className = 'ne-hashtag-pop';
-        pop.hidden = true;
-        Object.assign(pop.style, {
-            position: 'fixed', zIndex: '1000',
-            background: 'var(--surface, #fff)',
-            border: '1px solid var(--border, #ccc)',
-            borderRadius: '6px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
-            maxHeight: '200px', overflow: 'auto',
-            padding: '4px 0', minWidth: '160px',
-            font: 'inherit',
-        });
-        this.shadowRoot.appendChild(pop);
-
-        let activeIdx = -1;
-        let matchStart = -1;
-        let matchText = '';
-
-        const close = () => {
-            pop.hidden = true;
-            activeIdx = -1; matchStart = -1; matchText = '';
-            pop.innerHTML = '';
-        };
-
-        const renderList = (items) => {
-            if (!items.length) { close(); return; }
-            pop.innerHTML = items.map((t, i) => `
-                <button type="button" data-add="${escapeHtml(t)}" style="display:block;width:100%;text-align:left;background:${i === activeIdx ? 'var(--accent-soft,#e7f1fb)' : 'transparent'};color:${i === activeIdx ? 'var(--accent,#06c)' : 'inherit'};border:none;padding:4px 12px;cursor:pointer;font:inherit">#${escapeHtml(t)}</button>
-            `).join('');
-            pop.hidden = false;
-        };
-
-        const positionPop = () => {
-            const pos = this._caretCoords(ta);
-            const r = ta.getBoundingClientRect();
-            pop.style.left = (r.left + pos.left + 2) + 'px';
-            pop.style.top  = (r.top  + pos.top  + pos.height + 2) + 'px';
-        };
-
-        const update = () => {
-            const list = this._availableThemes;
-            if (!list || !list.length) { close(); return; }
+        ta.addEventListener('keydown', (e) => {
+            if (e.key !== ' ' || e.ctrlKey || e.metaKey || e.altKey) return;
             const caret = ta.selectionStart;
-            if (caret !== ta.selectionEnd) { close(); return; }
-            // Look back from caret for the start of #tag pattern; stop on whitespace or boundary.
+            if (caret !== ta.selectionEnd) return;
             const text = ta.value;
             let i = caret - 1;
             while (i >= 0 && /[\w-]/.test(text[i])) i--;
-            if (i < 0 || text[i] !== '#') { close(); return; }
-            // Must be at start of value or preceded by whitespace.
-            if (i > 0 && !/\s/.test(text[i - 1])) { close(); return; }
-            const frag = text.slice(i + 1, caret);
-            if (!frag) { close(); return; }
-            const f = frag.toLowerCase();
-            const existing = (this._tagsEl && this._tagsEl.tags) ? this._tagsEl.tags : [];
-            const matches = list.filter(t => !existing.includes(t) && t.startsWith(f)).slice(0, 8);
-            if (!matches.length) { close(); return; }
-            matchStart = i;
-            matchText = '#' + frag;
-            if (activeIdx >= matches.length) activeIdx = matches.length - 1;
-            if (activeIdx < 0) activeIdx = 0;
-            renderList(matches);
-            positionPop();
-        };
-
-        const accept = (tag) => {
-            if (matchStart < 0) return;
-            // Remove '#tag' from textarea, add to tag-editor.
-            const before = ta.value.slice(0, matchStart);
-            const after = ta.value.slice(matchStart + matchText.length);
+            if (i < 0 || text[i] !== '#') return;
+            if (i > 0 && !/\s/.test(text[i - 1])) return;
+            const word = text.slice(i + 1, caret);
+            if (!word) return;
+            e.preventDefault();
+            const before = text.slice(0, i);
+            const after = text.slice(caret);
             ta.value = before + after;
-            // Move cursor to where the # used to be.
-            try { ta.setSelectionRange(matchStart, matchStart); } catch (_) {}
+            try { ta.setSelectionRange(i, i); } catch (_) {}
             if (this._tagsEl) {
                 const cur = this._tagsEl.tags || [];
-                if (!cur.includes(tag)) this._tagsEl.tags = cur.concat([tag]);
+                if (!cur.includes(word)) this._tagsEl.tags = cur.concat([word]);
             }
-            close();
             this._renderPreview();
             this._markDirty();
-            ta.focus();
-        };
+        });
+        this._tagSpaceWired = true;
+    }
 
-        ta.addEventListener('input', update);
-        ta.addEventListener('click', update);
-        ta.addEventListener('keyup', (e) => {
-            if (['ArrowUp', 'ArrowDown', 'Enter', 'Escape', 'Tab'].includes(e.key)) return;
-            update();
-        });
-        ta.addEventListener('keydown', (e) => {
-            // Space after '#tagName': commit as tag (independent of popover).
-            if (e.key === ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-                const caret = ta.selectionStart;
-                if (caret === ta.selectionEnd) {
-                    const text = ta.value;
-                    let i = caret - 1;
-                    while (i >= 0 && /[\w-]/.test(text[i])) i--;
-                    if (i >= 0 && text[i] === '#' && (i === 0 || /\s/.test(text[i - 1]))) {
-                        const word = text.slice(i + 1, caret);
-                        if (word) {
-                            e.preventDefault();
-                            const before = text.slice(0, i);
-                            const after = text.slice(caret);
-                            ta.value = before + after;
-                            try { ta.setSelectionRange(i, i); } catch (_) {}
-                            if (this._tagsEl) {
-                                const cur = this._tagsEl.tags || [];
-                                if (!cur.includes(word)) this._tagsEl.tags = cur.concat([word]);
-                            }
-                            close();
-                            this._renderPreview();
-                            this._markDirty();
-                            return;
-                        }
-                    }
-                }
-            }
-            if (pop.hidden) return;
-            const items = pop.querySelectorAll('button[data-add]');
-            if (!items.length) return;
-            if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx = (activeIdx + 1) % items.length; renderList(Array.from(items).map(b => b.dataset.add)); }
-            else if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx = (activeIdx - 1 + items.length) % items.length; renderList(Array.from(items).map(b => b.dataset.add)); }
-            else if (e.key === 'Enter' || e.key === 'Tab') {
-                e.preventDefault();
-                const tag = items[activeIdx >= 0 ? activeIdx : 0].dataset.add;
-                accept(tag);
-            } else if (e.key === 'Escape') { e.preventDefault(); close(); }
-        });
-        ta.addEventListener('blur', () => setTimeout(close, 150));
-        pop.addEventListener('mousedown', (e) => {
-            const btn = e.target.closest('button[data-add]');
-            if (!btn) return;
-            e.preventDefault();
-            accept(btn.dataset.add);
-        });
+    _installHashTagAutocomplete() {
+        // Replaced by _installAutocompletes which registers a #tag trigger
+        // on the shared <wn-autocomplete> helper. Kept as a noop so any
+        // older callers still work.
     }
 
     _installCloseTaskAutocomplete() {
-        if (!this._contentEl) return;
+        // Replaced by _installAutocompletes (task + tag + mention triggers
+        // share the same popover via attachAutocomplete). Noop.
+    }
+
+    _installMentionAutocomplete() {
+        // Mentions are wired through _installAutocompletes too. Kept as a
+        // separate name in case external callers reference it.
+    }
+
+    _installAutocompletes() {
+        if (!this._contentEl || this._acAttached) return;
         const ta = this._contentEl;
         const tasksSvc = (typeof this.serviceFor === 'function') ? this.serviceFor('task') : null;
-        if (!tasksSvc || typeof tasksSvc.list !== 'function') return;
 
-        const pop = document.createElement('div');
-        pop.className = 'ne-closetask-pop';
-        pop.hidden = true;
-        Object.assign(pop.style, {
-            position: 'fixed', zIndex: '1000',
-            background: 'var(--surface, #fff)',
-            border: '1px solid var(--border, #ccc)',
-            borderRadius: '6px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
-            maxHeight: '240px', overflow: 'auto',
-            padding: '4px 0', minWidth: '240px',
-            font: 'inherit',
-        });
-        this.shadowRoot.appendChild(pop);
-
+        // Lazy caches — fetched on first activation, reused thereafter.
         let openTasks = null;
-        const ensureLoaded = async () => {
+        let people = null;
+        let companies = null;
+        const ensureOpenTasks = async () => {
             if (openTasks) return openTasks;
             try {
-                const all = await tasksSvc.list();
+                const all = (tasksSvc && typeof tasksSvc.list === 'function') ? await tasksSvc.list() : [];
                 openTasks = (Array.isArray(all) ? all : []).filter(t => !t.done);
             } catch (_) { openTasks = []; }
             return openTasks;
         };
-
-        let activeIdx = -1;
-        let matchStart = -1;
-        let matchEnd = -1;
-        let matchKind = '!'; // '!' = close marker, '?' = open ref
-        let currentItems = [];
-        let currentQuery = '';
-
-        const close = () => {
-            pop.hidden = true; activeIdx = -1; matchStart = -1; matchEnd = -1;
-            currentItems = []; currentQuery = ''; pop.innerHTML = '';
+        const ensurePeople = async () => {
+            if (people) return people;
+            try {
+                const r = await fetch('/api/people');
+                people = (await r.json() || []).filter(p => !p.inactive);
+            } catch (_) { people = []; }
+            return people;
+        };
+        const ensureCompanies = async () => {
+            if (companies) return companies;
+            try {
+                const r = await fetch('/api/companies');
+                companies = (await r.json() || []).filter(c => !c.deleted);
+            } catch (_) { companies = []; }
+            return companies;
         };
 
-        const renderList = (items, query) => {
-            if (!items.length) { close(); return; }
-            currentItems = items;
-            const icon = matchKind === '!' ? '✓' : '↗';
-            const words = (query || '').toLowerCase().split(/\s+/).filter(Boolean);
-            const highlight = (s) => {
-                let safe = escapeHtml(s || '');
-                if (!words.length) return safe;
-                // Highlight each word, longest first to avoid nested wrapping.
-                const sorted = [...words].sort((a, b) => b.length - a.length);
-                for (const w of sorted) {
-                    const esc = escapeHtml(w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                    safe = safe.replace(new RegExp(esc, 'gi'), m => `<mark style="background:var(--accent-soft,#fffae0);color:inherit;padding:0">${m}</mark>`);
+        const taskTrigger = {
+            // Detect '{{?' or '{{!' before the caret with no '}' or
+            // newline between. Extra carries the kind so onSelect can
+            // emit the right marker.
+            detect: (text, caret) => {
+                const upto = text.slice(0, caret);
+                const closeIdx = upto.lastIndexOf('{{!');
+                const openIdx  = upto.lastIndexOf('{{?');
+                const idx = Math.max(closeIdx, openIdx);
+                if (idx < 0) return null;
+                const between = upto.slice(idx + 3);
+                if (/[\n}]/.test(between)) return null;
+                const kind = (idx === closeIdx) ? '!' : '?';
+                return { query: between, start: idx, end: caret, extra: { kind } };
+            },
+            fetchItems: async () => {
+                const tasks = await ensureOpenTasks();
+                return tasks.map(t => ({
+                    value: t.id,
+                    label: t.text || '(uten tekst)',
+                    hint: t.week || '',
+                    week: t.week || '',
+                    created: t.created || '',
+                }));
+            },
+            filter: 'words',
+            limit: 12,
+            renderItem: (item, query) => {
+                const icon = '✓';
+                return `${icon} ${highlightMatch(item.label, query)}` +
+                    (item.hint ? `<span style="opacity:0.55;font-size:0.85em"> · ${highlightMatch(item.hint, query)}</span>` : '');
+            },
+            onSelect: (item, ctx) => {
+                const kind = (ctx.extra && ctx.extra.kind) || '!';
+                let endIdx = ctx.range.end;
+                if (ta.value.slice(endIdx, endIdx + 2) === '}}') endIdx += 2;
+                replaceRange(ta, ctx.range.start, endIdx, `{{${kind}${item.value}}} `);
+                this._renderPreview();
+                this._markDirty();
+            },
+        };
+
+        const tagTrigger = {
+            // Detect '#tag' looking back from caret. Must be at start of
+            // value or preceded by whitespace.
+            detect: (text, caret) => {
+                let i = caret - 1;
+                while (i >= 0 && /[\w-]/.test(text[i])) i--;
+                if (i < 0 || text[i] !== '#') return null;
+                if (i > 0 && !/\s/.test(text[i - 1])) return null;
+                const frag = text.slice(i + 1, caret);
+                if (!frag) return null;
+                return { query: frag, start: i, end: caret };
+            },
+            fetchItems: async () => {
+                const list = this._availableThemes || [];
+                const existing = (this._tagsEl && this._tagsEl.tags) ? this._tagsEl.tags : [];
+                return list
+                    .filter(t => !existing.includes(t))
+                    .map(t => ({ value: t, label: t }));
+            },
+            filter: 'starts',
+            limit: 8,
+            renderItem: (item, query) => `#${highlightMatch(item.label, query)}`,
+            onSelect: (item, ctx) => {
+                // Strip '#tag' from textarea, append to tag-editor.
+                replaceRange(ta, ctx.range.start, ctx.range.end, '');
+                if (this._tagsEl) {
+                    const cur = this._tagsEl.tags || [];
+                    if (!cur.includes(item.value)) this._tagsEl.tags = cur.concat([item.value]);
                 }
-                return safe;
-            };
-            const header = words.length
-                ? `<div style="padding:4px 12px 4px;font-size:0.78em;color:var(--text-muted,#666);border-bottom:1px solid var(--border,#eee);background:var(--surface-soft,#fafafa)">🔍 <em>${escapeHtml(query.trim())}</em> — ${items.length} treff</div>`
-                : `<div style="padding:4px 12px 4px;font-size:0.78em;color:var(--text-muted,#666);border-bottom:1px solid var(--border,#eee);background:var(--surface-soft,#fafafa)">🔍 skriv for å søke — ${items.length} oppgave${items.length === 1 ? '' : 'r'}</div>`;
-            pop.innerHTML = header + items.map((t, i) => `
-                <button type="button" data-id="${escapeHtml(t.id)}" style="display:block;width:100%;text-align:left;background:${i === activeIdx ? 'var(--accent-soft,#e7f1fb)' : 'transparent'};color:${i === activeIdx ? 'var(--accent,#06c)' : 'inherit'};border:none;padding:5px 12px;cursor:pointer;font:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${icon} ${highlight(t.text || '(uten tekst)')}<span style="opacity:0.55;font-size:0.85em"> · ${highlight(t.week || '')}</span></button>
-            `).join('');
-            pop.hidden = false;
+                this._renderPreview();
+                this._markDirty();
+            },
         };
 
-        const positionPop = () => {
-            const pos = this._caretCoords(ta);
-            const r = ta.getBoundingClientRect();
-            pop.style.left = (r.left + pos.left + 2) + 'px';
-            pop.style.top  = (r.top  + pos.top  + pos.height + 2) + 'px';
+        const mentionTrigger = {
+            // Detect '@word' with the same boundary rules as the legacy
+            // mention parser: start of value or preceded by whitespace /
+            // bracket / paren / comma / semicolon.
+            detect: (text, caret) => {
+                let i = caret - 1;
+                while (i >= 0 && /[a-zA-ZæøåÆØÅ0-9_-]/.test(text[i])) i--;
+                if (i < 0 || text[i] !== '@') return null;
+                if (i > 0 && !/[\s(\[,;]/.test(text[i - 1])) return null;
+                const frag = text.slice(i + 1, caret);
+                if (!frag) return null;
+                return { query: frag, start: i, end: caret };
+            },
+            fetchItems: async () => {
+                const [pp, cc] = await Promise.all([ensurePeople(), ensureCompanies()]);
+                const out = [];
+                for (const c of cc) {
+                    out.push({ value: c.key || c.name, label: c.name || c.key, hint: 'firma', kind: 'company' });
+                }
+                for (const p of pp) {
+                    const display = p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : p.name;
+                    out.push({ value: display || p.key, label: display || p.name || p.key, hint: '', kind: 'person', key: p.key });
+                }
+                return out;
+            },
+            filter: 'substring',
+            limit: 10,
+            renderItem: (item, query) => {
+                const tag = item.kind === 'company' ? '🏢' : '👤';
+                return `${tag} ${highlightMatch(item.label, query)}` +
+                    (item.hint ? `<span style="opacity:0.55;font-size:0.85em"> · ${item.hint}</span>` : '');
+            },
+            onSelect: (item, ctx) => {
+                replaceRange(ta, ctx.range.start, ctx.range.end, `@${item.value} `);
+                this._renderPreview();
+                this._markDirty();
+            },
         };
 
-        const update = async () => {
-            const caret = ta.selectionStart;
-            if (caret !== ta.selectionEnd) { close(); return; }
-            const text = ta.value;
-            // Find '{{!' or '{{?' looking back. Stop at line break,
-            // '}', or '{{' nesting break.
-            const upto = text.slice(0, caret);
-            const closeIdx = upto.lastIndexOf('{{!');
-            const openIdx  = upto.lastIndexOf('{{?');
-            const idx = Math.max(closeIdx, openIdx);
-            if (idx < 0) { close(); return; }
-            matchKind = (idx === closeIdx) ? '!' : '?';
-            const between = upto.slice(idx + 3);
-            if (/[\n}]/.test(between)) { close(); return; }
-            await ensureLoaded();
-            if (!openTasks || !openTasks.length) { close(); return; }
-            // Word-based search: every whitespace-separated word in
-            // the typed query must be a substring of the task text or
-            // its week. Score by how early the first word matches and
-            // by how recent the task is so the most likely target
-            // floats to the top.
-            const words = between.toLowerCase().split(/\s+/).filter(Boolean);
-            const scored = openTasks.map(t => {
-                const hay = ((t.text || '') + ' ' + (t.week || '')).toLowerCase();
-                if (words.length && !words.every(w => hay.includes(w))) return null;
-                const firstHit = words.length ? hay.indexOf(words[0]) : 0;
-                return { t, score: -firstHit + (t.created ? Date.parse(t.created) / 1e10 : 0) };
-            }).filter(Boolean);
-            scored.sort((a, b) => b.score - a.score);
-            const matches = scored.slice(0, 12).map(s => s.t);
-            if (!matches.length) { close(); return; }
-            matchStart = idx;
-            matchEnd = caret;
-            currentQuery = between;
-            if (activeIdx >= matches.length) activeIdx = matches.length - 1;
-            if (activeIdx < 0) activeIdx = 0;
-            renderList(matches, between);
-            positionPop();
-        };
-
-        const accept = (taskId) => {
-            if (matchStart < 0) return;
-            // Insert '{{!<id>}}' (close marker) or '{{?<id>}}' (open
-            // ref) depending on which trigger started this match. The
-            // server flips '{{?id}}'<->'{{!id}}' on toggle.
-            let endIdx = matchEnd;
-            if (ta.value.slice(endIdx, endIdx + 2) === '}}') endIdx += 2;
-            const insert = `{{${matchKind}${taskId}}} `;
-            const before = ta.value.slice(0, matchStart);
-            const after = ta.value.slice(endIdx);
-            ta.value = before + insert + after;
-            const pos = matchStart + insert.length;
-            try { ta.setSelectionRange(pos, pos); } catch (_) {}
-            close();
-            this._renderPreview();
-            this._markDirty();
-            ta.focus();
-        };
-
-        ta.addEventListener('input', update);
-        ta.addEventListener('click', update);
-        ta.addEventListener('keyup', (e) => {
-            if (['ArrowUp', 'ArrowDown', 'Enter', 'Escape', 'Tab'].includes(e.key)) return;
-            update();
+        this._acHandle = attachAutocomplete(ta, {
+            triggers: [taskTrigger, tagTrigger, mentionTrigger],
+            container: this.shadowRoot,
         });
-        ta.addEventListener('keydown', (e) => {
-            if (pop.hidden) return;
-            const items = pop.querySelectorAll('button[data-id]');
-            if (!items.length) return;
-            if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx = (activeIdx + 1) % items.length; renderList(currentItems, currentQuery); }
-            else if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx = (activeIdx - 1 + items.length) % items.length; renderList(currentItems, currentQuery); }
-            else if (e.key === 'Enter' || e.key === 'Tab') {
-                e.preventDefault();
-                const id = items[activeIdx >= 0 ? activeIdx : 0].dataset.id;
-                accept(id);
-            } else if (e.key === 'Escape') { e.preventDefault(); close(); }
-        });
-        ta.addEventListener('blur', () => setTimeout(close, 150));
-        pop.addEventListener('mousedown', (e) => {
-            const btn = e.target.closest('button[data-id]');
-            if (!btn) return;
-            e.preventDefault();
-            accept(btn.dataset.id);
-        });
+        this._acAttached = true;
     }
 
     _installHistoryPanel() {
