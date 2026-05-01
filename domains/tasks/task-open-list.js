@@ -91,7 +91,7 @@ function renderTask(t, people, companies) {
 
 class TaskOpenList extends WNElement {
     static get domain() { return 'tasks'; }
-    static get observedAttributes() { return ['tasks_service', 'people_service', 'companies_service']; }
+    static get observedAttributes() { return ['tasks_service', 'people_service', 'companies_service', 'show_add_button']; }
 
     css() { return STYLES; }
 
@@ -197,14 +197,20 @@ class TaskOpenList extends WNElement {
 
     render() {
         if (!this.service) return this.renderNoService();
+        const showAdd = this.getAttribute('show_add_button') !== 'false';
+        const addBtn = showAdd
+            ? html`<button type="button" class="add-btn" data-act="add" title="Ny oppgave">+</button>`
+            : '';
         const headerWithAdd = (countLabel) => html`
             <h3 class="side-h">
                 <span class="side-h-title">Åpne oppgaver${countLabel ? ' · ' + countLabel : ''}</span>
-                <button type="button" class="add-btn" data-act="add" title="Ny oppgave">+</button>
+                ${addBtn}
             </h3>
         `;
         const tasksSvcPath = this.getAttribute('tasks_service') || '';
-        const modals = html`<task-complete-modal></task-complete-modal><task-create-modal tasks_service="${tasksSvcPath}"></task-create-modal><task-note-modal></task-note-modal>`;
+        const modals = showAdd
+            ? html`<task-complete-modal></task-complete-modal><task-create-modal tasks_service="${tasksSvcPath}"></task-create-modal><task-note-modal></task-note-modal>`
+            : html`<task-complete-modal></task-complete-modal><task-note-modal></task-note-modal>`;
         if (!this._state) return html`${headerWithAdd('')}<p class="empty-quiet">Laster…</p>${modals}`;
         if (this._state.error) return html`${headerWithAdd('')}<p class="empty-quiet">Kunne ikke laste oppgaver</p>${modals}`;
 
