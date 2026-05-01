@@ -23,7 +23,7 @@ import './task-create-modal.js';
 import './task-note-modal.js';
 
 const STYLES = `
-        :host { display: block; color: var(--text-strong); font: inherit; }
+        :host { display: block; color: var(--text-strong); font: inherit; font-size: 0.92em; }
         .side-h {
             display: flex; align-items: center; justify-content: space-between;
             gap: 8px;

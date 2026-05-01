@@ -9,7 +9,7 @@
 import { WNElement, html, unsafeHTML, escapeHtml, linkMentions, wireMentionClicks, isoWeek } from './_shared.js';
 
 const STYLES = `
-    :host { display: block; color: var(--text-strong); font: inherit; }
+    :host { display: block; color: var(--text-strong); font: inherit; font-size: 0.92em; }
     .sec-h {
         font-family: var(--font-heading); font-weight: 400;
         color: var(--accent); border-bottom: 1px solid var(--border-soft);
