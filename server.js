@@ -2489,12 +2489,29 @@ function escapeHtml(str) {
 
 // Replace @name in already-escaped/rendered HTML with a link to /people (no @).
 // Uses people + companies registries for display name and type-specific anchor.
+// Markdown pre-processor for task reference markers.
+// Converts '{{?<id>}}' / '{{!<id>}}' into ordered-list-item HTML so
+// adjacent markers in the source collapse into a single <ol> when
+// passed through marked. Result HTML uses <inline-task> elements
+// which upgrade in the browser to interactive checkboxes.
+function preTaskMarkers(md) {
+    if (!md) return md;
+    return md.replace(/\{\{([!?])([^{}\s]+)\}\}/g, (_m, kind, id) => {
+        const state = kind === '!' ? 'done' : 'open';
+        return `\n\n1. <inline-task task-id="${escapeHtml(id)}" state="${state}"></inline-task>\n\n`;
+    });
+}
+
 function linkMentions(html, people, companies) {
     if (!html) return html;
     people = people || loadPeople();
     companies = companies || loadCompanies();
     // Reference forms first: {{?<id>}} (open) and {{!<id>}} (closed).
-    // These render as interactive checkboxes via <inline-task>.
+    // These render as interactive checkboxes via <inline-task>. When
+    // the input is raw markdown, preTaskMarkers (called before marked)
+    // already converted these into '1. <inline-task...>' list items;
+    // this branch handles cases where linkMentions runs without the
+    // pre-step (e.g. mentions inside task text).
     let out = html.replace(/\{\{([!?])([^{}\s]+)\}\}/g, (_m, kind, id) => {
         const state = kind === '!' ? 'done' : 'open';
         return `<inline-task task-id="${escapeHtml(id)}" state="${state}"></inline-task>`;
@@ -8759,7 +8776,7 @@ activateTab(initialParams.tab || 'people');
                 return;
             }
 
-            const rendered = linkMentions(marked(content));
+            const rendered = linkMentions(marked(preTaskMarkers(content)));
             const name = file.replace('.md', '');
             const editLink = `/editor/${week}/${encodeURIComponent(file)}`;
             const body = `<div class="md-content">${rendered}</div>`;
@@ -8842,7 +8859,7 @@ activateTab(initialParams.tab || 'people');
             const hasNote = t.note && t.note.trim();
             const noteBtn = '<button onclick="openNoteModal(\\'' + t.id + '\\')" style="background:none;border:none;cursor:pointer;font-size:1em;opacity:' + (hasNote ? '1' : '0.35') + '" title="' + (hasNote ? 'Rediger notat' : 'Legg til notat') + '">📓</button>';
             const borderColor = t.done ? '#a0aec0' : '#2b6cb0';
-            const noteHtml = hasNote ? '<div class="md-content" style="padding:4px 14px 8px 46px;font-size:0.85em;color:var(--text-muted);background:var(--surface);border-left:4px solid ' + borderColor + ';border-radius:0 0 8px 8px;margin-top:-4px">' + linkMentions(marked.parse(t.note)) + '</div>' : '';
+            const noteHtml = hasNote ? '<div class="md-content" style="padding:4px 14px 8px 46px;font-size:0.85em;color:var(--text-muted);background:var(--surface);border-left:4px solid ' + borderColor + ';border-radius:0 0 8px 8px;margin-top:-4px">' + linkMentions(marked.parse(preTaskMarkers(t.note))) + '</div>' : '';
             const handle = t.done ? '' : '<span class="drag-handle" style="cursor:grab;color:var(--border);font-size:1.1em;padding:0 2px;user-select:none" title="Dra for å sortere">⠿</span>';
             return '<div data-id="' + t.id + '" draggable="' + (!t.done) + '" style="margin:4px 0" ondragstart="onDragStart(event)" ondragover="onDragOver(event)" ondrop="onDrop(event)" ondragend="onDragEnd(event)">'
                 + '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface);border-radius:' + (hasNote ? '8px 8px 0 0' : '8px') + ';border-left:4px solid ' + borderColor + '">'
@@ -9881,7 +9898,7 @@ activateTab(initialParams.tab || 'people');
         const filePath = path.join(dataDir(), week, file);
         try {
             const raw = fs.readFileSync(filePath, 'utf-8');
-            const html = linkMentions(marked(raw));
+            const html = linkMentions(marked(preTaskMarkers(raw)));
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: true, html, name: file.replace(/\.md$/, ''), week }));
         } catch (e) {
