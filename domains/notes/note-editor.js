@@ -789,6 +789,7 @@ class NoteEditor extends WNElement {
         let activeIdx = -1;
         let matchStart = -1;
         let matchEnd = -1;
+        let matchKind = '!'; // '!' = close marker, '?' = open ref
         let currentItems = [];
 
         const close = () => {
@@ -799,8 +800,9 @@ class NoteEditor extends WNElement {
         const renderList = (items) => {
             if (!items.length) { close(); return; }
             currentItems = items;
+            const icon = matchKind === '!' ? '✓' : '↗';
             pop.innerHTML = items.map((t, i) => `
-                <button type="button" data-id="${escapeHtml(t.id)}" style="display:block;width:100%;text-align:left;background:${i === activeIdx ? 'var(--accent-soft,#e7f1fb)' : 'transparent'};color:${i === activeIdx ? 'var(--accent,#06c)' : 'inherit'};border:none;padding:5px 12px;cursor:pointer;font:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">✓ ${escapeHtml(t.text || '(uten tekst)')}<span style="opacity:0.55;font-size:0.85em"> · ${escapeHtml(t.week || '')}</span></button>
+                <button type="button" data-id="${escapeHtml(t.id)}" style="display:block;width:100%;text-align:left;background:${i === activeIdx ? 'var(--accent-soft,#e7f1fb)' : 'transparent'};color:${i === activeIdx ? 'var(--accent,#06c)' : 'inherit'};border:none;padding:5px 12px;cursor:pointer;font:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${icon} ${escapeHtml(t.text || '(uten tekst)')}<span style="opacity:0.55;font-size:0.85em"> · ${escapeHtml(t.week || '')}</span></button>
             `).join('');
             pop.hidden = false;
         };
@@ -816,13 +818,16 @@ class NoteEditor extends WNElement {
             const caret = ta.selectionStart;
             if (caret !== ta.selectionEnd) { close(); return; }
             const text = ta.value;
-            // Find '{{!' looking back. Stop at line break, '}', or '{{' nesting break.
+            // Find '{{!' or '{{?' looking back. Stop at line break,
+            // '}', or '{{' nesting break.
             const upto = text.slice(0, caret);
-            const idx = upto.lastIndexOf('{{!');
+            const closeIdx = upto.lastIndexOf('{{!');
+            const openIdx  = upto.lastIndexOf('{{?');
+            const idx = Math.max(closeIdx, openIdx);
             if (idx < 0) { close(); return; }
+            matchKind = (idx === closeIdx) ? '!' : '?';
             const between = upto.slice(idx + 3);
             if (/[\n}]/.test(between)) { close(); return; }
-            // Don't trigger if a '}}' has already been typed inside this fragment.
             await ensureLoaded();
             if (!openTasks || !openTasks.length) { close(); return; }
             const f = between.trim().toLowerCase();
@@ -838,13 +843,12 @@ class NoteEditor extends WNElement {
 
         const accept = (taskId) => {
             if (matchStart < 0) return;
-            // Insert the close marker as '{{!<id>}}' so the textarea stays
-            // compact and stable. The preview renders this as
-            // '~~<task text>~~' (strikethrough); the server replaces the
-            // marker with the strikethrough form on explicit save.
+            // Insert '{{!<id>}}' (close marker) or '{{?<id>}}' (open
+            // ref) depending on which trigger started this match. The
+            // server flips '{{?id}}'<->'{{!id}}' on toggle.
             let endIdx = matchEnd;
             if (ta.value.slice(endIdx, endIdx + 2) === '}}') endIdx += 2;
-            const insert = `{{!${taskId}}} `;
+            const insert = `{{${matchKind}${taskId}}} `;
             const before = ta.value.slice(0, matchStart);
             const after = ta.value.slice(endIdx);
             ta.value = before + insert + after;

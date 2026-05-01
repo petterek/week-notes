@@ -1888,8 +1888,14 @@ document.addEventListener('keydown',function(e){
 // Global "?" hotkey opens the help modal (skip when typing in inputs).
 document.addEventListener('keydown', function(e){
     if (e.key !== '?' || e.ctrlKey || e.metaKey || e.altKey) return;
-    var t = e.target;
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    // Shadow DOM retargets e.target to the host, so walk the composed
+    // path to find any actual input/textarea/contentEditable.
+    var path = (typeof e.composedPath === 'function') ? e.composedPath() : [e.target];
+    for (var i = 0; i < path.length; i++) {
+        var n = path[i];
+        if (!n || !n.tagName) continue;
+        if (n.tagName === 'INPUT' || n.tagName === 'TEXTAREA' || n.isContentEditable) return;
+    }
     var hm = document.querySelector('help-modal');
     if (hm && typeof hm.open === 'function') { e.preventDefault(); hm.open(); }
 });
