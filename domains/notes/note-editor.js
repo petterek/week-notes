@@ -385,11 +385,11 @@ class NoteEditor extends WNElement {
     }
 
     // Preview-only transforms for inline markers:
-    //  - '{{!<id>}}' close markers → '~~<task text>~~' (strikethrough)
-    //  - '{{?<id>}}' open markers  → '**<task text>**' (bold)
-    //  - '{{X}}' new-task markers  → '**X**' (bold)
-    // The textarea/source keeps the brace forms; the server applies the
-    // closing/creating substitutions on explicit save.
+    //  - '{{!<id>}}' close markers → '[x] <task text>' (GFM checkbox)
+    //  - '{{?<id>}}' open markers  → '[ ] <task text>' (GFM checkbox)
+    //  - '{{X}}' new-task markers  → '**X**' (bold; no id yet)
+    // The textarea/source keeps the brace forms; the server applies
+    // the closing/creating substitutions on explicit save.
     _previewTransform(md) {
         if (!md) return md;
         const map = this._taskTextById;
@@ -400,12 +400,12 @@ class NoteEditor extends WNElement {
         let out = md.replace(/\{\{!\s*([^{}\s]+)\s*\}\}/g, (m, id) => {
             const text = map && map[id];
             if (!text) return m;
-            return `~~${text}~~`;
+            return `[x] ${text}`;
         });
         out = out.replace(/\{\{\?\s*([^{}\s]+)\s*\}\}/g, (m, id) => {
             const text = map && map[id];
             if (!text) return m;
-            return `**${text}**`;
+            return `[ ] ${text}`;
         });
         // Inner text must not contain '{' or '}' (so we don't swallow
         // ref markers) and not start with '!' or '?' (ref-marker syntax).
