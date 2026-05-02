@@ -962,9 +962,11 @@ class NoteEditor extends WNElement {
                 saves.slice().reverse().forEach(s => {
                     const at = (s && typeof s === 'object') ? s.at : s;
                     const by = (s && typeof s === 'object') ? s.by : '';
+                    const sha = (s && typeof s === 'object') ? s.sha : '';
+                    const shaShort = sha ? sha.slice(0, 7) : '';
                     parts.push(`
                         <div class="ne-history-row ne-history-save">
-                            <span class="h-hash">💾</span>
+                            <span class="h-hash">${shaShort ? escapeHtml(shaShort) : '💾'}</span>
                             <span class="h-date">${escapeHtml(this._fmtDate(at))}</span>
                             <span class="h-subj">${by ? `<entity-mention kind="person" key="${escapeHtml(by)}"></entity-mention>` : '<span style="color:var(--text-subtle)">(ukjent)</span>'}</span>
                         </div>

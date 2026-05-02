@@ -9126,6 +9126,13 @@ activateTab(initialParams.tab || 'people');
             if (!autosave) {
                 const entry = { at: now };
                 if (meKey) entry.by = meKey;
+                try {
+                    const repo = dataDir();
+                    if (gitIsRepo(repo)) {
+                        const sha = git(repo, 'rev-parse HEAD').trim();
+                        if (sha) entry.sha = sha;
+                    }
+                } catch (_) {}
                 saves.push(entry);
             }
             const updates = { type: type || existing.type || 'note', modified: now, saves };
