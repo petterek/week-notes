@@ -709,6 +709,7 @@ class NoteEditor extends WNElement {
         let openTasks = null;
         let people = null;
         let companies = null;
+        let results = null;
         const ensureOpenTasks = async () => {
             if (openTasks) return openTasks;
             try {
@@ -732,6 +733,15 @@ class NoteEditor extends WNElement {
                 companies = (await r.json() || []).filter(c => !c.deleted);
             } catch (_) { companies = []; }
             return companies;
+        };
+        const ensureResults = async () => {
+            if (results) return results;
+            try {
+                const r = await fetch('/api/results');
+                results = await r.json() || [];
+                if (!Array.isArray(results)) results = [];
+            } catch (_) { results = []; }
+            return results;
         };
 
         const taskTrigger = {
@@ -771,6 +781,46 @@ class NoteEditor extends WNElement {
                 let endIdx = ctx.range.end;
                 if (ta.value.slice(endIdx, endIdx + 2) === '}}') endIdx += 2;
                 replaceRange(ta, ctx.range.start, endIdx, `{{${kind}${item.value}}} `);
+                this._renderPreview();
+                this._markDirty();
+            },
+        };
+
+        const resultTrigger = {
+            // Detect '[[?' before the caret with no ']' or newline between.
+            // Selecting an item inserts '[[?<id>]]'.
+            detect: (text, caret) => {
+                const upto = text.slice(0, caret);
+                const idx = upto.lastIndexOf('[[?');
+                if (idx < 0) return null;
+                const between = upto.slice(idx + 3);
+                if (/[\n\]]/.test(between)) return null;
+                return { query: between, start: idx, end: caret };
+            },
+            fetchItems: async () => {
+                const all = await ensureResults();
+                // Most recent first.
+                const sorted = all.slice().sort((a, b) => {
+                    const ad = a.created || a.week || '';
+                    const bd = b.created || b.week || '';
+                    return bd.localeCompare(ad);
+                });
+                return sorted.map(r => ({
+                    value: r.id,
+                    label: r.text || '(uten tekst)',
+                    hint: r.week || '',
+                }));
+            },
+            filter: 'words',
+            limit: 12,
+            renderItem: (item, query) => {
+                return `🏁 ${highlightMatch(item.label, query)}` +
+                    (item.hint ? `<span style="opacity:0.55;font-size:0.85em"> · ${highlightMatch(item.hint, query)}</span>` : '');
+            },
+            onSelect: (item, ctx) => {
+                let endIdx = ctx.range.end;
+                if (ta.value.slice(endIdx, endIdx + 2) === ']]') endIdx += 2;
+                replaceRange(ta, ctx.range.start, endIdx, `[[?${item.value}]] `);
                 this._renderPreview();
                 this._markDirty();
             },
@@ -860,7 +910,7 @@ class NoteEditor extends WNElement {
         };
 
         this._acHandle = attachAutocomplete(ta, {
-            triggers: [taskTrigger, tagTrigger, mentionTrigger],
+            triggers: [taskTrigger, resultTrigger, tagTrigger, mentionTrigger],
             container: this.shadowRoot,
         });
         this._acAttached = true;
