@@ -43,6 +43,14 @@ export function linkMentions(s, people, companies) {
     });
     return out.replace(/(^|[\s\n(\[>])@([a-zA-ZæøåÆØÅ][a-zA-ZæøåÆØÅ0-9_-]*)/g, (_m, pre, name) => {
         const lc = name.toLowerCase();
+        if (lc === 'me') {
+            const u = (typeof window !== 'undefined' && window.currentUser) || {};
+            const display = u.displayName
+                || [u.firstName, u.lastName].filter(Boolean).join(' ').trim()
+                || u.email
+                || 'me';
+            return `${pre}<entity-mention label="${escapeHtml(display)}"></entity-mention>`;
+        }
         const c = companies.find(x => x.key === lc);
         if (c) {
             return `${pre}<entity-mention kind="company" key="${escapeHtml(c.key)}" label="${escapeHtml(c.name || name)}"></entity-mention>`;

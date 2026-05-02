@@ -826,6 +826,14 @@ class NoteEditor extends WNElement {
             fetchItems: async () => {
                 const [pp, cc] = await Promise.all([ensurePeople(), ensureCompanies()]);
                 const out = [];
+                const u = (typeof window !== 'undefined' && window.currentUser) || null;
+                if (u && (u.displayName || u.firstName || u.lastName || u.email)) {
+                    const disp = u.displayName
+                        || [u.firstName, u.lastName].filter(Boolean).join(' ').trim()
+                        || u.email
+                        || 'me';
+                    out.push({ value: 'me', label: disp, hint: 'meg', kind: 'me' });
+                }
                 for (const c of cc) {
                     out.push({ value: c.key || (c.name || '').toLowerCase(), label: c.name || c.key, hint: 'firma', kind: 'company' });
                 }
@@ -838,7 +846,7 @@ class NoteEditor extends WNElement {
             filter: 'substring',
             limit: 10,
             renderItem: (item, query) => {
-                const tag = item.kind === 'company' ? '🏢' : '👤';
+                const tag = item.kind === 'company' ? '🏢' : (item.kind === 'me' ? '🙋' : '👤');
                 return `${tag} ${highlightMatch(item.label, query)}` +
                     (item.hint ? `<span style="opacity:0.55;font-size:0.85em"> · ${item.hint}</span>` : '');
             },

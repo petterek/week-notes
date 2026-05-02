@@ -2359,6 +2359,7 @@ document.addEventListener('keydown', function(e){
     };
     window['week-note-services'] = registry;
     window.WeekNoteServices = registry;
+    window.currentUser = ${JSON.stringify(getUser())};
     document.dispatchEvent(new CustomEvent('week-note-services:ready', { detail: registry }));
 </script>
 <script type="module" src="/components/nav-meta.js"></script>
@@ -2782,6 +2783,14 @@ function linkMentions(html, people, companies) {
     });
     return out.replace(/(^|[\s\n(\[>])@([a-zA-ZæøåÆØÅ][a-zA-ZæøåÆØÅ0-9_-]*)/g, (m, pre, name) => {
         const lc = name.toLowerCase();
+        if (lc === 'me') {
+            const u = getUser();
+            const display = u.displayName
+                || [u.firstName, u.lastName].filter(Boolean).join(' ').trim()
+                || u.email
+                || 'me';
+            return pre + `<entity-mention label="${escapeHtml(display)}"></entity-mention>`;
+        }
         const c = companies.find(x => x.key === lc);
         if (c) {
             return pre + `<entity-mention kind="company" key="${escapeHtml(c.key)}" label="${escapeHtml(c.name || name)}"></entity-mention>`;
@@ -9241,9 +9250,18 @@ activateTab(initialParams.tab || 'people');
         function linkMentions(html) {
             if (!html) return html;
             return html.replace(/(^|[\\s\\n(\\[>])@([a-zA-ZæøåÆØÅ][a-zA-ZæøåÆØÅ0-9_-]*)/g, function(m, pre, name) {
-                const p = mentionPeople.find(x => x.name === name || (x.key && x.key === name.toLowerCase()));
+                const lc = name.toLowerCase();
+                if (lc === 'me') {
+                    const u = window.currentUser || {};
+                    const disp = u.displayName
+                        || [u.firstName, u.lastName].filter(Boolean).join(' ').trim()
+                        || u.email
+                        || 'me';
+                    return pre + '<entity-mention label="' + escapeHtml(disp) + '"></entity-mention>';
+                }
+                const p = mentionPeople.find(x => x.name === name || (x.key && x.key === lc));
                 const display = p ? (p.firstName ? (p.lastName ? p.firstName + ' ' + p.lastName : p.firstName) : p.name) : name;
-                const key = p ? (p.key || (p.name || '').toLowerCase()) : name.toLowerCase();
+                const key = p ? (p.key || (p.name || '').toLowerCase()) : lc;
                 return pre + '<entity-mention kind="person" key="' + escapeHtml(key) + '" label="' + escapeHtml(display) + '"></entity-mention>';
             });
         }
