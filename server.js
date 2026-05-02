@@ -2018,10 +2018,13 @@ function pageHtml(title, body, extraNavLinks, opts) {
             document.title = titleMatch[1];
             html = html.replace(titleMatch[0], '');
         }
-        content.innerHTML = html;
+        // Push state BEFORE inserting the new content so custom elements
+        // that read location.pathname during connectedCallback see the
+        // new URL, not the previous one.
         if (pushPath) {
             history.pushState({ spa: true }, '', pushPath);
         }
+        content.innerHTML = html;
         // Notify the rest of the app that content changed.
         document.dispatchEvent(new CustomEvent('spa:navigated', { detail: { path: location.pathname } }));
     }
