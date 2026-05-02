@@ -186,19 +186,19 @@ class NotesPage extends WNElement {
     }
 
     _onCardEvent(e) {
-        const fp = e.detail && e.detail.filePath;
-        if (!fp) return;
+        const detail = e.detail || {};
+        const week = detail.week;
+        const file = detail.file;
+        if (!week || !file) return;
         if (e.type === 'view' || e.type === 'edit') {
             e.preventDefault();
-            const url = '/editor/' + fp;
+            const url = `/editor/${week}/${encodeURIComponent(file)}`;
             if (window.spaNavigate && window.spaNavigate(url)) return;
             window.location.href = url;
             return;
         }
         if (e.type === 'delete') {
             e.preventDefault();
-            const [week, fileEnc] = fp.split('/');
-            const file = decodeURIComponent(fileEnc);
             if (!confirm(`Slette ${file} (${week})?`)) return;
             const svc = this.serviceFor && this.serviceFor('notes') || this.service;
             const p = svc && svc.remove ? svc.remove(week, file) : Promise.reject(new Error('no service'));

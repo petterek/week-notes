@@ -267,11 +267,11 @@ class WeekSection extends WNElement {
         ['view', 'present', 'edit'].forEach((act) => {
             this.shadowRoot.addEventListener(act, (ev) => {
                 const d = ev.detail || {};
-                if (!d.filePath) return;
+                if (!d.week || !d.file) return;
                 ev.stopPropagation();
                 const out = new CustomEvent(`note:${act}`, {
                     bubbles: true, composed: true, cancelable: true,
-                    detail: { filePath: d.filePath },
+                    detail: { week: d.week, file: d.file },
                 });
                 const proceed = this.dispatchEvent(out);
                 if (!proceed) ev.preventDefault();

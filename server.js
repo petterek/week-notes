@@ -2161,33 +2161,32 @@ document.addEventListener('keydown', function(e){
     });
 
     // Note actions. <week-section> emits "note:*"; bare <note-card>s emit unprefixed.
-    function splitFp(detail){
-        var fp = (detail && detail.filePath) || '';
-        var i = fp.indexOf('/');
-        if (i < 0) return null;
-        return { week: fp.slice(0, i), fileEnc: fp.slice(i + 1) };
+    // Detail shape: { week, file } (raw filename, NOT URI-encoded).
+    function readWF(detail){
+        if (!detail || !detail.week || !detail.file) return null;
+        return { week: detail.week, file: detail.file, fileEnc: encodeURIComponent(detail.file) };
     }
     function handleView(e){
-        var p = splitFp(e.detail); if (!p) return;
+        var p = readWF(e.detail); if (!p) return;
         e.preventDefault();
         if (typeof window.openNoteViewModal === 'function') window.openNoteViewModal(p.week, p.fileEnc);
         else go('/note/' + p.week + '/' + p.fileEnc);
     }
     function handlePresent(e){
-        var p = splitFp(e.detail); if (!p) return;
+        var p = readWF(e.detail); if (!p) return;
         e.preventDefault();
         if (typeof window.openPresentation === 'function') window.openPresentation(p.week, p.fileEnc);
         else window.open('/present/' + p.week + '/' + p.fileEnc + '?fs=1', '_blank');
     }
     function handleEdit(e){
-        var p = splitFp(e.detail); if (!p) return;
+        var p = readWF(e.detail); if (!p) return;
         e.preventDefault();
         go('/editor/' + p.week + '/' + p.fileEnc);
     }
     function handleDelete(e){
-        var p = splitFp(e.detail); if (!p) return;
+        var p = readWF(e.detail); if (!p) return;
         e.preventDefault();
-        var name = decodeURIComponent(p.fileEnc).replace(/\.md$/, '');
+        var name = p.file.replace(/\.md$/, '');
         if (typeof window.deleteNoteFromHome === 'function') window.deleteNoteFromHome(p.week, p.fileEnc, name);
     }
     document.addEventListener('view', handleView);
@@ -4629,7 +4628,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                 desc: `<p><strong>&lt;note-card&gt;</strong> is a dumb presentation card for a single note. It does not load anything itself &mdash; the host (typically <code>&lt;week-section&gt;</code>) calls <code>el.setData(d)</code> to populate it.</p>
                     <p><strong>Data shape:</strong> <code>{ week, file, name, type, pinned, snippet, themes, presentationStyle? }</code>. <code>type</code> drives the icon (📝 note, 🤝 meeting, 🎯 task, 🎤 presentation, 📌 other); <code>themes</code> render as <code>#tag</code> pills under the snippet; <code>pinned</code> shows a 📌 prefix.</p>
                     <p><strong>Lifecycle.</strong> <code>setData(d)</code> may be called before or after the element is connected. Until set, the card shows &ldquo;Laster…&rdquo;. Setting data also writes a <code>data-note-card="&lt;week&gt;/&lt;file&gt;"</code> attribute on the host so the legacy delete-handler selector keeps working.</p>
-                    <p><strong>Actions.</strong> Header buttons emit cancelable bubbling/composed events: <code>view</code>, <code>present</code> (only for <code>type=presentation</code>), <code>edit</code> and <code>delete</code>. Each carries <code>{ filePath: "WEEK/encoded-file.md" }</code>. The edit action also renders a real <code>&lt;a href="/editor/…"&gt;</code> for fallback navigation; <code>preventDefault()</code> on the event also blocks that.</p>`,
+                    <p><strong>Actions.</strong> All header buttons emit cancelable bubbling/composed events: <code>view</code>, <code>present</code> (only for <code>type=presentation</code>), <code>edit</code> and <code>delete</code>. Each carries <code>{ week, file }</code> (raw filename, not URI-encoded). The card itself never navigates &mdash; hosts decide what to do with the events.</p>`,
                 rawHtml: `<note-card id="dbg-note-card"></note-card>
                     <script>
                         customElements.whenDefined('note-card').then(function(){
