@@ -292,11 +292,12 @@ class SettingsPage extends WNElement {
     async _initUserTab() {
         const root = this.shadowRoot;
         const form  = root.querySelector('[data-user="form"]');
-        const nameI = root.querySelector('[data-user="name"]');
+        const firstI = root.querySelector('[data-user="firstName"]');
+        const lastI  = root.querySelector('[data-user="lastName"]');
+        const dispI  = root.querySelector('[data-user="displayName"]');
         const emailI = root.querySelector('[data-user="email"]');
-        const keyI  = root.querySelector('[data-user="key"]');
         const statusEl = root.querySelector('[data-user="status"]');
-        if (!form || !nameI || !emailI || !keyI) return;
+        if (!form || !firstI || !lastI || !dispI || !emailI) return;
 
         const setStatus = (txt, cls) => {
             if (!statusEl) return;
@@ -308,9 +309,10 @@ class SettingsPage extends WNElement {
             const r = await fetch('/api/user');
             const d = await r.json();
             const u = (d && d.user) || {};
-            nameI.value  = u.name  || '';
-            emailI.value = u.email || '';
-            keyI.value   = u.key   || '';
+            firstI.value = u.firstName   || '';
+            lastI.value  = u.lastName    || '';
+            dispI.value  = u.displayName || '';
+            emailI.value = u.email       || '';
         } catch {
             setStatus('Kunne ikke laste', 'is-error');
         }
@@ -323,9 +325,10 @@ class SettingsPage extends WNElement {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        name:  nameI.value.trim(),
-                        email: emailI.value.trim(),
-                        key:   keyI.value.trim(),
+                        firstName:   firstI.value.trim(),
+                        lastName:    lastI.value.trim(),
+                        displayName: dispI.value.trim(),
+                        email:       emailI.value.trim(),
                     }),
                 });
                 const d = await r.json();
@@ -793,9 +796,10 @@ class SettingsPage extends WNElement {
                             </div>
                             <p class="app-help">Identitet på tvers av alle kontekster. Lagres i <code>data/user.json</code>.</p>
                             <form data-user="form" class="user-form">
-                                <label class="user-row"><span>Navn</span><input type="text" data-user="name" autocomplete="name"></label>
+                                <label class="user-row"><span>Fornavn</span><input type="text" data-user="firstName" autocomplete="given-name"></label>
+                                <label class="user-row"><span>Etternavn</span><input type="text" data-user="lastName" autocomplete="family-name"></label>
+                                <label class="user-row"><span>Visningsnavn</span><input type="text" data-user="displayName" autocomplete="nickname"></label>
                                 <label class="user-row"><span>E-post</span><input type="email" data-user="email" autocomplete="email"></label>
-                                <label class="user-row"><span>Nøkkel</span><input type="text" data-user="key" placeholder="f.eks. petter" autocomplete="username"></label>
                                 <div class="user-actions"><button type="submit" class="vs-action">Lagre</button></div>
                             </form>
                         </div>

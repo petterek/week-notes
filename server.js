@@ -217,18 +217,20 @@ function getUser() {
     let u = {};
     try { u = JSON.parse(fs.readFileSync(USER_FILE, 'utf-8')) || {}; } catch {}
     return {
-        name:  typeof u.name  === 'string' ? u.name  : '',
-        email: typeof u.email === 'string' ? u.email : '',
-        key:   typeof u.key   === 'string' ? u.key   : '',
+        firstName:   typeof u.firstName   === 'string' ? u.firstName   : '',
+        lastName:    typeof u.lastName    === 'string' ? u.lastName    : '',
+        displayName: typeof u.displayName === 'string' ? u.displayName : '',
+        email:       typeof u.email       === 'string' ? u.email       : '',
     };
 }
 
 function setUser(next) {
     const cur = getUser();
     const merged = {
-        name:  typeof next?.name  === 'string' ? next.name.trim()  : cur.name,
-        email: typeof next?.email === 'string' ? next.email.trim() : cur.email,
-        key:   typeof next?.key   === 'string' ? next.key.trim()   : cur.key,
+        firstName:   typeof next?.firstName   === 'string' ? next.firstName.trim()   : cur.firstName,
+        lastName:    typeof next?.lastName    === 'string' ? next.lastName.trim()    : cur.lastName,
+        displayName: typeof next?.displayName === 'string' ? next.displayName.trim() : cur.displayName,
+        email:       typeof next?.email       === 'string' ? next.email.trim()       : cur.email,
     };
     try { fs.mkdirSync(path.dirname(USER_FILE), { recursive: true }); } catch {}
     fs.writeFileSync(USER_FILE, JSON.stringify(merged, null, 2));
