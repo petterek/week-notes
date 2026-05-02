@@ -73,6 +73,12 @@ const STYLES = `
     .welcome-list strong { color: var(--text-strong); font-weight: 600; white-space: nowrap; }
     .welcome-list code { font-family: ui-monospace, monospace; font-size: 0.92em; background: var(--surface-alt); padding: 1px 4px; border-radius: 3px; }
     .welcome-meta { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 0.85em; color: var(--text-muted); padding-top: 10px; border-top: 1px solid var(--border-soft); }
+    .user-form { display: flex; flex-direction: column; gap: 10px; max-width: 460px; margin-top: 6px; }
+    .user-row { display: grid; grid-template-columns: 110px 1fr; align-items: center; gap: 10px; }
+    .user-row > span { font-size: 0.9em; color: var(--text-muted); }
+    .user-row > input { padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px; font: inherit; background: var(--bg); color: var(--text-strong); }
+    .user-row > input:focus { outline: none; border-color: var(--accent); }
+    .user-actions { display: flex; gap: 8px; padding-left: 120px; margin-top: 4px; }
     .welcome-meta a { color: var(--accent); text-decoration: none; }
     .welcome-meta a:hover { text-decoration: underline; }
     .app-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
@@ -283,6 +289,55 @@ class SettingsPage extends WNElement {
         if (this._smSse) { try { this._smSse.close(); } catch {} this._smSse = null; }
     }
 
+    async _initUserTab() {
+        const root = this.shadowRoot;
+        const form  = root.querySelector('[data-user="form"]');
+        const nameI = root.querySelector('[data-user="name"]');
+        const emailI = root.querySelector('[data-user="email"]');
+        const keyI  = root.querySelector('[data-user="key"]');
+        const statusEl = root.querySelector('[data-user="status"]');
+        if (!form || !nameI || !emailI || !keyI) return;
+
+        const setStatus = (txt, cls) => {
+            if (!statusEl) return;
+            statusEl.textContent = txt || '';
+            statusEl.className = 'vs-save-status' + (cls ? ' ' + cls : '');
+        };
+
+        try {
+            const r = await fetch('/api/user');
+            const d = await r.json();
+            const u = (d && d.user) || {};
+            nameI.value  = u.name  || '';
+            emailI.value = u.email || '';
+            keyI.value   = u.key   || '';
+        } catch {
+            setStatus('Kunne ikke laste', 'is-error');
+        }
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            setStatus('Lagrer…');
+            try {
+                const r = await fetch('/api/user', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name:  nameI.value.trim(),
+                        email: emailI.value.trim(),
+                        key:   keyI.value.trim(),
+                    }),
+                });
+                const d = await r.json();
+                if (!r.ok || !d.ok) throw new Error(d.error || 'Feil');
+                setStatus('Lagret ✓');
+                setTimeout(() => setStatus(''), 2000);
+            } catch (err) {
+                setStatus('Feil: ' + err.message, 'is-error');
+            }
+        });
+    }
+
     async _initAppSettings() {
         const root = this.shadowRoot;
         // Tab switching (currently a single tab, but ready for more).
@@ -294,6 +349,7 @@ class SettingsPage extends WNElement {
             });
         });
 
+        this._initUserTab();
         const $ = (k) => root.querySelector(`[data-vs="${k}"]`);
         const tbody    = $('tbody');
         const progress = $('progress');
@@ -702,6 +758,7 @@ class SettingsPage extends WNElement {
                 <h2 class="app-title">Applikasjonsinnstillinger</h2>
                 <div class="app-tabs" role="tablist">
                     <button type="button" class="app-tab is-active" role="tab" data-app-tab="welcome">👋 Velkommen</button>
+                    <button type="button" class="app-tab" role="tab" data-app-tab="user">👤 Bruker</button>
                     <button type="button" class="app-tab" role="tab" data-app-tab="embeddings">🔍 Søk</button>
                     <button type="button" class="app-tab" role="tab" data-app-tab="summarize">📝 Oppsummer</button>
                 </div>
@@ -724,6 +781,23 @@ class SettingsPage extends WNElement {
                                 <span><a href="/help.md" target="_blank" rel="noopener">📖 Hjelp ↗</a></span>
                                 <span><a href="https://github.com/petterek/week-notes" target="_blank" rel="noopener">⭐ GitHub ↗</a></span>
                             </div>
+                        </div>
+                    </div>
+                    <div class="app-tab-panel" data-app-panel="user">
+                        <div class="app-card">
+                            <div class="app-head">
+                                <strong>👤 Brukerprofil</strong>
+                                <div class="vs-actions">
+                                    <span class="vs-save-status" data-user="status"></span>
+                                </div>
+                            </div>
+                            <p class="app-help">Identitet på tvers av alle kontekster. Lagres i <code>data/user.json</code>.</p>
+                            <form data-user="form" class="user-form">
+                                <label class="user-row"><span>Navn</span><input type="text" data-user="name" autocomplete="name"></label>
+                                <label class="user-row"><span>E-post</span><input type="email" data-user="email" autocomplete="email"></label>
+                                <label class="user-row"><span>Nøkkel</span><input type="text" data-user="key" placeholder="f.eks. petter" autocomplete="username"></label>
+                                <div class="user-actions"><button type="submit" class="vs-action">Lagre</button></div>
+                            </form>
                         </div>
                     </div>
                     <div class="app-tab-panel" data-app-panel="embeddings">

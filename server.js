@@ -11,6 +11,7 @@ const PORT = parseInt(process.env.PORT, 10) || 3001;
 const CONTEXTS_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const ACTIVE_FILE = path.join(CONTEXTS_DIR, '.active');
 const APP_SETTINGS_FILE = path.join(CONTEXTS_DIR, 'app-settings.json');
+const USER_FILE = path.join(CONTEXTS_DIR, 'user.json');
 
 // Embedding models offered to the user. All are Xenova feature-extraction
 // pipelines available via @huggingface/transformers. dimension is informational
@@ -208,6 +209,29 @@ function setAppSettings(next) {
     }
     try { fs.mkdirSync(path.dirname(APP_SETTINGS_FILE), { recursive: true }); } catch {}
     fs.writeFileSync(APP_SETTINGS_FILE, JSON.stringify(merged, null, 2));
+    return merged;
+}
+
+// User profile lives outside any context (data/user.json). Shared across all contexts.
+function getUser() {
+    let u = {};
+    try { u = JSON.parse(fs.readFileSync(USER_FILE, 'utf-8')) || {}; } catch {}
+    return {
+        name:  typeof u.name  === 'string' ? u.name  : '',
+        email: typeof u.email === 'string' ? u.email : '',
+        key:   typeof u.key   === 'string' ? u.key   : '',
+    };
+}
+
+function setUser(next) {
+    const cur = getUser();
+    const merged = {
+        name:  typeof next?.name  === 'string' ? next.name.trim()  : cur.name,
+        email: typeof next?.email === 'string' ? next.email.trim() : cur.email,
+        key:   typeof next?.key   === 'string' ? next.key.trim()   : cur.key,
+    };
+    try { fs.mkdirSync(path.dirname(USER_FILE), { recursive: true }); } catch {}
+    fs.writeFileSync(USER_FILE, JSON.stringify(merged, null, 2));
     return merged;
 }
 
@@ -4669,12 +4693,13 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             'task-open-list': {
                 desc: `<p><strong>&lt;task-open-list&gt;</strong> is the &ldquo;Åpne oppgaver&rdquo; sidebar list shown on the home page. It loads all tasks via the tasks service, filters out completed ones, and renders each as a checkbox row with linked <code>@mentions</code> and a small note button.</p>
                     <p><strong>Domain:</strong> <code>tasks</code> &mdash; primary service from <code>tasks_service</code>. Also reads <code>people_service</code> and <code>companies_service</code> so mention text can be resolved to display names.</p>
-                    <p><strong>Lifecycle.</strong> <code>_load()</code> fetches tasks, people and companies in parallel. Renders &ldquo;Laster…&rdquo; → list / &ldquo;Ingen åpne oppgaver&rdquo; / &ldquo;Kunne ikke laste oppgaver&rdquo;. The header shows the open-task count.</p>
-                    <p><strong>Interactions.</strong> Toggling a checkbox first tries the legacy global <code>window.showCommentModal(cb)</code> (so the home page's existing comment-prompt flow keeps working); if it isn't defined the component emits a fallback event. The note button works the same way against <code>window.openNoteModal(id)</code>.</p>
-                    <p><strong>Events</strong> (cancelable, bubbling, composed):</p>
+                    <p><strong>Lifecycle.</strong> <code>_load()</code> fetches tasks, people and companies in parallel. Renders &ldquo;Laster…&rdquo; → list / &ldquo;Ingen åpne oppgaver&rdquo; / &ldquo;Kunne ikke laste oppgaver&rdquo;. The header shows the open-task count and (unless <code>show_add_button="false"</code>) a <code>+</code> button that opens an embedded <code>&lt;task-create-modal&gt;</code>.</p>
+                    <p><strong>Interactions.</strong> Toggling a checkbox opens the embedded <code>&lt;task-complete-modal&gt;</code>; on confirm the component calls <code>service.toggle(id, comment)</code> and then re-loads. The 📓 note button opens the embedded <code>&lt;task-note-modal&gt;</code>; on save it calls <code>service.update(id, { note })</code>. The ✕ delete button calls <code>service.remove(id)</code> after a <code>confirm()</code>.</p>
+                    <p><strong>Events</strong> (bubbling, composed):</p>
                     <ul>
-                        <li><code>task-open-list:toggle</code> with <code>{ id, checkbox }</code> &mdash; fallback when no global comment modal exists</li>
-                        <li><code>task-open-list:note</code> with <code>{ id }</code> &mdash; fallback when no global note modal exists</li>
+                        <li><code>task:completed</code> with <code>{ id, comment }</code> &mdash; after a successful complete</li>
+                        <li><code>task:deleted</code> with <code>{ id }</code> &mdash; after a successful delete</li>
+                        <li><code>task-open-list:toggle</code> with <code>{ id, checkbox }</code> &mdash; fallback when the embedded complete modal isn&apos;t available</li>
                         <li><code>mention-clicked</code> &mdash; bubbled from rendered <code>@mentions</code></li>
                     </ul>`,
                 tag: 'task-open-list',
@@ -4682,6 +4707,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                     { name: 'tasks_service', type: 'text', default: 'MockTaskService' },
                     { name: 'people_service', type: 'text', default: 'MockPeopleService' },
                     { name: 'companies_service', type: 'text', default: 'MockCompaniesService' },
+                    { name: 'show_add_button', type: 'text', default: 'true' },
                 ],
             },
             'task-create': {
@@ -4934,13 +4960,13 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                     <p><strong>Domain:</strong> none &mdash; presentational only.</p>
                     <p><strong>Attributes:</strong> <code>week</code> &mdash; ISO week (<code>YYYY-WNN</code>). The pill renders <code>U</code> + the two-digit week number; the full week is shown in a <code>title</code> tooltip.</p>
                     <p><strong>Lifecycle.</strong> Stateless. Re-renders when <code>week</code> changes.</p>
-                    <p><strong>Events.</strong> Cancelable bubbling/composed <code>week-clicked</code> with <code>{ week }</code> on click.</p>`,
+                    <p><strong>Events.</strong> Cancelable bubbling <code>week-clicked</code> with <code>{ year, weekNumber }</code> (numbers) on click.</p>`,
                 tag: 'week-pill',
                 attrs: [{ name: 'week', type: 'select', options: weeks, default: weeks[0] || '' }],
             },
             'global-search': {
                 desc: `<p><strong>&lt;global-search&gt;</strong> is the singleton command-bar / search modal triggered from the navbar's 🔍 button or <kbd>Ctrl+K</kbd>. Light-DOM via <code>&lt;slot&gt;</code> so server-rendered shell HTML stays styled.</p>
-                    <p><strong>Domain:</strong> <code>search</code> &mdash; from <code>search_service</code>. The service is expected to expose <code>query(text) → results</code>.</p>
+                    <p><strong>Domain:</strong> <code>search</code> &mdash; from <code>search_service</code>. The service is expected to expose <code>search(text) → results</code> and (optionally) <code>embedSearch(text) → results</code> for the embedding-based mode toggle.</p>
                     <p><strong>API.</strong> <code>openSearch()</code>, <code>closeSearch()</code>. Also responds to the window event <code>search:open</code>.</p>
                     <p><strong>Lifecycle.</strong> Debounced query as the user types; arrow-key navigation through results; Enter activates. Esc / backdrop click closes.</p>
                     <p><strong>Events</strong> (cancelable, bubbling, composed):</p>
@@ -4961,7 +4987,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                         <li><code>placeholder</code> &mdash; shown when the value is empty</li>
                         <li><code>offset</code> &mdash; programmatic scroll position in pixels (host writes do not re-emit the scroll event)</li>
                     </ul>
-                    <p><strong>Events.</strong> <code>markdown-preview:scroll</code> with <code>{ offset }</code> on user-initiated scroll &mdash; suppressed when the host writes <code>offset</code> programmatically. This lets editors implement two-pane scroll-sync without feedback loops.</p>
+                    <p><strong>Events.</strong> <code>markdown-preview:scroll</code> with <code>{ offset, scrollHeight, clientHeight }</code> on user-initiated scroll &mdash; suppressed when the host writes <code>offset</code> programmatically. This lets editors implement two-pane scroll-sync without feedback loops.</p>
                     <p><strong>Theming.</strong> Pure CSS variables, so it adopts the active app theme inside its shadow DOM.</p>`,
                 rawHtml: `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
                         <label style="font-size:0.85em;color:var(--text-muted)">offset (px):</label>
@@ -4986,11 +5012,11 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             'note-editor': {
                 desc: `<p><strong>&lt;note-editor&gt;</strong> is the standalone note authoring component used on <code>/editor/&hellip;</code> routes. Form layout: week selector, filename input, themes input, a markdown textarea on the left and a live <code>&lt;markdown-preview&gt;</code> on the right with synchronized scrolling.</p>
                     <p><strong>Domain:</strong> <code>notes</code> &mdash; from <code>notes_service</code>. The optional <code>preview_service</code> is forwarded to the embedded preview for relative-link resolution.</p>
-                    <p><strong>Lifecycle.</strong> Loads existing content via <code>service.load(week, file)</code> when both are present, otherwise starts blank. Save is via <code>service.save({ week, file, body, themes })</code>; cancel emits an event.</p>
+                    <p><strong>Lifecycle.</strong> Loads existing content via <code>service.raw(week, file)</code> when both are present, otherwise starts blank. Save is via <code>service.save({ folder, file, content, tags, type, presentationStyle? })</code>; cancel emits an event. The textarea is wired to a shared <code>&lt;wn-autocomplete&gt;</code> popover for <code>@</code> (people), <code>#</code> (themes) and <code>{{</code> (templates) triggers, and the live preview runs <code>linkMentions</code> so <code>@person</code> / <code>@company</code> chips render the same way as on read pages.</p>
                     <p><strong>Scroll-sync.</strong> Listens for <code>markdown-preview:scroll</code> from the preview and reflects scroll position back to the textarea (and vice versa).</p>
                     <p><strong>Events</strong> (cancelable, bubbling, composed):</p>
                     <ul>
-                        <li><code>note-editor:saved</code> with <code>{ week, file, body }</code></li>
+                        <li><code>note-editor:saved</code> with <code>{ folder, file, path, closeAfter }</code></li>
                         <li><code>note-editor:cancel</code></li>
                     </ul>`,
                 rawHtml: `<note-editor notes_service="MockNotesService" preview_service="MockNotesService"></note-editor>`,
@@ -4998,7 +5024,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             'week-notes-calendar': {
                 desc: `<p><strong>&lt;week-notes-calendar&gt;</strong> is the calendar <em>page</em> component: a toolbar (title, ISO-week badge, date range, prev/today/next nav buttons) wrapping an embedded <code>&lt;week-calendar&gt;</code>. Used on <code>/calendar</code> and <code>/calendar/&lt;week&gt;</code>.</p>
                     <p><strong>Domain:</strong> <code>meetings</code> &mdash; from <code>meetings_service</code>. The service supplies the meeting items for the current week.</p>
-                    <p><strong>Settings.</strong> When the host injects a <code>settings</code> attribute (JSON), the component reads <code>workHours</code> from it directly to avoid a roundtrip; otherwise it falls back to <code>service.getSettings()</code>.</p>
+                    <p><strong>Settings.</strong> When the host injects a <code>settings</code> attribute (JSON, observed) or sets the matching <code>el.settings</code> property, the component reads <code>workHours</code> / <code>visibleStartHour</code> / <code>visibleEndHour</code> from it and forwards them to the inner grid. With no settings provided, the grid renders without work-hour bands.</p>
                     <p><strong>Routing.</strong> Reflects URL changes (<code>/calendar/YYYY-WNN</code>) to its internal <code>week</code> attribute and vice versa &mdash; nav button clicks update <code>history</code> via the SPA router.</p>
                     <p><strong>Events.</strong> <code>calendar:week-changed</code> with <code>{ week }</code> when the user navigates. Forwards <code>week-calendar:item-selected</code> and <code>open-item-selected</code> from the inner grid.</p>`,
                 tag: 'week-notes-calendar',
@@ -5111,8 +5137,8 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                 desc: `<p><strong>&lt;settings-page&gt;</strong> is the master/detail editor on <code>/settings</code>: a list of contexts on the left, a form on the right for the selected context (name, icon, description, theme, working hours per weekday, default meeting length, meeting types).</p>
                     <p><strong>Domains:</strong></p>
                     <ul>
-                        <li><code>settings</code> &mdash; from <code>settings_service</code>; <code>list()</code>, <code>load(id)</code>, <code>saveSettings(id, data)</code>, <code>create()</code>, <code>delete(id)</code></li>
-                        <li><code>context</code> &mdash; from <code>context_service</code>; used to switch the active context after rename/create/delete</li>
+                        <li><code>settings</code> &mdash; from <code>settings_service</code>; calls <code>getSettings(id)</code>, <code>saveSettings(id, data)</code>, <code>getMeetingTypes(id)</code> / <code>saveMeetingTypes(id, types)</code>, plus <code>listThemes()</code> / <code>createTheme()</code> / <code>updateTheme()</code> / <code>removeTheme()</code> for the theme picker</li>
+                        <li><code>context</code> &mdash; from <code>context_service</code>; <code>list()</code>, <code>switchTo(id)</code>, plus context lifecycle (create/clone/disconnect/migrations) used by the rail and detail buttons</li>
                     </ul>
                     <p><strong>Working hours block.</strong> Horizontal cards, one per weekday (Mon-Sun). Each card has a <code>HH:MM-HH:MM</code> text input (regex parsed) or empty for &ldquo;ledig&rdquo;. The form serializes to a length-7 array before saving.</p>
                     <p><strong>Møtetyper editor.</strong> One row per type with: icon, color (<code>&lt;input type="color"&gt;</code>), key (lowercased, used as <code>typeId</code>), label. Saved as <code>settings.meetingTypes = [{key, icon, label, color}]</code>. Falls back to <code>DEFAULT_MEETING_TYPES</code> when empty. The color is consumed by <code>&lt;week-calendar&gt;</code> via its <code>eventTypes</code> property to colorize meeting blocks.</p>
@@ -8639,6 +8665,23 @@ activateTab(initialParams.tab || 'people');
 
     // App-wide settings (currently just vector-search). Per-context settings
     // remain at /api/contexts/:id/settings.
+    if (pathname === '/api/user' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, user: getUser() }));
+        return;
+    }
+    if (pathname === '/api/user' && req.method === 'PUT') {
+        try {
+            const body = JSON.parse(await readBody(req) || '{}');
+            const next = setUser(body);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, user: next }));
+        } catch (e) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+        return;
+    }
     if (pathname === '/api/app-settings' && req.method === 'GET') {
         const annotateLocal = (m) => {
             const dir = path.join(__dirname, 'models', m.id.replace(/\//g, path.sep));
