@@ -6951,7 +6951,10 @@ document.addEventListener('keydown', function(e) {
         lines.push('## Aksjonspunkter', '', '- [ ] ', '');
         fs.writeFileSync(path.join(dir, file), lines.join('\n'), 'utf-8');
         const now = new Date().toISOString();
-        setNoteMeta(week, file, { type: 'meeting', meetingId: mid, created: now, modified: now });
+        const meMeta = getMePersonKey(getActiveContext());
+        const noteMeta = { type: 'meeting', meetingId: mid, created: now, modified: now };
+        if (meMeta) { noteMeta.createdBy = meMeta; noteMeta.lastSavedBy = meMeta; }
+        setNoteMeta(week, file, noteMeta);
         res.writeHead(302, { Location: `/editor/${week}/${encodeURIComponent(file)}` });
         res.end();
         return;
@@ -9130,6 +9133,17 @@ activateTab(initialParams.tab || 'people');
                 updates.themes = norm;
             }
             if (!existing.created) updates.created = now;
+            // Author tracking: createdBy is set once (first explicit save with
+            // an identity), lastSavedBy updates on every explicit save. Both
+            // hold the person key from data/user.json (per-context @me mapping).
+            // Autosaves are not attributed.
+            if (!autosave) {
+                const me = getMePersonKey(getActiveContext());
+                if (me) {
+                    if (!existing.createdBy) updates.createdBy = me;
+                    updates.lastSavedBy = me;
+                }
+            }
             // Cross-entity references — recomputed from finalContent on
             // each save so the sidecar always reflects what the note
             // currently links to. Meeting notes carry meetingId as a
@@ -10473,7 +10487,10 @@ activateTab(initialParams.tab || 'people');
                 fs.writeFileSync(path.join(dataDir(), week, fileName),
                     `# ✅ ${task.text}\n\n${cleanComment}\n\n---\n*Fullført: ${dateStr}*\n`, 'utf-8');
                 task.commentFile = `${week}/${fileName}`;
-                setNoteMeta(week, fileName, { type: 'task' });
+                const meTask = getMePersonKey(getActiveContext());
+                const taskMeta = { type: 'task' };
+                if (meTask) { taskMeta.createdBy = meTask; taskMeta.lastSavedBy = meTask; }
+                setNoteMeta(week, fileName, taskMeta);
             }
         }
         saveTasks(tasks);

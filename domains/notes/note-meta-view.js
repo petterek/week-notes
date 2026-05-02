@@ -4,7 +4,8 @@
  * The parent passes a meta object via the `meta` JS property:
  *   {
  *     week, file, name?, type?, pinned?, themes?: string[],
- *     created?, modified?, presentationStyle?
+ *     created?, modified?, presentationStyle?,
+ *     createdBy?, lastSavedBy?
  *   }
  *
  * Emits cancelable, bubbling, composed CustomEvents:
@@ -123,7 +124,9 @@ class NoteMetaView extends WNElement {
                     ${m.week ? html`<span><strong>Uke:</strong> ${escapeHtml(m.week)}</span>` : ''}
                     ${m.file ? html`<span><strong>Fil:</strong> ${escapeHtml(m.file)}</span>` : ''}
                     ${m.created ? html`<span><strong>Opprettet:</strong> ${escapeHtml(fmtDate(m.created))}</span>` : ''}
+                    ${m.createdBy ? html`<span><strong>Opprettet av:</strong> <entity-mention kind="person" key="${escapeHtml(m.createdBy)}"></entity-mention></span>` : ''}
                     ${m.modified ? html`<span><strong>Endret:</strong> ${escapeHtml(fmtDate(m.modified))}</span>` : ''}
+                    ${m.lastSavedBy ? html`<span><strong>Sist lagret av:</strong> <entity-mention kind="person" key="${escapeHtml(m.lastSavedBy)}"></entity-mention></span>` : ''}
                     ${isPresentation && m.presentationStyle ? html`<span><strong>Stil:</strong> ${escapeHtml(m.presentationStyle)}</span>` : ''}
                 </div>
                 ${themes.length ? html`
