@@ -1438,7 +1438,9 @@ function getCalendarActivity(startIso, endIso) {
         for (const key of Object.keys(meta || {})) {
             const m = meta[key];
             if (!m) continue;
-            const ts = m.modified || (Array.isArray(m.saves) && m.saves.length ? m.saves[m.saves.length - 1] : null);
+            const lastSave = Array.isArray(m.saves) && m.saves.length ? m.saves[m.saves.length - 1] : null;
+            const lastSaveTs = lastSave && typeof lastSave === 'object' ? lastSave.at : lastSave;
+            const ts = m.modified || lastSaveTs;
             const dt = isoToLocalDateTime(ts);
             if (!dt) continue;
             if (dt.date < startIso || dt.date > endIso) continue;
@@ -9119,8 +9121,13 @@ activateTab(initialParams.tab || 'people');
 
             const now = new Date().toISOString();
             const existing = getNoteMeta(folder, file);
-            const saves = existing.saves || [];
-            if (!autosave) saves.push(now);
+            const saves = Array.isArray(existing.saves) ? existing.saves.slice() : [];
+            const meKey = !autosave ? getMePersonKey(getActiveContext()) : '';
+            if (!autosave) {
+                const entry = { at: now };
+                if (meKey) entry.by = meKey;
+                saves.push(entry);
+            }
             const updates = { type: type || existing.type || 'note', modified: now, saves };
             if (presentationStyle) updates.presentationStyle = presentationStyle;
             const incomingTags = Array.isArray(tags) ? tags : (Array.isArray(themes) ? themes : null);
@@ -9137,12 +9144,9 @@ activateTab(initialParams.tab || 'people');
             // an identity), lastSavedBy updates on every explicit save. Both
             // hold the person key from data/user.json (per-context @me mapping).
             // Autosaves are not attributed.
-            if (!autosave) {
-                const me = getMePersonKey(getActiveContext());
-                if (me) {
-                    if (!existing.createdBy) updates.createdBy = me;
-                    updates.lastSavedBy = me;
-                }
+            if (!autosave && meKey) {
+                if (!existing.createdBy) updates.createdBy = meKey;
+                updates.lastSavedBy = meKey;
             }
             // Cross-entity references — recomputed from finalContent on
             // each save so the sidecar always reflects what the note
