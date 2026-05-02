@@ -827,11 +827,11 @@ class NoteEditor extends WNElement {
                 const [pp, cc] = await Promise.all([ensurePeople(), ensureCompanies()]);
                 const out = [];
                 for (const c of cc) {
-                    out.push({ value: c.key || c.name, label: c.name || c.key, hint: 'firma', kind: 'company' });
+                    out.push({ value: c.key || (c.name || '').toLowerCase(), label: c.name || c.key, hint: 'firma', kind: 'company' });
                 }
                 for (const p of pp) {
                     const display = p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : p.name;
-                    out.push({ value: display || p.key, label: display || p.name || p.key, hint: '', kind: 'person', key: p.key });
+                    out.push({ value: p.key || (p.name || '').toLowerCase(), label: display || p.name || p.key, hint: '', kind: 'person' });
                 }
                 return out;
             },
