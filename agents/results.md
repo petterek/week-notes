@@ -46,8 +46,12 @@ Per-week outcome / result log. Two creation paths:
 
 ## Code map
 
-- `extractResults(noteText)` — strips brackets, returns
-  `{results, cleanNote}`. Skips markdown links via `(?!\()` lookahead.
+- `extractResults(noteText)` — finds new-result markers `[[X]]` and
+  returns `{results, cleanNote}`. Skips reference forms (`[[?<id>]]`).
+- `processInlineResults(text, week, extra)` — used on **explicit** save:
+  creates a result for each `[[X]]` marker and **rewrites the marker in
+  place** to `[[?<id>]]` so the saved note keeps a stable reference.
+  Mirrors the `{{X}} → {{?<id>}}` task pipeline.
 - `syncTaskNote(task, rawNote)` — on every task-note save, replaces all
   results that belong to `task.id` with the bracketed pieces.
 - `loadResults` / `saveResults` — file IO at top of `server.js`.

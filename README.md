@@ -10,6 +10,13 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-05-02 (resultater: `[[X]]` → `[[?<id>]]` ved lagring)
+- Inline-resultatmarkøren oppfører seg nå som inline-oppgaver: ved **eksplisitt** lagring opprettes resultatet og markøren skrives om til `[[?<id>]]` i kildenotatet — ikke lenger strippet til ren tekst. Det gir en stabil ref slik at resultatet kan rendres som chip og navigeres til fra notatet.
+- Ny `<inline-result result-id="...">`-komponent (speiler `<inline-task>`): blå chip med 🏁 og resultatteksten, klikk navigerer til `/results#r-<id>`.
+- `linkMentions` (server + klient) gjenkjenner både `[[X]]` (pre-save preview-pille via `<inline-action kind="result">`) og `[[?<id>]]` (linket chip).
+- `computeNoteReferences` leser linket-formen direkte til `id`; legacy label-form fortsatt støttet via tekstmatch.
+- Re-save av et notat med `[[?<id>]]` er idempotent — ingen duplikat-resultater.
+
 ### 2026-05-02 (per-bruker `@me`-mapping)
 - Ny **👤 Min identitet**-fane under Applikasjonsinnstillinger. Velg hvilken person fra registeret som er `@me` — settes per kontekst.
 - Mappingen lagres i `data/user.json` (utenfor alle kontekstenes git-repoer), så flere brukere kan dele samme kontekst med hver sin `@me` uten at det merges inn i delt git-historikk.

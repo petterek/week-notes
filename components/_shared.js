@@ -36,6 +36,9 @@ export function linkMentions(s, people, companies) {
         if (!t) return '';
         return `<inline-action kind="task" label="${escapeHtml(t)}"></inline-action>`;
     });
+    out = out.replace(/\[\[\?([^\[\]\s]+)\]\]/g, (_m, id) => {
+        return `<inline-result result-id="${escapeHtml(id)}"></inline-result>`;
+    });
     out = out.replace(/\[\[([^\[\]]+)\]\]/g, (_m, inner) => {
         const t = inner.trim();
         if (!t) return '';

@@ -1131,18 +1131,53 @@ function saveResults(results) {
     syncCollection('results', results, 'id');
 }
 
-// Extract [bracketed text] from a note, return { results: string[], cleanNote: string }
+// Extract [bracketed text] from a note, return { results: string[], cleanNote: string }.
+// Skips reference forms ([[?<id>]] / [[!<id>]]) — those refer to existing
+// results and should not be re-created.
 function extractResults(noteText) {
     if (!noteText) return { results: [], cleanNote: noteText || '' };
     const extracted = [];
-    // [[X]] — double-bracket result marker. Inner text becomes a new
-    // result entity, the brackets are stripped on save (keeps inner text).
-    const clean = noteText.replace(/\[\[([^\[\]]+)\]\]/g, (_, inner) => {
+    const clean = noteText.replace(/\[\[([^\[\]]+)\]\]/g, (m, inner) => {
         const trimmed = inner.trim();
+        if (trimmed.startsWith('?') || trimmed.startsWith('!')) return m;
         if (trimmed) extracted.push(trimmed);
         return trimmed;
     });
     return { results: extracted, cleanNote: clean };
+}
+
+// On EXPLICIT save, transform [[X]] markers into linked [[?<id>]] markers,
+// creating the underlying result entities. Mirrors the task pipeline ({{X}}
+// → {{?<id>}}). Returns { text, createdIds, createdCount }. Reference forms
+// already in the text are left untouched.
+function processInlineResults(text, week, extraFields) {
+    if (!text) return { text: text || '', createdIds: [], createdCount: 0 };
+    const noteMentions = extractMentions(text);
+    const created = [];
+    const out = text.replace(/\[\[([^\[\]]+)\]\]/g, (m, inner) => {
+        const trimmed = inner.trim();
+        if (!trimmed) return m;
+        if (trimmed.startsWith('?') || trimmed.startsWith('!')) return m;
+        const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+        const textMentions = extractMentions(trimmed);
+        const allMentions = [...new Set([...noteMentions, ...textMentions])];
+        const rec = {
+            id,
+            text: trimmed,
+            week,
+            people: allMentions,
+            created: new Date().toISOString(),
+        };
+        if (extraFields && typeof extraFields === 'object') Object.assign(rec, extraFields);
+        created.push(rec);
+        return `[[?${id}]]`;
+    });
+    if (created.length > 0) {
+        const all = loadResults();
+        for (const r of created) all.push(r);
+        saveResults(all);
+    }
+    return { text: out, createdIds: created.map(r => r.id), createdCount: created.length };
 }
 
 // {{X}} — double-brace task marker. Inner text becomes a new task entity,
@@ -2406,6 +2441,7 @@ document.addEventListener('keydown', function(e){
 <script type="module" src="/components/entity-mention.js"></script>
 <script type="module" src="/components/inline-action.js"></script>
 <script type="module" src="/components/inline-task.js"></script>
+<script type="module" src="/components/inline-result.js"></script>
 <script type="module" src="/components/icon-picker.js"></script>
 <script type="module" src="/components/tag-editor.js"></script>
 <script type="module" src="/components/people-page.js"></script>
@@ -2788,6 +2824,9 @@ function linkMentions(html, people, companies) {
         if (!t) return '';
         return `<inline-action kind="task" label="${escapeHtml(t)}"></inline-action>`;
     });
+    out = out.replace(/\[\[\?([^\[\]\s]+)\]\]/g, (_m, id) => {
+        return `<inline-result result-id="${escapeHtml(id)}"></inline-result>`;
+    });
     out = out.replace(/\[\[([^\[\]]+)\]\]/g, (_m, inner) => {
         const t = inner.trim();
         if (!t) return '';
@@ -2963,14 +3002,20 @@ function computeNoteReferences(text) {
     const taskRefRe = /\{\{[!?]([^{}\s]+)\}\}/g;
     while ((m = taskRefRe.exec(text)) !== null) taskIds.add(m[1].trim());
 
-    // Result markers: [[label]] — match against existing results by text.
+    // Result reference markers: [[?id]] (linked) and [[label]] (legacy /
+    // pre-save). Linked form maps directly to an id; label form falls back
+    // to text-matching against existing results.
+    const resultIds = new Set();
+    const resultRefRe = /\[\[\?([^\[\]\s]+)\]\]/g;
+    while ((m = resultRefRe.exec(text)) !== null) resultIds.add(m[1].trim());
+
     const resultLabels = [];
     const resultLabelRe = /\[\[([^\[\]]+)\]\]/g;
     while ((m = resultLabelRe.exec(text)) !== null) {
         const t = m[1].trim();
-        if (t) resultLabels.push(t);
+        if (!t || t.startsWith('?') || t.startsWith('!')) continue;
+        resultLabels.push(t);
     }
-    const resultIds = new Set();
     if (resultLabels.length > 0) {
         try {
             const all = loadResults();
@@ -5325,6 +5370,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
 <script type="module" src="/components/entity-mention.js"></script>
 <script type="module" src="/components/inline-action.js"></script>
 <script type="module" src="/components/inline-task.js"></script>
+<script type="module" src="/components/inline-result.js"></script>
 <script type="module" src="/components/icon-picker.js"></script>
 <script type="module" src="/components/tag-editor.js"></script>
 <script type="module" src="/components/people-page.js"></script>
@@ -9038,25 +9084,9 @@ activateTab(initialParams.tab || 'people');
                         if (changed) saveTasks(allTasks);
                     }
                 }
-                const ext = extractResults(finalContent);
-                if (ext.results.length > 0) {
-                    const noteMentions = extractMentions(content);
-                    let allResults = loadResults();
-                    ext.results.forEach(text => {
-                        const textMentions = extractMentions(text);
-                        const allMentions = [...new Set([...noteMentions, ...textMentions])];
-                        allResults.push({
-                            id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
-                            text,
-                            week: noteWeek,
-                            people: allMentions,
-                            created: new Date().toISOString(),
-                        });
-                    });
-                    saveResults(allResults);
-                    createdResults = ext.results.length;
-                    finalContent = ext.cleanNote;
-                }
+                const resOut = processInlineResults(finalContent, noteWeek);
+                createdResults = resOut.createdCount;
+                finalContent = resOut.text;
             }
 
             if (autosave) {
@@ -10433,26 +10463,11 @@ activateTab(initialParams.tab || 'people');
             }
             if (task.done && comment) {
                 const week = task.completedWeek || task.week || getCurrentYearWeek();
-                const { results: resultTexts, cleanNote: cleanComment } = extractResults(comment);
-                if (resultTexts.length > 0) {
-                    const mentionNames = extractMentions(comment);
-                    let allResults = loadResults();
-                    resultTexts.forEach(text => {
-                        const textMentions = extractMentions(text);
-                        const allMentions = [...new Set([...mentionNames, ...textMentions])];
-                        allResults.push({
-                            id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
-                            text,
-                            week,
-                            taskId: task.id,
-                            taskText: task.text,
-                            people: allMentions,
-                            created: new Date().toISOString()
-                        });
-                    });
-                    saveResults(allResults);
+                const proc = processInlineResults(comment, week, { taskId: task.id, taskText: task.text });
+                if (proc.createdCount > 0) {
                     syncMentions(task.text, comment);
                 }
+                const cleanComment = proc.text;
                 const fileName = `oppgave-${task.id}.md`;
                 fs.mkdirSync(path.join(dataDir(), week), { recursive: true });
                 fs.writeFileSync(path.join(dataDir(), week, fileName),
