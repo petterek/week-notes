@@ -5160,7 +5160,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                 };
             })(),
             'settings-page': {
-                desc: `<p><strong>&lt;settings-page&gt;</strong> is the master/detail editor on <code>/settings</code>: a list of contexts on the left, a form on the right for the selected context (name, icon, description, theme, working hours per weekday, default meeting length, meeting types).</p>
+                desc: `<p><strong>&lt;settings-page&gt;</strong> is the master/detail editor on <code>/settings</code>: a list of contexts on the left, a form on the right for the selected context (name, icon, description, theme, working hours per weekday, default meeting length, meeting types). Also hosts the application-wide settings tabs (search, summarization, themes, identity).</p>
                     <p><strong>Domains:</strong></p>
                     <ul>
                         <li><code>settings</code> &mdash; from <code>settings_service</code>; calls <code>getSettings(id)</code>, <code>saveSettings(id, data)</code>, <code>getMeetingTypes(id)</code> / <code>saveMeetingTypes(id, types)</code>, plus <code>listThemes()</code> / <code>createTheme()</code> / <code>updateTheme()</code> / <code>removeTheme()</code> for the theme picker</li>
@@ -5168,6 +5168,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                     </ul>
                     <p><strong>Working hours block.</strong> Horizontal cards, one per weekday (Mon-Sun). Each card has a <code>HH:MM-HH:MM</code> text input (regex parsed) or empty for &ldquo;ledig&rdquo;. The form serializes to a length-7 array before saving.</p>
                     <p><strong>Møtetyper editor.</strong> One row per type with: icon, color (<code>&lt;input type="color"&gt;</code>), key (lowercased, used as <code>typeId</code>), label. Saved as <code>settings.meetingTypes = [{key, icon, label, color}]</code>. Falls back to <code>DEFAULT_MEETING_TYPES</code> when empty. The color is consumed by <code>&lt;week-calendar&gt;</code> via its <code>eventTypes</code> property to colorize meeting blocks.</p>
+                    <p><strong>Min identitet (👤 Bruker-fane).</strong> Per-context person picker that maps <code>@me</code> to a real person in the people register. Loads <code>GET /api/me</code> + <code>GET /api/people</code>; on submit calls <code>PUT /api/me</code> which writes to <code>data/user.json</code> &mdash; outside any context's git repo &mdash; so multiple users sharing a context each have their own mapping. Updates <code>window.mePersonKey</code> live on save.</p>
                     <p><strong>Lifecycle.</strong> Loads the context list on connect; when one is picked, fetches its settings and populates the form. Save is optimistic but writes through the service; on success re-renders the list to reflect rename/icon changes.</p>
                     <p><strong>Events.</strong> No bespoke events &mdash; navigation/reload happens through the context service.</p>`,
                 rawHtml: `<settings-page settings_service="MockSettingsService" context_service="MockContextService"></settings-page>`,
