@@ -24,7 +24,7 @@
  *   note-editor:saved   { folder, file, path }
  *   note-editor:cancel
  */
-import { WNElement, html, escapeHtml, isoWeek } from './_shared.js';
+import { WNElement, html, escapeHtml, linkMentions, isoWeek } from './_shared.js';
 import { attachAutocomplete, replaceRange, highlightMatch } from '/components/wn-autocomplete.js';
 
 const STYLES = `
@@ -444,7 +444,27 @@ class NoteEditor extends WNElement {
             const checked = k === '!' ? ' checked' : '';
             return `<input type="checkbox" disabled${checked}> ${text}`;
         });
+        // Mirror server: render @mentions as <entity-mention> chips and
+        // [[result]] markers as <inline-action kind="result">. People &
+        // companies are loaded lazily; until they arrive, unknown @names
+        // still render as raw text.
+        if (!this._linkDataLoaded && !this._linkDataLoading) this._loadLinkData();
+        out = linkMentions(out, this._people || [], this._companies || []);
         return out;
+    }
+
+    _loadLinkData() {
+        this._linkDataLoading = true;
+        Promise.all([
+            fetch('/api/people').then(r => r.json()).catch(() => []),
+            fetch('/api/companies').then(r => r.json()).catch(() => []),
+        ]).then(([pp, cc]) => {
+            this._people = (Array.isArray(pp) ? pp : []).filter(p => !p.inactive);
+            this._companies = (Array.isArray(cc) ? cc : []).filter(c => !c.deleted);
+            this._linkDataLoaded = true;
+            this._linkDataLoading = false;
+            this._renderPreview();
+        }).catch(() => { this._linkDataLoading = false; });
     }
 
     _loadTaskTexts() {
