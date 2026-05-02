@@ -187,6 +187,8 @@ class NoteEditor extends WNElement {
         this._initialPresStyle = '';
         this._initialCreated = '';
         this._initialModified = '';
+        this._initialCreatedBy = '';
+        this._initialLastSavedBy = '';
         this._editing = !!(urlWeek && urlFile);
 
         // Load once, then wire events
@@ -257,7 +259,9 @@ class NoteEditor extends WNElement {
             </div>
             <div class="ne-meta-footer">
                 ${this._initialCreated ? html`<span><strong>Opprettet:</strong> ${this._fmtDate(this._initialCreated)}</span>` : ''}
+                ${this._initialCreatedBy ? html`<span><strong>Opprettet av:</strong> <entity-mention kind="person" key="${this._initialCreatedBy}"></entity-mention></span>` : ''}
                 ${this._initialModified ? html`<span><strong>Endret:</strong> ${this._fmtDate(this._initialModified)}</span>` : ''}
+                ${this._initialLastSavedBy ? html`<span><strong>Sist lagret av:</strong> <entity-mention kind="person" key="${this._initialLastSavedBy}"></entity-mention></span>` : ''}
             </div>
             <details class="ne-history-wrap">
                 <summary>🕘 Historikk</summary>
@@ -621,11 +625,15 @@ class NoteEditor extends WNElement {
                 if (this._pinnedEl) this._pinnedEl.checked = this._initialPinned;
                 this._initialCreated = (meta && meta.created) || '';
                 this._initialModified = (meta && meta.modified) || '';
+                this._initialCreatedBy = (meta && meta.createdBy) || '';
+                this._initialLastSavedBy = (meta && meta.lastSavedBy) || '';
                 const footer = this.shadowRoot.querySelector('.ne-meta-footer');
                 if (footer) {
                     const parts = [];
                     if (this._initialCreated) parts.push(`<span><strong>Opprettet:</strong> ${escapeHtml(this._fmtDate(this._initialCreated))}</span>`);
+                    if (this._initialCreatedBy) parts.push(`<span><strong>Opprettet av:</strong> <entity-mention kind="person" key="${escapeHtml(this._initialCreatedBy)}"></entity-mention></span>`);
                     if (this._initialModified) parts.push(`<span><strong>Endret:</strong> ${escapeHtml(this._fmtDate(this._initialModified))}</span>`);
+                    if (this._initialLastSavedBy) parts.push(`<span><strong>Sist lagret av:</strong> <entity-mention kind="person" key="${escapeHtml(this._initialLastSavedBy)}"></entity-mention></span>`);
                     footer.innerHTML = parts.join('');
                 }
             }
@@ -1121,11 +1129,15 @@ class NoteEditor extends WNElement {
                         const meta = await this.service.meta(folder, file);
                         this._initialModified = (meta && meta.modified) || this._initialModified;
                         this._initialCreated = this._initialCreated || (meta && meta.created) || '';
+                        this._initialCreatedBy = this._initialCreatedBy || (meta && meta.createdBy) || '';
+                        this._initialLastSavedBy = (meta && meta.lastSavedBy) || this._initialLastSavedBy;
                         const footer = this.shadowRoot.querySelector('.ne-meta-footer');
                         if (footer) {
                             const parts = [];
                             if (this._initialCreated) parts.push(`<span><strong>Opprettet:</strong> ${escapeHtml(this._fmtDate(this._initialCreated))}</span>`);
+                            if (this._initialCreatedBy) parts.push(`<span><strong>Opprettet av:</strong> <entity-mention kind="person" key="${escapeHtml(this._initialCreatedBy)}"></entity-mention></span>`);
                             if (this._initialModified) parts.push(`<span><strong>Endret:</strong> ${escapeHtml(this._fmtDate(this._initialModified))}</span>`);
+                            if (this._initialLastSavedBy) parts.push(`<span><strong>Sist lagret av:</strong> <entity-mention kind="person" key="${escapeHtml(this._initialLastSavedBy)}"></entity-mention></span>`);
                             footer.innerHTML = parts.join('');
                         }
                     } catch (_) {}
