@@ -292,12 +292,9 @@ class SettingsPage extends WNElement {
     async _initUserTab() {
         const root = this.shadowRoot;
         const form  = root.querySelector('[data-user="form"]');
-        const firstI = root.querySelector('[data-user="firstName"]');
-        const lastI  = root.querySelector('[data-user="lastName"]');
-        const dispI  = root.querySelector('[data-user="displayName"]');
-        const emailI = root.querySelector('[data-user="email"]');
+        const sel   = root.querySelector('[data-user="key"]');
         const statusEl = root.querySelector('[data-user="status"]');
-        if (!form || !firstI || !lastI || !dispI || !emailI) return;
+        if (!form || !sel) return;
 
         const setStatus = (txt, cls) => {
             if (!statusEl) return;
@@ -305,14 +302,28 @@ class SettingsPage extends WNElement {
             statusEl.className = 'vs-save-status' + (cls ? ' ' + cls : '');
         };
 
+        // Load people for the active context, then current cookie value.
         try {
-            const r = await fetch('/api/user');
-            const d = await r.json();
-            const u = (d && d.user) || {};
-            firstI.value = u.firstName   || '';
-            lastI.value  = u.lastName    || '';
-            dispI.value  = u.displayName || '';
-            emailI.value = u.email       || '';
+            const [pp, me] = await Promise.all([
+                fetch('/api/people').then(r => r.json()).catch(() => []),
+                fetch('/api/me').then(r => r.json()).catch(() => ({ key: '' })),
+            ]);
+            const people = (Array.isArray(pp) ? pp : []).filter(p => !p.inactive);
+            people.sort((a, b) => {
+                const an = (a.firstName ? a.firstName + ' ' + (a.lastName || '') : (a.name || a.key || '')).trim();
+                const bn = (b.firstName ? b.firstName + ' ' + (b.lastName || '') : (b.name || b.key || '')).trim();
+                return an.localeCompare(bn, 'nb');
+            });
+            const cur = (me && me.key) || '';
+            const opts = ['<option value="">(ingen)</option>'];
+            for (const p of people) {
+                const key = p.key || (p.name || '').toLowerCase();
+                const display = p.firstName
+                    ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName)
+                    : (p.name || key);
+                opts.push(`<option value="${key.replace(/"/g, '&quot;')}"${key === cur ? ' selected' : ''}>${display.replace(/</g, '&lt;')}</option>`);
+            }
+            sel.innerHTML = opts.join('');
         } catch {
             setStatus('Kunne ikke laste', 'is-error');
         }
@@ -321,18 +332,15 @@ class SettingsPage extends WNElement {
             e.preventDefault();
             setStatus('Lagrer…');
             try {
-                const r = await fetch('/api/user', {
+                const r = await fetch('/api/me', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        firstName:   firstI.value.trim(),
-                        lastName:    lastI.value.trim(),
-                        displayName: dispI.value.trim(),
-                        email:       emailI.value.trim(),
-                    }),
+                    body: JSON.stringify({ key: sel.value || '' }),
                 });
                 const d = await r.json();
                 if (!r.ok || !d.ok) throw new Error(d.error || 'Feil');
+                // Update window.mePersonKey live so already-rendered chips update on next interaction.
+                if (typeof window !== 'undefined') window.mePersonKey = d.key || '';
                 setStatus('Lagret ✓');
                 setTimeout(() => setStatus(''), 2000);
             } catch (err) {
@@ -789,17 +797,14 @@ class SettingsPage extends WNElement {
                     <div class="app-tab-panel" data-app-panel="user">
                         <div class="app-card">
                             <div class="app-head">
-                                <strong>👤 Brukerprofil</strong>
+                                <strong>👤 Min identitet</strong>
                                 <div class="vs-actions">
                                     <span class="vs-save-status" data-user="status"></span>
                                 </div>
                             </div>
-                            <p class="app-help">Identitet på tvers av alle kontekster. Lagres i <code>data/user.json</code>.</p>
+                            <p class="app-help">Velg hvilken person fra registeret som er <code>@me</code> i denne nettleseren. Lagres som en informasjonskapsel — flere brukere kan dele samme kontekst med hver sin identitet.</p>
                             <form data-user="form" class="user-form">
-                                <label class="user-row"><span>Fornavn</span><input type="text" data-user="firstName" autocomplete="given-name"></label>
-                                <label class="user-row"><span>Etternavn</span><input type="text" data-user="lastName" autocomplete="family-name"></label>
-                                <label class="user-row"><span>Visningsnavn</span><input type="text" data-user="displayName" autocomplete="nickname"></label>
-                                <label class="user-row"><span>E-post</span><input type="email" data-user="email" autocomplete="email"></label>
+                                <label class="user-row"><span>Person</span><select data-user="key"><option value="">(ingen)</option></select></label>
                                 <div class="user-actions"><button type="submit" class="vs-action">Lagre</button></div>
                             </form>
                         </div>

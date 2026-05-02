@@ -42,23 +42,24 @@ export function linkMentions(s, people, companies) {
         return `<inline-action kind="result" label="${escapeHtml(t)}"></inline-action>`;
     });
     return out.replace(/(^|[\s\n(\[>])@([a-zA-ZæøåÆØÅ][a-zA-ZæøåÆØÅ0-9_-]*)/g, (_m, pre, name) => {
-        const lc = name.toLowerCase();
+        let lc = name.toLowerCase();
+        let display = name;
         if (lc === 'me') {
-            const u = (typeof window !== 'undefined' && window.currentUser) || {};
-            const display = u.displayName
-                || [u.firstName, u.lastName].filter(Boolean).join(' ').trim()
-                || u.email
-                || 'me';
-            return `${pre}<entity-mention label="${escapeHtml(display)}"></entity-mention>`;
+            const mapped = (typeof window !== 'undefined' && window.mePersonKey) || '';
+            if (!mapped) {
+                return `${pre}<entity-mention kind="person" key="" label="@me"></entity-mention>`;
+            }
+            lc = mapped;
+            display = mapped;
         }
         const c = companies.find(x => x.key === lc);
         if (c) {
-            return `${pre}<entity-mention kind="company" key="${escapeHtml(c.key)}" label="${escapeHtml(c.name || name)}"></entity-mention>`;
+            return `${pre}<entity-mention kind="company" key="${escapeHtml(c.key)}" label="${escapeHtml(c.name || display)}"></entity-mention>`;
         }
-        const p = people.find(x => x.name === name || x.key === lc);
-        const display = p ? (p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : p.name) : name;
+        const p = people.find(x => x.name === display || x.key === lc);
+        const finalDisplay = p ? (p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : p.name) : display;
         const key = p ? (p.key || (p.name || '').toLowerCase()) : lc;
-        return `${pre}<entity-mention kind="person" key="${escapeHtml(key)}" label="${escapeHtml(display)}"></entity-mention>`;
+        return `${pre}<entity-mention kind="person" key="${escapeHtml(key)}" label="${escapeHtml(finalDisplay)}"></entity-mention>`;
     });
 }
 

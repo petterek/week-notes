@@ -10,6 +10,11 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-05-02 (per-bruker `@me`-mapping)
+- Ny **👤 Min identitet**-fane under Applikasjonsinnstillinger. Velg hvilken person fra registeret som er `@me` — settes per kontekst.
+- Mappingen lagres i `data/user.json` (utenfor alle kontekstenes git-repoer), så flere brukere kan dele samme kontekst med hver sin `@me` uten at det merges inn i delt git-historikk.
+- `linkMentions` (server + klient) erstatter `@me` direkte med riktig person når notater rendres; ingen klient-side substitusjon eller cookies.
+
 ### 2026-05-01 (inline task-checkbokser i renderte notater)
 - `{{X}}`-markører i ukenotater er nå **toveis koblet** til oppgaven: ved lagring rewrites markøren til `{{?<id>}}` (åpen) i filen, og oppgaven får `noteRef` til kildenotatet.
 - I rendret notat vises `{{?<id>}}` / `{{!<id>}}` som en interaktiv checkbox (`<inline-task>`-komponenten) med oppgaveteksten. Klikk veksler done-status via `POST /api/tasks/:id/close-from-note`, som også flipper markøren i kildefilen mellom `?` og `!`.

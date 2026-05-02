@@ -212,29 +212,41 @@ function setAppSettings(next) {
     return merged;
 }
 
-// User profile lives outside any context (data/user.json). Shared across all contexts.
+// Per-machine user identity. Lives at data/user.json — OUTSIDE any context's
+// git repo (per-context git lives at data/<ctx>/.git), so it stays local to
+// the user's machine and isn't synced when multiple users share a context.
+//
+// Shape: { contexts: [{ context, mePersonKey }] }
 function getUser() {
     let u = {};
     try { u = JSON.parse(fs.readFileSync(USER_FILE, 'utf-8')) || {}; } catch {}
-    return {
-        firstName:   typeof u.firstName   === 'string' ? u.firstName   : '',
-        lastName:    typeof u.lastName    === 'string' ? u.lastName    : '',
-        displayName: typeof u.displayName === 'string' ? u.displayName : '',
-        email:       typeof u.email       === 'string' ? u.email       : '',
-    };
+    if (!Array.isArray(u.contexts)) u.contexts = [];
+    u.contexts = u.contexts.filter(e => e && typeof e === 'object' && typeof e.context === 'string');
+    return u;
 }
 
-function setUser(next) {
-    const cur = getUser();
-    const merged = {
-        firstName:   typeof next?.firstName   === 'string' ? next.firstName.trim()   : cur.firstName,
-        lastName:    typeof next?.lastName    === 'string' ? next.lastName.trim()    : cur.lastName,
-        displayName: typeof next?.displayName === 'string' ? next.displayName.trim() : cur.displayName,
-        email:       typeof next?.email       === 'string' ? next.email.trim()       : cur.email,
-    };
+function getMePersonKey(ctxId) {
+    if (!ctxId) return '';
+    const u = getUser();
+    const e = u.contexts.find(x => x.context === ctxId);
+    return (e && typeof e.mePersonKey === 'string') ? e.mePersonKey : '';
+}
+
+function setMePersonKey(ctxId, key) {
+    if (!ctxId) throw new Error('Mangler kontekst');
+    const u = getUser();
+    const safeKey = String(key || '').trim().toLowerCase();
+    const idx = u.contexts.findIndex(x => x.context === ctxId);
+    if (!safeKey) {
+        if (idx >= 0) u.contexts.splice(idx, 1);
+    } else if (idx >= 0) {
+        u.contexts[idx].mePersonKey = safeKey;
+    } else {
+        u.contexts.push({ context: ctxId, mePersonKey: safeKey });
+    }
     try { fs.mkdirSync(path.dirname(USER_FILE), { recursive: true }); } catch {}
-    fs.writeFileSync(USER_FILE, JSON.stringify(merged, null, 2));
-    return merged;
+    fs.writeFileSync(USER_FILE, JSON.stringify(u, null, 2));
+    return safeKey;
 }
 
 const WEEK_NOTES_MARKER = '.week-notes';
@@ -2359,7 +2371,7 @@ document.addEventListener('keydown', function(e){
     };
     window['week-note-services'] = registry;
     window.WeekNoteServices = registry;
-    window.currentUser = ${JSON.stringify(getUser())};
+    window.mePersonKey = ${JSON.stringify(getMePersonKey(getActiveContext()) || '')};
     document.dispatchEvent(new CustomEvent('week-note-services:ready', { detail: registry }));
 </script>
 <script type="module" src="/components/nav-meta.js"></script>
@@ -2782,21 +2794,24 @@ function linkMentions(html, people, companies) {
         return `<inline-action kind="result" label="${escapeHtml(t)}"></inline-action>`;
     });
     return out.replace(/(^|[\s\n(\[>])@([a-zA-ZæøåÆØÅ][a-zA-ZæøåÆØÅ0-9_-]*)/g, (m, pre, name) => {
-        const lc = name.toLowerCase();
+        let lc = name.toLowerCase();
+        let displayName = name;
         if (lc === 'me') {
-            const u = getUser();
-            const display = u.displayName
-                || [u.firstName, u.lastName].filter(Boolean).join(' ').trim()
-                || u.email
-                || 'me';
-            return pre + `<entity-mention label="${escapeHtml(display)}"></entity-mention>`;
+            // Server-side substitution: @me → mapped person key for the active context.
+            // Mapping lives in data/user.json (per-machine, outside any context's git).
+            const mapped = getMePersonKey(getActiveContext());
+            if (!mapped) {
+                return pre + `<entity-mention kind="person" key="" label="@me"></entity-mention>`;
+            }
+            lc = mapped;
+            displayName = mapped;
         }
         const c = companies.find(x => x.key === lc);
         if (c) {
-            return pre + `<entity-mention kind="company" key="${escapeHtml(c.key)}" label="${escapeHtml(c.name || name)}"></entity-mention>`;
+            return pre + `<entity-mention kind="company" key="${escapeHtml(c.key)}" label="${escapeHtml(c.name || displayName)}"></entity-mention>`;
         }
-        const p = people.find(x => x.name === name || x.key === lc);
-        const display = p ? (p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : p.name) : name;
+        const p = people.find(x => x.name === displayName || x.key === lc);
+        const display = p ? (p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : p.name) : displayName;
         const key = p ? (p.key || (p.name || '').toLowerCase()) : lc;
         return pre + `<entity-mention kind="person" key="${escapeHtml(key)}" label="${escapeHtml(display)}"></entity-mention>`;
     });
@@ -8674,25 +8689,32 @@ activateTab(initialParams.tab || 'people');
         return;
     }
 
-    // App-wide settings (currently just vector-search). Per-context settings
-    // remain at /api/contexts/:id/settings.
-    if (pathname === '/api/user' && req.method === 'GET') {
+    // Per-machine identity: which person in the people register represents
+    // the active user on THIS machine, per context. Stored in data/user.json
+    // (outside any context's git repo), so multiple users sharing a context
+    // each have their own "@me" mapping.
+    if (pathname === '/api/me' && req.method === 'GET') {
+        const ctx = getActiveContext();
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, user: getUser() }));
+        res.end(JSON.stringify({ ok: true, context: ctx, key: getMePersonKey(ctx) }));
         return;
     }
-    if (pathname === '/api/user' && req.method === 'PUT') {
+    if (pathname === '/api/me' && req.method === 'PUT') {
         try {
             const body = JSON.parse(await readBody(req) || '{}');
-            const next = setUser(body);
+            const ctx = getActiveContext();
+            const saved = setMePersonKey(ctx, body.key || '');
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: true, user: next }));
+            res.end(JSON.stringify({ ok: true, context: ctx, key: saved }));
         } catch (e) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: false, error: e.message }));
         }
         return;
     }
+
+    // App-wide settings (currently just vector-search). Per-context settings
+    // remain at /api/contexts/:id/settings.
     if (pathname === '/api/app-settings' && req.method === 'GET') {
         const annotateLocal = (m) => {
             const dir = path.join(__dirname, 'models', m.id.replace(/\//g, path.sep));
@@ -9250,19 +9272,20 @@ activateTab(initialParams.tab || 'people');
         function linkMentions(html) {
             if (!html) return html;
             return html.replace(/(^|[\\s\\n(\\[>])@([a-zA-ZæøåÆØÅ][a-zA-ZæøåÆØÅ0-9_-]*)/g, function(m, pre, name) {
-                const lc = name.toLowerCase();
+                let lc = name.toLowerCase();
+                let display = name;
                 if (lc === 'me') {
-                    const u = window.currentUser || {};
-                    const disp = u.displayName
-                        || [u.firstName, u.lastName].filter(Boolean).join(' ').trim()
-                        || u.email
-                        || 'me';
-                    return pre + '<entity-mention label="' + escapeHtml(disp) + '"></entity-mention>';
+                    const mapped = window.mePersonKey || '';
+                    if (!mapped) {
+                        return pre + '<entity-mention kind="person" key="" label="@me"></entity-mention>';
+                    }
+                    lc = mapped;
+                    display = mapped;
                 }
-                const p = mentionPeople.find(x => x.name === name || (x.key && x.key === lc));
-                const display = p ? (p.firstName ? (p.lastName ? p.firstName + ' ' + p.lastName : p.firstName) : p.name) : name;
+                const p = mentionPeople.find(x => x.name === display || (x.key && x.key === lc));
+                const finalDisplay = p ? (p.firstName ? (p.lastName ? p.firstName + ' ' + p.lastName : p.firstName) : p.name) : display;
                 const key = p ? (p.key || (p.name || '').toLowerCase()) : lc;
-                return pre + '<entity-mention kind="person" key="' + escapeHtml(key) + '" label="' + escapeHtml(display) + '"></entity-mention>';
+                return pre + '<entity-mention kind="person" key="' + escapeHtml(key) + '" label="' + escapeHtml(finalDisplay) + '"></entity-mention>';
             });
         }
 

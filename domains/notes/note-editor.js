@@ -826,13 +826,15 @@ class NoteEditor extends WNElement {
             fetchItems: async () => {
                 const [pp, cc] = await Promise.all([ensurePeople(), ensureCompanies()]);
                 const out = [];
-                const u = (typeof window !== 'undefined' && window.currentUser) || null;
-                if (u && (u.displayName || u.firstName || u.lastName || u.email)) {
-                    const disp = u.displayName
-                        || [u.firstName, u.lastName].filter(Boolean).join(' ').trim()
-                        || u.email
-                        || 'me';
+                const meKey = (typeof window !== 'undefined' && window.mePersonKey) || '';
+                if (meKey) {
+                    const me = pp.find(p => (p.key || (p.name || '').toLowerCase()) === meKey);
+                    const disp = me
+                        ? (me.firstName ? (me.lastName ? `${me.firstName} ${me.lastName}` : me.firstName) : (me.name || me.key))
+                        : meKey;
                     out.push({ value: 'me', label: disp, hint: 'meg', kind: 'me' });
+                } else {
+                    out.push({ value: 'me', label: 'meg', hint: 'sett i Innstillinger', kind: 'me' });
                 }
                 for (const c of cc) {
                     out.push({ value: c.key || (c.name || '').toLowerCase(), label: c.name || c.key, hint: 'firma', kind: 'company' });
