@@ -65,6 +65,32 @@ const STYLES = `
         color: var(--text-muted); font-style: italic; padding: 16px 0;
     }
     .nv-error { color: var(--danger, #c53030); }
+    .nv-tabs {
+        display: flex; gap: 4px;
+        padding: 0 16px;
+        border-bottom: 1px solid var(--border-soft);
+    }
+    .nv-tab {
+        background: transparent; border: 1px solid transparent; border-bottom: none;
+        color: var(--text-muted); cursor: pointer;
+        padding: 8px 14px; border-radius: 6px 6px 0 0; font: inherit;
+        margin-bottom: -1px;
+    }
+    .nv-tab[aria-selected="true"] {
+        background: var(--surface);
+        border-color: var(--border-soft);
+        color: var(--accent); font-weight: 600;
+    }
+    .nv-meta {
+        margin: 0; padding: 12px 14px;
+        font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+        font-size: 0.85em; line-height: 1.45;
+        background: var(--surface-alt, #f6f6f6);
+        border: 1px solid var(--border-soft);
+        border-radius: 6px;
+        white-space: pre-wrap; word-break: break-word;
+        color: var(--text-strong);
+    }
 `;
 
 class NoteView extends WNElement {
@@ -89,6 +115,15 @@ class NoteView extends WNElement {
             if (!t) return;
             if ((t.dataset && t.dataset.action === 'close') || (t.classList && t.classList.contains('nv-backdrop'))) {
                 this.close();
+                return;
+            }
+            const tabBtn = t.closest && t.closest('.nv-tab');
+            if (tabBtn && tabBtn.dataset && tabBtn.dataset.tab) {
+                this._tab = tabBtn.dataset.tab;
+                this.requestRender();
+                if (this._tab === 'meta' && this._meta == null && !this._metaError) {
+                    this._loadMeta();
+                }
             }
         });
         if (this.hasAttribute('open')) {
@@ -123,6 +158,9 @@ class NoteView extends WNElement {
         this._html = null;
         this._error = null;
         this._loading = true;
+        this._meta = null;
+        this._metaError = null;
+        this._tab = 'content';
         this.requestRender();
         const p = this.getAttribute('path') || '';
         this._load(p);
@@ -179,9 +217,27 @@ class NoteView extends WNElement {
         }
     }
 
+    async _loadMeta() {
+        const parts = this._parsePath(this.getAttribute('path') || '');
+        if (!parts) { this._metaError = 'Ugyldig sti'; this.requestRender(); return; }
+        if (!this.service || !this.service.meta) {
+            this._metaError = 'Ingen meta-tjeneste tilkoblet'; this.requestRender(); return;
+        }
+        try {
+            const meta = await this.service.meta(parts.week, parts.file);
+            this._meta = meta || {};
+            this._metaError = null;
+        } catch (e) {
+            this._metaError = 'Kunne ikke laste meta: ' + (e.message || e);
+            this._meta = null;
+        }
+        this.requestRender();
+    }
+
     render() {
         if (!this._isOpen) return html``;
         const path = this.getAttribute('path') || '';
+        const tab = this._tab || 'content';
         return html`
             <div class="nv-backdrop">
                 <div class="nv-card" role="dialog" aria-modal="true">
@@ -189,10 +245,21 @@ class NoteView extends WNElement {
                         <h2 class="nv-title">${escapeHtml(path)}</h2>
                         <button type="button" class="nv-close" data-action="close">✕</button>
                     </div>
+                    <div class="nv-tabs" role="tablist">
+                        <button type="button" class="nv-tab" role="tab" data-tab="content" aria-selected="${tab === 'content' ? 'true' : 'false'}">Innhold</button>
+                        <button type="button" class="nv-tab" role="tab" data-tab="meta" aria-selected="${tab === 'meta' ? 'true' : 'false'}">Meta</button>
+                    </div>
                     <div class="nv-body">
-                        ${this._loading ? html`<div class="nv-loading">Laster…</div>` : ''}
-                        ${this._error ? html`<div class="nv-error">${escapeHtml(this._error)}</div>` : ''}
-                        ${(!this._loading && !this._error && this._html) ? unsafeHTML(this._html) : ''}
+                        ${tab === 'content' ? html`
+                            ${this._loading ? html`<div class="nv-loading">Laster…</div>` : ''}
+                            ${this._error ? html`<div class="nv-error">${escapeHtml(this._error)}</div>` : ''}
+                            ${(!this._loading && !this._error && this._html) ? unsafeHTML(this._html) : ''}
+                        ` : ''}
+                        ${tab === 'meta' ? html`
+                            ${this._metaError ? html`<div class="nv-error">${escapeHtml(this._metaError)}</div>` : ''}
+                            ${(!this._metaError && this._meta == null) ? html`<div class="nv-loading">Laster…</div>` : ''}
+                            ${(!this._metaError && this._meta != null) ? html`<pre class="nv-meta">${escapeHtml(JSON.stringify(this._meta, null, 2))}</pre>` : ''}
+                        ` : ''}
                     </div>
                 </div>
             </div>
