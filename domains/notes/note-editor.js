@@ -955,41 +955,26 @@ class NoteEditor extends WNElement {
             this._setStatus(`Tilbakestilt til ${cur.shortHash || (cur.hash || '').slice(0, 7)} – husk å lagre`);
         });
 
-        const render = (items, saves) => {
-            const parts = [];
-            if (saves && saves.length) {
-                parts.push('<div class="ne-history-section">Lagringer</div>');
-                saves.slice().reverse().forEach(s => {
-                    const at = (s && typeof s === 'object') ? s.at : s;
-                    const by = (s && typeof s === 'object') ? s.by : '';
-                    const sha = (s && typeof s === 'object') ? s.sha : '';
-                    const shaShort = sha ? sha.slice(0, 7) : '';
-                    parts.push(`
-                        <div class="ne-history-row ne-history-save">
-                            <span class="h-hash">${shaShort ? escapeHtml(shaShort) : '💾'}</span>
-                            <span class="h-date">${escapeHtml(this._fmtDate(at))}</span>
-                            <span class="h-subj">${by ? `<entity-mention kind="person" key="${escapeHtml(by)}"></entity-mention>` : '<span style="color:var(--text-subtle)">(ukjent)</span>'}</span>
-                        </div>
-                    `);
-                });
-            }
-            if (items.length) {
-                if (parts.length) parts.push('<div class="ne-history-section">Commits</div>');
-                items.forEach(c => {
-                    parts.push(`
-                        <button type="button" class="ne-history-row" data-hash="${escapeHtml(c.hash)}">
-                            <span class="h-hash">${escapeHtml(c.shortHash || c.hash.slice(0, 7))}</span>
-                            <span class="h-date">${escapeHtml(this._fmtDate(c.date))}</span>
-                            <span class="h-subj" title="${escapeHtml(c.subject || '')}">${escapeHtml(c.subject || '')}</span>
-                        </button>
-                    `);
-                });
-            }
-            if (!parts.length) {
-                list.innerHTML = '<div class="ne-history-empty">Ingen committet historikk for denne filen ennå.</div>';
+        const render = (saves) => {
+            if (!saves || !saves.length) {
+                list.innerHTML = '<div class="ne-history-empty">Ingen lagringer ennå.</div>';
                 return;
             }
-            list.innerHTML = parts.join('');
+            list.innerHTML = saves.slice().reverse().map(s => {
+                const at = (s && typeof s === 'object') ? s.at : s;
+                const by = (s && typeof s === 'object') ? s.by : '';
+                const sha = (s && typeof s === 'object') ? s.sha : '';
+                const shaShort = sha ? sha.slice(0, 7) : '';
+                const tag = sha ? 'button' : 'div';
+                const attrs = sha ? `type="button" data-hash="${escapeHtml(sha)}"` : '';
+                return `
+                    <${tag} class="ne-history-row${sha ? '' : ' ne-history-save'}" ${attrs}>
+                        <span class="h-hash">${shaShort ? escapeHtml(shaShort) : '💾'}</span>
+                        <span class="h-date">${escapeHtml(this._fmtDate(at))}</span>
+                        <span class="h-subj">${by ? `<entity-mention kind="person" key="${escapeHtml(by)}"></entity-mention>` : '<span style="color:var(--text-subtle)">(ukjent)</span>'}</span>
+                    </${tag}>
+                `;
+            }).join('');
         };
 
         const load = async () => {
@@ -1001,12 +986,9 @@ class NoteEditor extends WNElement {
             list.innerHTML = '<div class="ne-history-loading">Henter historikk…</div>';
             try {
                 const f = file.endsWith('.md') ? file : file + '.md';
-                const [items, meta] = await Promise.all([
-                    this.service.history ? this.service.history(folder, f) : Promise.resolve([]),
-                    this.service.meta ? this.service.meta(folder, f).catch(() => null) : Promise.resolve(null),
-                ]);
+                const meta = this.service.meta ? await this.service.meta(folder, f).catch(() => null) : null;
                 const saves = (meta && Array.isArray(meta.saves)) ? meta.saves : [];
-                render(Array.isArray(items) ? items : [], saves);
+                render(saves);
                 list.dataset.state = 'loaded';
             } catch (e) {
                 list.innerHTML = `<div class="ne-history-empty">Kunne ikke hente historikk: ${escapeHtml(e.message || String(e))}</div>`;
