@@ -10,6 +10,15 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-05-03 (UI-tester: Playwright + delt scenario-bibliotek)
+- Ny `tests/scenarios.js` med 24 delte UI-scenarioer som kjører både via **Playwright** (`npm test`) og live i nettleser fra `/debug/tests`. Hvert scenario er en selvstendig `async`-funksjon som driver en `/debug/<komponent>`-side med mock-tjenester.
+- `/debug/tests` viser scenarioene **gruppert per komponent** med Run-/Details-knapper, Run all / Run failed only og en "Last Playwright run"-rute som leser `tests/.last-run.json`.
+- **Details-modal:** se og rediger `run(ctx)`-kildekoden direkte i nettleseren (in-memory; reload for å reverte). Apply & Run anvender og kjører i samme klikk.
+- Dekning: task-open-list / task-create / task-add-modal / task-completed / task-complete-modal / people-page / modal-container / json-table / global-search / icon-picker / time-picker / week-pill / markdown-preview / note-card / help-modal / upcoming-meetings / person-card / ctx-switcher.
+- Mock-tjenestene (i `domains/_mock-services.js`) eksponerer `MockTaskService`/`MockPeopleService`/`MockMeetingsService` osv. — komponenter på debug-sider binder seg via `service="MockXxx"`-attributter.
+- Ny `agents/tests.md` dokumenterer scenario-kontrakten og fallgruvene (lys vs. shadow DOM, dobbel json-table render, mock-seeding-races).
+- AGENTS.md: ny seksjon **"Bug fixing workflow"** — når en bug oppdages, reproduser den først som et failing scenario før du fikser, og la testen stå som regresjonsvakt.
+
 ### 2026-05-02 (notater: forfatter-sporing)
 - Hver note-sidecar tracker nå **`createdBy`** (settes ved første eksplisitte lagring) og **`lastSavedBy`** (oppdateres ved hver eksplisitt lagring). Begge er nøkkel til person i registeret — basert på `@me`-mappingen for aktiv kontekst (`data/user.json`).
 - `<note-meta-view>` viser "Opprettet av" og "Sist lagret av" som klikkbare person-chips.

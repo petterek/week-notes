@@ -46,6 +46,7 @@ Stack:
 │   ├── git.md
 │   ├── presentations.md
 │   ├── help.md
+│   ├── tests.md
 │   ├── themes.md
 │   └── search-and-summarize.md
 ├── help.md            # in-app help, served at /help.md and rendered in a modal
@@ -284,6 +285,25 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3001/settings
   let body = ''; req.on('data', c => body += c);
   req.on('end', () => { try { const data = JSON.parse(body || '{}'); ... } catch (e) { ... } });
   ```
+
+---
+
+## Bug fixing workflow
+
+When you find or are told about a bug, **reproduce it under test before
+fixing it**. Concretely:
+
+1. Add a failing scenario to `tests/scenarios.js` (or a Playwright spec
+   under `tests/playwright/` if it's page-level) that demonstrates the
+   bug. Run it and confirm it fails with a clear message.
+2. *Then* fix the code.
+3. Re-run the test and confirm it passes. Run the full suite
+   (`npm test`) before considering it done.
+4. Leave the test in place — it's now a regression guard.
+
+If a bug genuinely cannot be expressed as a UI/component test (e.g.
+build-time concern, infra), say so explicitly and document why; don't
+silently skip the step. See `agents/tests.md` for the test harness.
 
 ---
 

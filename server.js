@@ -926,6 +926,79 @@ function saveTasks(tasks) {
     syncCollection('tasks', tasks, 'id');
 }
 
+// Extract every task id referenced by an inline marker in a note's content.
+// Recognises {{?<id>}} (open) and {{!<id>}} (closed). The pre-save
+// {{X}} form is not included here — those create new tasks (see save flow)
+// and are rewritten to {{?<newId>}} before this runs.
+function extractTaskRefs(content) {
+    const ids = new Set();
+    if (typeof content !== 'string' || !content) return ids;
+    const re = /\{\{[!?]\s*([^{}\s]+)\s*\}\}/g;
+    let m;
+    while ((m = re.exec(content)) !== null) ids.add(m[1]);
+    return ids;
+}
+
+// Reconcile the list of notes that reference each task. `noteRef` is the
+// canonical "<week>/<file>" string. `contentOnDisk` is the post-save
+// content of that note. Walks all (non-deleted) tasks and:
+//   - adds noteRef to t.noteRefs if the content has a marker for t.id
+//   - removes noteRef from t.noteRefs if the content has no such marker
+// Persists once if anything changed.
+function syncTaskNoteRefs(noteRef, contentOnDisk) {
+    if (!noteRef) return;
+    const referencedIds = extractTaskRefs(contentOnDisk);
+    const all = loadAllTasks();
+    let changed = false;
+    for (const t of all) {
+        if (!t || !t.id) continue;
+        const refs = Array.isArray(t.noteRefs) ? t.noteRefs.slice() : [];
+        const has = refs.includes(noteRef);
+        const should = referencedIds.has(t.id);
+        if (should && !has) {
+            refs.push(noteRef);
+            t.noteRefs = refs;
+            changed = true;
+        } else if (!should && has) {
+            t.noteRefs = refs.filter(r => r !== noteRef);
+            changed = true;
+        }
+    }
+    if (changed) saveTasks(all);
+}
+
+// Strip a noteRef from every task's noteRefs (used when a note is deleted).
+function clearTaskNoteRef(noteRef) {
+    if (!noteRef) return;
+    const all = loadAllTasks();
+    let changed = false;
+    for (const t of all) {
+        if (!t || !Array.isArray(t.noteRefs)) continue;
+        if (t.noteRefs.includes(noteRef)) {
+            t.noteRefs = t.noteRefs.filter(r => r !== noteRef);
+            changed = true;
+        }
+    }
+    if (changed) saveTasks(all);
+}
+
+// Standalone scanner that walks every weekly note in the active context,
+// rebuilds each task's `noteRefs` from scratch, and writes them back.
+// Lives in scripts/rebuild-task-refs.js so it can also be run from the
+// CLI (e.g. for one-off backfills).
+const { rebuild: rebuildTaskNoteRefsScript } = require('./scripts/rebuild-task-refs.js');
+function rebuildTaskNoteRefs() {
+    let dir;
+    try { dir = dataDir(); } catch { return null; }
+    if (!dir) return null;
+    const summary = rebuildTaskNoteRefsScript(dir);
+    // The script writes individual task files directly; invalidate the
+    // in-memory tasks cache so subsequent loadTasks() picks up the new
+    // noteRefs.
+    try { _cacheInvalidateCollection('tasks'); } catch {}
+    return summary;
+}
+
 function loadPeople() {
     const all = loadCollection('people');
     return all.filter(p => !p.deleted);
@@ -2409,12 +2482,14 @@ document.addEventListener('keydown', function(e){
     window['week-note-services'] = registry;
     window.WeekNoteServices = registry;
     window.mePersonKey = ${JSON.stringify(getMePersonKey(getActiveContext()) || '')};
+
     document.dispatchEvent(new CustomEvent('week-note-services:ready', { detail: registry }));
 </script>
 <script type="module" src="/components/nav-meta.js"></script>
 <script type="module" src="/components/nav-button.js"></script>
 <script type="module" src="/components/ctx-switcher.js"></script>
 <script type="module" src="/components/markdown-preview.js"></script>
+<script type="module" src="/components/modal-container.js"></script>
 <script type="module" src="/components/help-modal.js"></script>
 <script type="module" src="/components/note-card.js"></script>
 <script type="module" src="/components/note-meta-view.js"></script>
@@ -2423,7 +2498,7 @@ document.addEventListener('keydown', function(e){
 <script type="module" src="/components/note-editor.js"></script>
 <script type="module" src="/components/task-open-list.js"></script>
 <script type="module" src="/components/task-create.js"></script>
-<script type="module" src="/components/task-complete-modal.js"></script>
+<script type="module" src="/components/task-add-modal.js"></script>
 <script type="module" src="/components/upcoming-meetings.js"></script>
 <script type="module" src="/components/today-calendar.js"></script>
 <script type="module" src="/components/meeting-create.js"></script>
@@ -4317,6 +4392,9 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             res.end();
             return;
         }
+        if (selectedSlug === '_er') {
+            return renderDataShapesER(req, res, entries);
+        }
         const current = entries.find(e => e.slug === selectedSlug);
         if (!current) {
             res.writeHead(404, { 'Content-Type': 'text/plain' });
@@ -4429,13 +4507,14 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
     <meta charset="utf-8">
     <title>Debug · data shapes</title>
     <link rel="stylesheet" href="/themes/paper.css">
+    <script type="module" src="/components/json-table.js"></script>
     <style>
         body { font-family: var(--font-family, -apple-system, sans-serif); font-size: var(--font-size, 16px); margin: 0; line-height: 1.55; color: var(--text-strong); background: var(--bg); }
         .dbg-page { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
         .dbg-side { background: var(--surface-head); border-right: 1px solid var(--border-faint); padding: 16px 14px; position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto; }
         .dbg-side h2 { font-family: Georgia, serif; color: var(--accent); margin: 0 0 10px; font-size: 1.05em; }
         .dbg-nav { display: flex; flex-direction: column; gap: 2px; }
-        .dbg-nav a { display: block; padding: 6px 10px; border-radius: 4px; color: var(--text); text-decoration: none; font-family: ui-monospace, monospace; font-size: 0.85em; word-break: break-all; }
+        .dbg-nav a { display: block; padding: 6px 10px; border-radius: 4px; color: var(--text); text-decoration: none; font-family: ui-monospace, monospace; font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .dbg-nav a:hover { background: var(--surface-alt); }
         .dbg-nav a.active { background: var(--accent); color: var(--text-on-accent, white); }
         .dbg-head h1 { font-family: Georgia, serif; color: var(--accent); font-size: 1.4em; margin: 0 0 4px; }
@@ -4454,6 +4533,14 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
 
         .shape-pane[hidden] { display: none; }
         .shape pre { margin: 0; padding: 12px 14px; background: var(--surface-head, #f6f6f6); border: 1px solid var(--border-faint); border-radius: 6px; font-family: ui-monospace, monospace; font-size: 0.82em; line-height: 1.45; white-space: pre-wrap; word-break: break-word; max-height: 540px; overflow: auto; }
+        .shape-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+        .shape-save, .shape-save-table { background: var(--accent); color: var(--text-on-accent, white); border: 1px solid var(--accent); padding: 6px 14px; border-radius: 4px; cursor: pointer; font: inherit; font-size: 0.9em; }
+        .shape-save:hover, .shape-save-table:hover { filter: brightness(1.08); }
+        .shape-status { font-size: 0.85em; color: var(--text-muted); }
+        .shape-status.ok { color: #2a8a3e; }
+        .shape-status.err { color: #c0392b; }
+        .shape-json[contenteditable="true"] { outline: none; cursor: text; }
+        .shape-json[contenteditable="true"]:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(74,144,226,0.18); }
 
         /* Schema tree */
         .sd-props, .sd-oneof ol { list-style: none; padding-left: 18px; margin: 4px 0; border-left: 1px dashed var(--border-faint); }
@@ -4475,7 +4562,8 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
     <aside class="dbg-side">
         <h2>Data shapes</h2>
         <nav class="dbg-nav">
-            ${entries.map(e => `<a href="/debug/data-shapes/${escapeHtml(e.slug)}" class="${e.slug === current.slug ? 'active' : ''}">${escapeHtml(e.path)}</a>`).join('')}
+            <a href="/debug/data-shapes/_er" class="${'_er' === current.slug ? 'active' : ''}">🗺 ER-diagram</a>
+            ${entries.map(e => `<a href="/debug/data-shapes/${escapeHtml(e.slug)}" class="${e.slug === current.slug ? 'active' : ''}" title="${escapeHtml(e.path)}">${escapeHtml(e.slug)}</a>`).join('')}
         </nav>
         <h2 style="margin-top:18px">Other</h2>
         <nav class="dbg-nav">
@@ -4494,10 +4582,24 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             <p class="desc">${escapeHtml(current.desc)}</p>
             <div class="shape-tabs">
                 <button type="button" class="shape-tab active" data-pane="tree">Felter</button>
+                <button type="button" class="shape-tab" data-pane="table">Tabell</button>
                 <button type="button" class="shape-tab" data-pane="raw">Rå JSON Schema</button>
             </div>
             <div class="shape-pane" data-pane="tree">${renderSchema(schema)}</div>
-            <div class="shape-pane" data-pane="raw" hidden><pre>${escapeHtml(JSON.stringify(schema, null, 2))}</pre></div>
+            <div class="shape-pane" data-pane="table" hidden>
+                <div class="shape-toolbar">
+                    <button type="button" class="shape-save-table" data-file="${escapeHtml(current.file)}">💾 Lagre</button>
+                    <span class="shape-status" data-for="table-${escapeHtml(current.file)}"></span>
+                </div>
+                <div id="shape-table-host"></div>
+            </div>
+            <div class="shape-pane" data-pane="raw" hidden>
+                <div class="shape-toolbar">
+                    <button type="button" class="shape-save" data-file="${escapeHtml(current.file)}">💾 Lagre</button>
+                    <span class="shape-status" data-for="${escapeHtml(current.file)}"></span>
+                </div>
+                <pre class="shape-json" contenteditable="true" spellcheck="false">${escapeHtml(JSON.stringify(schema, null, 2))}</pre>
+            </div>
         </section>
     </main>
 </div>
@@ -4513,6 +4615,86 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             });
         });
     });
+    document.querySelectorAll('.shape-save').forEach(function(btn){
+        btn.addEventListener('click', async function(){
+            var file = btn.dataset.file;
+            var pre = btn.closest('.shape-pane').querySelector('.shape-json');
+            var status = document.querySelector('.shape-status[data-for="' + file + '"]');
+            var text = pre.innerText;
+            try { JSON.parse(text); } catch (e) {
+                status.textContent = '❌ Ugyldig JSON: ' + e.message;
+                status.className = 'shape-status err';
+                return;
+            }
+            status.textContent = '⏳ Lagrer…';
+            status.className = 'shape-status';
+            try {
+                var r = await fetch('/debug/schemas/' + file, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: text
+                });
+                var data = await r.json();
+                if (r.ok && data.ok) {
+                    status.textContent = '✓ Lagret';
+                    status.className = 'shape-status ok';
+                } else {
+                    status.textContent = '❌ ' + (data.error || ('HTTP ' + r.status));
+                    status.className = 'shape-status err';
+                }
+            } catch (e) {
+                status.textContent = '❌ ' + e.message;
+                status.className = 'shape-status err';
+            }
+        });
+    });
+
+    // ---- Tabell tab: feed the raw schema directly into <json-table>.
+    // Top-level scalar edits mutate SCHEMA in place; nested objects/arrays
+    // render as nested tables (read-only).
+    (function(){
+        var SCHEMA = ${JSON.stringify(schema).replace(/</g, '\\u003c')};
+        var FILE = ${JSON.stringify(current.file)};
+        var host = document.getElementById('shape-table-host');
+        if (!host) return;
+
+        var table = document.createElement('json-table');
+        table.setAttribute('editable', '');
+        table.setAttribute('max-height', '540px');
+        host.appendChild(table);
+        customElements.whenDefined('json-table').then(function(){
+            table.data = SCHEMA;
+        });
+
+        var statusKey = 'table-' + FILE;
+        var status = document.querySelector('.shape-status[data-for="' + statusKey + '"]');
+        var saveBtn = document.querySelector('.shape-save-table[data-file="' + FILE + '"]');
+
+        if (saveBtn) {
+            saveBtn.addEventListener('click', async function(){
+                status.textContent = '⏳ Lagrer…';
+                status.className = 'shape-status';
+                try {
+                    var r = await fetch('/debug/schemas/' + FILE, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(SCHEMA, null, 2),
+                    });
+                    var data = await r.json();
+                    if (r.ok && data.ok) {
+                        status.textContent = '✓ Lagret';
+                        status.className = 'shape-status ok';
+                    } else {
+                        status.textContent = '❌ ' + (data.error || ('HTTP ' + r.status));
+                        status.className = 'shape-status err';
+                    }
+                } catch (e) {
+                    status.textContent = '❌ ' + e.message;
+                    status.className = 'shape-status err';
+                }
+            });
+        }
+    })();
 </script>
 </body>
 </html>`;
@@ -4520,12 +4702,176 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
         res.end(html);
     }
 
-    // Raw schema files: /debug/schemas/<file>.schema.json
+    function renderDataShapesER(req, res, entries) {
+        let diagram;
+        try {
+            diagram = JSON.parse(fs.readFileSync(path.join(__dirname, 'schemas', 'diagram.json'), 'utf8'));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+            res.end('Could not read schemas/diagram.json: ' + (e.message || e));
+            return;
+        }
+        const vb = diagram.viewBox || [0, 0, 1200, 800];
+        const ents = diagram.entities || [];
+        const edges = diagram.edges || [];
+        const byKey = {};
+        ents.forEach(e => { byKey[e.slug] = e; });
+
+        // For each edge, pick the closest pair of box edges as endpoints.
+        function endpoints(a, b) {
+            const ax = a.x + a.w / 2, ay = a.y + a.h / 2;
+            const bx = b.x + b.w / 2, by = b.y + b.h / 2;
+            // Pick a side based on dominant direction.
+            const dx = bx - ax, dy = by - ay;
+            let p1, p2;
+            if (Math.abs(dx) > Math.abs(dy)) {
+                if (dx > 0) { p1 = { x: a.x + a.w, y: ay }; p2 = { x: b.x,        y: by }; }
+                else        { p1 = { x: a.x,       y: ay }; p2 = { x: b.x + b.w, y: by }; }
+            } else {
+                if (dy > 0) { p1 = { x: ax, y: a.y + a.h }; p2 = { x: bx, y: b.y        }; }
+                else        { p1 = { x: ax, y: a.y       }; p2 = { x: bx, y: b.y + b.h  }; }
+            }
+            return { p1, p2 };
+        }
+
+        // SVG row height for entity field rows.
+        const HEAD_H = 26;
+        const ROW_H = 18;
+
+        function entitySvg(e) {
+            const slug = e.slug;
+            const labelY = e.y + 18;
+            const fields = (e.fields || []).slice(0, Math.max(0, Math.floor((e.h - HEAD_H - 6) / ROW_H)));
+            const rows = fields.map((f, i) => {
+                const isPk = (e.pk && (f === e.pk || (e.pk === 'key' && f === 'key') || (e.pk === 'id' && f === 'id')));
+                const cls = isPk ? 'er-field er-pk' : 'er-field';
+                return `<text class="${cls}" x="${e.x + 10}" y="${e.y + HEAD_H + i * ROW_H + 13}">${escapeHtml(f)}${isPk ? ' 🔑' : ''}</text>`;
+            }).join('');
+            const linkSlug = entries.find(en => en.slug === slug || en.slug === slug + 's' || (en.path || '').endsWith(slug + '.json'));
+            const href = linkSlug ? `/debug/data-shapes/${linkSlug.slug}` : null;
+            const open = href ? `<a href="${escapeHtml(href)}">` : '';
+            const close = href ? '</a>' : '';
+            return `<g class="er-entity">
+                ${open}
+                <rect x="${e.x}" y="${e.y}" width="${e.w}" height="${e.h}" rx="6" ry="6" class="er-box"></rect>
+                <line x1="${e.x}" y1="${e.y + HEAD_H}" x2="${e.x + e.w}" y2="${e.y + HEAD_H}" class="er-divider"/>
+                <text class="er-label" x="${e.x + 10}" y="${labelY}">${escapeHtml(e.label || slug)}</text>
+                ${rows}
+                ${close}
+            </g>`;
+        }
+
+        const edgeSvg = edges.map((ed, i) => {
+            const a = byKey[ed.from], b = byKey[ed.to];
+            if (!a || !b) return '';
+            const { p1, p2 } = endpoints(a, b);
+            const mx = (p1.x + p2.x) / 2;
+            const my = (p1.y + p2.y) / 2;
+            return `<g class="er-edge">
+                <path d="M ${p1.x} ${p1.y} L ${p2.x} ${p2.y}" class="er-line" marker-end="url(#er-arrow)"/>
+                <text class="er-edge-label" x="${mx}" y="${my - 4}" text-anchor="middle">${escapeHtml(ed.label || '')}</text>
+            </g>`;
+        }).join('');
+
+        const sidebar = `<aside class="dbg-side">
+            <h2>Data shapes</h2>
+            <nav class="dbg-nav">
+                <a href="/debug/data-shapes/_er" class="active">🗺 ER-diagram</a>
+                ${entries.map(e => `<a href="/debug/data-shapes/${escapeHtml(e.slug)}" title="${escapeHtml(e.path)}">${escapeHtml(e.slug)}</a>`).join('')}
+            </nav>
+            <h2 style="margin-top:18px">Other</h2>
+            <nav class="dbg-nav">
+                <a href="/debug">← components</a>
+                <a href="/debug/services">services</a>
+            </nav>
+        </aside>`;
+
+        const html = `<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="utf-8">
+    <title>Debug · ER diagram</title>
+    <link rel="stylesheet" href="/themes/paper.css">
+    <style>
+        body { font-family: var(--font-family, -apple-system, sans-serif); font-size: var(--font-size, 16px); margin: 0; line-height: 1.55; color: var(--text-strong); background: var(--bg); }
+        .dbg-page { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+        .dbg-side { background: var(--surface-head); border-right: 1px solid var(--border-faint); padding: 16px 14px; position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto; }
+        .dbg-side h2 { font-family: Georgia, serif; color: var(--accent); margin: 0 0 10px; font-size: 1.05em; }
+        .dbg-nav { display: flex; flex-direction: column; gap: 2px; }
+        .dbg-nav a { display: block; padding: 6px 10px; border-radius: 4px; color: var(--text); text-decoration: none; font-family: ui-monospace, monospace; font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .dbg-nav a:hover { background: var(--surface-alt); }
+        .dbg-nav a.active { background: var(--accent); color: var(--text-on-accent, white); }
+        .dbg-main { padding: 20px 26px; }
+        .dbg-head h1 { font-family: Georgia, serif; color: var(--accent); font-size: 1.4em; margin: 0 0 4px; }
+        .dbg-head .desc { color: var(--text-muted); font-size: 0.9em; margin-bottom: 14px; }
+        .er-wrap { background: var(--surface); border: 1px solid var(--border-faint); border-radius: 8px; padding: 8px; overflow: auto; }
+        svg.er { display: block; min-width: 100%; height: auto; background: var(--surface-alt, #fafafa); border-radius: 6px; }
+        .er-box { fill: var(--surface, white); stroke: var(--accent, #4a90e2); stroke-width: 1.4; }
+        .er-divider { stroke: var(--border-faint, #ddd); stroke-width: 1; }
+        .er-label { font-family: Georgia, serif; font-size: 14px; font-weight: 700; fill: var(--accent); }
+        .er-field { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; fill: var(--text-strong); }
+        .er-pk { font-weight: 700; }
+        .er-line { fill: none; stroke: var(--text-muted, #888); stroke-width: 1.2; }
+        .er-edge:hover .er-line { stroke: var(--accent); stroke-width: 2; }
+        .er-edge-label { font-family: ui-monospace, monospace; font-size: 10px; fill: var(--text-muted); paint-order: stroke; stroke: var(--surface-alt, #fafafa); stroke-width: 3; }
+        .er-edge:hover .er-edge-label { fill: var(--accent); }
+        .er-entity a { cursor: pointer; }
+        .er-entity:hover .er-box { stroke-width: 2.4; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.12)); }
+        .legend { margin-top: 10px; color: var(--text-muted); font-size: 0.84em; }
+    </style>
+</head>
+<body>
+<div class="dbg-page">
+    ${sidebar}
+    <main class="dbg-main">
+        <div class="dbg-head">
+            <h1>ER-diagram · disk data</h1>
+            <p class="desc">Entiteter og relasjoner mellom JSON-filene under <code>data/</code>. Layout og kanter ligger i <code>schemas/diagram.json</code>. Klikk på en boks for å åpne det aktuelle skjemaet.</p>
+        </div>
+        <div class="er-wrap">
+            <svg class="er" viewBox="${vb.join(' ')}" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <marker id="er-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                        <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--text-muted, #888)"/>
+                    </marker>
+                </defs>
+                ${edgeSvg}
+                ${ents.map(entitySvg).join('')}
+            </svg>
+        </div>
+        <p class="legend">🔑 = primær-/lookup-nøkkel · piler peker fra refererende felt mot målentitetens nøkkel.</p>
+    </main>
+</div>
+</body>
+</html>`;
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(html);
+    }
+
+    // Raw schema files: /debug/schemas/<file>.schema.json (GET + PUT)
     if (pathname.startsWith('/debug/schemas/') && pathname.endsWith('.schema.json')) {
         const slug = pathname.slice('/debug/schemas/'.length);
         if (slug.includes('/') || slug.includes('..')) { res.writeHead(400); res.end('Bad'); return; }
+        const filePath = path.join(__dirname, 'schemas', slug);
+        if (req.method === 'PUT') {
+            let body = '';
+            req.on('data', c => body += c);
+            req.on('end', () => {
+                try {
+                    const parsed = JSON.parse(body || '{}');
+                    const pretty = JSON.stringify(parsed, null, 2) + '\n';
+                    fs.writeFileSync(filePath, pretty);
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ ok: true }));
+                } catch (e) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ ok: false, error: e.message || String(e) }));
+                }
+            });
+            return;
+        }
         try {
-            const data = fs.readFileSync(path.join(__dirname, 'schemas', slug));
+            const data = fs.readFileSync(filePath);
             res.writeHead(200, { 'Content-Type': 'application/schema+json; charset=utf-8', 'Cache-Control': 'no-cache' });
             res.end(data);
         } catch (e) {
@@ -4535,13 +4881,491 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
         return;
     }
 
+    if (pathname === '/debug/tests/scenarios.js') {
+        try {
+            const data = fs.readFileSync(path.join(__dirname, 'tests', 'scenarios.js'));
+            res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache' });
+            res.end(data);
+        } catch (e) {
+            res.writeHead(404); res.end('Not found');
+        }
+        return;
+    }
+    if (pathname === '/debug/tests/last-run.json') {
+        try {
+            const data = fs.readFileSync(path.join(__dirname, 'tests', '.last-run.json'));
+            res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' });
+            res.end(data);
+        } catch (e) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'no last run found' }));
+        }
+        return;
+    }
+
+    function renderTestsDebug(req, res) {
+        const html = `<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="utf-8">
+    <title>Debug · tests</title>
+    <link rel="stylesheet" href="/themes/paper.css">
+    <link rel="stylesheet" href="/style.css">
+    <style>
+        .dbg-shell { display: grid; grid-template-columns: 240px 1fr; gap: 18px; padding: 18px; max-width: 1400px; margin: 0 auto; }
+        .dbg-side { border-right: 1px solid var(--border-faint); padding-right: 14px; }
+        .dbg-side h2 { font-family: Georgia, serif; color: var(--accent); font-size: 1em; margin: 8px 0 6px; }
+        .dbg-group-label { font-size: 0.78em; color: var(--text-muted); margin: 12px 0 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+        .dbg-nav { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+        .dbg-nav a { color: var(--text); text-decoration: none; padding: 3px 6px; border-radius: 4px; font-size: 0.92em; }
+        .dbg-nav a:hover { background: var(--surface-alt); color: var(--accent); }
+        .dbg-nav a.active { background: var(--accent); color: var(--text-on-accent); }
+        .dbg-main { min-width: 0; }
+        h1 { font-family: Georgia, serif; color: var(--accent); margin: 0 0 4px; }
+        .lede { color: var(--text-muted); margin: 0 0 16px; }
+        .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+        .toolbar button { font: inherit; padding: 6px 14px; border: 1px solid var(--border); background: var(--surface); color: var(--text-strong); border-radius: 6px; cursor: pointer; }
+        .toolbar button.primary { background: var(--accent); color: var(--text-on-accent); border-color: var(--accent); }
+        .toolbar button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .summary { font-size: 0.92em; color: var(--text-muted); margin-left: auto; }
+        .summary .pass { color: #1a7f37; font-weight: 600; }
+        .summary .fail { color: #c0392b; font-weight: 600; }
+        .summary .pending { color: var(--text-muted); }
+        .scenarios { display: flex; flex-direction: column; gap: 14px; }
+        .sc-group { display: flex; flex-direction: column; gap: 4px; }
+        .sc-group-head { display: flex; align-items: baseline; gap: 8px; padding: 4px 2px; border-bottom: 1px solid var(--border-faint); margin-bottom: 4px; }
+        .sc-group-name { font-family: ui-monospace, monospace; font-size: 0.92em; color: var(--accent); font-weight: 600; }
+        .sc-group-count { font-size: 0.78em; color: var(--text-muted); }
+        .sc-group-link { margin-left: auto; font-size: 0.78em; color: var(--text-muted); text-decoration: none; }
+        .sc-group-link:hover { color: var(--accent); text-decoration: underline; }
+        .sc { display: grid; grid-template-columns: 80px 1fr 80px 160px; gap: 10px; align-items: start; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border-faint); border-radius: 6px; }
+        .sc.idle .sc-status { color: var(--text-muted); }
+        .sc.running .sc-status { color: #b8860b; }
+        .sc.pass { border-left: 3px solid #1a7f37; }
+        .sc.pass .sc-status { color: #1a7f37; font-weight: 600; }
+        .sc.fail { border-left: 3px solid #c0392b; }
+        .sc.fail .sc-status { color: #c0392b; font-weight: 600; }
+        .sc-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .sc-meta .sc-name { font-weight: 500; color: var(--text-strong); }
+        .sc-meta .sc-id { font-family: ui-monospace, monospace; font-size: 0.8em; color: var(--text-muted); }
+        .sc-meta .sc-url { font-family: ui-monospace, monospace; font-size: 0.78em; color: var(--text-muted); }
+        .sc-meta .sc-error { font-family: ui-monospace, monospace; font-size: 0.8em; color: #c0392b; background: #fef0ed; padding: 6px 8px; border-radius: 4px; margin-top: 4px; white-space: pre-wrap; word-break: break-word; }
+        .sc-time { font-family: ui-monospace, monospace; font-size: 0.85em; color: var(--text-muted); text-align: right; }
+        .sc-action { display: flex; gap: 4px; justify-content: flex-end; flex-wrap: wrap; }
+        .sc-action button { font: inherit; font-size: 0.85em; padding: 4px 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text-strong); border-radius: 4px; cursor: pointer; }
+        .sc-action button:hover { background: var(--surface-alt); }
+        .sc-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: none; align-items: center; justify-content: center; z-index: 1000; }
+        .sc-modal-backdrop.open { display: flex; }
+        .sc-modal { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; width: min(960px, 94vw); max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 10px 40px rgba(0,0,0,0.3); }
+        .sc-modal-head { padding: 12px 16px; border-bottom: 1px solid var(--border-faint); display: flex; align-items: baseline; gap: 10px; }
+        .sc-modal-head h3 { margin: 0; font-family: Georgia, serif; color: var(--accent); font-size: 1.1em; }
+        .sc-modal-head .sc-modal-id { font-family: ui-monospace, monospace; font-size: 0.85em; color: var(--text-muted); }
+        .sc-modal-head .sc-modal-close { margin-left: auto; font: inherit; font-size: 1.2em; padding: 0 8px; background: transparent; border: 0; cursor: pointer; color: var(--text-muted); }
+        .sc-modal-body { padding: 12px 16px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+        .sc-modal-body label { font-size: 0.82em; color: var(--text-muted); display: flex; flex-direction: column; gap: 4px; }
+        .sc-modal-body input, .sc-modal-body textarea { font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-alt); color: var(--text); }
+        .sc-modal-body textarea { font-family: ui-monospace, monospace; font-size: 0.86em; min-height: 320px; resize: vertical; tab-size: 4; }
+        .sc-modal-foot { padding: 10px 16px; border-top: 1px solid var(--border-faint); display: flex; gap: 8px; align-items: center; }
+        .sc-modal-foot .spacer { flex: 1; }
+        .sc-modal-foot button { font: inherit; padding: 6px 14px; border: 1px solid var(--border); background: var(--surface); color: var(--text-strong); border-radius: 6px; cursor: pointer; }
+        .sc-modal-foot button.primary { background: var(--accent); color: var(--text-on-accent); border-color: var(--accent); }
+        .sc-modal-foot .sc-modal-msg { font-size: 0.85em; color: var(--text-muted); }
+        .sc-modal-foot .sc-modal-msg.err { color: #c0392b; }
+        .sc-modal-foot .sc-modal-msg.ok { color: #1a7f37; }
+        .sc-modal-note { font-size: 0.78em; color: var(--text-muted); font-style: italic; }
+        #runner-iframe { position: fixed; left: -9999px; top: 0; width: 1200px; height: 800px; border: 0; }
+        .pw-card { margin-top: 24px; background: var(--surface); border: 1px solid var(--border-faint); border-radius: 6px; padding: 12px 14px; }
+        .pw-card h3 { margin: 0 0 6px; color: var(--accent); font-family: Georgia, serif; font-size: 1.05em; }
+        .pw-meta { font-size: 0.88em; color: var(--text-muted); margin-bottom: 8px; }
+        .pw-list { display: flex; flex-direction: column; gap: 4px; font-family: ui-monospace, monospace; font-size: 0.84em; }
+        .pw-pass { color: #1a7f37; }
+        .pw-fail { color: #c0392b; }
+        .pw-skip { color: var(--text-muted); }
+        .pw-note { color: var(--text-muted); font-style: italic; }
+    </style>
+    <script defer src="/debug/_mock-services.js"></script>
+    <script defer src="/debug/tests/scenarios.js"></script>
+</head>
+<body>
+    <div class="dbg-shell">
+        <aside class="dbg-side">
+            <h2>Other</h2>
+            <nav class="dbg-nav">
+                <a href="/debug/services">services</a>
+                <a href="/debug/data-shapes">data shapes</a>
+                <a href="/debug/tests" class="active">tests</a>
+            </nav>
+            <p style="font-size:0.82em;color:var(--text-muted);margin-top:14px">
+                Scenarios are defined in
+                <code style="font-family:ui-monospace,monospace">tests/scenarios.js</code>
+                and run both here (in iframes) and via Playwright.
+            </p>
+        </aside>
+        <main class="dbg-main">
+            <h1>UI test scenarios</h1>
+            <p class="lede">Component-level scenarios that drive the <code>/debug/&lt;component&gt;</code> playground pages with mock services. Click <strong>Run all</strong> to execute every scenario in a hidden iframe; the same scenarios run via <code>npm test</code> under Playwright.</p>
+
+            <div class="toolbar">
+                <button id="run-all" class="primary" type="button">▶ Run all</button>
+                <button id="run-failed" type="button" disabled>Run failed only</button>
+                <span class="summary" id="summary"></span>
+            </div>
+
+            <div class="scenarios" id="scenarios"></div>
+
+            <div class="pw-card" id="pw-card">
+                <h3>Last Playwright run</h3>
+                <div class="pw-meta" id="pw-meta">Loading…</div>
+                <div class="pw-list" id="pw-list"></div>
+            </div>
+        </main>
+    </div>
+
+    <iframe id="runner-iframe" src="about:blank" sandbox="allow-scripts allow-same-origin"></iframe>
+
+    <div class="sc-modal-backdrop" id="sc-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="sc-modal-title">
+        <div class="sc-modal">
+            <div class="sc-modal-head">
+                <h3 id="sc-modal-title">Scenario details</h3>
+                <span class="sc-modal-id" id="sc-modal-id"></span>
+                <button type="button" class="sc-modal-close" id="sc-modal-close" title="Lukk (Esc)">✕</button>
+            </div>
+            <div class="sc-modal-body">
+                <label>Name <input type="text" id="sc-modal-name" readonly></label>
+                <label>URL <input type="text" id="sc-modal-url" readonly></label>
+                <label>run(ctx) — edit and Apply to swap in-memory; reload page to revert
+                    <textarea id="sc-modal-src" spellcheck="false"></textarea>
+                </label>
+                <p class="sc-modal-note">Edits live only in this browser tab. To persist, copy the source back into <code>tests/scenarios.js</code>.</p>
+            </div>
+            <div class="sc-modal-foot">
+                <button type="button" id="sc-modal-apply">Apply</button>
+                <button type="button" id="sc-modal-run" class="primary">Apply &amp; Run</button>
+                <span class="sc-modal-msg" id="sc-modal-msg"></span>
+                <span class="spacer"></span>
+                <button type="button" id="sc-modal-cancel">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    (function () {
+        function $(id) { return document.getElementById(id); }
+        function el(tag, cls, txt) { var e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; }
+        function fmtMs(ms) { return ms == null ? '' : (ms < 1000 ? ms + ' ms' : (ms / 1000).toFixed(2) + ' s'); }
+
+        function ready(fn) {
+            if (window.WN_TEST_SCENARIOS) return fn();
+            var poll = setInterval(function () {
+                if (window.WN_TEST_SCENARIOS) { clearInterval(poll); fn(); }
+            }, 30);
+        }
+
+        var iframe = $('runner-iframe');
+        var resultsByID = Object.create(null);
+
+        function groupOf(s) {
+            // Derive group name from the scenario URL: "/debug/<slug>" → "<slug>".
+            var m = /^\\/debug\\/([^/?#]+)/.exec(s.url || '');
+            return m ? m[1] : 'other';
+        }
+
+        function renderScenarios() {
+            var host = $('scenarios');
+            host.textContent = '';
+            // Group scenarios by URL slug, preserving first-seen order.
+            var order = [];
+            var byGroup = Object.create(null);
+            window.WN_TEST_SCENARIOS.forEach(function (s) {
+                var g = groupOf(s);
+                if (!byGroup[g]) { byGroup[g] = []; order.push(g); }
+                byGroup[g].push(s);
+            });
+
+            order.forEach(function (g) {
+                var groupEl = el('div', 'sc-group');
+                groupEl.dataset.group = g;
+                var head = el('div', 'sc-group-head');
+                head.appendChild(el('span', 'sc-group-name', g));
+                head.appendChild(el('span', 'sc-group-count', byGroup[g].length + (byGroup[g].length === 1 ? ' scenario' : ' scenarios')));
+                var link = el('a', 'sc-group-link', '/debug/' + g + ' ↗');
+                link.href = '/debug/' + g;
+                link.target = '_blank';
+                link.rel = 'noopener';
+                head.appendChild(link);
+                groupEl.appendChild(head);
+
+                byGroup[g].forEach(function (s) {
+                    var prev = resultsByID[s.id] || { status: 'idle' };
+                    var row = el('div', 'sc ' + prev.status);
+                    row.dataset.id = s.id;
+
+                    var status = el('div', 'sc-status', prev.status === 'idle' ? '— idle' : prev.status);
+                    row.appendChild(status);
+
+                    var meta = el('div', 'sc-meta');
+                    meta.appendChild(el('div', 'sc-name', s.name));
+                    meta.appendChild(el('div', 'sc-id', s.id));
+                    meta.appendChild(el('div', 'sc-url', s.url));
+                    if (prev.error) {
+                        meta.appendChild(el('div', 'sc-error', prev.error));
+                    }
+                    row.appendChild(meta);
+
+                    row.appendChild(el('div', 'sc-time', fmtMs(prev.ms)));
+
+                    var actCell = el('div', 'sc-action');
+                    var btn = el('button', null, 'Run');
+                    btn.type = 'button';
+                    btn.addEventListener('click', function () { runOne(s); });
+                    actCell.appendChild(btn);
+
+                    var dbtn = el('button', null, 'Details');
+                    dbtn.type = 'button';
+                    dbtn.addEventListener('click', function () { openDetails(s); });
+                    actCell.appendChild(dbtn);
+
+                    row.appendChild(actCell);
+
+                    groupEl.appendChild(row);
+                });
+
+                host.appendChild(groupEl);
+            });
+            updateSummary();
+        }
+
+        function updateSummary() {
+            var total = window.WN_TEST_SCENARIOS.length;
+            var passed = 0, failed = 0, pending = 0;
+            window.WN_TEST_SCENARIOS.forEach(function (s) {
+                var r = resultsByID[s.id];
+                if (!r || r.status === 'idle') pending++;
+                else if (r.status === 'pass') passed++;
+                else if (r.status === 'fail') failed++;
+            });
+            var sm = $('summary');
+            sm.innerHTML = '';
+            sm.appendChild(el('span', 'pass', passed + ' passed'));
+            sm.appendChild(document.createTextNode(' · '));
+            sm.appendChild(el('span', 'fail', failed + ' failed'));
+            sm.appendChild(document.createTextNode(' · '));
+            sm.appendChild(el('span', 'pending', pending + ' pending'));
+            sm.appendChild(document.createTextNode(' / ' + total));
+            $('run-failed').disabled = failed === 0;
+        }
+
+        function setRowStatus(id, status, extra) {
+            var r = document.querySelector('.sc[data-id="' + id + '"]');
+            if (!r) return;
+            r.classList.remove('idle','running','pass','fail');
+            r.classList.add(status);
+            r.querySelector('.sc-status').textContent = status === 'idle' ? '— idle' : status;
+            r.querySelector('.sc-time').textContent = fmtMs(extra && extra.ms);
+            var meta = r.querySelector('.sc-meta');
+            var oldErr = meta.querySelector('.sc-error');
+            if (oldErr) oldErr.remove();
+            if (extra && extra.error) {
+                meta.appendChild(el('div', 'sc-error', extra.error));
+            }
+        }
+
+        function loadIframe(url) {
+            return new Promise(function (resolve) {
+                function done() {
+                    iframe.removeEventListener('load', done);
+                    resolve(iframe);
+                }
+                iframe.addEventListener('load', done);
+                iframe.src = url;
+            });
+        }
+
+        function waitForMocks(win, timeout) {
+            timeout = timeout || 5000;
+            return new Promise(function (resolve, reject) {
+                var start = Date.now();
+                (function tick() {
+                    if (win.MockServices) return resolve();
+                    if (Date.now() - start > timeout) return reject(new Error('MockServices not loaded in iframe'));
+                    setTimeout(tick, 30);
+                })();
+            });
+        }
+
+        async function runOne(s) {
+            setRowStatus(s.id, 'running');
+            var t0 = performance.now();
+            try {
+                await loadIframe(s.url);
+                await waitForMocks(iframe.contentWindow);
+                var ctx = {
+                    doc: iframe.contentDocument,
+                    win: iframe.contentWindow,
+                    sleep: window.WN_TEST_HELPERS.sleep,
+                    waitFor: window.WN_TEST_HELPERS.waitFor,
+                    assert: window.WN_TEST_HELPERS.assert,
+                };
+                await s.run(ctx);
+                var ms = Math.round(performance.now() - t0);
+                resultsByID[s.id] = { status: 'pass', ms: ms };
+                setRowStatus(s.id, 'pass', { ms: ms });
+            } catch (e) {
+                var ms2 = Math.round(performance.now() - t0);
+                resultsByID[s.id] = { status: 'fail', ms: ms2, error: String(e && e.message || e) };
+                setRowStatus(s.id, 'fail', { ms: ms2, error: String(e && e.message || e) });
+            }
+            updateSummary();
+        }
+
+        async function runAll(filter) {
+            var btn = $('run-all'), btn2 = $('run-failed');
+            btn.disabled = true; btn2.disabled = true;
+            for (var i = 0; i < window.WN_TEST_SCENARIOS.length; i++) {
+                var s = window.WN_TEST_SCENARIOS[i];
+                if (filter && !filter(s)) continue;
+                await runOne(s);
+            }
+            btn.disabled = false;
+            updateSummary();
+        }
+
+        function loadLastPlaywrightRun() {
+            fetch('/debug/tests/last-run.json').then(function (r) {
+                if (!r.ok) return null;
+                return r.json();
+            }).then(function (data) {
+                var meta = $('pw-meta'), list = $('pw-list');
+                if (!data || data.error) {
+                    meta.textContent = 'No Playwright run found. Run \`npm test\` to generate.';
+                    return;
+                }
+                var stats = data.stats || {};
+                var startedAt = stats.startTime ? new Date(stats.startTime).toLocaleString() : 'unknown';
+                var duration = stats.duration ? (stats.duration / 1000).toFixed(2) + 's' : '?';
+                meta.innerHTML = '';
+                meta.appendChild(document.createTextNode('Run started ' + startedAt + ' · duration ' + duration + ' · '));
+                meta.appendChild(el('span', 'pw-pass', (stats.expected || 0) + ' passed'));
+                meta.appendChild(document.createTextNode(' · '));
+                meta.appendChild(el('span', 'pw-fail', (stats.unexpected || 0) + ' failed'));
+                if (stats.flaky) {
+                    meta.appendChild(document.createTextNode(' · '));
+                    meta.appendChild(el('span', 'pw-skip', stats.flaky + ' flaky'));
+                }
+                if (stats.skipped) {
+                    meta.appendChild(document.createTextNode(' · '));
+                    meta.appendChild(el('span', 'pw-skip', stats.skipped + ' skipped'));
+                }
+                list.textContent = '';
+                walkSuites(data.suites || [], function (test) {
+                    var status = test.outcome || (test.results && test.results[0] && test.results[0].status) || 'unknown';
+                    var cls = status === 'expected' || status === 'passed' ? 'pw-pass'
+                            : status === 'unexpected' || status === 'failed' ? 'pw-fail' : 'pw-skip';
+                    var icon = cls === 'pw-pass' ? '✓' : cls === 'pw-fail' ? '✗' : '○';
+                    var line = el('div', cls);
+                    line.textContent = icon + ' ' + test.title;
+                    list.appendChild(line);
+                });
+            }).catch(function () {
+                $('pw-meta').textContent = 'Could not load last run.';
+            });
+        }
+
+        function walkSuites(suites, visit) {
+            suites.forEach(function (s) {
+                (s.specs || []).forEach(function (spec) {
+                    (spec.tests || []).forEach(function (t) {
+                        visit({ title: spec.title, outcome: t.status === 'expected' ? 'expected' : (t.status === 'unexpected' ? 'unexpected' : t.status), results: t.results });
+                    });
+                });
+                if (s.suites) walkSuites(s.suites, visit);
+            });
+        }
+
+        $('run-all').addEventListener('click', function () { runAll(); });
+        $('run-failed').addEventListener('click', function () {
+            runAll(function (s) {
+                var r = resultsByID[s.id];
+                return r && r.status === 'fail';
+            });
+        });
+
+        // ───── Details modal ─────
+        var modalCurrent = null;
+
+        function setModalMsg(text, kind) {
+            var m = $('sc-modal-msg');
+            m.textContent = text || '';
+            m.className = 'sc-modal-msg' + (kind ? ' ' + kind : '');
+        }
+
+        function openDetails(s) {
+            modalCurrent = s;
+            $('sc-modal-id').textContent = s.id;
+            $('sc-modal-name').value = s.name || '';
+            $('sc-modal-url').value = s.url || '';
+            $('sc-modal-src').value = s.run ? s.run.toString() : '';
+            setModalMsg('');
+            $('sc-modal-backdrop').classList.add('open');
+        }
+
+        function closeDetails() {
+            $('sc-modal-backdrop').classList.remove('open');
+            modalCurrent = null;
+        }
+
+        function applyEdit() {
+            if (!modalCurrent) return false;
+            var src = $('sc-modal-src').value;
+            try {
+                // Wrap in parens so a leading "function" / "async function" / arrow is parsed as expression.
+                // eslint-disable-next-line no-eval
+                var fn = (0, eval)('(' + src + ')');
+                if (typeof fn !== 'function') throw new Error('Source did not evaluate to a function.');
+                modalCurrent.run = fn;
+                setModalMsg('Applied (in-memory only).', 'ok');
+                return true;
+            } catch (e) {
+                setModalMsg('Parse error: ' + (e && e.message || e), 'err');
+                return false;
+            }
+        }
+
+        $('sc-modal-close').addEventListener('click', closeDetails);
+        $('sc-modal-cancel').addEventListener('click', closeDetails);
+        $('sc-modal-backdrop').addEventListener('click', function (e) {
+            if (e.target === $('sc-modal-backdrop')) closeDetails();
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && $('sc-modal-backdrop').classList.contains('open')) closeDetails();
+        });
+        $('sc-modal-apply').addEventListener('click', applyEdit);
+        $('sc-modal-run').addEventListener('click', function () {
+            var s = modalCurrent;
+            if (!applyEdit()) return;
+            closeDetails();
+            runOne(s);
+        });
+
+        ready(function () {
+            renderScenarios();
+            loadLastPlaywrightRun();
+        });
+    })();
+    </script>
+</body>
+</html>`;
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(html);
+    }
+
     if (pathname === '/debug' || pathname.startsWith('/debug/')) {
         const COMPONENT_GROUPS = [
-            ['Shared',    ['help-modal', 'icon-picker', 'json-table', 'nav-button', 'nav-meta', 'time-picker', 'week-calendar', 'week-pill']],
+            ['Shared',    ['help-modal', 'icon-picker', 'json-table', 'modal-container', 'nav-button', 'nav-meta', 'time-picker', 'week-calendar', 'week-pill']],
             ['Context',   ['ctx-switcher']],
             ['Search',    ['global-search']],
             ['Notes',     ['markdown-preview', 'note-card', 'note-editor', 'note-meta-view', 'note-meta-panel', 'note-view']],
-            ['Tasks',     ['task-complete-modal', 'task-note-modal', 'task-open-list', 'task-completed', 'task-create', 'task-create-modal']],
+            ['Tasks',     ['task-add-modal', 'task-complete-modal', 'task-note', 'task-note-modal', 'task-open-list', 'task-completed', 'task-create']],
             ['Meetings',  ['meeting-create', 'upcoming-meetings', 'today-calendar', 'week-notes-calendar']],
             ['People',    ['company-card', 'entity-callout', 'entity-mention', 'people-page', 'person-card', 'place-card']],
             ['Results',   ['results-page', 'week-results']],
@@ -4581,6 +5405,9 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             const sub = current === 'data-shapes' ? '' : current.slice('data-shapes/'.length);
             return renderDataShapesDebug(req, res, sub);
         }
+        if (current === 'tests') {
+            return renderTestsDebug(req, res);
+        }
         if (!COMPONENTS.includes(current)) {
             res.writeHead(404, { 'Content-Type': 'text/plain' });
             res.end(`Unknown component: ${current}`);
@@ -4593,6 +5420,12 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
         // wrap      : optional surrounding HTML string with %HOST% placeholder
         // rawHtml   : for components that need bespoke markup (no attribute editor)
         // extraStyle: per-demo CSS additions
+        let notesMetaSample = null;
+        try {
+            notesMetaSample = JSON.parse(fs.readFileSync(path.join(__dirname, 'schemas', 'notes-meta.schema.json'), 'utf8'));
+        } catch (_) { notesMetaSample = null; }
+        const notesMetaJson = JSON.stringify(notesMetaSample, null, 2).replace(/</g, '\\u003c');
+
         const DEMOS = {
             'nav-meta': {
                 desc: `<p><strong>&lt;nav-meta&gt;</strong> is a small read-only navbar widget that shows the current weekday, date, ISO week badge and a live clock. It updates once per second and uses the Norwegian locale (<code>nb-NO</code>) for date and time formatting.</p>
@@ -4727,20 +5560,190 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             'json-table': {
                 desc: `<p><strong>&lt;json-table&gt;</strong> renders an array of objects as a sortable, scrollable HTML table. Used heavily on the <a href="/debug/services">services</a> page to display API responses.</p>
                     <p><strong>Domain:</strong> none &mdash; presentational only.</p>
-                    <p><strong>Properties.</strong> Set <code>el.data = [{…},…]</code> to populate; the component re-renders. Primitives render with <code>String()</code>; nested objects render as JSON in a muted cell.</p>
-                    <p><strong>Attributes.</strong> <code>columns</code> (comma-separated list, default = union of keys), <code>max-height</code> (CSS, default <code>320px</code>), <code>empty-text</code>.</p>
+                    <p><strong>Properties.</strong> Set <code>el.data = [{…},…]</code> for an array, or <code>el.data = {…}</code> for a single object &mdash; in object mode it renders one row using the object's property names as column headers. Primitives render with <code>String()</code>; nested objects render as JSON in a muted cell.</p>
+                    <p><strong>Attributes.</strong> <code>columns</code> (comma-separated list, default = union of keys), <code>max-height</code> (CSS, default <code>320px</code>), <code>empty-text</code>, <code>editable</code> (turn cells into <code>contenteditable</code>; commits on blur, Esc to revert, fires <code>cell-edit</code> events).</p>
                     <p><strong>Sorting.</strong> Click a column header to sort ascending; click again for descending; a third click clears the sort.</p>`,
-                rawHtml: `<json-table id="dbg-jt" max-height="260px"></json-table>
+                rawHtml: `<h4 style="margin:0 0 6px;font-size:0.9em;color:var(--text-muted)">Array of objects</h4>
+                    <json-table id="dbg-jt" max-height="220px"></json-table>
+                    <h4 style="margin:14px 0 6px;font-size:0.9em;color:var(--text-muted)">Single plain object (props become column headers)</h4>
+                    <json-table id="dbg-jt-obj" max-height="220px"></json-table>
+                    <h4 style="margin:14px 0 6px;font-size:0.9em;color:var(--text-muted)">Schema sample: <code>schemas/notes-meta.schema.json</code> (single object)</h4>
+                    <json-table id="dbg-jt-nm" max-height="320px"></json-table>
                     <script>
+                        var NOTES_META_SAMPLE = ${notesMetaJson};
                         customElements.whenDefined('json-table').then(function(){
                             var t = document.getElementById('dbg-jt');
-                            if (!t) return;
-                            t.data = [
+                            if (t) t.data = [
                                 { id: 1, name: 'Anna',    role: 'PM',       active: true,  hours: 37.5, tags: ['lead','planlegging'] },
                                 { id: 2, name: 'Bjørn',   role: 'TechLead', active: true,  hours: 40,   tags: ['arkitektur'] },
                                 { id: 3, name: 'Cecilie', role: 'Dev',      active: false, hours: 32,   tags: [] },
                                 { id: 4, name: 'David',   role: 'Dev',      active: true,  hours: 38,   tags: ['onboarding'] },
                             ];
+                            var o = document.getElementById('dbg-jt-obj');
+                            if (o) o.data = {
+                                version: '1.4.0',
+                                releasedAt: '2026-04-30',
+                                stable: true,
+                                downloads: 12480,
+                                authors: ['Petter', 'Copilot'],
+                                config: { theme: 'paper', autosave: true },
+                                notes: null,
+                            };
+                            var n = document.getElementById('dbg-jt-nm');
+                            if (n) {
+                                if (NOTES_META_SAMPLE && typeof NOTES_META_SAMPLE === 'object') {
+                                    n.data = NOTES_META_SAMPLE;
+                                } else {
+                                    n.setAttribute('empty-text', 'schemas/notes-meta.schema.json mangler');
+                                    n.data = [];
+                                }
+                            }
+                        });
+                    <\/script>`,
+            },
+            'modal-container': {
+                desc: `<p><strong>&lt;modal-container&gt;</strong> is the generic modal shell. All app modals (help, task-create, task-complete, task-note, results, note-view, …) wrap their content in a <code>&lt;modal-container&gt;</code> instead of duplicating backdrop / Escape / close-button plumbing.</p>
+                    <p><strong>Slots:</strong></p>
+                    <ul>
+                        <li><code>title</code> — header text</li>
+                        <li>default — body content</li>
+                        <li><code>footer</code> — custom footer markup (alternative to button API)</li>
+                    </ul>
+                    <p><strong>Attributes:</strong> <code>open</code>, <code>size</code> (<code>sm</code>|<code>md</code>|<code>lg</code>|<code>xl</code>|<code>full</code>), <code>no-close</code>, <code>no-backdrop-close</code>, <code>no-escape-close</code>.</p>
+                    <p><strong>Methods:</strong> <code>open()</code>, <code>close(reason?)</code>, <code>toggle(force?)</code>, <code>setButtons([{label, action, primary, dismiss, variant}])</code>, <code>setContent(htmlOrNode)</code>, <code>setTitle(text)</code>, <code>setup({title, content, init, actions, size})</code>.</p>
+                    <p><strong>Setup API.</strong> The <code>setup({...})</code> convenience method bundles content injection, event wiring and button configuration into one call:</p>
+                    <pre style="margin:6px 0;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:4px;font-size:0.85em;overflow:auto">modal.setup({
+    title: '🛠 Eksempel',
+    content: '&lt;input data-el="name"&gt;&lt;button data-el="hello"&gt;Hei&lt;/button&gt;',
+    init: (m) =&gt; {
+        m.querySelector('[data-el="hello"]').addEventListener('click', () =&gt; {
+            console.log(m.querySelector('[data-el="name"]').value);
+        });
+    },
+    actions: [
+        { label: 'Avbryt', variant: 'ghost' },
+        { label: 'Lagre', primary: true, action: (m) =&gt; save(m) },
+    ],
+});
+modal.open();</pre>
+                    <p><strong>Events:</strong> <code>modal-open</code>, <code>modal-close</code> (<code>detail.reason</code> ∈ <code>'escape'|'backdrop'|'button'|'programmatic'</code>).</p>
+                    <p><strong>Buttons API.</strong> <code>setButtons([…])</code> renders an action row in the footer. Each button has a <code>label</code>, optional <code>action(modal, btnEl)</code> callback, <code>primary</code> styling, <code>variant</code> (<code>'danger'</code>|<code>'ghost'</code>) and <code>dismiss</code> (default <code>true</code>: close after action; return <code>false</code> from action to prevent closing). Async actions disable the button while the promise is pending.</p>`,
+                rawHtml: `<div style="display:flex;gap:10px;flex-wrap:wrap">
+                        <button class="btn-summarize" data-mc="basic">Basic modal</button>
+                        <button class="btn-summarize" data-mc="buttons" style="background:var(--text-muted)">With buttons</button>
+                        <button class="btn-summarize" data-mc="danger" style="background:#c0392b">Confirm delete</button>
+                        <button class="btn-summarize" data-mc="async" style="background:#2a8a3e">Async action</button>
+                        <button class="btn-summarize" data-mc="setup" style="background:#7c3aed">setup() API</button>
+                    </div>
+                    <pre id="dbg-mc-log" style="margin-top:14px;padding:8px;background:var(--surface-head);border:1px solid var(--border-faint);border-radius:6px;font-size:0.85em;max-height:140px;overflow:auto"></pre>
+
+                    <script>
+                        customElements.whenDefined('modal-container').then(function(){
+                            var log = document.getElementById('dbg-mc-log');
+                            function append(line){ if (log) { log.textContent += line + '\\n'; log.scrollTop = log.scrollHeight; } }
+                            function makeModal(opts){
+                                opts = opts || {};
+                                var m = document.createElement('modal-container');
+                                if (opts.size) m.setAttribute('size', opts.size);
+                                document.body.appendChild(m);
+                                m.addEventListener('modal-close', function onClose(){
+                                    m.removeEventListener('modal-close', onClose);
+                                    setTimeout(function(){ if (m.parentNode) m.parentNode.removeChild(m); }, 0);
+                                });
+                                return m;
+                            }
+                            function wireLogging(m, label){
+                                m.addEventListener('modal-open', function(){ append('[' + label + '] open'); });
+                                m.addEventListener('modal-close', function(e){ append('[' + label + '] close (' + e.detail.reason + ')'); });
+                            }
+                            var openers = {
+                                basic: function(){
+                                    var m = makeModal();
+                                    wireLogging(m, 'basic');
+                                    m.setup({
+                                        title: 'Basic modal',
+                                        content: '<p>Lukk via ✕, Esc eller klikk på bakgrunnen.</p>',
+                                    });
+                                    m.open();
+                                },
+                                buttons: function(){
+                                    var m = makeModal();
+                                    wireLogging(m, 'buttons');
+                                    m.setup({
+                                        title: 'Bekreft handling',
+                                        content: '<p>Vil du lagre endringene?</p>',
+                                        actions: [
+                                            { label: 'Avbryt', variant: 'ghost', action: function(){ append('  → Avbryt'); } },
+                                            { label: 'Lagre',  primary: true,    action: function(){ append('  → Lagre'); } },
+                                        ],
+                                    });
+                                    m.open();
+                                },
+                                danger: function(){
+                                    var m = makeModal();
+                                    wireLogging(m, 'danger');
+                                    m.setup({
+                                        title: 'Slette element?',
+                                        content: '<p>Dette kan ikke angres.</p>',
+                                        actions: [
+                                            { label: 'Avbryt', variant: 'ghost' },
+                                            { label: 'Slett',  variant: 'danger', action: function(){ append('  → Slettet (mock)'); } },
+                                        ],
+                                    });
+                                    m.open();
+                                },
+                                async: function(){
+                                    var m = makeModal();
+                                    wireLogging(m, 'async');
+                                    m.setup({
+                                        title: 'Lagre med forsinkelse',
+                                        content: '<p>Knappen disables i 1.2s mens den «lagrer».</p>',
+                                        actions: [
+                                            { label: 'Avbryt', variant: 'ghost' },
+                                            { label: 'Lagre', primary: true, action: function(){
+                                                append('  → starter lagring…');
+                                                return new Promise(function(res){ setTimeout(function(){ append('  → ferdig'); res(); }, 1200); });
+                                            }},
+                                        ],
+                                    });
+                                    m.open();
+                                },
+                                setup: function(){
+                                    var m = makeModal({ size: 'md' });
+                                    wireLogging(m, 'setup');
+                                    m.setup({
+                                        title: '🛠 setup() API',
+                                        content:
+                                            '<p>Dette innholdet er injisert via <code>setContent</code> som en HTML-streng.</p>' +
+                                            '<label style="display:block;margin-top:8px">Navn: <input type="text" data-el="name" value="Per" style="margin-left:6px;padding:4px 8px;border:1px solid var(--border);border-radius:4px"></label>' +
+                                            '<button type="button" data-el="hello" style="margin-top:10px;padding:4px 10px">Si hei</button>' +
+                                            '<pre data-el="out" style="margin-top:8px;padding:6px;background:var(--surface);border:1px solid var(--border);border-radius:4px;min-height:1.4em"></pre>',
+                                        init: function(modal){
+                                            var helloBtn = modal.querySelector('[data-el="hello"]');
+                                            var nameIn   = modal.querySelector('[data-el="name"]');
+                                            var out      = modal.querySelector('[data-el="out"]');
+                                            helloBtn.addEventListener('click', function(){
+                                                out.textContent = 'Hei, ' + (nameIn.value || 'verden') + '!';
+                                            });
+                                            append('  → init() wired');
+                                        },
+                                        actions: [
+                                            { label: 'Avbryt', variant: 'ghost' },
+                                            { label: 'Bekreft', primary: true, action: function(mm){
+                                                var name = mm.querySelector('[data-el="name"]').value;
+                                                append('  → bekreftet med navn=' + JSON.stringify(name));
+                                            }},
+                                        ],
+                                    });
+                                    m.open();
+                                },
+                            };
+                            document.querySelectorAll('button[data-mc]').forEach(function(b){
+                                b.addEventListener('click', function(){
+                                    var fn = openers[b.dataset.mc];
+                                    if (typeof fn === 'function') fn();
+                                });
+                            });
                         });
                     <\/script>`,
             },
@@ -5057,8 +6060,8 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             'task-open-list': {
                 desc: `<p><strong>&lt;task-open-list&gt;</strong> is the &ldquo;Åpne oppgaver&rdquo; sidebar list shown on the home page. It loads all tasks via the tasks service, filters out completed ones, and renders each as a checkbox row with linked <code>@mentions</code> and a small note button.</p>
                     <p><strong>Domain:</strong> <code>tasks</code> &mdash; primary service from <code>tasks_service</code>. Also reads <code>people_service</code> and <code>companies_service</code> so mention text can be resolved to display names.</p>
-                    <p><strong>Lifecycle.</strong> <code>_load()</code> fetches tasks, people and companies in parallel. Renders &ldquo;Laster…&rdquo; → list / &ldquo;Ingen åpne oppgaver&rdquo; / &ldquo;Kunne ikke laste oppgaver&rdquo;. The header shows the open-task count and (unless <code>show_add_button="false"</code>) a <code>+</code> button that opens an embedded <code>&lt;task-create-modal&gt;</code>.</p>
-                    <p><strong>Interactions.</strong> Toggling a checkbox opens the embedded <code>&lt;task-complete-modal&gt;</code>; on confirm the component calls <code>service.toggle(id, comment)</code> and then re-loads. The 📓 note button opens the embedded <code>&lt;task-note-modal&gt;</code>; on save it calls <code>service.update(id, { note })</code>. The ✕ delete button calls <code>service.remove(id)</code> after a <code>confirm()</code>.</p>
+                    <p><strong>Lifecycle.</strong> <code>_load()</code> fetches tasks, people and companies in parallel. Renders &ldquo;Laster…&rdquo; → list / &ldquo;Ingen åpne oppgaver&rdquo; / &ldquo;Kunne ikke laste oppgaver&rdquo;. The header shows the open-task count. Use <code>&lt;task-add-modal&gt;</code> alongside the list to add new tasks.</p>
+                    <p><strong>Interactions.</strong> Toggling a checkbox opens the embedded <code>&lt;task-complete-modal&gt;</code>; on confirm the component calls <code>service.toggle(id, comment)</code> and then re-loads. The 📓 note button opens a <code>&lt;modal-container&gt;</code> wrapping <code>&lt;task-note&gt;</code>; on save it calls <code>service.update(id, { note })</code>. The ✕ delete button calls <code>service.remove(id)</code> after a <code>confirm()</code>.</p>
                     <p><strong>Events</strong> (bubbling, composed):</p>
                     <ul>
                         <li><code>task:completed</code> with <code>{ id, comment }</code> &mdash; after a successful complete</li>
@@ -5071,11 +6074,25 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                     { name: 'tasks_service', type: 'text', default: 'MockTaskService' },
                     { name: 'people_service', type: 'text', default: 'MockPeopleService' },
                     { name: 'companies_service', type: 'text', default: 'MockCompaniesService' },
-                    { name: 'show_add_button', type: 'text', default: 'true' },
+                ],
+            },
+            'task-add-modal': {
+                desc: `<p><strong>&lt;task-add-modal&gt;</strong> renders a small <code>+</code> trigger button that opens a <code>&lt;modal-container&gt;</code> wrapping a <code>&lt;task-create&gt;</code> form. Designed for sidebar/header use where space is tight.</p>
+                    <p><strong>Behavior:</strong> the modal stays open after a task is created so the user can add several in a row. Dismissed only by the default Lukk button, the ✕ corner button, Esc or backdrop click.</p>
+                    <p><strong>Attributes</strong> (forwarded to <code>&lt;task-create&gt;</code>): <code>tasks_service</code>, <code>placeholder</code>, <code>button-label</code>. Trigger styling: <code>trigger-label</code> (default <code>+</code>), <code>trigger-title</code>.</p>
+                    <p><strong>Methods:</strong> <code>open()</code>, <code>close()</code>.</p>
+                    <p><strong>Events:</strong> bubbles <code>task:created</code> from the embedded <code>&lt;task-create&gt;</code>.</p>`,
+                tag: 'task-add-modal',
+                attrs: [
+                    { name: 'tasks_service', type: 'text', default: 'MockTaskService' },
+                    { name: 'placeholder', type: 'text', default: 'Beskriv oppgaven…' },
+                    { name: 'button-label', type: 'text', default: 'Legg til' },
+                    { name: 'trigger-label', type: 'text', default: '+' },
+                    { name: 'trigger-title', type: 'text', default: 'Ny oppgave' },
                 ],
             },
             'task-create': {
-                desc: `<p><strong>&lt;task-create&gt;</strong> is a small reusable form &mdash; one input, one submit button &mdash; for creating a task. Used standalone in the tasks page and embedded inside <code>&lt;task-create-modal&gt;</code>.</p>
+                desc: `<p><strong>&lt;task-create&gt;</strong> is a small reusable form &mdash; one input, one submit button &mdash; for creating a task. Used standalone in the tasks page and embedded in a <code>&lt;modal-container&gt;</code>.</p>
                     <p><strong>Domain:</strong> <code>tasks</code> &mdash; reads from <code>tasks_service</code>. Calls <code>service.create(text)</code>; the service is expected to return either the created task or <code>{ task, tasks }</code>.</p>
                     <p><strong>Attributes:</strong> <code>placeholder</code>, <code>button-label</code>, <code>compact</code> (boolean &mdash; smaller layout for sidebars).</p>
                     <p><strong>Lifecycle.</strong> Trims input on submit; ignores empty submissions. Disables the button while in flight; re-enables on success/failure. Clears input and re-focuses on success. On error shows an inline error and keeps the input so the user can retry.</p>
@@ -5153,17 +6170,44 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                         });
                     <\/script>`,
             },
-            'task-create-modal': {
-                desc: `<p><strong>&lt;task-create-modal&gt;</strong> is a dumb modal hosting a <code>&lt;task-create&gt;</code> form. No trigger button — the host opens it imperatively via the callback API.</p>
-                    <p><strong>Domain:</strong> <code>tasks</code> (forwarded as <code>tasks_service</code> to the embedded <code>&lt;task-create&gt;</code>).</p>
-                    <p><strong>Attributes:</strong> <code>modal-title</code>, <code>placeholder</code>, <code>endpoint</code>.</p>
-                    <p><strong>Callback API:</strong> <code>modal.open(callback)</code> shows the modal. The callback is invoked once with <code>{ created: true, task, tasks }</code> on a successful create or <code>{ created: false }</code> on Esc / backdrop / ✕. <code>modal.close()</code> closes silently without firing the callback. The inner <code>&lt;task-create&gt;</code> still emits <code>task:created</code> (composed/bubbles) so any global listener (e.g. the SPA shell&apos;s task-list refresh wiring) keeps working.</p>`,
-                tag: 'task-create-modal',
-                attrs: [
-                    { name: 'modal-title', type: 'text', default: 'Ny oppgave' },
-                    { name: 'placeholder', type: 'text', default: 'Beskriv oppgaven…' },
-                    { name: 'endpoint', type: 'text', default: '/api/tasks' },
-                ],
+            'task-note': {
+                desc: `<p><strong>&lt;task-note&gt;</strong> is a dumb form for editing a task's note (markdown). It does not load or save anything &mdash; the host owns the service. Set the current task via the <code>.task</code> property and listen for <code>task-note:save</code> / <code>task-note:cancel</code>.</p>
+                    <p>Typically embedded inside a <code>&lt;modal-container&gt;</code>; the modal-container's footer buttons trigger <code>el.save()</code>/<code>el.cancel()</code>.</p>
+                    <p><strong>Properties:</strong> <code>.task = { id, text, note }</code>.</p>
+                    <p><strong>Methods:</strong> <code>focus()</code>, <code>save()</code>, <code>cancel()</code>.</p>
+                    <p><strong>Events</strong> (bubbles, composed):</p>
+                    <ul>
+                        <li><code>task-note:save</code> &mdash; <code>{ id, note }</code></li>
+                        <li><code>task-note:cancel</code> &mdash; <code>{ id }</code></li>
+                    </ul>
+                    <p><strong>Keyboard:</strong> Ctrl/⌘ + Enter saves, Esc cancels.</p>`,
+                rawHtml: `<button type="button" id="dbg-tn-trigger" class="btn"
+                    style="padding:8px 14px;background:var(--accent);color:var(--text-on-accent);border:0;border-radius:8px;font-weight:600;cursor:pointer">Rediger notat for «Send rapport til @anna»</button>
+                    <modal-container id="dbg-tn-modal" size="md">
+                        <span slot="title">📓 Notat</span>
+                        <task-note id="dbg-tn"></task-note>
+                    </modal-container>
+                    <script>
+                        Promise.all([
+                            customElements.whenDefined('task-note'),
+                            customElements.whenDefined('modal-container'),
+                        ]).then(function(){
+                            var modal = document.getElementById('dbg-tn-modal');
+                            var note = document.getElementById('dbg-tn');
+                            var btn = document.getElementById('dbg-tn-trigger');
+                            modal.setButtons([
+                                { label: 'Avbryt', variant: 'ghost', action: function(){ note.cancel(); return false; } },
+                                { label: '💾 Lagre', primary: true, action: function(){ note.save(); return false; } },
+                            ]);
+                            btn.addEventListener('click', function(){
+                                note.task = { id: 't42', text: 'Send rapport til @anna før fredag', note: 'Eksisterende notat. Husk vedlegg.' };
+                                modal.open();
+                                setTimeout(function(){ note.focus(); }, 0);
+                            });
+                            note.addEventListener('task-note:save', function(){ modal.close(); });
+                            note.addEventListener('task-note:cancel', function(){ modal.close(); });
+                        });
+                    <\/script>`,
             },
             'meeting-create': {
                 desc: `<p><strong>&lt;meeting-create&gt;</strong> is a reusable form for creating a meeting &mdash; title, type, date, start/end, attendees, location and notes. Used inside the calendar page&apos;s create-meeting overlay.</p>
@@ -5589,6 +6633,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             <nav class="dbg-nav">
                 <a href="/debug/services">services</a>
                 <a href="/debug/data-shapes">data shapes</a>
+                <a href="/debug/tests">tests</a>
             </nav>
         </aside>`;
 
@@ -5613,6 +6658,8 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             'note-editor:saved', 'note-editor:cancel',
             'task:created', 'task:create-failed',
             'task:completed', 'task:uncompleted',
+            'task-note:save', 'task-note:cancel',
+            'modal-open', 'modal-close',
             'markdown-preview:scroll',
             'calendar:week-changed',
             'context-selected',
@@ -5635,7 +6682,8 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
     <script type="module" src="/components/nav-meta.js"></script>
     <script type="module" src="/components/nav-button.js"></script>
     <script type="module" src="/components/ctx-switcher.js"></script>
-    <script type="module" src="/components/help-modal.js"></script>
+    <script type="module" src="/components/modal-container.js"></script>
+<script type="module" src="/components/help-modal.js"></script>
     <script type="module" src="/components/json-table.js"></script>
     <script type="module" src="/components/note-card.js"></script>
     <script type="module" src="/components/note-view.js"></script>
@@ -5643,7 +6691,8 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
     <script type="module" src="/components/note-meta-panel.js"></script>
     <script type="module" src="/components/task-open-list.js"></script>
     <script type="module" src="/components/task-create.js"></script>
-    <script type="module" src="/components/task-create-modal.js"></script>
+    <script type="module" src="/components/task-add-modal.js"></script>
+    <script type="module" src="/components/task-note.js"></script>
     <script type="module" src="/components/task-complete-modal.js"></script>
     <script type="module" src="/components/task-note-modal.js"></script>
     <script type="module" src="/components/meeting-create.js"></script>
@@ -9456,6 +10505,13 @@ activateTab(initialParams.tab || 'people');
             } else {
                 fs.writeFileSync(filePath, finalContent, 'utf-8');
             }
+            // Reconcile task→note backrefs against the post-write content.
+            // For append we need the merged file; for overwrite finalContent
+            // is the same as on-disk. Using readFileSync covers both.
+            try {
+                const onDisk = fs.readFileSync(filePath, 'utf-8');
+                syncTaskNoteRefs(`${folder}/${file}`, onDisk);
+            } catch (_) {}
             // Remove any stale autosave temp file now that we've persisted.
             try {
                 const tmpPath = path.join(dataDir(), folder, '.' + file + '.autosave');
@@ -10454,6 +11510,7 @@ activateTab(initialParams.tab || 'people');
                 res.end(JSON.stringify({ ok: true, active: next }));
                 setImmediate(() => {
                     try { pullContextRemote(next); } catch (e) { console.error('bg pull', e.message); }
+                    try { rebuildTaskNoteRefs(); } catch (e) { console.error('rebuildTaskNoteRefs', e.message); }
                     reindexSearch();
                     if (getAppSettings().vectorSearch.enabled) restartEmbedWorker();
                 });
@@ -11177,10 +12234,12 @@ activateTab(initialParams.tab || 'people');
     const deleteNoteMatch = pathname.match(/^\/api\/notes\/([^/]+)\/(.+)$/);
     if (deleteNoteMatch && req.method === 'DELETE') {
         const [, week, file] = deleteNoteMatch;
-        const filePath = path.join(dataDir(), week, decodeURIComponent(file));
+        const decoded = decodeURIComponent(file);
+        const filePath = path.join(dataDir(), week, decoded);
         try {
             fs.unlinkSync(filePath);
-            deleteNoteMeta(week, decodeURIComponent(file));
+            deleteNoteMeta(week, decoded);
+            clearTaskNoteRef(`${week}/${decoded}`);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: true }));
         } catch {
@@ -11340,6 +12399,7 @@ server.listen(PORT, () => {
     console.log(`Weeks server running at http://localhost:${PORT}/`);
     checkExternalTools();
     try { ensureAllContextsInitialised(); } catch (e) { console.error('ctx init', e.message); }
+    try { rebuildTaskNoteRefs(); } catch (e) { console.error('rebuildTaskNoteRefs', e.message); }
     startSearchWorker();
     startEmbedWorker();
     startSummarizeWorker();

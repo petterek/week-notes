@@ -7,7 +7,7 @@
   },
   {
     "path": "data/user.json",
-    "scope": "global (per machine — outside any context git repo)",
+    "scope": "global (per machine \u2014 outside any context git repo)",
     "desc": "Per-machine identity. Maps each context to the @me person key for the current user.",
     "file": "user.schema.json"
   },
@@ -67,26 +67,14 @@
   },
   {
     "path": "data/<ctx>/<week>/<file>.md",
-    "scope": "per context · per week",
+    "scope": "per context \u00b7 per week",
     "desc": "Markdown content for one note. Plain text on disk; structured fields live in notes-meta.json.",
     "file": "note-markdown.schema.json"
   },
   {
     "path": "data/<ctx>/<week>/.<file>.md.autosave",
-    "scope": "per context · per week (gitignored hidden file)",
+    "scope": "per context \u00b7 per week (gitignored hidden file)",
     "desc": "Editor autosave temp. Removed on explicit save or discard.",
     "file": "note-autosave.schema.json"
-  },
-  {
-    "path": "data/<ctx>/.cache/search-index.json",
-    "scope": "per context (gitignored)",
-    "desc": "Lunr-style flat search index, rebuilt on save.",
-    "file": "search-index.schema.json"
-  },
-  {
-    "path": "data/<ctx>/.cache/embeddings.json",
-    "scope": "per context (gitignored)",
-    "desc": "Vector embeddings for semantic search. One entry per indexed doc.",
-    "file": "embeddings.schema.json"
   }
 ]

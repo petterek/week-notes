@@ -1,0 +1,92 @@
+{
+    "viewBox": [0, 0, 1200, 800],
+    "entities": [
+        {
+            "slug": "people",
+            "label": "people",
+            "x": 40, "y": 40, "w": 220, "h": 170,
+            "pk": "key",
+            "fields": ["id", "key", "name", "primaryCompanyKey", "extraCompanyKeys[]", "inactive"]
+        },
+        {
+            "slug": "companies",
+            "label": "companies",
+            "x": 360, "y": 40, "w": 200, "h": 130,
+            "pk": "key",
+            "fields": ["id", "key", "name", "orgnr", "url"]
+        },
+        {
+            "slug": "places",
+            "label": "places",
+            "x": 660, "y": 40, "w": 200, "h": 130,
+            "pk": "key",
+            "fields": ["id", "key", "name", "address", "lat", "lng"]
+        },
+        {
+            "slug": "user",
+            "label": "user",
+            "x": 960, "y": 40, "w": 200, "h": 130,
+            "fields": ["displayName", "contexts[].context", "contexts[].mePersonKey"]
+        },
+        {
+            "slug": "meetings",
+            "label": "meetings",
+            "x": 40, "y": 290, "w": 240, "h": 170,
+            "pk": "id",
+            "fields": ["id", "date", "start", "end", "title", "type", "attendees[]", "placeKey"]
+        },
+        {
+            "slug": "meeting-types",
+            "label": "meeting-types",
+            "x": 360, "y": 290, "w": 200, "h": 110,
+            "pk": "key",
+            "fields": ["key", "icon", "label", "mins"]
+        },
+        {
+            "slug": "context-settings",
+            "label": "context-settings",
+            "x": 660, "y": 290, "w": 240, "h": 170,
+            "fields": ["name", "icon", "theme", "workHours[]", "meetingTypes[]", "availableThemes[]"]
+        },
+        {
+            "slug": "tasks",
+            "label": "tasks",
+            "x": 40, "y": 540, "w": 240, "h": 150,
+            "pk": "id",
+            "fields": ["id", "text", "done", "week", "completedAt", "commentFile"]
+        },
+        {
+            "slug": "results",
+            "label": "results",
+            "x": 360, "y": 540, "w": 200, "h": 130,
+            "pk": "id",
+            "fields": ["id", "text", "week", "people[]"]
+        },
+        {
+            "slug": "notes-meta",
+            "label": "notes-meta",
+            "x": 660, "y": 540, "w": 240, "h": 170,
+            "pk": "<week>/<file>.md",
+            "fields": ["type", "title", "themes[]", "createdBy", "lastSavedBy", "saves[]", "references"]
+        },
+        {
+            "slug": "app-settings",
+            "label": "app-settings",
+            "x": 960, "y": 290, "w": 200, "h": 130,
+            "fields": ["vectorSearch", "searchIndex", "summarization"]
+        }
+    ],
+    "edges": [
+        { "from": "people",   "fromField": "primaryCompanyKey", "to": "companies",     "label": "primaryCompanyKey" },
+        { "from": "people",   "fromField": "extraCompanyKeys",  "to": "companies",     "label": "extraCompanyKeys[]" },
+        { "from": "meetings", "fromField": "attendees",         "to": "people",        "label": "attendees[]" },
+        { "from": "meetings", "fromField": "placeKey",          "to": "places",        "label": "placeKey" },
+        { "from": "meetings", "fromField": "type",              "to": "meeting-types", "label": "type" },
+        { "from": "results",  "fromField": "people",            "to": "people",        "label": "people[]" },
+        { "from": "tasks",    "fromField": "commentFile",       "to": "notes-meta",    "label": "commentFile" },
+        { "from": "notes-meta","fromField": "createdBy",        "to": "people",        "label": "createdBy" },
+        { "from": "notes-meta","fromField": "lastSavedBy",      "to": "people",        "label": "lastSavedBy" },
+        { "from": "user",     "fromField": "mePersonKey",       "to": "people",        "label": "contexts[].mePersonKey" },
+        { "from": "context-settings", "fromField": "meetingTypes", "to": "meeting-types", "label": "meetingTypes[] (override)" }
+    ]
+}
