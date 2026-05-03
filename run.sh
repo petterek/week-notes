@@ -46,9 +46,10 @@ if ! command -v node &>/dev/null; then
   exit 1
 fi
 
+# Track whether we changed HEAD (or first install) so we can refresh npm deps.
+NEEDS_INSTALL=0
 if [ ! -d node_modules ]; then
-  echo "Installing dependencies..."
-  npm install
+  NEEDS_INSTALL=1
 fi
 
 # Check whether the local checkout is behind origin and offer to pull.
@@ -72,6 +73,7 @@ if command -v git &>/dev/null && [ -d .git ]; then
             *)
               if git pull --ff-only --quiet; then
                 echo "  → Pulled latest. New HEAD: $(git rev-parse --short HEAD)"
+                NEEDS_INSTALL=1
               else
                 echo "  ⚠️  git pull failed (local changes?). Starting current version anyway." >&2
               fi
@@ -87,6 +89,21 @@ if command -v git &>/dev/null && [ -d .git ]; then
       echo "ℹ️  Could not fetch from origin (offline?). Starting current version." >&2
     fi
   fi
+fi
+
+# Re-run npm install when package.json (or lockfile) is newer than node_modules,
+# i.e. a dependency was added/bumped since the last install.
+if [ "$NEEDS_INSTALL" -eq 0 ] && [ -d node_modules ]; then
+  if [ package.json -nt node_modules ] || { [ -f package-lock.json ] && [ package-lock.json -nt node_modules ]; }; then
+    NEEDS_INSTALL=1
+  fi
+fi
+
+if [ "$NEEDS_INSTALL" -eq 1 ]; then
+  echo "Installing dependencies..."
+  npm install
+  # touch node_modules so the freshness check above resets after install.
+  [ -d node_modules ] && touch node_modules
 fi
 
 PROCESS_NAME="weeks-presentation-server"
