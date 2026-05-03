@@ -369,6 +369,22 @@ class NoteEditor extends WNElement {
             if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 's' || e.key === 'S')) {
                 e.preventDefault();
                 this.save(true);
+                return;
+            }
+            if (e.key === 'Escape') {
+                const restore = this.shadowRoot.querySelector('.ne-restore-modal:not([hidden])');
+                if (restore) {
+                    e.preventDefault();
+                    const btn = restore.querySelector('.ne-restore-cancel');
+                    if (btn) btn.click();
+                    return;
+                }
+                const history = this.shadowRoot.querySelector('.ne-history-modal:not(.ne-restore-modal):not([hidden])');
+                if (history) {
+                    e.preventDefault();
+                    const btn = history.querySelector('.ne-history-close');
+                    if (btn) btn.click();
+                }
             }
         };
         document.addEventListener('keydown', this._docKeyHandler);
