@@ -24,7 +24,8 @@
  *   note-editor:saved   { folder, file, path }
  *   note-editor:cancel
  */
-import { WNElement, html, escapeHtml, isoWeek } from './_shared.js';
+import { WNElement, html, escapeHtml, linkMentions, isoWeek } from './_shared.js';
+import { attachAutocomplete, replaceRange, highlightMatch } from '/components/wn-autocomplete.js';
 
 const STYLES = `
     :host {
@@ -68,14 +69,21 @@ const STYLES = `
         color: var(--text-muted);
         font-size: 0.9em; margin-right: auto;
     }
+    .ne-autosave-info {
+        color: var(--text-subtle);
+        font-size: 0.85em;
+    }
     button {
         padding: 8px 16px; border-radius: 6px; border: 1px solid transparent;
         cursor: pointer; font: inherit;
     }
-    button.ne-save {
+    button.ne-save, button.ne-save-close {
         background: var(--accent); color: var(--text-on-accent); font-weight: 600;
     }
-    button.ne-save:hover { filter: brightness(0.95); }
+    button.ne-save:hover, button.ne-save-close:hover { filter: brightness(0.95); }
+    button.ne-save-close {
+        padding: 10px 22px; font-size: 1.05em; box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    }
     button.ne-cancel {
         background: var(--surface);
         border-color: var(--border);
@@ -122,6 +130,9 @@ const STYLES = `
     .ne-history-wrap > summary::before { content: '▸ '; transition: transform 0.15s; display: inline-block; }
     .ne-history-wrap[open] > summary::before { content: '▾ '; }
     .ne-history-list { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; max-height: 260px; overflow: auto; }
+    .ne-history-section { font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-subtle); padding: 6px 8px 2px; }
+    .ne-history-save { cursor: default; }
+    .ne-history-save:hover { background: transparent; }
     .ne-history-empty, .ne-history-loading { font-size: 0.85em; color: var(--text-subtle); padding: 4px 0; }
     .ne-history-row {
         display: grid; grid-template-columns: 80px 130px 1fr; gap: 10px;
@@ -150,6 +161,25 @@ const STYLES = `
     .ne-history-modal-head h3 { margin: 0; font-size: 1em; color: var(--accent); }
     .ne-history-modal-head .meta { font-size: 0.85em; color: var(--text-muted); }
     .ne-history-modal-body { overflow: auto; flex: 1; min-height: 200px; }
+    .ne-restore-diff {
+        overflow: auto; flex: 1; min-height: 200px;
+        font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+        font-size: 0.88em; line-height: 1.45;
+        background: var(--surface-alt, #f6f6f6); border: 1px solid var(--border-soft); border-radius: 6px;
+        padding: 8px 0;
+    }
+    .ne-restore-diff .d-row {
+        display: grid; grid-template-columns: 28px 1fr; gap: 0;
+        padding: 0 10px; white-space: pre-wrap; word-break: break-word;
+    }
+    .ne-restore-diff .d-row .d-mark { color: var(--text-subtle); user-select: none; }
+    .ne-restore-diff .d-add { background: rgba(46, 160, 67, 0.18); }
+    .ne-restore-diff .d-add .d-mark { color: rgb(46, 160, 67); }
+    .ne-restore-diff .d-del { background: rgba(248, 81, 73, 0.18); }
+    .ne-restore-diff .d-del .d-mark { color: rgb(248, 81, 73); }
+    .ne-restore-diff .d-del .d-text { text-decoration: line-through; opacity: 0.85; }
+    .ne-restore-legend { font-size: 0.8em; color: var(--text-muted); display: flex; gap: 12px; flex-wrap: wrap; }
+    .ne-restore-legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
 `;
 
 const NOTE_TYPES = [
@@ -186,6 +216,8 @@ class NoteEditor extends WNElement {
         this._initialPresStyle = '';
         this._initialCreated = '';
         this._initialModified = '';
+        this._initialCreatedBy = '';
+        this._initialLastSavedBy = '';
         this._editing = !!(urlWeek && urlFile);
 
         // Load once, then wire events
@@ -249,14 +281,16 @@ class NoteEditor extends WNElement {
             </div>
             <div class="ne-actions">
                 <span class="ne-status" aria-live="polite"></span>
+                <span class="ne-autosave-info" aria-live="polite"></span>
                 <button type="button" class="ne-detach" title="Åpne forhåndsvisning i eget vindu">📤 Detach</button>
                 <button type="button" class="ne-cancel">Avbryt</button>
-                <button type="button" class="ne-save">Lagre</button>
-                <button type="button" class="ne-save-close">Lagre og lukk</button>
+                <button type="button" class="ne-save-close" title="Ctrl+Shift+S">Ferdig</button>
             </div>
             <div class="ne-meta-footer">
                 ${this._initialCreated ? html`<span><strong>Opprettet:</strong> ${this._fmtDate(this._initialCreated)}</span>` : ''}
+                ${this._initialCreatedBy ? html`<span><strong>Opprettet av:</strong> <entity-mention kind="person" key="${this._initialCreatedBy}"></entity-mention></span>` : ''}
                 ${this._initialModified ? html`<span><strong>Endret:</strong> ${this._fmtDate(this._initialModified)}</span>` : ''}
+                ${this._initialLastSavedBy ? html`<span><strong>Sist lagret av:</strong> <entity-mention kind="person" key="${this._initialLastSavedBy}"></entity-mention></span>` : ''}
             </div>
             <details class="ne-history-wrap">
                 <summary>🕘 Historikk</summary>
@@ -273,6 +307,22 @@ class NoteEditor extends WNElement {
                         <button type="button" class="ne-history-close">Lukk</button>
                     </div>
                     <markdown-preview class="ne-history-modal-body" placeholder="Laster…"></markdown-preview>
+                </div>
+            </div>
+            <div class="ne-history-modal ne-restore-modal" hidden>
+                <div class="ne-history-modal-inner">
+                    <div class="ne-history-modal-head">
+                        <h3 class="ne-history-modal-title">💾 Gjenopprett autolagret versjon?</h3>
+                        <span class="ne-history-modal-meta ne-restore-meta meta"></span>
+                        <button type="button" class="ne-restore-apply">↩️ Gjenopprett</button>
+                        <button type="button" class="ne-restore-discard">🗑️ Forkast</button>
+                        <button type="button" class="ne-restore-cancel">Avbryt</button>
+                    </div>
+                    <div class="ne-restore-legend">
+                        <span><span class="swatch" style="background: rgba(248,81,73,0.45)"></span>Lagret på disk</span>
+                        <span><span class="swatch" style="background: rgba(46,160,67,0.45)"></span>Autolagret (ikke lagret)</span>
+                    </div>
+                    <div class="ne-history-modal-body ne-restore-diff" aria-label="Diff"></div>
                 </div>
             </div>
         `;
@@ -297,7 +347,7 @@ class NoteEditor extends WNElement {
         this._detachBtn = this.shadowRoot.querySelector('.ne-detach');
         this._reattachBtn = this.shadowRoot.querySelector('.ne-reattach');
         this._statusEl = this.shadowRoot.querySelector('.ne-status');
-        this._saveBtn = this.shadowRoot.querySelector('.ne-save');
+        this._autosaveInfoEl = this.shadowRoot.querySelector('.ne-autosave-info');
         const saveCloseBtn = this.shadowRoot.querySelector('.ne-save-close');
         const cancelBtn = this.shadowRoot.querySelector('.ne-cancel');
 
@@ -305,11 +355,11 @@ class NoteEditor extends WNElement {
         if (this._editing) this.loadExisting(this._initialWeek, this._initialFile);
         this._renderPreview();
         this._loadThemeSuggestions();
-        this._installHashTagAutocomplete();
-        this._installCloseTaskAutocomplete();
+        this._installAutocompletes();
+        this._installTagSpaceCommit();
         this._installHistoryPanel();
+        this._updateAutosaveInfo();
 
-        this._saveBtn.addEventListener('click', () => this.save(false));
         if (saveCloseBtn) saveCloseBtn.addEventListener('click', () => this.save(true));
         cancelBtn.addEventListener('click', () => this.cancel());
         this._detachBtn.addEventListener('click', () => {
@@ -330,12 +380,37 @@ class NoteEditor extends WNElement {
                 markDirty();
             });
         }
-        this._contentEl.addEventListener('keydown', (e) => {
+        const saveKeyHandler = (e) => {
             if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
                 e.preventDefault();
-                this.save(false);
+                if (e.shiftKey) this.save(true);
+                else this.save(false);
             }
-        });
+        };
+        this._contentEl.addEventListener('keydown', saveKeyHandler);
+        this._docKeyHandler = (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 's' || e.key === 'S')) {
+                e.preventDefault();
+                this.save(true);
+                return;
+            }
+            if (e.key === 'Escape') {
+                const restore = this.shadowRoot.querySelector('.ne-restore-modal:not([hidden])');
+                if (restore) {
+                    e.preventDefault();
+                    const btn = restore.querySelector('.ne-restore-cancel');
+                    if (btn) btn.click();
+                    return;
+                }
+                const history = this.shadowRoot.querySelector('.ne-history-modal:not(.ne-restore-modal):not([hidden])');
+                if (history) {
+                    e.preventDefault();
+                    const btn = history.querySelector('.ne-history-close');
+                    if (btn) btn.click();
+                }
+            }
+        };
+        document.addEventListener('keydown', this._docKeyHandler);
 
         setTimeout(() => this._contentEl.focus(), 0);
     }
@@ -344,7 +419,7 @@ class NoteEditor extends WNElement {
         this._dirty = true;
         if (this._countdownTimer) return;
         this._countdownLeft = 30;
-        this._updateSaveBtnLabel();
+        this._updateAutosaveInfo();
         this._countdownTimer = setInterval(() => {
             this._countdownLeft -= 1;
             if (this._countdownLeft <= 0) {
@@ -352,7 +427,7 @@ class NoteEditor extends WNElement {
                 if (this._dirty && !this._saving) this.save(false, true);
                 return;
             }
-            this._updateSaveBtnLabel();
+            this._updateAutosaveInfo();
         }, 1000);
     }
 
@@ -362,16 +437,25 @@ class NoteEditor extends WNElement {
             this._countdownTimer = null;
         }
         this._countdownLeft = 0;
-        this._updateSaveBtnLabel();
+        this._updateAutosaveInfo();
     }
 
-    _updateSaveBtnLabel() {
-        if (!this._saveBtn) return;
+    _updateAutosaveInfo() {
+        if (!this._autosaveInfoEl) return;
+        const parts = [];
         if (this._countdownTimer && this._countdownLeft > 0) {
-            this._saveBtn.textContent = `Lagre(${this._countdownLeft})`;
-        } else {
-            this._saveBtn.textContent = 'Lagre';
+            parts.push(`Autolagrer om ${this._countdownLeft}s`);
         }
+        if (this._lastAutosaveAt) {
+            try {
+                const d = new Date(this._lastAutosaveAt);
+                if (!isNaN(d.getTime())) {
+                    const t = d.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    parts.push(`Sist autolagret ${t}`);
+                }
+            } catch (_) {}
+        }
+        this._autosaveInfoEl.textContent = parts.join(' · ');
     }
 
     _renderPreview() {
@@ -384,21 +468,77 @@ class NoteEditor extends WNElement {
         this._previewEl.value = this._previewTransform(raw);
     }
 
-    // Replace '{{!<id>}}' close markers with '~~<task text>~~' for preview
-    // rendering only. The textarea/source keeps the compact id form; the
-    // server applies the same substitution on explicit save.
+    // Preview-only transforms for inline markers:
+    //  - A run of 2+ adjacent markers becomes an ordered task list
+    //    ('1. [ ] text' / '1. [x] text') so marked produces a single
+    //    <ol> with checkbox items.
+    //  - A single marker stays inline as raw '<input type="checkbox">'
+    //    HTML so it renders as a checkbox without forcing a list.
+    //  - '{{X}}' (no id yet) is treated like an open ref using its
+    //    inner text.
+    // The textarea/source keeps the brace forms; the server applies
+    // the closing/creating substitutions on explicit save.
     _previewTransform(md) {
         if (!md) return md;
         const map = this._taskTextById;
         if (!map) {
-            // Lazy-load on first preview render. When ready, re-render.
             this._loadTaskTexts();
         }
-        return md.replace(/\{\{!\s*([^{}\s]+)\s*\}\}/g, (m, id) => {
+        // Resolve a marker (kind + id-or-text) to display text + checkbox state.
+        const resolve = (kind, id) => {
+            if (kind === 'X') return { text: id, done: false };
             const text = map && map[id];
-            if (!text) return m;
-            return `~~${text}~~`;
+            if (!text) return null;
+            return { text, done: kind === '!' };
+        };
+        // Token regex: '{{?id}}', '{{!id}}', or '{{X}}' (typing form).
+        // Inner text of typing form must not start with '!' or '?'.
+        const TOKEN = /\{\{(?:([!?])([^{}\s]+)|([^{}!?][^{}]*))\}\}/g;
+        const RUN = /(?:\{\{(?:[!?][^{}\s]+|[^{}!?][^{}]*)\}\}\s+){1,}\{\{(?:[!?][^{}\s]+|[^{}!?][^{}]*)\}\}/g;
+        const itemFor = (m) => {
+            const km = /\{\{(?:([!?])([^{}\s]+)|([^{}!?][^{}]*))\}\}/.exec(m);
+            const kind = km[1] || 'X';
+            const id = km[2] || (km[3] || '').trim();
+            const r = resolve(kind, id);
+            if (!r) return null;
+            return r.done ? `1. [x] ${r.text}` : `1. [ ] ${r.text}`;
+        };
+        let out = md.replace(RUN, (run) => {
+            const items = run.match(/\{\{(?:[!?][^{}\s]+|[^{}!?][^{}]*)\}\}/g) || [];
+            const lines = items.map(itemFor).filter(Boolean);
+            if (lines.length < 2) return run;
+            return `\n\n${lines.join('\n')}\n\n`;
         });
+        // Remaining single markers → inline checkbox via raw HTML
+        // (marked passes <input> through inside paragraphs).
+        out = out.replace(TOKEN, (m, kind, id, plain) => {
+            const k = kind || 'X';
+            const text = (k === 'X') ? (plain || '').trim() : (map && map[id]);
+            if (!text) return m;
+            const checked = k === '!' ? ' checked' : '';
+            return `<input type="checkbox" disabled${checked}> ${text}`;
+        });
+        // Mirror server: render @mentions as <entity-mention> chips and
+        // [[result]] markers as <inline-action kind="result">. People &
+        // companies are loaded lazily; until they arrive, unknown @names
+        // still render as raw text.
+        if (!this._linkDataLoaded && !this._linkDataLoading) this._loadLinkData();
+        out = linkMentions(out, this._people || [], this._companies || []);
+        return out;
+    }
+
+    _loadLinkData() {
+        this._linkDataLoading = true;
+        Promise.all([
+            fetch('/api/people').then(r => r.json()).catch(() => []),
+            fetch('/api/companies').then(r => r.json()).catch(() => []),
+        ]).then(([pp, cc]) => {
+            this._people = (Array.isArray(pp) ? pp : []).filter(p => !p.inactive);
+            this._companies = (Array.isArray(cc) ? cc : []).filter(c => !c.deleted);
+            this._linkDataLoaded = true;
+            this._linkDataLoading = false;
+            this._renderPreview();
+        }).catch(() => { this._linkDataLoading = false; });
     }
 
     _loadTaskTexts() {
@@ -514,6 +654,15 @@ class NoteEditor extends WNElement {
     }
 
     disconnectedCallback() {
+        if (this._acHandle) {
+            try { this._acHandle.destroy(); } catch (_) {}
+            this._acHandle = null;
+            this._acAttached = false;
+        }
+        if (this._docKeyHandler) {
+            document.removeEventListener('keydown', this._docKeyHandler);
+            this._docKeyHandler = null;
+        }
         if (this._pipWindow) {
             try { this._pipWindow.close(); } catch (_) {}
             this._pipWindow = null;
@@ -523,10 +672,11 @@ class NoteEditor extends WNElement {
     }
 
     async loadExisting(week, file) {
+        let realText = '';
         try {
-            const text = await this.service.raw(week, file);
+            realText = await this.service.raw(week, file);
             if (this._contentEl) {
-                this._contentEl.value = text;
+                this._contentEl.value = realText;
                 this._renderPreview();
             }
         } catch (_) {}
@@ -546,15 +696,122 @@ class NoteEditor extends WNElement {
                 if (this._pinnedEl) this._pinnedEl.checked = this._initialPinned;
                 this._initialCreated = (meta && meta.created) || '';
                 this._initialModified = (meta && meta.modified) || '';
+                this._initialCreatedBy = (meta && meta.createdBy) || '';
+                this._initialLastSavedBy = (meta && meta.lastSavedBy) || '';
                 const footer = this.shadowRoot.querySelector('.ne-meta-footer');
                 if (footer) {
                     const parts = [];
                     if (this._initialCreated) parts.push(`<span><strong>Opprettet:</strong> ${escapeHtml(this._fmtDate(this._initialCreated))}</span>`);
+                    if (this._initialCreatedBy) parts.push(`<span><strong>Opprettet av:</strong> <entity-mention kind="person" key="${escapeHtml(this._initialCreatedBy)}"></entity-mention></span>`);
                     if (this._initialModified) parts.push(`<span><strong>Endret:</strong> ${escapeHtml(this._fmtDate(this._initialModified))}</span>`);
+                    if (this._initialLastSavedBy) parts.push(`<span><strong>Sist lagret av:</strong> <entity-mention kind="person" key="${escapeHtml(this._initialLastSavedBy)}"></entity-mention></span>`);
                     footer.innerHTML = parts.join('');
                 }
             }
         } catch (_) {}
+        this._checkAutosave(week, file, realText);
+    }
+
+    async _checkAutosave(week, file, realText) {
+        try {
+            const f = file.endsWith('.md') ? file : file + '.md';
+            const url = `/api/save/autosave?folder=${encodeURIComponent(week)}&file=${encodeURIComponent(f)}`;
+            const r = await fetch(url);
+            if (!r.ok) return;
+            const data = await r.json();
+            if (!data || !data.exists || typeof data.content !== 'string') return;
+            if (data.content === realText) {
+                // Stale duplicate — clean up silently.
+                fetch('/api/save/autosave', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folder: week, file: f }),
+                }).catch(() => {});
+                return;
+            }
+            this._showRestorePrompt(week, f, data.content, data.modified, realText);
+        } catch (_) {}
+    }
+
+    _showRestorePrompt(week, file, autosaveContent, modifiedIso, realText) {
+        const modal = this.shadowRoot.querySelector('.ne-restore-modal');
+        const diffEl = this.shadowRoot.querySelector('.ne-restore-diff');
+        const meta = this.shadowRoot.querySelector('.ne-restore-meta');
+        const applyBtn = this.shadowRoot.querySelector('.ne-restore-apply');
+        const discardBtn = this.shadowRoot.querySelector('.ne-restore-discard');
+        const cancelBtn = this.shadowRoot.querySelector('.ne-restore-cancel');
+        if (!modal || !diffEl || !applyBtn || !discardBtn || !cancelBtn) return;
+
+        if (meta) meta.textContent = modifiedIso ? `Autolagret ${this._fmtDate(modifiedIso)}` : 'Autolagret versjon';
+        diffEl.innerHTML = this._renderLineDiff(realText || '', autosaveContent || '');
+        modal.hidden = false;
+
+        const close = () => { modal.hidden = true; };
+        const onApply = () => {
+            if (this._contentEl) {
+                this._contentEl.value = autosaveContent;
+                this._renderPreview();
+                this._setStatus('Autolagret innhold gjenopprettet – husk å lagre');
+            }
+            close();
+            cleanup();
+        };
+        const onDiscard = () => {
+            fetch('/api/save/autosave', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ folder: week, file }),
+            }).catch(() => {});
+            close();
+            cleanup();
+        };
+        const onCancel = () => { close(); cleanup(); };
+        const onBackdrop = (e) => { if (e.target === modal) onCancel(); };
+        const cleanup = () => {
+            applyBtn.removeEventListener('click', onApply);
+            discardBtn.removeEventListener('click', onDiscard);
+            cancelBtn.removeEventListener('click', onCancel);
+            modal.removeEventListener('click', onBackdrop);
+        };
+        applyBtn.addEventListener('click', onApply);
+        discardBtn.addEventListener('click', onDiscard);
+        cancelBtn.addEventListener('click', onCancel);
+        modal.addEventListener('click', onBackdrop);
+    }
+
+    // Render a line-level diff between `a` (saved on disk) and `b`
+    // (autosave). Returns HTML rows: unchanged plain, removed (in a only)
+    // marked red with strike-through, added (in b only) marked green.
+    _renderLineDiff(a, b) {
+        const A = (a || '').split('\n');
+        const B = (b || '').split('\n');
+        // LCS table — bounded by note size which is small.
+        const n = A.length, m = B.length;
+        const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+        for (let i = n - 1; i >= 0; i--) {
+            for (let j = m - 1; j >= 0; j--) {
+                dp[i][j] = (A[i] === B[j]) ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+            }
+        }
+        const rows = [];
+        let i = 0, j = 0;
+        while (i < n && j < m) {
+            if (A[i] === B[j]) { rows.push({ type: 'eq', text: A[i] }); i++; j++; }
+            else if (dp[i + 1][j] >= dp[i][j + 1]) { rows.push({ type: 'del', text: A[i] }); i++; }
+            else { rows.push({ type: 'add', text: B[j] }); j++; }
+        }
+        while (i < n) { rows.push({ type: 'del', text: A[i++] }); }
+        while (j < m) { rows.push({ type: 'add', text: B[j++] }); }
+
+        if (!rows.some(r => r.type !== 'eq')) {
+            return '<div class="ne-history-empty" style="padding:10px">Ingen endringer.</div>';
+        }
+        return rows.map(r => {
+            const cls = r.type === 'add' ? 'd-add' : r.type === 'del' ? 'd-del' : 'd-eq';
+            const mark = r.type === 'add' ? '+' : r.type === 'del' ? '−' : '\u00a0';
+            const text = r.text === '' ? '\u00a0' : escapeHtml(r.text);
+            return `<div class="d-row ${cls}"><span class="d-mark">${mark}</span><span class="d-text">${text}</span></div>`;
+        }).join('');
     }
 
     _fmtDate(iso) {
@@ -577,274 +834,268 @@ class NoteEditor extends WNElement {
         } catch (_) {}
     }
 
-    _installHashTagAutocomplete() {
-        if (!this._contentEl) return;
-        // Build the popover lazily inside this component's shadow DOM.
+    _installTagSpaceCommit() {
+        // Pressing space after '#tagName' commits it as a tag in the
+        // tag-editor and strips the marker from the textarea — works
+        // independently of the autocomplete popover.
+        if (!this._contentEl || this._tagSpaceWired) return;
         const ta = this._contentEl;
-        const pop = document.createElement('div');
-        pop.className = 'ne-hashtag-pop';
-        pop.hidden = true;
-        Object.assign(pop.style, {
-            position: 'fixed', zIndex: '1000',
-            background: 'var(--surface, #fff)',
-            border: '1px solid var(--border, #ccc)',
-            borderRadius: '6px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
-            maxHeight: '200px', overflow: 'auto',
-            padding: '4px 0', minWidth: '160px',
-            font: 'inherit',
-        });
-        this.shadowRoot.appendChild(pop);
-
-        let activeIdx = -1;
-        let matchStart = -1;
-        let matchText = '';
-
-        const close = () => {
-            pop.hidden = true;
-            activeIdx = -1; matchStart = -1; matchText = '';
-            pop.innerHTML = '';
-        };
-
-        const renderList = (items) => {
-            if (!items.length) { close(); return; }
-            pop.innerHTML = items.map((t, i) => `
-                <button type="button" data-add="${escapeHtml(t)}" style="display:block;width:100%;text-align:left;background:${i === activeIdx ? 'var(--accent-soft,#e7f1fb)' : 'transparent'};color:${i === activeIdx ? 'var(--accent,#06c)' : 'inherit'};border:none;padding:4px 12px;cursor:pointer;font:inherit">#${escapeHtml(t)}</button>
-            `).join('');
-            pop.hidden = false;
-        };
-
-        const positionPop = () => {
-            const pos = this._caretCoords(ta);
-            const r = ta.getBoundingClientRect();
-            pop.style.left = (r.left + pos.left + 2) + 'px';
-            pop.style.top  = (r.top  + pos.top  + pos.height + 2) + 'px';
-        };
-
-        const update = () => {
-            const list = this._availableThemes;
-            if (!list || !list.length) { close(); return; }
+        ta.addEventListener('keydown', (e) => {
+            if (e.key !== ' ' || e.ctrlKey || e.metaKey || e.altKey) return;
             const caret = ta.selectionStart;
-            if (caret !== ta.selectionEnd) { close(); return; }
-            // Look back from caret for the start of #tag pattern; stop on whitespace or boundary.
+            if (caret !== ta.selectionEnd) return;
             const text = ta.value;
             let i = caret - 1;
             while (i >= 0 && /[\w-]/.test(text[i])) i--;
-            if (i < 0 || text[i] !== '#') { close(); return; }
-            // Must be at start of value or preceded by whitespace.
-            if (i > 0 && !/\s/.test(text[i - 1])) { close(); return; }
-            const frag = text.slice(i + 1, caret);
-            if (!frag) { close(); return; }
-            const f = frag.toLowerCase();
-            const existing = (this._tagsEl && this._tagsEl.tags) ? this._tagsEl.tags : [];
-            const matches = list.filter(t => !existing.includes(t) && t.startsWith(f)).slice(0, 8);
-            if (!matches.length) { close(); return; }
-            matchStart = i;
-            matchText = '#' + frag;
-            if (activeIdx >= matches.length) activeIdx = matches.length - 1;
-            if (activeIdx < 0) activeIdx = 0;
-            renderList(matches);
-            positionPop();
-        };
-
-        const accept = (tag) => {
-            if (matchStart < 0) return;
-            // Remove '#tag' from textarea, add to tag-editor.
-            const before = ta.value.slice(0, matchStart);
-            const after = ta.value.slice(matchStart + matchText.length);
+            if (i < 0 || text[i] !== '#') return;
+            if (i > 0 && !/\s/.test(text[i - 1])) return;
+            const word = text.slice(i + 1, caret);
+            if (!word) return;
+            e.preventDefault();
+            const before = text.slice(0, i);
+            const after = text.slice(caret);
             ta.value = before + after;
-            // Move cursor to where the # used to be.
-            try { ta.setSelectionRange(matchStart, matchStart); } catch (_) {}
+            try { ta.setSelectionRange(i, i); } catch (_) {}
             if (this._tagsEl) {
                 const cur = this._tagsEl.tags || [];
-                if (!cur.includes(tag)) this._tagsEl.tags = cur.concat([tag]);
+                if (!cur.includes(word)) this._tagsEl.tags = cur.concat([word]);
             }
-            close();
             this._renderPreview();
             this._markDirty();
-            ta.focus();
-        };
+        });
+        this._tagSpaceWired = true;
+    }
 
-        ta.addEventListener('input', update);
-        ta.addEventListener('click', update);
-        ta.addEventListener('keyup', (e) => {
-            if (['ArrowUp', 'ArrowDown', 'Enter', 'Escape', 'Tab'].includes(e.key)) return;
-            update();
-        });
-        ta.addEventListener('keydown', (e) => {
-            // Space after '#tagName': commit as tag (independent of popover).
-            if (e.key === ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-                const caret = ta.selectionStart;
-                if (caret === ta.selectionEnd) {
-                    const text = ta.value;
-                    let i = caret - 1;
-                    while (i >= 0 && /[\w-]/.test(text[i])) i--;
-                    if (i >= 0 && text[i] === '#' && (i === 0 || /\s/.test(text[i - 1]))) {
-                        const word = text.slice(i + 1, caret);
-                        if (word) {
-                            e.preventDefault();
-                            const before = text.slice(0, i);
-                            const after = text.slice(caret);
-                            ta.value = before + after;
-                            try { ta.setSelectionRange(i, i); } catch (_) {}
-                            if (this._tagsEl) {
-                                const cur = this._tagsEl.tags || [];
-                                if (!cur.includes(word)) this._tagsEl.tags = cur.concat([word]);
-                            }
-                            close();
-                            this._renderPreview();
-                            this._markDirty();
-                            return;
-                        }
-                    }
-                }
-            }
-            if (pop.hidden) return;
-            const items = pop.querySelectorAll('button[data-add]');
-            if (!items.length) return;
-            if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx = (activeIdx + 1) % items.length; renderList(Array.from(items).map(b => b.dataset.add)); }
-            else if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx = (activeIdx - 1 + items.length) % items.length; renderList(Array.from(items).map(b => b.dataset.add)); }
-            else if (e.key === 'Enter' || e.key === 'Tab') {
-                e.preventDefault();
-                const tag = items[activeIdx >= 0 ? activeIdx : 0].dataset.add;
-                accept(tag);
-            } else if (e.key === 'Escape') { e.preventDefault(); close(); }
-        });
-        ta.addEventListener('blur', () => setTimeout(close, 150));
-        pop.addEventListener('mousedown', (e) => {
-            const btn = e.target.closest('button[data-add]');
-            if (!btn) return;
-            e.preventDefault();
-            accept(btn.dataset.add);
-        });
+    _installHashTagAutocomplete() {
+        // Replaced by _installAutocompletes which registers a #tag trigger
+        // on the shared <wn-autocomplete> helper. Kept as a noop so any
+        // older callers still work.
     }
 
     _installCloseTaskAutocomplete() {
-        if (!this._contentEl) return;
+        // Replaced by _installAutocompletes (task + tag + mention triggers
+        // share the same popover via attachAutocomplete). Noop.
+    }
+
+    _installMentionAutocomplete() {
+        // Mentions are wired through _installAutocompletes too. Kept as a
+        // separate name in case external callers reference it.
+    }
+
+    _installAutocompletes() {
+        if (!this._contentEl || this._acAttached) return;
         const ta = this._contentEl;
         const tasksSvc = (typeof this.serviceFor === 'function') ? this.serviceFor('task') : null;
-        if (!tasksSvc || typeof tasksSvc.list !== 'function') return;
 
-        const pop = document.createElement('div');
-        pop.className = 'ne-closetask-pop';
-        pop.hidden = true;
-        Object.assign(pop.style, {
-            position: 'fixed', zIndex: '1000',
-            background: 'var(--surface, #fff)',
-            border: '1px solid var(--border, #ccc)',
-            borderRadius: '6px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
-            maxHeight: '240px', overflow: 'auto',
-            padding: '4px 0', minWidth: '240px',
-            font: 'inherit',
-        });
-        this.shadowRoot.appendChild(pop);
-
+        // Lazy caches — fetched on first activation, reused thereafter.
         let openTasks = null;
-        const ensureLoaded = async () => {
+        let people = null;
+        let companies = null;
+        let results = null;
+        const ensureOpenTasks = async () => {
             if (openTasks) return openTasks;
             try {
-                const all = await tasksSvc.list();
+                const all = (tasksSvc && typeof tasksSvc.list === 'function') ? await tasksSvc.list() : [];
                 openTasks = (Array.isArray(all) ? all : []).filter(t => !t.done);
             } catch (_) { openTasks = []; }
             return openTasks;
         };
-
-        let activeIdx = -1;
-        let matchStart = -1;
-        let matchEnd = -1;
-        let currentItems = [];
-
-        const close = () => {
-            pop.hidden = true; activeIdx = -1; matchStart = -1; matchEnd = -1;
-            currentItems = []; pop.innerHTML = '';
+        const ensurePeople = async () => {
+            if (people) return people;
+            try {
+                const r = await fetch('/api/people');
+                people = (await r.json() || []).filter(p => !p.inactive);
+            } catch (_) { people = []; }
+            return people;
+        };
+        const ensureCompanies = async () => {
+            if (companies) return companies;
+            try {
+                const r = await fetch('/api/companies');
+                companies = (await r.json() || []).filter(c => !c.deleted);
+            } catch (_) { companies = []; }
+            return companies;
+        };
+        const ensureResults = async () => {
+            if (results) return results;
+            try {
+                const r = await fetch('/api/results');
+                results = await r.json() || [];
+                if (!Array.isArray(results)) results = [];
+            } catch (_) { results = []; }
+            return results;
         };
 
-        const renderList = (items) => {
-            if (!items.length) { close(); return; }
-            currentItems = items;
-            pop.innerHTML = items.map((t, i) => `
-                <button type="button" data-id="${escapeHtml(t.id)}" style="display:block;width:100%;text-align:left;background:${i === activeIdx ? 'var(--accent-soft,#e7f1fb)' : 'transparent'};color:${i === activeIdx ? 'var(--accent,#06c)' : 'inherit'};border:none;padding:5px 12px;cursor:pointer;font:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">✓ ${escapeHtml(t.text || '(uten tekst)')}<span style="opacity:0.55;font-size:0.85em"> · ${escapeHtml(t.week || '')}</span></button>
-            `).join('');
-            pop.hidden = false;
+        const taskTrigger = {
+            // Detect '{{?' or '{{!' before the caret with no '}' or
+            // newline between. Extra carries the kind so onSelect can
+            // emit the right marker.
+            detect: (text, caret) => {
+                const upto = text.slice(0, caret);
+                const closeIdx = upto.lastIndexOf('{{!');
+                const openIdx  = upto.lastIndexOf('{{?');
+                const idx = Math.max(closeIdx, openIdx);
+                if (idx < 0) return null;
+                const between = upto.slice(idx + 3);
+                if (/[\n}]/.test(between)) return null;
+                const kind = (idx === closeIdx) ? '!' : '?';
+                return { query: between, start: idx, end: caret, extra: { kind } };
+            },
+            fetchItems: async () => {
+                const tasks = await ensureOpenTasks();
+                return tasks.map(t => ({
+                    value: t.id,
+                    label: t.text || '(uten tekst)',
+                    hint: t.week || '',
+                    week: t.week || '',
+                    created: t.created || '',
+                }));
+            },
+            filter: 'words',
+            limit: 12,
+            renderItem: (item, query) => {
+                const icon = '✓';
+                return `${icon} ${highlightMatch(item.label, query)}` +
+                    (item.hint ? `<span style="opacity:0.55;font-size:0.85em"> · ${highlightMatch(item.hint, query)}</span>` : '');
+            },
+            onSelect: (item, ctx) => {
+                const kind = (ctx.extra && ctx.extra.kind) || '!';
+                let endIdx = ctx.range.end;
+                if (ta.value.slice(endIdx, endIdx + 2) === '}}') endIdx += 2;
+                replaceRange(ta, ctx.range.start, endIdx, `{{${kind}${item.value}}} `);
+                this._renderPreview();
+                this._markDirty();
+            },
         };
 
-        const positionPop = () => {
-            const pos = this._caretCoords(ta);
-            const r = ta.getBoundingClientRect();
-            pop.style.left = (r.left + pos.left + 2) + 'px';
-            pop.style.top  = (r.top  + pos.top  + pos.height + 2) + 'px';
+        const resultTrigger = {
+            // Detect '[[?' before the caret with no ']' or newline between.
+            // Selecting an item inserts '[[?<id>]]'.
+            detect: (text, caret) => {
+                const upto = text.slice(0, caret);
+                const idx = upto.lastIndexOf('[[?');
+                if (idx < 0) return null;
+                const between = upto.slice(idx + 3);
+                if (/[\n\]]/.test(between)) return null;
+                return { query: between, start: idx, end: caret };
+            },
+            fetchItems: async () => {
+                const all = await ensureResults();
+                // Most recent first.
+                const sorted = all.slice().sort((a, b) => {
+                    const ad = a.created || a.week || '';
+                    const bd = b.created || b.week || '';
+                    return bd.localeCompare(ad);
+                });
+                return sorted.map(r => ({
+                    value: r.id,
+                    label: r.text || '(uten tekst)',
+                    hint: r.week || '',
+                }));
+            },
+            filter: 'words',
+            limit: 12,
+            renderItem: (item, query) => {
+                return `🏁 ${highlightMatch(item.label, query)}` +
+                    (item.hint ? `<span style="opacity:0.55;font-size:0.85em"> · ${highlightMatch(item.hint, query)}</span>` : '');
+            },
+            onSelect: (item, ctx) => {
+                let endIdx = ctx.range.end;
+                if (ta.value.slice(endIdx, endIdx + 2) === ']]') endIdx += 2;
+                replaceRange(ta, ctx.range.start, endIdx, `[[?${item.value}]] `);
+                this._renderPreview();
+                this._markDirty();
+            },
         };
 
-        const update = async () => {
-            const caret = ta.selectionStart;
-            if (caret !== ta.selectionEnd) { close(); return; }
-            const text = ta.value;
-            // Find '{{!' looking back. Stop at line break, '}', or '{{' nesting break.
-            const upto = text.slice(0, caret);
-            const idx = upto.lastIndexOf('{{!');
-            if (idx < 0) { close(); return; }
-            const between = upto.slice(idx + 3);
-            if (/[\n}]/.test(between)) { close(); return; }
-            // Don't trigger if a '}}' has already been typed inside this fragment.
-            await ensureLoaded();
-            if (!openTasks || !openTasks.length) { close(); return; }
-            const f = between.trim().toLowerCase();
-            const matches = openTasks.filter(t => !f || (t.text || '').toLowerCase().includes(f)).slice(0, 8);
-            if (!matches.length) { close(); return; }
-            matchStart = idx;
-            matchEnd = caret;
-            if (activeIdx >= matches.length) activeIdx = matches.length - 1;
-            if (activeIdx < 0) activeIdx = 0;
-            renderList(matches);
-            positionPop();
+        const tagTrigger = {
+            // Detect '#tag' looking back from caret. Must be at start of
+            // value or preceded by whitespace.
+            detect: (text, caret, opts) => {
+                let i = caret - 1;
+                while (i >= 0 && /[\w-]/.test(text[i])) i--;
+                if (i < 0 || text[i] !== '#') return null;
+                if (i > 0 && !/\s/.test(text[i - 1])) return null;
+                const frag = text.slice(i + 1, caret);
+                if (!frag && !(opts && opts.force)) return null;
+                return { query: frag, start: i, end: caret };
+            },
+            fetchItems: async () => {
+                const list = this._availableThemes || [];
+                const existing = (this._tagsEl && this._tagsEl.tags) ? this._tagsEl.tags : [];
+                return list
+                    .filter(t => !existing.includes(t))
+                    .map(t => ({ value: t, label: t }));
+            },
+            filter: 'starts',
+            limit: 8,
+            renderItem: (item, query) => `#${highlightMatch(item.label, query)}`,
+            onSelect: (item, ctx) => {
+                // Strip '#tag' from textarea, append to tag-editor.
+                replaceRange(ta, ctx.range.start, ctx.range.end, '');
+                if (this._tagsEl) {
+                    const cur = this._tagsEl.tags || [];
+                    if (!cur.includes(item.value)) this._tagsEl.tags = cur.concat([item.value]);
+                }
+                this._renderPreview();
+                this._markDirty();
+            },
         };
 
-        const accept = (taskId) => {
-            if (matchStart < 0) return;
-            // Insert the close marker as '{{!<id>}}' so the textarea stays
-            // compact and stable. The preview renders this as
-            // '~~<task text>~~' (strikethrough); the server replaces the
-            // marker with the strikethrough form on explicit save.
-            let endIdx = matchEnd;
-            if (ta.value.slice(endIdx, endIdx + 2) === '}}') endIdx += 2;
-            const insert = `{{!${taskId}}} `;
-            const before = ta.value.slice(0, matchStart);
-            const after = ta.value.slice(endIdx);
-            ta.value = before + insert + after;
-            const pos = matchStart + insert.length;
-            try { ta.setSelectionRange(pos, pos); } catch (_) {}
-            close();
-            this._renderPreview();
-            this._markDirty();
-            ta.focus();
+        const mentionTrigger = {
+            // Detect '@word' with the same boundary rules as the legacy
+            // mention parser: start of value or preceded by whitespace /
+            // bracket / paren / comma / semicolon.
+            detect: (text, caret, opts) => {
+                let i = caret - 1;
+                while (i >= 0 && /[a-zA-ZæøåÆØÅ0-9_-]/.test(text[i])) i--;
+                if (i < 0 || text[i] !== '@') return null;
+                if (i > 0 && !/[\s(\[,;]/.test(text[i - 1])) return null;
+                const frag = text.slice(i + 1, caret);
+                if (!frag && !(opts && opts.force)) return null;
+                return { query: frag, start: i, end: caret };
+            },
+            fetchItems: async () => {
+                const [pp, cc] = await Promise.all([ensurePeople(), ensureCompanies()]);
+                const out = [];
+                const meKey = (typeof window !== 'undefined' && window.mePersonKey) || '';
+                if (meKey) {
+                    const me = pp.find(p => (p.key || (p.name || '').toLowerCase()) === meKey);
+                    const disp = me
+                        ? (me.firstName ? (me.lastName ? `${me.firstName} ${me.lastName}` : me.firstName) : (me.name || me.key))
+                        : meKey;
+                    out.push({ value: 'me', label: disp, hint: 'meg', kind: 'me' });
+                } else {
+                    out.push({ value: 'me', label: 'meg', hint: 'sett i Innstillinger', kind: 'me' });
+                }
+                for (const c of cc) {
+                    out.push({ value: c.key || (c.name || '').toLowerCase(), label: c.name || c.key, hint: 'firma', kind: 'company' });
+                }
+                for (const p of pp) {
+                    const display = p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : p.name;
+                    out.push({ value: p.key || (p.name || '').toLowerCase(), label: display || p.name || p.key, hint: '', kind: 'person' });
+                }
+                return out;
+            },
+            filter: 'substring',
+            limit: 10,
+            renderItem: (item, query) => {
+                const tag = item.kind === 'company' ? '🏢' : (item.kind === 'me' ? '🙋' : '👤');
+                return `${tag} ${highlightMatch(item.label, query)}` +
+                    (item.hint ? `<span style="opacity:0.55;font-size:0.85em"> · ${item.hint}</span>` : '');
+            },
+            onSelect: (item, ctx) => {
+                replaceRange(ta, ctx.range.start, ctx.range.end, `@${item.value} `);
+                this._renderPreview();
+                this._markDirty();
+            },
         };
 
-        ta.addEventListener('input', update);
-        ta.addEventListener('click', update);
-        ta.addEventListener('keyup', (e) => {
-            if (['ArrowUp', 'ArrowDown', 'Enter', 'Escape', 'Tab'].includes(e.key)) return;
-            update();
+        this._acHandle = attachAutocomplete(ta, {
+            triggers: [taskTrigger, resultTrigger, tagTrigger, mentionTrigger],
+            container: this.shadowRoot,
         });
-        ta.addEventListener('keydown', (e) => {
-            if (pop.hidden) return;
-            const items = pop.querySelectorAll('button[data-id]');
-            if (!items.length) return;
-            if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx = (activeIdx + 1) % items.length; renderList(currentItems); }
-            else if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx = (activeIdx - 1 + items.length) % items.length; renderList(currentItems); }
-            else if (e.key === 'Enter' || e.key === 'Tab') {
-                e.preventDefault();
-                const id = items[activeIdx >= 0 ? activeIdx : 0].dataset.id;
-                accept(id);
-            } else if (e.key === 'Escape') { e.preventDefault(); close(); }
-        });
-        ta.addEventListener('blur', () => setTimeout(close, 150));
-        pop.addEventListener('mousedown', (e) => {
-            const btn = e.target.closest('button[data-id]');
-            if (!btn) return;
-            e.preventDefault();
-            accept(btn.dataset.id);
-        });
+        this._acAttached = true;
     }
 
     _installHistoryPanel() {
@@ -875,18 +1126,26 @@ class NoteEditor extends WNElement {
             this._setStatus(`Tilbakestilt til ${cur.shortHash || (cur.hash || '').slice(0, 7)} – husk å lagre`);
         });
 
-        const render = (items) => {
-            if (!items.length) {
-                list.innerHTML = '<div class="ne-history-empty">Ingen committet historikk for denne filen ennå.</div>';
+        const render = (saves) => {
+            if (!saves || !saves.length) {
+                list.innerHTML = '<div class="ne-history-empty">Ingen lagringer ennå.</div>';
                 return;
             }
-            list.innerHTML = items.map(c => `
-                <button type="button" class="ne-history-row" data-hash="${escapeHtml(c.hash)}">
-                    <span class="h-hash">${escapeHtml(c.shortHash || c.hash.slice(0, 7))}</span>
-                    <span class="h-date">${escapeHtml(this._fmtDate(c.date))}</span>
-                    <span class="h-subj" title="${escapeHtml(c.subject || '')}">${escapeHtml(c.subject || '')}</span>
-                </button>
-            `).join('');
+            list.innerHTML = saves.slice().reverse().map(s => {
+                const at = (s && typeof s === 'object') ? s.at : s;
+                const by = (s && typeof s === 'object') ? s.by : '';
+                const sha = (s && typeof s === 'object') ? s.sha : '';
+                const shaShort = sha ? sha.slice(0, 7) : '';
+                const tag = sha ? 'button' : 'div';
+                const attrs = sha ? `type="button" data-hash="${escapeHtml(sha)}"` : '';
+                return `
+                    <${tag} class="ne-history-row${sha ? '' : ' ne-history-save'}" ${attrs}>
+                        <span class="h-hash">${shaShort ? escapeHtml(shaShort) : '💾'}</span>
+                        <span class="h-date">${escapeHtml(this._fmtDate(at))}</span>
+                        <span class="h-subj">${by ? `<entity-mention kind="person" key="${escapeHtml(by)}"></entity-mention>` : '<span style="color:var(--text-subtle)">(ukjent)</span>'}</span>
+                    </${tag}>
+                `;
+            }).join('');
         };
 
         const load = async () => {
@@ -898,8 +1157,9 @@ class NoteEditor extends WNElement {
             list.innerHTML = '<div class="ne-history-loading">Henter historikk…</div>';
             try {
                 const f = file.endsWith('.md') ? file : file + '.md';
-                const items = await (this.service.history ? this.service.history(folder, f) : Promise.resolve([]));
-                render(Array.isArray(items) ? items : []);
+                const meta = this.service.meta ? await this.service.meta(folder, f).catch(() => null) : null;
+                const saves = (meta && Array.isArray(meta.saves)) ? meta.saves : [];
+                render(saves);
                 list.dataset.state = 'loaded';
             } catch (e) {
                 list.innerHTML = `<div class="ne-history-empty">Kunne ikke hente historikk: ${escapeHtml(e.message || String(e))}</div>`;
@@ -1024,12 +1284,25 @@ class NoteEditor extends WNElement {
             this._fileEl.value = file;
         }
         if (!file.endsWith('.md')) file += '.md';
-        this._setStatus('Lagrer…');
+        if (!autosave) this._setStatus('Lagrer…');
         try {
             const payload = { folder, file, content, tags, type };
             if (presentationStyle) payload.presentationStyle = presentationStyle;
             if (autosave) payload.autosave = true;
+            if (closeAfter && !autosave) payload.commit = true;
+            if (!this._editing && !autosave) payload.createNew = true;
+            if (!autosave) {
+                const title = this._extractTitle(content);
+                if (title) payload.title = title;
+            }
             const data = await this.service.save(payload);
+            // Server may have deduped the filename if this was a new note
+            // colliding with an existing file. Adopt whatever the server
+            // actually wrote.
+            if (data && typeof data.file === 'string' && data.file !== file) {
+                file = data.file;
+                if (this._fileEl) this._fileEl.value = file;
+            }
             // Server may strip {{...}} / [[...]] markers and create entities on
             // explicit save; reflect the cleaned content in the editor.
             if (data && typeof data.content === 'string' && data.content !== content) {
@@ -1038,6 +1311,12 @@ class NoteEditor extends WNElement {
             if (pinned !== this._initialPinned && this.service.setPinned) {
                 try { await this.service.setPinned(folder, file, pinned); } catch (_) {}
                 this._initialPinned = pinned;
+            }
+            if (autosave) {
+                this._lastAutosaveAt = new Date().toISOString();
+                this._dirty = false;
+                this._updateAutosaveInfo();
+                return;
             }
             this._setStatus('Lagret');
             const evt = new CustomEvent('note-editor:saved', {
@@ -1052,11 +1331,15 @@ class NoteEditor extends WNElement {
                         const meta = await this.service.meta(folder, file);
                         this._initialModified = (meta && meta.modified) || this._initialModified;
                         this._initialCreated = this._initialCreated || (meta && meta.created) || '';
+                        this._initialCreatedBy = this._initialCreatedBy || (meta && meta.createdBy) || '';
+                        this._initialLastSavedBy = (meta && meta.lastSavedBy) || this._initialLastSavedBy;
                         const footer = this.shadowRoot.querySelector('.ne-meta-footer');
                         if (footer) {
                             const parts = [];
                             if (this._initialCreated) parts.push(`<span><strong>Opprettet:</strong> ${escapeHtml(this._fmtDate(this._initialCreated))}</span>`);
+                            if (this._initialCreatedBy) parts.push(`<span><strong>Opprettet av:</strong> <entity-mention kind="person" key="${escapeHtml(this._initialCreatedBy)}"></entity-mention></span>`);
                             if (this._initialModified) parts.push(`<span><strong>Endret:</strong> ${escapeHtml(this._fmtDate(this._initialModified))}</span>`);
+                            if (this._initialLastSavedBy) parts.push(`<span><strong>Sist lagret av:</strong> <entity-mention kind="person" key="${escapeHtml(this._initialLastSavedBy)}"></entity-mention></span>`);
                             footer.innerHTML = parts.join('');
                         }
                     } catch (_) {}
@@ -1082,6 +1365,11 @@ class NoteEditor extends WNElement {
         if (!this._statusEl) return;
         this._statusEl.textContent = msg || '';
         this._statusEl.style.color = isError ? 'var(--danger)' : '';
+    }
+
+    _extractTitle(content) {
+        const m = (content || '').match(/^\s*#\s+(.+?)\s*$/m);
+        return m ? m[1].trim() : '';
     }
 
     _suggestFilename(content) {

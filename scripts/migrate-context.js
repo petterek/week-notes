@@ -39,6 +39,50 @@ function currentHead() {
     } catch { return 'unknown'; }
 }
 
+// Latest reachable release tag from the app repo HEAD (e.g. "v2"). Used
+// to derive the migration branch name in the context repo. Returns null
+// when no tag is reachable (or git not available).
+function currentReleaseTag() {
+    try {
+        return execSync('git describe --tags --abbrev=0', { cwd: REPO_ROOT, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'ignore'] }).trim() || null;
+    } catch { return null; }
+}
+
+function isGitRepo(dir) {
+    try {
+        execSync('git rev-parse --git-dir', { cwd: dir, stdio: 'ignore' });
+        return true;
+    } catch { return false; }
+}
+
+// Returns the porcelain status output (empty string = clean). Throws
+// if dir is not a git repo.
+function gitStatus(dir) {
+    return execSync('git status --porcelain', { cwd: dir, encoding: 'utf-8' });
+}
+
+function gitCurrentBranch(dir) {
+    try {
+        const out = execSync('git rev-parse --abbrev-ref HEAD', { cwd: dir, encoding: 'utf-8' }).trim();
+        return out === 'HEAD' ? null : out;
+    } catch { return null; }
+}
+
+function gitBranchExists(dir, name) {
+    try {
+        execSync(`git show-ref --verify --quiet refs/heads/${name}`, { cwd: dir, stdio: 'ignore' });
+        return true;
+    } catch { return false; }
+}
+
+function gitCheckoutOrCreate(dir, branch) {
+    if (gitBranchExists(dir, branch)) {
+        execSync(`git checkout ${branch}`, { cwd: dir, stdio: 'ignore' });
+    } else {
+        execSync(`git checkout -b ${branch}`, { cwd: dir, stdio: 'ignore' });
+    }
+}
+
 function isAncestor(maybeAncestor, descendant) {
     // Returns true if `maybeAncestor` is reachable from `descendant`.
     // Used to decide whether a migration with a `since` cutoff applies.
@@ -102,7 +146,16 @@ const KNOWN_ROOT_FILES = new Set([
     'companies.json',
     'places.json',
 ]);
-const KNOWN_ROOT_DIRS = new Set(['.git']);
+const KNOWN_ROOT_DIRS = new Set([
+    '.git',
+    'tasks',
+    'meetings',
+    'people',
+    'companies',
+    'places',
+    'results',
+    'notes-meta',
+]);
 
 function classifyRootEntry(name, isDir) {
     if (isDir) {
@@ -336,6 +389,135 @@ function migrateGitignore(ctxDir, opts) {
     return changes;
 }
 
+// ------------------------------------------------------------------
+// split-entities-to-folders
+//
+// Converts each <entity>.json (array) into one JSON file per item
+// under <entity>/, then deletes the legacy file.
+//
+//   tasks.json    → tasks/<id>.json
+//   meetings.json → meetings/<id>.json
+//   results.json  → results/<id>.json
+//   people.json   → people/<key>.json   (tombstones kept)
+//   companies.json → companies/<key>.json (tombstones kept)
+//   places.json   → places/<key>.json   (tombstones kept)
+//
+// Idempotent: if the folder already exists for an entity, the legacy
+// file is just removed.
+// ------------------------------------------------------------------
+
+const SPLIT_ENTITIES = [
+    { file: 'tasks.json', dir: 'tasks', idField: 'id' },
+    { file: 'meetings.json', dir: 'meetings', idField: 'id' },
+    { file: 'results.json', dir: 'results', idField: 'id' },
+    { file: 'people.json', dir: 'people', idField: 'key' },
+    { file: 'companies.json', dir: 'companies', idField: 'key' },
+    { file: 'places.json', dir: 'places', idField: 'key' },
+];
+
+function sanitizeStem(s) {
+    if (s === undefined || s === null) return '';
+    return String(s).replace(/[^A-Za-z0-9._-]/g, '_').replace(/^_+|_+$/g, '').slice(0, 120);
+}
+
+function pickStem(item, idField, used) {
+    const candidates = [];
+    if (idField && item && item[idField] !== undefined) candidates.push(item[idField]);
+    if (item && item.key) candidates.push(item.key);
+    if (item && item.id) candidates.push(item.id);
+    for (const c of candidates) {
+        const s = sanitizeStem(c);
+        if (s && !used.has(s)) return s;
+    }
+    // Fall back to a generated stem; collide-safe.
+    let stem = 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    while (used.has(stem)) stem += '_' + Math.random().toString(36).slice(2, 4);
+    return stem;
+}
+
+function migrateSplitEntities(ctxDir, opts) {
+    const log = opts.log;
+    let changes = 0;
+    for (const ent of SPLIT_ENTITIES) {
+        const legacy = path.join(ctxDir, ent.file);
+        const dir = path.join(ctxDir, ent.dir);
+        const hasLegacy = fs.existsSync(legacy);
+        if (!hasLegacy) continue;
+
+        let arr;
+        try { arr = JSON.parse(fs.readFileSync(legacy, 'utf-8')); }
+        catch (e) {
+            log(`  ${ent.file}: parse error (${e.message.split('\n')[0]}) — skipped`);
+            continue;
+        }
+        if (!Array.isArray(arr)) {
+            log(`  ${ent.file}: not an array — skipped`);
+            continue;
+        }
+
+        if (!opts.dryRun) fs.mkdirSync(dir, { recursive: true });
+        const used = new Set();
+        let written = 0;
+        for (const item of arr) {
+            const stem = pickStem(item, ent.idField, used);
+            used.add(stem);
+            const fname = stem + '.json';
+            if (!opts.dryRun) {
+                fs.writeFileSync(path.join(dir, fname), JSON.stringify(item, null, 2) + '\n');
+            }
+            written++;
+        }
+        if (!opts.dryRun) fs.unlinkSync(legacy);
+        log(`  ${ent.file} → ${ent.dir}/ (${written} item${written === 1 ? '' : 's'})`);
+        changes += written + 1;
+    }
+    return changes;
+}
+
+// ------------------------------------------------------------------
+// Split notes-meta.json (single keyed map) into one sidecar per note:
+//   notes-meta/<week>/<file>.json
+// where the key "YYYY-WNN/foo.md" becomes notes-meta/YYYY-WNN/foo.md.json.
+// ------------------------------------------------------------------
+function migrateSplitNotesMeta(ctxDir, opts) {
+    const log = opts.log;
+    const legacy = path.join(ctxDir, 'notes-meta.json');
+    if (!fs.existsSync(legacy)) return 0;
+
+    let map;
+    try { map = JSON.parse(fs.readFileSync(legacy, 'utf-8')); }
+    catch (e) {
+        log(`  notes-meta.json: parse error (${e.message.split('\n')[0]}) — skipped`);
+        return 0;
+    }
+    if (!map || typeof map !== 'object' || Array.isArray(map)) {
+        log(`  notes-meta.json: not a keyed object — skipped`);
+        return 0;
+    }
+
+    const root = path.join(ctxDir, 'notes-meta');
+    if (!opts.dryRun) fs.mkdirSync(root, { recursive: true });
+    let written = 0;
+    let skipped = 0;
+    for (const key of Object.keys(map)) {
+        const slash = key.indexOf('/');
+        if (slash < 0) { skipped++; continue; }
+        const week = key.slice(0, slash);
+        const file = key.slice(slash + 1);
+        if (!week || !file) { skipped++; continue; }
+        const wdir = path.join(root, week);
+        const fpath = path.join(wdir, file + '.json');
+        if (!opts.dryRun) {
+            fs.mkdirSync(wdir, { recursive: true });
+            fs.writeFileSync(fpath, JSON.stringify(map[key], null, 2) + '\n');
+        }
+        written++;
+    }
+    if (!opts.dryRun) fs.unlinkSync(legacy);
+    log(`  notes-meta.json → notes-meta/<week>/<file>.json (${written} entr${written === 1 ? 'y' : 'ies'}${skipped ? `, ${skipped} skipped` : ''})`);
+    return written + 1;
+}
+
 const MIGRATIONS = [
     {
         id: 'week-iso-format',
@@ -367,6 +549,20 @@ const MIGRATIONS = [
             return false;
         },
         run: migrateGitignore,
+    },
+    {
+        id: 'split-entities-to-folders',
+        description: 'Split tasks/meetings/results/people/companies/places JSON arrays into one-file-per-item folders.',
+        appliesTo: (_hash, dir) => {
+            return SPLIT_ENTITIES.some(e => fs.existsSync(path.join(dir, e.file)));
+        },
+        run: migrateSplitEntities,
+    },
+    {
+        id: 'split-notes-meta-to-folders',
+        description: 'Split notes-meta.json into per-note sidecar files under notes-meta/<week>/<file>.json.',
+        appliesTo: (_hash, dir) => fs.existsSync(path.join(dir, 'notes-meta.json')),
+        run: migrateSplitNotesMeta,
     },
     // Future migrations: append here.
     //
@@ -406,6 +602,57 @@ function migrateCtx(ctxId, opts) {
     log(`  target: ${head}`);
     if (fromHash === head && marker) {
         log(`  ✓ already at HEAD; checking migrations defensively…`);
+    }
+
+    // Pre-flight: when we'll actually write to disk, make sure the
+    // context repo is clean and switch to a per-release migration branch
+    // so the changes land somewhere reviewable.
+    let migrationBranch = null;
+    let originalBranch = null;
+    if (!opts.dryRun && isGitRepo(dir)) {
+        const dirty = gitStatus(dir).trim();
+        if (dirty) {
+            log(`  ✗ aborted: working tree has uncommitted changes — commit or stash before migrating.`);
+            return {
+                ctx: ctxId,
+                marker: fromHash,
+                target: head,
+                migrations: MIGRATIONS.map(m => ({ id: m.id, description: m.description, applies: !!m.appliesTo(fromHash, dir) })),
+                ranIds: [],
+                totalChanges: 0,
+                unknowns: [],
+                jsonProblems: [],
+                aborted: 'dirty-working-tree',
+                output: lines.join('\n'),
+            };
+        }
+        const tag = currentReleaseTag();
+        if (tag) {
+            migrationBranch = tag;
+            originalBranch = gitCurrentBranch(dir);
+            if (originalBranch !== migrationBranch) {
+                try {
+                    gitCheckoutOrCreate(dir, migrationBranch);
+                    log(`  branch: ${originalBranch || '(detached)'} → ${migrationBranch}`);
+                } catch (e) {
+                    log(`  ✗ aborted: could not checkout ${migrationBranch}: ${e.message.split('\n')[0]}`);
+                    return {
+                        ctx: ctxId,
+                        marker: fromHash,
+                        target: head,
+                        migrations: [],
+                        ranIds: [],
+                        totalChanges: 0,
+                        unknowns: [],
+                        jsonProblems: [],
+                        aborted: 'checkout-failed',
+                        output: lines.join('\n'),
+                    };
+                }
+            } else {
+                log(`  branch: ${migrationBranch} (already on it)`);
+            }
+        }
     }
 
     const onlySet = opts.only && opts.only.length ? new Set(opts.only) : null;

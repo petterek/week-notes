@@ -1,0 +1,124 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "icon": {
+      "type": "string",
+      "description": "Single emoji."
+    },
+    "theme": {
+      "type": "string",
+      "enum": [
+        "paper",
+        "dark",
+        "mono",
+        "serif"
+      ],
+      "description": "Visual theme name."
+    },
+    "remote": {
+      "type": "string",
+      "description": "Git remote URL (empty if disconnected)."
+    },
+    "upcomingMeetingsDays": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 14
+    },
+    "visibleStartHour": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 23,
+      "default": 0
+    },
+    "visibleEndHour": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 24,
+      "default": 24
+    },
+    "defaultMeetingMinutes": {
+      "type": "integer",
+      "minimum": 5,
+      "default": 60
+    },
+    "availableThemes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Note theme tags allowed in this context."
+    },
+    "workHours": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "description": "Per weekday work band. Index 0 = Monday … 6 = Sunday. null = no work.",
+      "items": {
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "object",
+            "required": [
+              "start",
+              "end"
+            ],
+            "properties": {
+              "start": {
+                "type": "string",
+                "pattern": "^[0-2][0-9]:[0-5][0-9]$"
+              },
+              "end": {
+                "type": "string",
+                "pattern": "^[0-2][0-9]:[0-5][0-9]$"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "meetingTypes": {
+      "type": "array",
+      "description": "Per-context meeting type override. Falls back to meeting-types.json or defaults.",
+      "items": {
+        "$ref": "#/definitions/meetingType"
+      }
+    }
+  },
+  "definitions": {
+    "meetingType": {
+      "type": "object",
+      "required": [
+        "key",
+        "label"
+      ],
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "color": {
+          "type": "string",
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "defaultMinutes": {
+          "type": "integer",
+          "minimum": 5
+        }
+      }
+    }
+  }
+}

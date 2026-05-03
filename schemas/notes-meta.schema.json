@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": {
+    "$ref": "#/definitions/noteMeta"
+  },
+  "definitions": {
+    "noteMeta": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "note",
+            "meeting",
+            "task",
+            "presentation"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "description": "Original H1 as typed (preserves Norwegian characters)."
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "themes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "created": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "modified": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "createdBy": {
+          "type": "string",
+          "description": "Person key of the user who created the note."
+        },
+        "lastSavedBy": {
+          "type": "string",
+          "description": "Person key of the most recent saver."
+        },
+        "presentationStyle": {
+          "type": "string",
+          "description": "Slide theme when type=presentation."
+        },
+        "saves": {
+          "type": "array",
+          "description": "Save history. Legacy entries may be bare ISO strings.",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "at"
+                ],
+                "properties": {
+                  "at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "by": {
+                    "type": "string",
+                    "description": "Person key."
+                  },
+                  "sha": {
+                    "type": "string",
+                    "description": "Git HEAD sha at save time, when in a repo."
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "references": {
+          "type": "object",
+          "description": "Cross-domain mention index computed at save time.",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -15,10 +15,9 @@
  * stores the data and re-renders.
  *
  * Pure component: emits cancelable bubbling/composed CustomEvents
- * 'view' / 'present' / 'edit' / 'delete' with detail = { filePath }.
- * Host pages decide what to do with them. The edit action also has a real
- * <a href> for fallback navigation; preventDefault on the event suppresses
- * that.
+ * 'view' / 'present' / 'edit' / 'delete' with detail = { week, file }.
+ * Host pages decide what to do with them (navigation, modals, etc).
+ * The card itself does not know any URLs.
  *
  * Legacy notes: when `setData` is called the host element is given a
  * `data-note-card="<week>/<file>"` attribute so existing
@@ -45,12 +44,12 @@ const STYLES = `
         gap: 10px; font-weight: 500; color: var(--accent);
     }
     .note-actions { display: inline-flex; gap: 4px; align-items: center; }
-    .note-icon-btn, .note-actions a {
+    .note-icon-btn {
         border: 0; background: transparent; cursor: pointer;
         opacity: 0.55; padding: 2px 4px; font-size: 1em;
         text-decoration: none; color: inherit;
     }
-    .note-icon-btn:hover, .note-actions a:hover { opacity: 1; }
+    .note-icon-btn:hover { opacity: 1; }
     .note-del:hover { color: var(--danger); }
     .note-body {
         margin-top: 6px; color: var(--text);
@@ -89,13 +88,11 @@ class NoteCard extends WNElement {
             if (!trigger || !this._data) return;
             const act = trigger.getAttribute('data-act');
             const { week, file } = this._data;
-            const filePath = `${week}/${encodeURIComponent(file)}`;
-            const evt = new CustomEvent(act, {
+            ev.preventDefault();
+            this.dispatchEvent(new CustomEvent(act, {
                 bubbles: true, composed: true, cancelable: true,
-                detail: { filePath },
-            });
-            const proceed = this.dispatchEvent(evt);
-            if (!proceed && act === 'edit') ev.preventDefault();
+                detail: { week, file },
+            }));
         });
     }
 
@@ -103,10 +100,8 @@ class NoteCard extends WNElement {
         const d = this._data;
         if (!d) return html`<div class="note-body" style="color:var(--text-subtle)">Laster…</div>`;
 
-        const fileEnc = encodeURIComponent(d.file);
         const name = d.name || String(d.file).replace(/\.md$/, '');
         const typeIcon = TYPE_ICONS[d.type] || '📄';
-        const editHref = `/editor/${d.week}/${fileEnc}`;
         const pinIcon = d.pinned ? unsafeHTML('<span title="Festet">📌</span> ') : '';
         const presentBtn = d.type === 'presentation'
             ? unsafeHTML(`<button type="button" class="note-icon-btn" data-act="present" title="Presenter ${escapeHtml(name)}">🎤</button>`)
@@ -124,7 +119,7 @@ class NoteCard extends WNElement {
                 <span class="note-actions">
                     <button type="button" class="note-icon-btn" data-act="view" title="Vis ${name}">👁️</button>
                     ${presentBtn}
-                    <a href="${editHref}" data-act="edit" title="Rediger ${name}">✏️</a>
+                    <button type="button" class="note-icon-btn" data-act="edit" title="Rediger ${name}">✏️</button>
                     <button type="button" class="note-icon-btn note-del" data-act="delete" title="Slett ${name}">🗑️</button>
                 </span>
             </div>

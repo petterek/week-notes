@@ -73,6 +73,12 @@ const STYLES = `
     .welcome-list strong { color: var(--text-strong); font-weight: 600; white-space: nowrap; }
     .welcome-list code { font-family: ui-monospace, monospace; font-size: 0.92em; background: var(--surface-alt); padding: 1px 4px; border-radius: 3px; }
     .welcome-meta { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 0.85em; color: var(--text-muted); padding-top: 10px; border-top: 1px solid var(--border-soft); }
+    .user-form { display: flex; flex-direction: column; gap: 10px; max-width: 460px; margin-top: 6px; }
+    .user-row { display: grid; grid-template-columns: 110px 1fr; align-items: center; gap: 10px; }
+    .user-row > span { font-size: 0.9em; color: var(--text-muted); }
+    .user-row > input { padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px; font: inherit; background: var(--bg); color: var(--text-strong); }
+    .user-row > input:focus { outline: none; border-color: var(--accent); }
+    .user-actions { display: flex; gap: 8px; padding-left: 120px; margin-top: 4px; }
     .welcome-meta a { color: var(--accent); text-decoration: none; }
     .welcome-meta a:hover { text-decoration: underline; }
     .app-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
@@ -283,6 +289,66 @@ class SettingsPage extends WNElement {
         if (this._smSse) { try { this._smSse.close(); } catch {} this._smSse = null; }
     }
 
+    async _initUserTab() {
+        const root = this.shadowRoot;
+        const form  = root.querySelector('[data-user="form"]');
+        const sel   = root.querySelector('[data-user="key"]');
+        const statusEl = root.querySelector('[data-user="status"]');
+        if (!form || !sel) return;
+
+        const setStatus = (txt, cls) => {
+            if (!statusEl) return;
+            statusEl.textContent = txt || '';
+            statusEl.className = 'vs-save-status' + (cls ? ' ' + cls : '');
+        };
+
+        // Load people for the active context, then current cookie value.
+        try {
+            const [pp, me] = await Promise.all([
+                fetch('/api/people').then(r => r.json()).catch(() => []),
+                fetch('/api/me').then(r => r.json()).catch(() => ({ key: '' })),
+            ]);
+            const people = (Array.isArray(pp) ? pp : []).filter(p => !p.inactive);
+            people.sort((a, b) => {
+                const an = (a.firstName ? a.firstName + ' ' + (a.lastName || '') : (a.name || a.key || '')).trim();
+                const bn = (b.firstName ? b.firstName + ' ' + (b.lastName || '') : (b.name || b.key || '')).trim();
+                return an.localeCompare(bn, 'nb');
+            });
+            const cur = (me && me.key) || '';
+            const opts = ['<option value="">(ingen)</option>'];
+            for (const p of people) {
+                const key = p.key || (p.name || '').toLowerCase();
+                const display = p.firstName
+                    ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName)
+                    : (p.name || key);
+                opts.push(`<option value="${key.replace(/"/g, '&quot;')}"${key === cur ? ' selected' : ''}>${display.replace(/</g, '&lt;')}</option>`);
+            }
+            sel.innerHTML = opts.join('');
+        } catch {
+            setStatus('Kunne ikke laste', 'is-error');
+        }
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            setStatus('Lagrer…');
+            try {
+                const r = await fetch('/api/me', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key: sel.value || '' }),
+                });
+                const d = await r.json();
+                if (!r.ok || !d.ok) throw new Error(d.error || 'Feil');
+                // Update window.mePersonKey live so already-rendered chips update on next interaction.
+                if (typeof window !== 'undefined') window.mePersonKey = d.key || '';
+                setStatus('Lagret ✓');
+                setTimeout(() => setStatus(''), 2000);
+            } catch (err) {
+                setStatus('Feil: ' + err.message, 'is-error');
+            }
+        });
+    }
+
     async _initAppSettings() {
         const root = this.shadowRoot;
         // Tab switching (currently a single tab, but ready for more).
@@ -294,6 +360,7 @@ class SettingsPage extends WNElement {
             });
         });
 
+        this._initUserTab();
         const $ = (k) => root.querySelector(`[data-vs="${k}"]`);
         const tbody    = $('tbody');
         const progress = $('progress');
@@ -702,6 +769,7 @@ class SettingsPage extends WNElement {
                 <h2 class="app-title">Applikasjonsinnstillinger</h2>
                 <div class="app-tabs" role="tablist">
                     <button type="button" class="app-tab is-active" role="tab" data-app-tab="welcome">👋 Velkommen</button>
+                    <button type="button" class="app-tab" role="tab" data-app-tab="user">👤 Bruker</button>
                     <button type="button" class="app-tab" role="tab" data-app-tab="embeddings">🔍 Søk</button>
                     <button type="button" class="app-tab" role="tab" data-app-tab="summarize">📝 Oppsummer</button>
                 </div>
@@ -724,6 +792,21 @@ class SettingsPage extends WNElement {
                                 <span><a href="/help.md" target="_blank" rel="noopener">📖 Hjelp ↗</a></span>
                                 <span><a href="https://github.com/petterek/week-notes" target="_blank" rel="noopener">⭐ GitHub ↗</a></span>
                             </div>
+                        </div>
+                    </div>
+                    <div class="app-tab-panel" data-app-panel="user">
+                        <div class="app-card">
+                            <div class="app-head">
+                                <strong>👤 Min identitet</strong>
+                                <div class="vs-actions">
+                                    <span class="vs-save-status" data-user="status"></span>
+                                </div>
+                            </div>
+                            <p class="app-help">Velg hvilken person fra registeret som er <code>@me</code> i denne nettleseren. Lagres som en informasjonskapsel — flere brukere kan dele samme kontekst med hver sin identitet.</p>
+                            <form data-user="form" class="user-form">
+                                <label class="user-row"><span>Person</span><select data-user="key"><option value="">(ingen)</option></select></label>
+                                <div class="user-actions"><button type="submit" class="vs-action">Lagre</button></div>
+                            </form>
                         </div>
                     </div>
                     <div class="app-tab-panel" data-app-panel="embeddings">
@@ -1767,6 +1850,9 @@ class SettingsPage extends WNElement {
         if (!data.isRepo) { el.innerHTML = '<em>Ikke et git-repo enda. Eksplisitte lagringer vil opprette ett.</em>'; return; }
         const parts = [];
         parts.push(`<div><strong>Status:</strong> ${data.dirty ? '<span style="color:var(--danger)">● Endringer som ikke er committet</span>' : '<span style="color:var(--accent)">● Rent (alt committet)</span>'}</div>`);
+        if (data.branch) {
+            parts.push(`<div><strong>Branch:</strong> <code>${escapeHtml(data.branch)}</code></div>`);
+        }
         if (data.remote) {
             parts.push(`<div><strong>Remote:</strong> <code>${escapeHtml(data.remote)}</code></div>`);
         } else {

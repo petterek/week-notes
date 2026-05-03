@@ -3,10 +3,15 @@
 <div class="home-layout">
     <aside id="taskSidebar" class="task-sidebar">
         <div class="task-sidebar-inner">
-            <task-open-list
-                tasks_service="week-note-services.tasks_service"
-                people_service="week-note-services.people_service"
-                companies_service="week-note-services.companies_service"></task-open-list>
+            <div style="position:relative">
+                <task-add-modal
+                    tasks_service="week-note-services.tasks_service"
+                    style="position:absolute;top:0;right:0;z-index:1"></task-add-modal>
+                <task-open-list
+                    tasks_service="week-note-services.tasks_service"
+                    people_service="week-note-services.people_service"
+                    companies_service="week-note-services.companies_service"></task-open-list>
+            </div>
             <upcoming-meetings
                 meetings_service="week-note-services.meetings_service"
                 people_service="week-note-services.people_service"

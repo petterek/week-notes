@@ -19,13 +19,12 @@
  */
 import { WNElement, html, unsafeHTML, escapeHtml, linkMentions, wireMentionClicks } from './_shared.js';
 import './task-complete-modal.js';
-import './task-create-modal.js';
 import './task-note-modal.js';
 
 const STYLES = `
-        :host { display: block; color: var(--text-strong); font: inherit; }
+        :host { display: block; color: var(--text-strong); font: inherit; font-size: 0.92em; }
         .side-h {
-            display: flex; align-items: center; justify-content: space-between;
+            display: flex; align-items: center;
             gap: 8px;
             font-family: var(--font-heading);
             font-weight: 400;
@@ -36,12 +35,6 @@ const STYLES = `
             font-size: 1.05em;
         }
         .side-h-title { display: flex; align-items: baseline; gap: 6px; }
-        .add-btn {
-            padding: 2px 10px; border: 1px solid var(--accent); background: var(--accent);
-            color: var(--text-on-accent); border-radius: 5px; cursor: pointer;
-            font: inherit; font-size: 0.85em;
-        }
-        .add-btn:hover { background: var(--accent-strong); }
         .empty-quiet { color: var(--text-subtle); font-style: italic; margin: 0; }
         .sidebar-tasks { display: flex; flex-direction: column; gap: 6px; }
         .sidebar-task { padding: 6px 8px; border-radius: 6px; background: var(--surface); }
@@ -57,6 +50,12 @@ const STYLES = `
         }
         .row-note-btn:hover { opacity: 1; }
         .row-note-btn.empty { opacity: 0.25; }
+        .row-del-btn {
+            border: 0; background: transparent; cursor: pointer;
+            opacity: 0.35; padding: 0 4px; font-size: 1em;
+            color: #c53030;
+        }
+        .row-del-btn:hover { opacity: 1; }
         .row-note-body {
             margin: 6px 0 2px 26px;
             color: var(--text); font-size: 0.92em;
@@ -83,6 +82,7 @@ function renderTask(t, people, companies) {
                     <span class="row-text">${textHtml}</span>
                     ${weekBadge}
                     <button type="button" class="${noteBtnCls}" data-act="note" data-taskid="${id}" title="${noteBtnTitle}">📓</button>
+                    <button type="button" class="row-del-btn" data-act="delete" data-taskid="${id}" data-tasktext="${t.text || ''}" title="Slett oppgave">✕</button>
                 </div>
                 ${noteBody}
             </div>
@@ -91,7 +91,7 @@ function renderTask(t, people, companies) {
 
 class TaskOpenList extends WNElement {
     static get domain() { return 'tasks'; }
-    static get observedAttributes() { return ['tasks_service', 'people_service', 'companies_service', 'show_add_button']; }
+    static get observedAttributes() { return ['tasks_service', 'people_service', 'companies_service']; }
 
     css() { return STYLES; }
 
@@ -183,13 +183,24 @@ class TaskOpenList extends WNElement {
                 });
             });
             this.shadowRoot.addEventListener('click', (ev) => {
-                const addBtn = ev.target.closest('button[data-act="add"]');
-                if (!addBtn) return;
-                const modal = this.shadowRoot.querySelector('task-create-modal');
-                if (!modal) return;
-                modal.open((res) => {
-                    if (res && res.created) this.refresh();
-                });
+                const delBtn = ev.target.closest('button[data-act="delete"]');
+                if (!delBtn) return;
+                const id = delBtn.dataset.taskid;
+                const text = delBtn.dataset.tasktext || '';
+                if (!confirm(`Slette oppgaven «${text}»?`)) return;
+                (async () => {
+                    try {
+                        if (this.service && typeof this.service.remove === 'function') {
+                            await this.service.remove(id);
+                        }
+                    } catch (err) {
+                        console.error('task-open-list: delete failed', err);
+                    }
+                    this.refresh();
+                    this.dispatchEvent(new CustomEvent('task:deleted', {
+                        bubbles: true, composed: true, detail: { id },
+                    }));
+                })();
             });
             wireMentionClicks(this.shadowRoot);
         }
@@ -197,30 +208,22 @@ class TaskOpenList extends WNElement {
 
     render() {
         if (!this.service) return this.renderNoService();
-        const showAdd = this.getAttribute('show_add_button') !== 'false';
-        const addBtn = showAdd
-            ? html`<button type="button" class="add-btn" data-act="add" title="Ny oppgave">+</button>`
-            : '';
-        const headerWithAdd = (countLabel) => html`
+        const header = (countLabel) => html`
             <h3 class="side-h">
                 <span class="side-h-title">Åpne oppgaver${countLabel ? ' · ' + countLabel : ''}</span>
-                ${addBtn}
             </h3>
         `;
-        const tasksSvcPath = this.getAttribute('tasks_service') || '';
-        const modals = showAdd
-            ? html`<task-complete-modal></task-complete-modal><task-create-modal tasks_service="${tasksSvcPath}"></task-create-modal><task-note-modal></task-note-modal>`
-            : html`<task-complete-modal></task-complete-modal><task-note-modal></task-note-modal>`;
-        if (!this._state) return html`${headerWithAdd('')}<p class="empty-quiet">Laster…</p>${modals}`;
-        if (this._state.error) return html`${headerWithAdd('')}<p class="empty-quiet">Kunne ikke laste oppgaver</p>${modals}`;
+        const modals = html`<task-complete-modal></task-complete-modal><task-note-modal></task-note-modal>`;
+        if (!this._state) return html`${header('')}<p class="empty-quiet">Laster…</p>${modals}`;
+        if (this._state.error) return html`${header('')}<p class="empty-quiet">Kunne ikke laste oppgaver</p>${modals}`;
 
         const { open, people, companies } = this._state;
         if (open.length === 0) {
-            return html`${headerWithAdd('0')}<p class="empty-quiet">Ingen åpne oppgaver</p>${modals}`;
+            return html`${header('0')}<p class="empty-quiet">Ingen åpne oppgaver</p>${modals}`;
         }
         const rows = open.map(t => renderTask(t, people, companies));
         return html`
-            ${headerWithAdd(String(open.length))}
+            ${header(String(open.length))}
             <div class="sidebar-tasks">${rows}</div>
             ${modals}
         `;

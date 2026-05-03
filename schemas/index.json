@@ -1,0 +1,80 @@
+[
+  {
+    "path": "data/app-settings.json",
+    "scope": "global",
+    "desc": "Global app-level toggles. Loaded once at boot.",
+    "file": "app-settings.schema.json"
+  },
+  {
+    "path": "data/user.json",
+    "scope": "global (per machine \u2014 outside any context git repo)",
+    "desc": "Per-machine identity. Maps each context to the @me person key for the current user.",
+    "file": "user.schema.json"
+  },
+  {
+    "path": "data/<ctx>/settings.json",
+    "scope": "per context",
+    "desc": "Settings for one workspace: theme, calendar visibility, working hours, meeting type catalogue, available note themes.",
+    "file": "context-settings.schema.json"
+  },
+  {
+    "path": "data/<ctx>/meeting-types.json",
+    "scope": "per context (optional)",
+    "desc": "Optional override for meeting types. Falls back to defaults if absent.",
+    "file": "meeting-types.schema.json"
+  },
+  {
+    "path": "data/<ctx>/people.json",
+    "scope": "per context",
+    "desc": "People directory for one workspace. Keyed by `key` for @mentions.",
+    "file": "people.schema.json"
+  },
+  {
+    "path": "data/<ctx>/companies.json",
+    "scope": "per context",
+    "desc": "Companies linked to people via `primaryCompanyKey` / `extraCompanyKeys`.",
+    "file": "companies.schema.json"
+  },
+  {
+    "path": "data/<ctx>/places.json",
+    "scope": "per context",
+    "desc": "Place / location directory used for meetings.",
+    "file": "places.schema.json"
+  },
+  {
+    "path": "data/<ctx>/tasks.json",
+    "scope": "per context",
+    "desc": "Open + completed tasks. Inline-task markers in notes write here too.",
+    "file": "tasks.schema.json"
+  },
+  {
+    "path": "data/<ctx>/results.json",
+    "scope": "per context",
+    "desc": "Result / outcome log entries linked to a week.",
+    "file": "results.schema.json"
+  },
+  {
+    "path": "data/<ctx>/meetings.json",
+    "scope": "per context",
+    "desc": "All meetings (past + future) for one workspace.",
+    "file": "meetings.schema.json"
+  },
+  {
+    "path": "data/<ctx>/notes-meta.json",
+    "scope": "per context",
+    "desc": "Sidecar metadata for every note. Keyed by \"<week>/<file>.md\".",
+    "file": "notes-meta.schema.json"
+  },
+  {
+    "path": "data/<ctx>/<week>/<file>.md",
+    "scope": "per context \u00b7 per week",
+    "desc": "Markdown content for one note. Plain text on disk; structured fields live in notes-meta.json.",
+    "file": "note-markdown.schema.json"
+  },
+  {
+    "path": "data/<ctx>/<week>/.<file>.md.autosave",
+    "scope": "per context \u00b7 per week (gitignored hidden file)",
+    "desc": "Editor autosave temp. Removed on explicit save or discard.",
+    "file": "note-autosave.schema.json"
+  }
+]

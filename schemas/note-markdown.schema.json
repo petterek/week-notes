@@ -1,0 +1,6 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "string",
+  "contentMediaType": "text/markdown",
+  "description": "Filenames are slugified (a-z0-9 + dashes); duplicates are deduped with a -N suffix."
+}

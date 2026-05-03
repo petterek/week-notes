@@ -10,6 +10,38 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-05-03 (UI-tester: Playwright + delt scenario-bibliotek)
+- Ny `tests/scenarios.js` med 24 delte UI-scenarioer som kjører både via **Playwright** (`npm test`) og live i nettleser fra `/debug/tests`. Hvert scenario er en selvstendig `async`-funksjon som driver en `/debug/<komponent>`-side med mock-tjenester.
+- `/debug/tests` viser scenarioene **gruppert per komponent** med Run-/Details-knapper, Run all / Run failed only og en "Last Playwright run"-rute som leser `tests/.last-run.json`.
+- **Details-modal:** se og rediger `run(ctx)`-kildekoden direkte i nettleseren (in-memory; reload for å reverte). Apply & Run anvender og kjører i samme klikk.
+- Dekning: task-open-list / task-create / task-add-modal / task-completed / task-complete-modal / people-page / modal-container / json-table / global-search / icon-picker / time-picker / week-pill / markdown-preview / note-card / help-modal / upcoming-meetings / person-card / ctx-switcher.
+- Mock-tjenestene (i `domains/_mock-services.js`) eksponerer `MockTaskService`/`MockPeopleService`/`MockMeetingsService` osv. — komponenter på debug-sider binder seg via `service="MockXxx"`-attributter.
+- Ny `agents/tests.md` dokumenterer scenario-kontrakten og fallgruvene (lys vs. shadow DOM, dobbel json-table render, mock-seeding-races).
+- AGENTS.md: ny seksjon **"Bug fixing workflow"** — når en bug oppdages, reproduser den først som et failing scenario før du fikser, og la testen stå som regresjonsvakt.
+
+### 2026-05-02 (notater: forfatter-sporing)
+- Hver note-sidecar tracker nå **`createdBy`** (settes ved første eksplisitte lagring) og **`lastSavedBy`** (oppdateres ved hver eksplisitt lagring). Begge er nøkkel til person i registeret — basert på `@me`-mappingen for aktiv kontekst (`data/user.json`).
+- `<note-meta-view>` viser "Opprettet av" og "Sist lagret av" som klikkbare person-chips.
+- Autosaves attribueres ikke (de er midlertidige). Møte- og oppgave-notater får også `createdBy` ved opprettelse.
+
+### 2026-05-02 (resultater: `[[X]]` → `[[?<id>]]` ved lagring)
+- Inline-resultatmarkøren oppfører seg nå som inline-oppgaver: ved **eksplisitt** lagring opprettes resultatet og markøren skrives om til `[[?<id>]]` i kildenotatet — ikke lenger strippet til ren tekst. Det gir en stabil ref slik at resultatet kan rendres som chip og navigeres til fra notatet.
+- Ny `<inline-result result-id="...">`-komponent (speiler `<inline-task>`): blå chip med 🏁 og resultatteksten, klikk navigerer til `/results#r-<id>`.
+- `linkMentions` (server + klient) gjenkjenner både `[[X]]` (pre-save preview-pille via `<inline-action kind="result">`) og `[[?<id>]]` (linket chip).
+- `computeNoteReferences` leser linket-formen direkte til `id`; legacy label-form fortsatt støttet via tekstmatch.
+- Re-save av et notat med `[[?<id>]]` er idempotent — ingen duplikat-resultater.
+
+### 2026-05-02 (per-bruker `@me`-mapping)
+- Ny **👤 Min identitet**-fane under Applikasjonsinnstillinger. Velg hvilken person fra registeret som er `@me` — settes per kontekst.
+- Mappingen lagres i `data/user.json` (utenfor alle kontekstenes git-repoer), så flere brukere kan dele samme kontekst med hver sin `@me` uten at det merges inn i delt git-historikk.
+- `linkMentions` (server + klient) erstatter `@me` direkte med riktig person når notater rendres; ingen klient-side substitusjon eller cookies.
+
+### 2026-05-01 (inline task-checkbokser i renderte notater)
+- `{{X}}`-markører i ukenotater er nå **toveis koblet** til oppgaven: ved lagring rewrites markøren til `{{?<id>}}` (åpen) i filen, og oppgaven får `noteRef` til kildenotatet.
+- I rendret notat vises `{{?<id>}}` / `{{!<id>}}` som en interaktiv checkbox (`<inline-task>`-komponenten) med oppgaveteksten. Klikk veksler done-status via `POST /api/tasks/:id/close-from-note`, som også flipper markøren i kildefilen mellom `?` og `!`.
+- Komponenten emitter et bobblende `task-closed`-event (`{ taskId, done }`); shellen videresender det til de eksisterende `task:completed`/`task:uncompleted`-eventene så åpne/lukkede oppgavelister oppdateres uten reload.
+- Editor-preview gjenkjenner nå alle tre markørformer: `{{X}}` og `{{?id}}` → fet, `{{!id}}` → gjennomstreking.
+
 ### 2026-05-01 (snarveier, snarvei-bar, småfikser)
 - Slim **snarvei-bar** nederst på alle sider med alle aktive hurtigtaster (Alt+H/O/K/P/R/N/S, Esc, ?). Fast plassert; ingen opacity. `?` åpner hjelp-modalet (suppressed når man skriver i input/textarea).
 - Alle Alt+ navigasjons-snarveier dokumentert i `help.md` er nå faktisk koblet (`Alt+H` → Hjem via brand-link, `Alt+O/K/P/R/S` → Oppgaver/Kalender/Personer/Resultater/Innstillinger).

@@ -108,7 +108,8 @@ function computeSignature(contextDir) {
             } catch {}
         }
     }
-    for (const j of ['notes-meta.json', 'tasks.json', 'meetings.json', 'people.json', 'results.json']) {
+    for (const part of notesMetaSignatureParts(contextDir)) parts.push(part);
+    for (const j of ['tasks.json', 'meetings.json', 'people.json', 'results.json']) {
         try {
             const st = fs.statSync(path.join(contextDir, j));
             parts.push(`${j}:${st.size}:${st.mtimeMs}`);
@@ -117,6 +118,66 @@ function computeSignature(contextDir) {
         }
     }
     return crypto.createHash('sha1').update(parts.join('|')).digest('hex');
+}
+
+function loadNotesMetaFromDisk(contextDir) {
+    // Mirrors server.js loadNotesMeta(): prefer notes-meta/<week>/<file>.json
+    // sidecars; fall back to legacy notes-meta.json.
+    const dir = path.join(contextDir, 'notes-meta');
+    if (fs.existsSync(dir)) {
+        const out = {};
+        let weekDirs;
+        try { weekDirs = fs.readdirSync(dir, { withFileTypes: true }); }
+        catch { weekDirs = []; }
+        for (const wd of weekDirs) {
+            if (!wd.isDirectory()) continue;
+            const wdir = path.join(dir, wd.name);
+            let files;
+            try { files = fs.readdirSync(wdir); } catch { continue; }
+            for (const fname of files) {
+                if (!fname.endsWith('.json')) continue;
+                try {
+                    out[wd.name + '/' + fname.slice(0, -5)] = JSON.parse(fs.readFileSync(path.join(wdir, fname), 'utf-8'));
+                } catch {}
+            }
+        }
+        return out;
+    }
+    return readJson(path.join(contextDir, 'notes-meta.json')) || {};
+}
+
+function notesMetaSignatureParts(contextDir) {
+    // For cache invalidation: hash the sidecar layout if present, else
+    // the legacy single file's stat.
+    const dir = path.join(contextDir, 'notes-meta');
+    if (fs.existsSync(dir)) {
+        const parts = ['notes-meta/'];
+        let weekDirs;
+        try { weekDirs = fs.readdirSync(dir, { withFileTypes: true }); }
+        catch { weekDirs = []; }
+        weekDirs.sort((a, b) => a.name.localeCompare(b.name));
+        for (const wd of weekDirs) {
+            if (!wd.isDirectory()) continue;
+            const wdir = path.join(dir, wd.name);
+            let files;
+            try { files = fs.readdirSync(wdir); } catch { continue; }
+            files.sort();
+            for (const fname of files) {
+                if (!fname.endsWith('.json')) continue;
+                try {
+                    const st = fs.statSync(path.join(wdir, fname));
+                    parts.push(`notes-meta/${wd.name}/${fname}:${st.size}:${st.mtimeMs}`);
+                } catch {}
+            }
+        }
+        return parts;
+    }
+    try {
+        const st = fs.statSync(path.join(contextDir, 'notes-meta.json'));
+        return [`notes-meta.json:${st.size}:${st.mtimeMs}`];
+    } catch {
+        return ['notes-meta.json:absent'];
+    }
 }
 
 function loadCache(contextDir, signature) {
@@ -158,7 +219,7 @@ function buildIndexUncached(contextDir) {
     docs = [];
     invertedIndex = new Map();
 
-    const notesMeta = readJson(path.join(contextDir, 'notes-meta.json')) || {};
+    const notesMeta = loadNotesMetaFromDisk(contextDir);
 
     // ---- Notes (week .md files) ----
     let entries;

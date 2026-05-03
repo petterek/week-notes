@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": [
+      "id",
+      "key",
+      "name"
+    ],
+    "properties": {
+      "id": {
+        "type": "string",
+        "description": "Stable internal id."
+      },
+      "key": {
+        "type": "string",
+        "description": "Mention slug (a-z0-9). Must be unique per context."
+      },
+      "name": {
+        "type": "string",
+        "description": "Display name."
+      },
+      "firstName": {
+        "type": "string"
+      },
+      "lastName": {
+        "type": "string"
+      },
+      "title": {
+        "type": "string"
+      },
+      "email": {
+        "type": "string",
+        "format": "email"
+      },
+      "phone": {
+        "type": "string"
+      },
+      "notes": {
+        "type": "string"
+      },
+      "inactive": {
+        "type": "boolean"
+      },
+      "primaryCompanyKey": {
+        "type": "string"
+      },
+      "extraCompanyKeys": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "created": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "deleted": {
+        "type": "boolean"
+      },
+      "deletedAt": {
+        "type": "string",
+        "format": "date-time"
+      }
+    }
+  }
+}

@@ -53,3 +53,8 @@ out
 # Editors
 .vscode-test
 .tern-port
+
+# Playwright
+test-results/
+playwright-report/
+tests/.last-run.json

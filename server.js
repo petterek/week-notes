@@ -11,6 +11,7 @@ const PORT = parseInt(process.env.PORT, 10) || 3001;
 const CONTEXTS_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const ACTIVE_FILE = path.join(CONTEXTS_DIR, '.active');
 const APP_SETTINGS_FILE = path.join(CONTEXTS_DIR, 'app-settings.json');
+const USER_FILE = path.join(CONTEXTS_DIR, 'user.json');
 
 // Embedding models offered to the user. All are Xenova feature-extraction
 // pipelines available via @huggingface/transformers. dimension is informational
@@ -211,6 +212,43 @@ function setAppSettings(next) {
     return merged;
 }
 
+// Per-machine user identity. Lives at data/user.json — OUTSIDE any context's
+// git repo (per-context git lives at data/<ctx>/.git), so it stays local to
+// the user's machine and isn't synced when multiple users share a context.
+//
+// Shape: { contexts: [{ context, mePersonKey }] }
+function getUser() {
+    let u = {};
+    try { u = JSON.parse(fs.readFileSync(USER_FILE, 'utf-8')) || {}; } catch {}
+    if (!Array.isArray(u.contexts)) u.contexts = [];
+    u.contexts = u.contexts.filter(e => e && typeof e === 'object' && typeof e.context === 'string');
+    return u;
+}
+
+function getMePersonKey(ctxId) {
+    if (!ctxId) return '';
+    const u = getUser();
+    const e = u.contexts.find(x => x.context === ctxId);
+    return (e && typeof e.mePersonKey === 'string') ? e.mePersonKey : '';
+}
+
+function setMePersonKey(ctxId, key) {
+    if (!ctxId) throw new Error('Mangler kontekst');
+    const u = getUser();
+    const safeKey = String(key || '').trim().toLowerCase();
+    const idx = u.contexts.findIndex(x => x.context === ctxId);
+    if (!safeKey) {
+        if (idx >= 0) u.contexts.splice(idx, 1);
+    } else if (idx >= 0) {
+        u.contexts[idx].mePersonKey = safeKey;
+    } else {
+        u.contexts.push({ context: ctxId, mePersonKey: safeKey });
+    }
+    try { fs.mkdirSync(path.dirname(USER_FILE), { recursive: true }); } catch {}
+    fs.writeFileSync(USER_FILE, JSON.stringify(u, null, 2));
+    return safeKey;
+}
+
 const WEEK_NOTES_MARKER = '.week-notes';
 const WEEK_NOTES_VERSION = (() => {
     try {
@@ -275,8 +313,10 @@ function setActiveContext(name, opts) {
     if (!safe) throw new Error('Ugyldig kontekstnavn');
     if (!listContexts().includes(safe)) throw new Error('Kontekst finnes ikke');
     // Commit any pending changes in the current context before switching
+    let prevCtx = '';
     try {
         const current = (function(){ try { return fs.readFileSync(ACTIVE_FILE, 'utf-8').trim(); } catch { return ''; } })();
+        prevCtx = current;
         if (current && current !== safe && listContexts().includes(current)) {
             const curDir = path.join(CONTEXTS_DIR, current);
             gitInitIfNeeded(curDir, getContextSettings(current).name || current);
@@ -286,6 +326,10 @@ function setActiveContext(name, opts) {
         }
     } catch (e) { console.error('pre-switch commit failed', e.message); }
     fs.writeFileSync(ACTIVE_FILE, safe);
+    // Auto-commit on the previous ctx may have changed its tree; the
+    // new ctx may be pulled below. Drop both caches to be safe.
+    if (prevCtx) _cacheInvalidateContext(prevCtx);
+    _cacheInvalidateContext(safe);
     // Pull the target context if it has a remote configured (skippable so
     // callers can defer the network call to a background task)
     if (!skipPull) {
@@ -300,7 +344,11 @@ function pullContextRemote(name) {
     const targetDir = path.join(CONTEXTS_DIR, safe);
     const targetSettings = getContextSettings(safe);
     if (gitIsRepo(targetDir) && (targetSettings.remote || '').trim()) {
-        try { git(targetDir, 'pull --ff-only --quiet'); }
+        try {
+            git(targetDir, 'pull --ff-only --quiet');
+            // Pull may have rewritten files; drop the whole ctx cache.
+            _cacheInvalidateContext(safe);
+        }
         catch (e) { console.error('git pull failed for', safe, e.message); }
     }
 }
@@ -384,8 +432,13 @@ function cloneContext(remoteUrl, rawName, opts) {
 
 function getContextSettings(name) {
     const safe = safeName(name);
-    try { return JSON.parse(fs.readFileSync(path.join(CONTEXTS_DIR, safe, 'settings.json'), 'utf-8')); }
-    catch { return { name: safe, icon: '📁' }; }
+    const bucket = _ctxCacheBucket(safe);
+    if (bucket && bucket.settings) return { ...bucket.settings };
+    let data;
+    try { data = JSON.parse(fs.readFileSync(path.join(CONTEXTS_DIR, safe, 'settings.json'), 'utf-8')); }
+    catch { data = { name: safe, icon: '📁' }; }
+    if (bucket) bucket.settings = { ...data };
+    return data;
 }
 
 const DISCONNECTED_FILE = path.join(CONTEXTS_DIR, '.disconnected.json');
@@ -497,6 +550,7 @@ function setContextSettings(name, data, opts) {
     }
     fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify(data, null, 2));
     writeMarker(dir);
+    _cacheInvalidateSettings(safe);
     return data;
 }
 
@@ -504,6 +558,11 @@ function setContextSettings(name, data, opts) {
 function dataDir() { return path.join(CONTEXTS_DIR, getActiveContext()); }
 function tasksFile() { return path.join(dataDir(), 'tasks.json'); }
 function notesMetaFile() { return path.join(dataDir(), 'notes-meta.json'); }
+function notesMetaDir() { return path.join(dataDir(), 'notes-meta'); }
+function notesMetaSidecarPath(week, file) {
+    // Mirror layout: notes-meta/<week>/<file>.json
+    return path.join(notesMetaDir(), week, file + '.json');
+}
 function peopleFile() { return path.join(dataDir(), 'people.json'); }
 function resultsFile() { return path.join(dataDir(), 'results.json'); }
 function meetingsFile() { return path.join(dataDir(), 'meetings.json'); }
@@ -550,7 +609,8 @@ function gitIsRepo(dir) {
 function gitInitIfNeeded(dir, contextName) {
     if (gitIsRepo(dir)) return false;
     try {
-        git(dir, 'init -q -b main');
+        const branch = currentReleaseTag() || 'main';
+        git(dir, `init -q -b ${branch}`);
         try { git(dir, `config user.email "ukenotater@local"`); } catch {}
         try { git(dir, `config user.name "Ukenotater"`); } catch {}
         try { git(dir, 'add -A'); } catch {}
@@ -560,6 +620,18 @@ function gitInitIfNeeded(dir, contextName) {
         console.error('git init failed for', dir, e.message);
         return false;
     }
+}
+
+// Latest reachable release tag from the app repo HEAD (e.g. "v2"),
+// or null if no tag is reachable / git is unavailable.
+function currentReleaseTag() {
+    try {
+        return require('child_process').execSync('git describe --tags --abbrev=0', {
+            cwd: __dirname,
+            encoding: 'utf-8',
+            stdio: ['pipe', 'pipe', 'ignore'],
+        }).trim() || null;
+    } catch { return null; }
 }
 
 function gitIsDirty(dir) {
@@ -595,6 +667,14 @@ function gitGetRemote(dir) {
     if (!gitIsRepo(dir)) return null;
     try { return git(dir, 'remote get-url origin').trim() || null; }
     catch { return null; }
+}
+
+function gitCurrentBranch(dir) {
+    if (!gitIsRepo(dir)) return null;
+    try {
+        const out = git(dir, 'rev-parse --abbrev-ref HEAD').trim();
+        return out === 'HEAD' ? null : out;
+    } catch { return null; }
 }
 
 function gitRemoteHasFile(dir, branch, file) {
@@ -666,69 +746,300 @@ function ensureAllContextsInitialised() {
     }
 }
 
+// ----- Per-item collection storage -------------------------------------
+//
+// Records are stored as one JSON file per item under
+//   data/<ctx>/<entity>/<idOrKey>.json
+//
+// During the transition we still fall back to the legacy single-array
+// JSON file (data/<ctx>/<entity>.json) when the folder doesn't exist
+// yet. The migration `split-entities-to-folders` (run from the settings
+// page) does the one-time conversion and removes the legacy file.
+
+// Filenames are restricted to a safe charset to avoid traversal.
+function sanitizeItemFilename(s) {
+    if (s === undefined || s === null) return '';
+    const str = String(s);
+    return str.replace(/[^A-Za-z0-9._-]/g, '_').replace(/^_+|_+$/g, '').slice(0, 120);
+}
+
+function entityDir(name) { return path.join(dataDir(), name); }
+function entityLegacyFile(name) { return path.join(dataDir(), name + '.json'); }
+
+function readJsonDirAll(dirName) {
+    const dir = entityDir(dirName);
+    let entries;
+    try { entries = fs.readdirSync(dir); } catch { return null; }
+    const items = [];
+    for (const fname of entries) {
+        if (!fname.endsWith('.json')) continue;
+        try {
+            const data = JSON.parse(fs.readFileSync(path.join(dir, fname), 'utf-8'));
+            items.push(data);
+        } catch { /* skip unreadable */ }
+    }
+    return items;
+}
+
+// ------------------------------------------------------------------
+// In-memory cache keyed by context name. The server is the only writer,
+// so we can keep a strong cache and invalidate at known write/state-
+// change points:
+//   - syncCollection                → invalidate (ctx, collection)
+//   - setNoteMeta/deleteNoteMeta/saveNotesMeta → invalidate (ctx, notes-meta)
+//   - setContextSettings            → invalidate (ctx, settings)
+//   - setActiveContext              → invalidate (prev) + (next) entirely
+//                                     (auto-commit on switch + git pull may
+//                                      change files on disk)
+//   - pullContextRemote / gitPull   → invalidate (ctx) entirely
+//   - migration runs                → invalidate (ctx) entirely
+// Returned values are always cloned so callers can mutate freely without
+// corrupting the cached canonical copy.
+// ------------------------------------------------------------------
+const _ctxCache = new Map(); // ctxId -> { collections: Map<name,arr>, notesMeta?, settings? }
+
+function _ctxCacheBucket(ctx) {
+    if (!ctx) return null;
+    let b = _ctxCache.get(ctx);
+    if (!b) { b = { collections: new Map() }; _ctxCache.set(ctx, b); }
+    return b;
+}
+function _cloneArray(arr) {
+    // Shallow clone array + each item, sufficient for the load-mutate-save
+    // pattern used throughout server.js (push/sort/splice + per-item field
+    // updates).
+    return arr.map(x => (x && typeof x === 'object' && !Array.isArray(x)) ? { ...x } : x);
+}
+function _cacheGetCollection(dirName) {
+    const b = _ctxCacheBucket(getActiveContext());
+    if (!b) return null;
+    const arr = b.collections.get(dirName);
+    return arr ? _cloneArray(arr) : null;
+}
+function _cacheSetCollection(dirName, items) {
+    const b = _ctxCacheBucket(getActiveContext());
+    if (!b) return;
+    b.collections.set(dirName, _cloneArray(items));
+}
+function _cacheInvalidateCollection(dirName, ctx) {
+    const target = ctx || getActiveContext();
+    const b = _ctxCache.get(target);
+    if (b) b.collections.delete(dirName);
+}
+function _cacheInvalidateNotesMeta(ctx) {
+    const target = ctx || getActiveContext();
+    const b = _ctxCache.get(target);
+    if (b) delete b.notesMeta;
+}
+function _cacheInvalidateSettings(ctx) {
+    const target = ctx || getActiveContext();
+    const b = _ctxCache.get(target);
+    if (b) delete b.settings;
+}
+function _cacheInvalidateContext(ctx) {
+    if (ctx) _ctxCache.delete(ctx);
+}
+
+// Reads a per-item collection. Returns the array, or — if the folder
+// doesn't exist yet — falls back to the legacy <entity>.json file.
+function loadCollection(dirName) {
+    const cached = _cacheGetCollection(dirName);
+    if (cached) return cached;
+    const fromDir = readJsonDirAll(dirName);
+    let items;
+    if (Array.isArray(fromDir)) {
+        items = fromDir;
+    } else {
+        try {
+            const arr = JSON.parse(fs.readFileSync(entityLegacyFile(dirName), 'utf-8'));
+            items = Array.isArray(arr) ? arr : [];
+        } catch { items = []; }
+    }
+    _cacheSetCollection(dirName, items);
+    // Return a clone so callers can mutate freely.
+    return _cloneArray(items);
+}
+
+// Pick a stable, filesystem-safe filename stem for an item.
+// Prefer `key` for human-readable lookups (people/companies/places),
+// fall back to `id`. Generate one if neither is present.
+function itemStem(item, idField) {
+    if (idField && item && item[idField] !== undefined && item[idField] !== '') {
+        const s = sanitizeItemFilename(item[idField]);
+        if (s) return s;
+    }
+    if (item && item.key) {
+        const s = sanitizeItemFilename(item.key);
+        if (s) return s;
+    }
+    if (item && item.id !== undefined && item.id !== '') {
+        const s = sanitizeItemFilename(item.id);
+        if (s) return s;
+    }
+    return 'x' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+// Write the entire collection by syncing the folder: create/update one
+// file per item and remove any orphaned files. Matches the semantics
+// of the old `saveX(array)` calls (bulk replace).
+function syncCollection(dirName, items, idField) {
+    const dir = entityDir(dirName);
+    fs.mkdirSync(dir, { recursive: true });
+    const wantFiles = new Set();
+    const usedStems = new Set();
+    for (const item of (items || [])) {
+        let stem = itemStem(item, idField);
+        // Avoid stem collisions across items (e.g. two people sharing a
+        // key after a merge). Append a short suffix if needed.
+        while (usedStems.has(stem)) {
+            stem = stem + '_' + Math.random().toString(36).slice(2, 5);
+        }
+        usedStems.add(stem);
+        const fname = stem + '.json';
+        wantFiles.add(fname);
+        fs.writeFileSync(path.join(dir, fname), JSON.stringify(item, null, 2), 'utf-8');
+    }
+    // Prune orphans.
+    let existing;
+    try { existing = fs.readdirSync(dir); } catch { existing = []; }
+    for (const fname of existing) {
+        if (!fname.endsWith('.json')) continue;
+        if (!wantFiles.has(fname)) {
+            try { fs.unlinkSync(path.join(dir, fname)); } catch {}
+        }
+    }
+    _cacheInvalidateCollection(dirName);
+}
+
 function loadTasks() {
-    try { return JSON.parse(fs.readFileSync(tasksFile(), 'utf-8')); }
-    catch { return []; }
+    return loadCollection('tasks').filter(t => !t.deleted);
+}
+
+function loadAllTasks() {
+    // Includes tombstoned (deleted:true) entries; used so that
+    // <inline-task> references in old notes can still resolve a task
+    // text and render as "deleted".
+    return loadCollection('tasks');
 }
 
 function saveTasks(tasks) {
-    fs.writeFileSync(tasksFile(), JSON.stringify(tasks, null, 2), 'utf-8');
+    syncCollection('tasks', tasks, 'id');
+}
+
+// Extract every task id referenced by an inline marker in a note's content.
+// Recognises {{?<id>}} (open) and {{!<id>}} (closed). The pre-save
+// {{X}} form is not included here — those create new tasks (see save flow)
+// and are rewritten to {{?<newId>}} before this runs.
+function extractTaskRefs(content) {
+    const ids = new Set();
+    if (typeof content !== 'string' || !content) return ids;
+    const re = /\{\{[!?]\s*([^{}\s]+)\s*\}\}/g;
+    let m;
+    while ((m = re.exec(content)) !== null) ids.add(m[1]);
+    return ids;
+}
+
+// Reconcile the list of notes that reference each task. `noteRef` is the
+// canonical "<week>/<file>" string. `contentOnDisk` is the post-save
+// content of that note. Walks all (non-deleted) tasks and:
+//   - adds noteRef to t.noteRefs if the content has a marker for t.id
+//   - removes noteRef from t.noteRefs if the content has no such marker
+// Persists once if anything changed.
+function syncTaskNoteRefs(noteRef, contentOnDisk) {
+    if (!noteRef) return;
+    const referencedIds = extractTaskRefs(contentOnDisk);
+    const all = loadAllTasks();
+    let changed = false;
+    for (const t of all) {
+        if (!t || !t.id) continue;
+        const refs = Array.isArray(t.noteRefs) ? t.noteRefs.slice() : [];
+        const has = refs.includes(noteRef);
+        const should = referencedIds.has(t.id);
+        if (should && !has) {
+            refs.push(noteRef);
+            t.noteRefs = refs;
+            changed = true;
+        } else if (!should && has) {
+            t.noteRefs = refs.filter(r => r !== noteRef);
+            changed = true;
+        }
+    }
+    if (changed) saveTasks(all);
+}
+
+// Strip a noteRef from every task's noteRefs (used when a note is deleted).
+function clearTaskNoteRef(noteRef) {
+    if (!noteRef) return;
+    const all = loadAllTasks();
+    let changed = false;
+    for (const t of all) {
+        if (!t || !Array.isArray(t.noteRefs)) continue;
+        if (t.noteRefs.includes(noteRef)) {
+            t.noteRefs = t.noteRefs.filter(r => r !== noteRef);
+            changed = true;
+        }
+    }
+    if (changed) saveTasks(all);
+}
+
+// Standalone scanner that walks every weekly note in the active context,
+// rebuilds each task's `noteRefs` from scratch, and writes them back.
+// Lives in scripts/rebuild-task-refs.js so it can also be run from the
+// CLI (e.g. for one-off backfills).
+const { rebuild: rebuildTaskNoteRefsScript } = require('./scripts/rebuild-task-refs.js');
+function rebuildTaskNoteRefs() {
+    let dir;
+    try { dir = dataDir(); } catch { return null; }
+    if (!dir) return null;
+    const summary = rebuildTaskNoteRefsScript(dir);
+    // The script writes individual task files directly; invalidate the
+    // in-memory tasks cache so subsequent loadTasks() picks up the new
+    // noteRefs.
+    try { _cacheInvalidateCollection('tasks'); } catch {}
+    return summary;
 }
 
 function loadPeople() {
-    try {
-        const all = JSON.parse(fs.readFileSync(peopleFile(), 'utf-8'));
-        return Array.isArray(all) ? all.filter(p => !p.deleted) : [];
-    }
-    catch { return []; }
+    const all = loadCollection('people');
+    return all.filter(p => !p.deleted);
 }
 
 function loadAllPeople() {
     // Includes tombstoned (deleted:true) entries; used by syncMentions
     // to avoid auto-recreating people that the user explicitly deleted.
-    try { return JSON.parse(fs.readFileSync(peopleFile(), 'utf-8')); }
-    catch { return []; }
+    return loadCollection('people');
 }
 
 function savePeople(people) {
-    fs.writeFileSync(peopleFile(), JSON.stringify(people, null, 2), 'utf-8');
+    syncCollection('people', people, 'key');
 }
 
 function loadMeetings() {
-    try { return JSON.parse(fs.readFileSync(meetingsFile(), 'utf-8')); }
-    catch { return []; }
+    return loadCollection('meetings');
 }
 
 function saveMeetings(meetings) {
-    fs.writeFileSync(meetingsFile(), JSON.stringify(meetings, null, 2), 'utf-8');
+    syncCollection('meetings', meetings, 'id');
 }
 
 function loadCompanies() {
-    try {
-        const all = JSON.parse(fs.readFileSync(companiesFile(), 'utf-8'));
-        return Array.isArray(all) ? all.filter(c => !c.deleted) : [];
-    } catch { return []; }
+    return loadCollection('companies').filter(c => !c.deleted);
 }
 function loadAllCompanies() {
-    try { return JSON.parse(fs.readFileSync(companiesFile(), 'utf-8')); }
-    catch { return []; }
+    return loadCollection('companies');
 }
 function saveCompanies(companies) {
-    fs.writeFileSync(companiesFile(), JSON.stringify(companies, null, 2), 'utf-8');
+    syncCollection('companies', companies, 'key');
 }
 
 function loadPlaces() {
-    try {
-        const all = JSON.parse(fs.readFileSync(placesFile(), 'utf-8'));
-        return Array.isArray(all) ? all.filter(p => !p.deleted) : [];
-    } catch { return []; }
+    return loadCollection('places').filter(p => !p.deleted);
 }
 function loadAllPlaces() {
-    try { return JSON.parse(fs.readFileSync(placesFile(), 'utf-8')); }
-    catch { return []; }
+    return loadCollection('places');
 }
 function savePlaces(places) {
-    fs.writeFileSync(placesFile(), JSON.stringify(places, null, 2), 'utf-8');
+    syncCollection('places', places, 'key');
 }
 
 const DEFAULT_MEETING_TYPES = [
@@ -886,37 +1197,73 @@ function syncMentions(...texts) {
 }
 
 function loadResults() {
-    try { return JSON.parse(fs.readFileSync(resultsFile(), 'utf-8')); }
-    catch { return []; }
+    return loadCollection('results');
 }
 
 function saveResults(results) {
-    fs.writeFileSync(resultsFile(), JSON.stringify(results, null, 2), 'utf-8');
+    syncCollection('results', results, 'id');
 }
 
-// Extract [bracketed text] from a note, return { results: string[], cleanNote: string }
+// Extract [bracketed text] from a note, return { results: string[], cleanNote: string }.
+// Skips reference forms ([[?<id>]] / [[!<id>]]) — those refer to existing
+// results and should not be re-created.
 function extractResults(noteText) {
     if (!noteText) return { results: [], cleanNote: noteText || '' };
     const extracted = [];
-    // [[X]] — double-bracket result marker. Inner text becomes a new
-    // result entity, the brackets are stripped on save (keeps inner text).
-    const clean = noteText.replace(/\[\[([^\[\]]+)\]\]/g, (_, inner) => {
+    const clean = noteText.replace(/\[\[([^\[\]]+)\]\]/g, (m, inner) => {
         const trimmed = inner.trim();
+        if (trimmed.startsWith('?') || trimmed.startsWith('!')) return m;
         if (trimmed) extracted.push(trimmed);
         return trimmed;
     });
     return { results: extracted, cleanNote: clean };
 }
 
+// On EXPLICIT save, transform [[X]] markers into linked [[?<id>]] markers,
+// creating the underlying result entities. Mirrors the task pipeline ({{X}}
+// → {{?<id>}}). Returns { text, createdIds, createdCount }. Reference forms
+// already in the text are left untouched.
+function processInlineResults(text, week, extraFields) {
+    if (!text) return { text: text || '', createdIds: [], createdCount: 0 };
+    const noteMentions = extractMentions(text);
+    const created = [];
+    const out = text.replace(/\[\[([^\[\]]+)\]\]/g, (m, inner) => {
+        const trimmed = inner.trim();
+        if (!trimmed) return m;
+        if (trimmed.startsWith('?') || trimmed.startsWith('!')) return m;
+        const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+        const textMentions = extractMentions(trimmed);
+        const allMentions = [...new Set([...noteMentions, ...textMentions])];
+        const rec = {
+            id,
+            text: trimmed,
+            week,
+            people: allMentions,
+            created: new Date().toISOString(),
+        };
+        if (extraFields && typeof extraFields === 'object') Object.assign(rec, extraFields);
+        created.push(rec);
+        return `[[?${id}]]`;
+    });
+    if (created.length > 0) {
+        const all = loadResults();
+        for (const r of created) all.push(r);
+        saveResults(all);
+    }
+    return { text: out, createdIds: created.map(r => r.id), createdCount: created.length };
+}
+
 // {{X}} — double-brace task marker. Inner text becomes a new task entity,
-// the braces are stripped on save (keeps inner text).
+// the braces are stripped on save (keeps inner text). The two reference
+// forms ({{?<id>}} for open, {{!<id>}} for closed) are NOT new-task
+// markers and are skipped.
 function extractInlineTasks(noteText) {
     if (!noteText) return { tasks: [], cleanNote: noteText || '' };
     const extracted = [];
     const clean = noteText.replace(/\{\{([^{}]+)\}\}/g, (m, inner) => {
-        // Close markers ({{!id}}) are handled separately by extractCloseMarkers.
-        if (inner.trim().startsWith('!')) return m;
         const trimmed = inner.trim();
+        // Skip reference forms — they refer to existing tasks.
+        if (trimmed.startsWith('!') || trimmed.startsWith('?')) return m;
         if (trimmed) extracted.push(trimmed);
         return trimmed;
     });
@@ -987,30 +1334,138 @@ function syncTaskNote(task, rawNote, allTasks) {
 }
 
 function loadNotesMeta() {
-    try { return JSON.parse(fs.readFileSync(notesMetaFile(), 'utf-8')); }
-    catch { return {}; }
+    const ctx = getActiveContext();
+    const bucket = _ctxCacheBucket(ctx);
+    if (bucket && bucket.notesMeta) {
+        // Shallow-clone keys so callers can mutate.
+        const out = {};
+        for (const k of Object.keys(bucket.notesMeta)) out[k] = { ...bucket.notesMeta[k] };
+        return out;
+    }
+    // New layout: notes-meta/<week>/<file>.json. Falls back to legacy
+    // single-file notes-meta.json for unmigrated contexts.
+    const dir = notesMetaDir();
+    let result;
+    if (fs.existsSync(dir)) {
+        result = {};
+        let weekDirs;
+        try { weekDirs = fs.readdirSync(dir, { withFileTypes: true }); }
+        catch { weekDirs = []; }
+        for (const wd of weekDirs) {
+            if (!wd.isDirectory()) continue;
+            const wdir = path.join(dir, wd.name);
+            let files;
+            try { files = fs.readdirSync(wdir); } catch { continue; }
+            for (const fname of files) {
+                if (!fname.endsWith('.json')) continue;
+                const noteFile = fname.slice(0, -5);
+                try {
+                    result[wd.name + '/' + noteFile] = JSON.parse(fs.readFileSync(path.join(wdir, fname), 'utf-8'));
+                } catch {}
+            }
+        }
+    } else {
+        try { result = JSON.parse(fs.readFileSync(notesMetaFile(), 'utf-8')); }
+        catch { result = {}; }
+    }
+    if (bucket) {
+        // Cache a deep-ish copy.
+        const cached = {};
+        for (const k of Object.keys(result)) cached[k] = { ...result[k] };
+        bucket.notesMeta = cached;
+    }
+    return result;
 }
 
 function saveNotesMeta(meta) {
-    fs.writeFileSync(notesMetaFile(), JSON.stringify(meta, null, 2), 'utf-8');
+    // Bulk replace: write each entry as its own sidecar, prune any
+    // sidecars whose key isn't present in `meta`. Used only by the
+    // legacy code path that loads-mutates-saves the whole map.
+    const dir = notesMetaDir();
+    fs.mkdirSync(dir, { recursive: true });
+    const wantPaths = new Set();
+    for (const key of Object.keys(meta || {})) {
+        const slash = key.indexOf('/');
+        if (slash < 0) continue;
+        const week = key.slice(0, slash);
+        const file = key.slice(slash + 1);
+        const wdir = path.join(dir, week);
+        fs.mkdirSync(wdir, { recursive: true });
+        const fpath = path.join(wdir, file + '.json');
+        fs.writeFileSync(fpath, JSON.stringify(meta[key], null, 2), 'utf-8');
+        wantPaths.add(fpath);
+    }
+    // Prune orphan sidecars + empty week dirs.
+    let weekDirs;
+    try { weekDirs = fs.readdirSync(dir, { withFileTypes: true }); }
+    catch { weekDirs = []; }
+    for (const wd of weekDirs) {
+        if (!wd.isDirectory()) continue;
+        const wdir = path.join(dir, wd.name);
+        let files;
+        try { files = fs.readdirSync(wdir); } catch { continue; }
+        for (const fname of files) {
+            if (!fname.endsWith('.json')) continue;
+            const fpath = path.join(wdir, fname);
+            if (!wantPaths.has(fpath)) {
+                try { fs.unlinkSync(fpath); } catch {}
+            }
+        }
+        try {
+            if (fs.readdirSync(wdir).length === 0) fs.rmdirSync(wdir);
+        } catch {}
+    }
+    // Drop the legacy single-file once we've migrated to sidecars.
+    try { if (fs.existsSync(notesMetaFile())) fs.unlinkSync(notesMetaFile()); } catch {}
+    _cacheInvalidateNotesMeta();
 }
 
 function getNoteMeta(week, file) {
-    const meta = loadNotesMeta();
-    return meta[week + '/' + file] || {};
+    // Cache-fast path: read from the in-memory map if present.
+    const ctx = getActiveContext();
+    const bucket = _ctxCacheBucket(ctx);
+    if (bucket && bucket.notesMeta) {
+        const v = bucket.notesMeta[week + '/' + file];
+        if (v) return { ...v };
+    }
+    // Read the sidecar directly when present — O(1) lookup.
+    try {
+        return JSON.parse(fs.readFileSync(notesMetaSidecarPath(week, file), 'utf-8'));
+    } catch {}
+    // Fallback: scan the legacy single-file shape if the sidecar
+    // doesn't exist (unmigrated context).
+    if (fs.existsSync(notesMetaFile())) {
+        const meta = loadNotesMeta();
+        return meta[week + '/' + file] || {};
+    }
+    return {};
 }
 
 function setNoteMeta(week, file, data) {
-    const meta = loadNotesMeta();
-    const key = week + '/' + file;
-    meta[key] = { ...(meta[key] || {}), ...data };
-    saveNotesMeta(meta);
+    const cur = getNoteMeta(week, file);
+    const merged = { ...cur, ...data };
+    const fpath = notesMetaSidecarPath(week, file);
+    fs.mkdirSync(path.dirname(fpath), { recursive: true });
+    fs.writeFileSync(fpath, JSON.stringify(merged, null, 2), 'utf-8');
+    _cacheInvalidateNotesMeta();
 }
 
 function deleteNoteMeta(week, file) {
-    const meta = loadNotesMeta();
-    delete meta[week + '/' + file];
-    saveNotesMeta(meta);
+    try { fs.unlinkSync(notesMetaSidecarPath(week, file)); } catch {}
+    // Tidy empty week dir.
+    try {
+        const wdir = path.join(notesMetaDir(), week);
+        if (fs.readdirSync(wdir).length === 0) fs.rmdirSync(wdir);
+    } catch {}
+    // Legacy fallback: also strip the entry from the single-file map.
+    if (fs.existsSync(notesMetaFile())) {
+        try {
+            const meta = JSON.parse(fs.readFileSync(notesMetaFile(), 'utf-8'));
+            delete meta[week + '/' + file];
+            fs.writeFileSync(notesMetaFile(), JSON.stringify(meta, null, 2), 'utf-8');
+        } catch {}
+    }
+    _cacheInvalidateNotesMeta();
 }
 
 // Convert a UTC ISO timestamp to local-time { date: "YYYY-MM-DD", time: "HH:MM" }.
@@ -1056,7 +1511,9 @@ function getCalendarActivity(startIso, endIso) {
         for (const key of Object.keys(meta || {})) {
             const m = meta[key];
             if (!m) continue;
-            const ts = m.modified || (Array.isArray(m.saves) && m.saves.length ? m.saves[m.saves.length - 1] : null);
+            const lastSave = Array.isArray(m.saves) && m.saves.length ? m.saves[m.saves.length - 1] : null;
+            const lastSaveTs = lastSave && typeof lastSave === 'object' ? lastSave.at : lastSave;
+            const ts = m.modified || lastSaveTs;
             const dt = isoToLocalDateTime(ts);
             if (!dt) continue;
             if (dt.date < startIso || dt.date > endIso) continue;
@@ -1709,10 +2166,13 @@ function pageHtml(title, body, extraNavLinks, opts) {
             document.title = titleMatch[1];
             html = html.replace(titleMatch[0], '');
         }
-        content.innerHTML = html;
+        // Push state BEFORE inserting the new content so custom elements
+        // that read location.pathname during connectedCallback see the
+        // new URL, not the previous one.
         if (pushPath) {
             history.pushState({ spa: true }, '', pushPath);
         }
+        content.innerHTML = html;
         // Notify the rest of the app that content changed.
         document.dispatchEvent(new CustomEvent('spa:navigated', { detail: { path: location.pathname } }));
     }
@@ -1784,8 +2244,14 @@ document.addEventListener('keydown',function(e){
 // Global "?" hotkey opens the help modal (skip when typing in inputs).
 document.addEventListener('keydown', function(e){
     if (e.key !== '?' || e.ctrlKey || e.metaKey || e.altKey) return;
-    var t = e.target;
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    // Shadow DOM retargets e.target to the host, so walk the composed
+    // path to find any actual input/textarea/contentEditable.
+    var path = (typeof e.composedPath === 'function') ? e.composedPath() : [e.target];
+    for (var i = 0; i < path.length; i++) {
+        var n = path[i];
+        if (!n || !n.tagName) continue;
+        if (n.tagName === 'INPUT' || n.tagName === 'TEXTAREA' || n.isContentEditable) return;
+    }
     var hm = document.querySelector('help-modal');
     if (hm && typeof hm.open === 'function') { e.preventDefault(); hm.open(); }
 });
@@ -1843,33 +2309,32 @@ document.addEventListener('keydown', function(e){
     });
 
     // Note actions. <week-section> emits "note:*"; bare <note-card>s emit unprefixed.
-    function splitFp(detail){
-        var fp = (detail && detail.filePath) || '';
-        var i = fp.indexOf('/');
-        if (i < 0) return null;
-        return { week: fp.slice(0, i), fileEnc: fp.slice(i + 1) };
+    // Detail shape: { week, file } (raw filename, NOT URI-encoded).
+    function readWF(detail){
+        if (!detail || !detail.week || !detail.file) return null;
+        return { week: detail.week, file: detail.file, fileEnc: encodeURIComponent(detail.file) };
     }
     function handleView(e){
-        var p = splitFp(e.detail); if (!p) return;
+        var p = readWF(e.detail); if (!p) return;
         e.preventDefault();
         if (typeof window.openNoteViewModal === 'function') window.openNoteViewModal(p.week, p.fileEnc);
         else go('/note/' + p.week + '/' + p.fileEnc);
     }
     function handlePresent(e){
-        var p = splitFp(e.detail); if (!p) return;
+        var p = readWF(e.detail); if (!p) return;
         e.preventDefault();
         if (typeof window.openPresentation === 'function') window.openPresentation(p.week, p.fileEnc);
         else window.open('/present/' + p.week + '/' + p.fileEnc + '?fs=1', '_blank');
     }
     function handleEdit(e){
-        var p = splitFp(e.detail); if (!p) return;
+        var p = readWF(e.detail); if (!p) return;
         e.preventDefault();
         go('/editor/' + p.week + '/' + p.fileEnc);
     }
     function handleDelete(e){
-        var p = splitFp(e.detail); if (!p) return;
+        var p = readWF(e.detail); if (!p) return;
         e.preventDefault();
-        var name = decodeURIComponent(p.fileEnc).replace(/\.md$/, '');
+        var name = p.file.replace(/\.md$/, '');
         if (typeof window.deleteNoteFromHome === 'function') window.deleteNoteFromHome(p.week, p.fileEnc, name);
     }
     document.addEventListener('view', handleView);
@@ -1904,6 +2369,20 @@ document.addEventListener('keydown', function(e){
     document.addEventListener('task:uncompleted', function(e){
         notify('task-open-list', 'taskUncompleted', e.detail || {});
         notify('task-completed', 'taskUncompleted', e.detail || {});
+    });
+
+    //   <inline-task> emits 'task-closed' (bubbles + composed) when the
+    //   user toggles a checkbox in a rendered note. Forward to the
+    //   standard task:completed/uncompleted events so every list
+    //   refreshes via its existing method.
+    document.addEventListener('task-closed', function(e){
+        var d = e.detail || {};
+        var id = d.taskId;
+        if (!id) return;
+        var ev = d.done ? 'task:completed' : 'task:uncompleted';
+        document.dispatchEvent(new CustomEvent(ev, {
+            bubbles: true, detail: { id: id },
+        }));
     });
 
     //   <task-completed> emits 'task-completed:undo' when the user clicks
@@ -2002,20 +2481,24 @@ document.addEventListener('keydown', function(e){
     };
     window['week-note-services'] = registry;
     window.WeekNoteServices = registry;
+    window.mePersonKey = ${JSON.stringify(getMePersonKey(getActiveContext()) || '')};
+
     document.dispatchEvent(new CustomEvent('week-note-services:ready', { detail: registry }));
 </script>
 <script type="module" src="/components/nav-meta.js"></script>
 <script type="module" src="/components/nav-button.js"></script>
 <script type="module" src="/components/ctx-switcher.js"></script>
 <script type="module" src="/components/markdown-preview.js"></script>
+<script type="module" src="/components/modal-container.js"></script>
 <script type="module" src="/components/help-modal.js"></script>
 <script type="module" src="/components/note-card.js"></script>
 <script type="module" src="/components/note-meta-view.js"></script>
+<script type="module" src="/components/note-meta-panel.js"></script>
 <script type="module" src="/components/note-view.js"></script>
 <script type="module" src="/components/note-editor.js"></script>
 <script type="module" src="/components/task-open-list.js"></script>
 <script type="module" src="/components/task-create.js"></script>
-<script type="module" src="/components/task-complete-modal.js"></script>
+<script type="module" src="/components/task-add-modal.js"></script>
 <script type="module" src="/components/upcoming-meetings.js"></script>
 <script type="module" src="/components/today-calendar.js"></script>
 <script type="module" src="/components/meeting-create.js"></script>
@@ -2035,6 +2518,8 @@ document.addEventListener('keydown', function(e){
 <script type="module" src="/components/entity-callout.js"></script>
 <script type="module" src="/components/entity-mention.js"></script>
 <script type="module" src="/components/inline-action.js"></script>
+<script type="module" src="/components/inline-task.js"></script>
+<script type="module" src="/components/inline-result.js"></script>
 <script type="module" src="/components/icon-picker.js"></script>
 <script type="module" src="/components/tag-editor.js"></script>
 <script type="module" src="/components/people-page.js"></script>
@@ -2370,14 +2855,55 @@ function escapeHtml(str) {
 
 // Replace @name in already-escaped/rendered HTML with a link to /people (no @).
 // Uses people + companies registries for display name and type-specific anchor.
+// Markdown pre-processor for task reference markers.
+// Behaviour:
+//   - A run of 2+ adjacent '{{?id}}'/'{{!id}}' markers (separated
+//     only by whitespace) is rewritten as an ordered task list, so
+//     marked renders a single <ol> with one <inline-task> per item.
+//   - A single marker is left inline as raw <inline-task> HTML,
+//     which marked passes through inside the surrounding paragraph.
+function preTaskMarkers(md) {
+    if (!md) return md;
+    const taskTag = (kind, id) => {
+        const state = kind === '!' ? 'done' : 'open';
+        return `<inline-task task-id="${escapeHtml(id)}" state="${state}"></inline-task>`;
+    };
+    // Match runs of 2+ markers separated only by whitespace.
+    const runRe = /\{\{[!?][^{}\s]+\}\}(?:\s+\{\{[!?][^{}\s]+\}\})+/g;
+    let out = md.replace(runRe, run => {
+        const items = run.match(/\{\{([!?])([^{}\s]+)\}\}/g) || [];
+        const lines = items.map(m => {
+            const km = m.match(/\{\{([!?])([^{}\s]+)\}\}/);
+            return `1. ${taskTag(km[1], km[2])}`;
+        }).join('\n');
+        return `\n\n${lines}\n\n`;
+    });
+    // Remaining single markers stay inline.
+    out = out.replace(/\{\{([!?])([^{}\s]+)\}\}/g, (_m, kind, id) => taskTag(kind, id));
+    return out;
+}
+
 function linkMentions(html, people, companies) {
     if (!html) return html;
     people = people || loadPeople();
     companies = companies || loadCompanies();
-    let out = html.replace(/\{\{([^{}]+)\}\}/g, (_m, inner) => {
+    // Reference forms first: {{?<id>}} (open) and {{!<id>}} (closed).
+    // These render as interactive checkboxes via <inline-task>. When
+    // the input is raw markdown, preTaskMarkers (called before marked)
+    // already converted these into '1. <inline-task...>' list items;
+    // this branch handles cases where linkMentions runs without the
+    // pre-step (e.g. mentions inside task text).
+    let out = html.replace(/\{\{([!?])([^{}\s]+)\}\}/g, (_m, kind, id) => {
+        const state = kind === '!' ? 'done' : 'open';
+        return `<inline-task task-id="${escapeHtml(id)}" state="${state}"></inline-task>`;
+    });
+    out = out.replace(/\{\{([^{}]+)\}\}/g, (_m, inner) => {
         const t = inner.trim();
         if (!t) return '';
         return `<inline-action kind="task" label="${escapeHtml(t)}"></inline-action>`;
+    });
+    out = out.replace(/\[\[\?([^\[\]\s]+)\]\]/g, (_m, id) => {
+        return `<inline-result result-id="${escapeHtml(id)}"></inline-result>`;
     });
     out = out.replace(/\[\[([^\[\]]+)\]\]/g, (_m, inner) => {
         const t = inner.trim();
@@ -2385,13 +2911,24 @@ function linkMentions(html, people, companies) {
         return `<inline-action kind="result" label="${escapeHtml(t)}"></inline-action>`;
     });
     return out.replace(/(^|[\s\n(\[>])@([a-zA-ZæøåÆØÅ][a-zA-ZæøåÆØÅ0-9_-]*)/g, (m, pre, name) => {
-        const lc = name.toLowerCase();
+        let lc = name.toLowerCase();
+        let displayName = name;
+        if (lc === 'me') {
+            // Server-side substitution: @me → mapped person key for the active context.
+            // Mapping lives in data/user.json (per-machine, outside any context's git).
+            const mapped = getMePersonKey(getActiveContext());
+            if (!mapped) {
+                return pre + `<entity-mention kind="person" key="" label="@me"></entity-mention>`;
+            }
+            lc = mapped;
+            displayName = mapped;
+        }
         const c = companies.find(x => x.key === lc);
         if (c) {
-            return pre + `<entity-mention kind="company" key="${escapeHtml(c.key)}" label="${escapeHtml(c.name || name)}"></entity-mention>`;
+            return pre + `<entity-mention kind="company" key="${escapeHtml(c.key)}" label="${escapeHtml(c.name || displayName)}"></entity-mention>`;
         }
-        const p = people.find(x => x.name === name || x.key === lc);
-        const display = p ? (p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : p.name) : name;
+        const p = people.find(x => x.name === displayName || x.key === lc);
+        const display = p ? (p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : p.name) : displayName;
         const key = p ? (p.key || (p.name || '').toLowerCase()) : lc;
         return pre + `<entity-mention kind="person" key="${escapeHtml(key)}" label="${escapeHtml(display)}"></entity-mention>`;
     });
@@ -2528,6 +3065,85 @@ function extractNoteRelations(text) {
     return out;
 }
 
+// Extract structured cross-entity references from a note's raw text.
+// Returns { tasks, results, meetings, people, companies, places } where
+// each is a sorted, deduped list of stable IDs/keys. Used by setNoteMeta
+// in /api/save-note so each note's sidecar carries a manifest of what
+// it references — feeds the relations panel and per-entity backlinks.
+function computeNoteReferences(text) {
+    const refs = { tasks: [], results: [], meetings: [], people: [], companies: [], places: [] };
+    if (!text) return refs;
+
+    // Task reference markers: {{!id}} (closed) and {{?id}} (open).
+    const taskIds = new Set();
+    let m;
+    const taskRefRe = /\{\{[!?]([^{}\s]+)\}\}/g;
+    while ((m = taskRefRe.exec(text)) !== null) taskIds.add(m[1].trim());
+
+    // Result reference markers: [[?id]] (linked) and [[label]] (legacy /
+    // pre-save). Linked form maps directly to an id; label form falls back
+    // to text-matching against existing results.
+    const resultIds = new Set();
+    const resultRefRe = /\[\[\?([^\[\]\s]+)\]\]/g;
+    while ((m = resultRefRe.exec(text)) !== null) resultIds.add(m[1].trim());
+
+    const resultLabels = [];
+    const resultLabelRe = /\[\[([^\[\]]+)\]\]/g;
+    while ((m = resultLabelRe.exec(text)) !== null) {
+        const t = m[1].trim();
+        if (!t || t.startsWith('?') || t.startsWith('!')) continue;
+        resultLabels.push(t);
+    }
+    if (resultLabels.length > 0) {
+        try {
+            const all = loadResults();
+            const byText = new Map();
+            for (const r of all) {
+                if (!r || !r.text) continue;
+                byText.set(String(r.text).trim().toLowerCase(), r.id);
+            }
+            for (const lbl of resultLabels) {
+                const id = byText.get(lbl.toLowerCase());
+                if (id) resultIds.add(id);
+            }
+        } catch {}
+    }
+
+    // @mentions resolve to one of: company, person, place. Companies win
+    // first (linkMentions does the same), then people, then places.
+    const mentionNames = extractMentions(text);
+    const peopleKeys = new Set();
+    const companyKeys = new Set();
+    const placeKeys = new Set();
+    if (mentionNames.length > 0) {
+        let people = [], companies = [], places = [];
+        try { people = loadPeople(); } catch {}
+        try { companies = loadCompanies(); } catch {}
+        try { places = loadPlaces(); } catch {}
+        const compByKey = new Map(companies.filter(c => !c.deleted).map(c => [c.key, c]));
+        const placeByKey = new Map(places.filter(p => !p.deleted).map(p => [p.key, p]));
+        for (const name of mentionNames) {
+            const lc = name.toLowerCase();
+            if (compByKey.has(lc)) { companyKeys.add(lc); continue; }
+            const p = people.find(x => x.name === name || x.key === lc);
+            if (p) { peopleKeys.add(p.key || lc); continue; }
+            if (placeByKey.has(lc)) { placeKeys.add(lc); continue; }
+            // Unresolved mention — syncMentions will create a person
+            // stub elsewhere; record the lowercased name so later lookups
+            // can still find it.
+            peopleKeys.add(lc);
+        }
+    }
+
+    refs.tasks = [...taskIds].sort();
+    refs.results = [...resultIds].sort();
+    refs.meetings = [];
+    refs.people = [...peopleKeys].sort();
+    refs.companies = [...companyKeys].sort();
+    refs.places = [...placeKeys].sort();
+    return refs;
+}
+
 function buildEmbedDocs() {
     // Whole-record vectors for v1 (no chunking). Each doc gets a stable
     // key + content hash so the worker only re-embeds what changed.
@@ -2537,7 +3153,7 @@ function buildEmbedDocs() {
     // Notes
     try {
         const dRoot = dataDir();
-        const notesMeta = (function(){ try { return JSON.parse(fs.readFileSync(notesMetaFile(), 'utf-8')); } catch { return {}; } })();
+        const notesMeta = loadNotesMeta();
         for (const e of fs.readdirSync(dRoot, { withFileTypes: true })) {
             if (!e.isDirectory() || !/^\d{4}-W\d{2}$/.test(e.name)) continue;
             const wkDir = path.join(dRoot, e.name);
@@ -3758,13 +4374,998 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
         res.end(html);
     }
 
+    function renderDataShapesDebug(req, res, selectedSlug) {
+        // Schemas live as standalone JSON files under schemas/.
+        // schemas/index.json maps each disk path → its schema file.
+        let index;
+        try {
+            index = JSON.parse(fs.readFileSync(path.join(__dirname, 'schemas', 'index.json'), 'utf8'));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+            res.end('Could not read schemas/index.json: ' + (e.message || e));
+            return;
+        }
+        // Build slug → entry map. Slug = the file basename without .schema.json.
+        const entries = index.map(e => Object.assign({ slug: e.file.replace(/\.schema\.json$/, '') }, e));
+        if (!selectedSlug) {
+            res.writeHead(302, { Location: `/debug/data-shapes/${entries[0].slug}` });
+            res.end();
+            return;
+        }
+        if (selectedSlug === '_er') {
+            return renderDataShapesER(req, res, entries);
+        }
+        const current = entries.find(e => e.slug === selectedSlug);
+        if (!current) {
+            res.writeHead(404, { 'Content-Type': 'text/plain' });
+            res.end('Unknown data shape: ' + selectedSlug);
+            return;
+        }
+        let schema;
+        try {
+            schema = JSON.parse(fs.readFileSync(path.join(__dirname, 'schemas', current.file), 'utf8'));
+        } catch (e) {
+            schema = { error: 'Could not read ' + current.file + ': ' + (e.message || e) };
+        }
+
+        // Render a JSON Schema as a friendly HTML tree. Recurses through
+        // properties / items / oneOf / additionalProperties / definitions.
+        function typeBadge(s) {
+            if (!s || typeof s !== 'object') return '';
+            if (Array.isArray(s.type)) return s.type.join(' | ');
+            if (s.type) return s.type;
+            if (s.enum) return 'enum';
+            if (s.oneOf) return 'oneOf';
+            if (s.anyOf) return 'anyOf';
+            if (s.$ref) return s.$ref.replace(/^#\/definitions\//, '$');
+            return 'any';
+        }
+        function constraints(s) {
+            const c = [];
+            if (s.format)   c.push('format: ' + s.format);
+            if (s.pattern)  c.push('pattern: ' + s.pattern);
+            if (s.minimum != null) c.push('≥ ' + s.minimum);
+            if (s.maximum != null) c.push('≤ ' + s.maximum);
+            if (s.minItems != null || s.maxItems != null) {
+                c.push('items: ' + (s.minItems != null ? s.minItems : '*') + '..' + (s.maxItems != null ? s.maxItems : '*'));
+            }
+            if (s.default !== undefined) c.push('default: ' + JSON.stringify(s.default));
+            if (s.enum) c.push('one of: ' + s.enum.map(v => JSON.stringify(v)).join(', '));
+            if (s.contentMediaType) c.push('media: ' + s.contentMediaType);
+            return c;
+        }
+        function renderSchema(s, opts) {
+            opts = opts || {};
+            if (!s || typeof s !== 'object') return '';
+            const required = new Set(Array.isArray(s.required) ? s.required : []);
+            const out = [];
+
+            const desc = s.description ? `<div class="sd-desc">${escapeHtml(s.description)}</div>` : '';
+            const cons = constraints(s);
+            const consHtml = cons.length ? `<div class="sd-cons">${cons.map(c => `<span class="sd-con">${escapeHtml(c)}</span>`).join('')}</div>` : '';
+
+            if (s.$ref) {
+                out.push(`<div class="sd-ref">→ ${escapeHtml(s.$ref)}</div>`);
+            }
+
+            if (s.type === 'object' || s.properties || s.additionalProperties) {
+                if (desc) out.push(desc);
+                if (consHtml) out.push(consHtml);
+                if (s.properties) {
+                    out.push('<ul class="sd-props">');
+                    for (const [k, v] of Object.entries(s.properties)) {
+                        const isReq = required.has(k);
+                        out.push(`<li class="sd-prop">
+                            <div class="sd-row">
+                                <span class="sd-key">${escapeHtml(k)}</span>
+                                <span class="sd-type">${escapeHtml(typeBadge(v))}</span>
+                                ${isReq ? '<span class="sd-req">required</span>' : ''}
+                            </div>
+                            ${renderSchema(v, { nested: true })}
+                        </li>`);
+                    }
+                    out.push('</ul>');
+                }
+                if (s.additionalProperties && typeof s.additionalProperties === 'object') {
+                    out.push(`<div class="sd-addl"><span class="sd-key">&lt;any key&gt;</span> <span class="sd-type">${escapeHtml(typeBadge(s.additionalProperties))}</span>${renderSchema(s.additionalProperties, { nested: true })}</div>`);
+                }
+            } else if (s.type === 'array' || s.items) {
+                if (desc) out.push(desc);
+                if (consHtml) out.push(consHtml);
+                if (s.items) {
+                    out.push(`<div class="sd-items"><span class="sd-key">items</span> <span class="sd-type">${escapeHtml(typeBadge(s.items))}</span>${renderSchema(s.items, { nested: true })}</div>`);
+                }
+            } else if (s.oneOf || s.anyOf) {
+                if (desc) out.push(desc);
+                if (consHtml) out.push(consHtml);
+                const which = s.oneOf ? 'oneOf' : 'anyOf';
+                out.push(`<div class="sd-oneof"><span class="sd-key">${which}</span><ol>`);
+                for (const v of (s.oneOf || s.anyOf)) {
+                    out.push(`<li><span class="sd-type">${escapeHtml(typeBadge(v))}</span>${renderSchema(v, { nested: true })}</li>`);
+                }
+                out.push('</ol></div>');
+            } else {
+                if (desc) out.push(desc);
+                if (consHtml) out.push(consHtml);
+            }
+
+            // Definitions (only at the top level, but render if present)
+            if (s.definitions && !opts.nested) {
+                out.push('<div class="sd-defs"><h4>Definitions</h4>');
+                for (const [k, v] of Object.entries(s.definitions)) {
+                    out.push(`<div class="sd-def"><div class="sd-row"><span class="sd-key">$${escapeHtml(k)}</span> <span class="sd-type">${escapeHtml(typeBadge(v))}</span></div>${renderSchema(v, { nested: true })}</div>`);
+                }
+                out.push('</div>');
+            }
+
+            return out.join('');
+        }
+
+        const html = `<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="utf-8">
+    <title>Debug · data shapes</title>
+    <link rel="stylesheet" href="/themes/paper.css">
+    <script type="module" src="/components/json-table.js"></script>
+    <style>
+        body { font-family: var(--font-family, -apple-system, sans-serif); font-size: var(--font-size, 16px); margin: 0; line-height: 1.55; color: var(--text-strong); background: var(--bg); }
+        .dbg-page { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+        .dbg-side { background: var(--surface-head); border-right: 1px solid var(--border-faint); padding: 16px 14px; position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto; }
+        .dbg-side h2 { font-family: Georgia, serif; color: var(--accent); margin: 0 0 10px; font-size: 1.05em; }
+        .dbg-nav { display: flex; flex-direction: column; gap: 2px; }
+        .dbg-nav a { display: block; padding: 6px 10px; border-radius: 4px; color: var(--text); text-decoration: none; font-family: ui-monospace, monospace; font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .dbg-nav a:hover { background: var(--surface-alt); }
+        .dbg-nav a.active { background: var(--accent); color: var(--text-on-accent, white); }
+        .dbg-head h1 { font-family: Georgia, serif; color: var(--accent); font-size: 1.4em; margin: 0 0 4px; }
+        .dbg-head .desc { color: var(--text-muted); font-size: 0.9em; margin-bottom: 14px; }
+
+        .shape { background: var(--surface); border: 1px solid var(--border-faint); border-radius: 8px; padding: 14px 18px; margin-bottom: 22px; }
+        .shape h2 { margin: 0 0 4px; font-family: ui-monospace, monospace; color: var(--accent); font-size: 1em; word-break: break-all; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .shape h2 .raw-link { font-size: 0.78em; font-weight: normal; color: var(--text-subtle); text-decoration: none; border: 1px solid var(--border-faint); border-radius: 4px; padding: 2px 8px; }
+        .shape h2 .raw-link:hover { color: var(--accent); border-color: var(--accent); }
+        .shape .scope { display: inline-block; font-size: 0.74em; color: var(--text-muted); background: var(--surface-alt); padding: 2px 8px; border-radius: 10px; margin-bottom: 6px; }
+        .shape .desc { color: var(--text-muted); font-size: 0.9em; margin: 4px 0 10px; }
+
+        .shape-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-faint); margin-bottom: 10px; }
+        .shape-tab { background: transparent; border: 1px solid transparent; border-bottom: none; color: var(--text-muted); cursor: pointer; padding: 6px 14px; border-radius: 6px 6px 0 0; font: inherit; margin-bottom: -1px; }
+        .shape-tab.active { background: var(--surface); border-color: var(--border-faint); color: var(--accent); font-weight: 600; }
+
+        .shape-pane[hidden] { display: none; }
+        .shape pre { margin: 0; padding: 12px 14px; background: var(--surface-head, #f6f6f6); border: 1px solid var(--border-faint); border-radius: 6px; font-family: ui-monospace, monospace; font-size: 0.82em; line-height: 1.45; white-space: pre-wrap; word-break: break-word; max-height: 540px; overflow: auto; }
+        .shape-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+        .shape-save, .shape-save-table { background: var(--accent); color: var(--text-on-accent, white); border: 1px solid var(--accent); padding: 6px 14px; border-radius: 4px; cursor: pointer; font: inherit; font-size: 0.9em; }
+        .shape-save:hover, .shape-save-table:hover { filter: brightness(1.08); }
+        .shape-status { font-size: 0.85em; color: var(--text-muted); }
+        .shape-status.ok { color: #2a8a3e; }
+        .shape-status.err { color: #c0392b; }
+        .shape-json[contenteditable="true"] { outline: none; cursor: text; }
+        .shape-json[contenteditable="true"]:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(74,144,226,0.18); }
+
+        /* Schema tree */
+        .sd-props, .sd-oneof ol { list-style: none; padding-left: 18px; margin: 4px 0; border-left: 1px dashed var(--border-faint); }
+        .sd-prop, .sd-def, .sd-items, .sd-addl, .sd-oneof > ol > li { padding: 4px 0 4px 8px; }
+        .sd-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .sd-key { font-family: ui-monospace, monospace; font-weight: 600; color: var(--text-strong); }
+        .sd-type { font-family: ui-monospace, monospace; font-size: 0.78em; color: #1d4ed8; background: #e6f0ff; padding: 1px 6px; border-radius: 4px; }
+        .sd-req { font-size: 0.7em; font-weight: 700; color: #b91c1c; background: #fee2e2; padding: 1px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+        .sd-desc { color: var(--text-muted); font-size: 0.86em; margin: 2px 0 4px 0; }
+        .sd-cons { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 4px 0; }
+        .sd-con { font-family: ui-monospace, monospace; font-size: 0.74em; color: var(--text-subtle); background: var(--surface-alt); padding: 1px 6px; border-radius: 4px; }
+        .sd-ref { font-family: ui-monospace, monospace; font-size: 0.82em; color: var(--accent); }
+        .sd-defs { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border-faint); }
+        .sd-defs h4 { margin: 0 0 6px; font-family: Georgia, serif; color: var(--accent); font-size: 0.95em; }
+    </style>
+</head>
+<body>
+<div class="dbg-page">
+    <aside class="dbg-side">
+        <h2>Data shapes</h2>
+        <nav class="dbg-nav">
+            <a href="/debug/data-shapes/_er" class="${'_er' === current.slug ? 'active' : ''}">🗺 ER-diagram</a>
+            ${entries.map(e => `<a href="/debug/data-shapes/${escapeHtml(e.slug)}" class="${e.slug === current.slug ? 'active' : ''}" title="${escapeHtml(e.path)}">${escapeHtml(e.slug)}</a>`).join('')}
+        </nav>
+        <h2 style="margin-top:18px">Other</h2>
+        <nav class="dbg-nav">
+            <a href="/debug">← components</a>
+            <a href="/debug/services">services</a>
+        </nav>
+    </aside>
+    <main class="dbg-main">
+        <div class="dbg-head">
+            <h1>Disk data shapes</h1>
+            <p class="desc">Hand-written JSON Schema (draft-07) for every JSON file persisted under <code>data/</code>. Schemas live as standalone files in <code>schemas/</code> &mdash; edit them there.</p>
+        </div>
+        <section class="shape" id="${escapeHtml(current.path)}">
+            <h2>${escapeHtml(current.path)} <a class="raw-link" href="/debug/schemas/${escapeHtml(current.file)}">schemas/${escapeHtml(current.file)}</a></h2>
+            <span class="scope">${escapeHtml(current.scope)}</span>
+            <p class="desc">${escapeHtml(current.desc)}</p>
+            <div class="shape-tabs">
+                <button type="button" class="shape-tab active" data-pane="tree">Felter</button>
+                <button type="button" class="shape-tab" data-pane="table">Tabell</button>
+                <button type="button" class="shape-tab" data-pane="raw">Rå JSON Schema</button>
+            </div>
+            <div class="shape-pane" data-pane="tree">${renderSchema(schema)}</div>
+            <div class="shape-pane" data-pane="table" hidden>
+                <div class="shape-toolbar">
+                    <button type="button" class="shape-save-table" data-file="${escapeHtml(current.file)}">💾 Lagre</button>
+                    <span class="shape-status" data-for="table-${escapeHtml(current.file)}"></span>
+                </div>
+                <div id="shape-table-host"></div>
+            </div>
+            <div class="shape-pane" data-pane="raw" hidden>
+                <div class="shape-toolbar">
+                    <button type="button" class="shape-save" data-file="${escapeHtml(current.file)}">💾 Lagre</button>
+                    <span class="shape-status" data-for="${escapeHtml(current.file)}"></span>
+                </div>
+                <pre class="shape-json" contenteditable="true" spellcheck="false">${escapeHtml(JSON.stringify(schema, null, 2))}</pre>
+            </div>
+        </section>
+    </main>
+</div>
+<script>
+    document.querySelectorAll('.shape-tabs').forEach(function(group){
+        group.addEventListener('click', function(ev){
+            var btn = ev.target.closest('.shape-tab');
+            if (!btn) return;
+            var pane = btn.dataset.pane;
+            group.querySelectorAll('.shape-tab').forEach(function(b){ b.classList.toggle('active', b === btn); });
+            document.querySelectorAll('.shape-pane').forEach(function(p){
+                p.hidden = p.dataset.pane !== pane;
+            });
+        });
+    });
+    document.querySelectorAll('.shape-save').forEach(function(btn){
+        btn.addEventListener('click', async function(){
+            var file = btn.dataset.file;
+            var pre = btn.closest('.shape-pane').querySelector('.shape-json');
+            var status = document.querySelector('.shape-status[data-for="' + file + '"]');
+            var text = pre.innerText;
+            try { JSON.parse(text); } catch (e) {
+                status.textContent = '❌ Ugyldig JSON: ' + e.message;
+                status.className = 'shape-status err';
+                return;
+            }
+            status.textContent = '⏳ Lagrer…';
+            status.className = 'shape-status';
+            try {
+                var r = await fetch('/debug/schemas/' + file, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: text
+                });
+                var data = await r.json();
+                if (r.ok && data.ok) {
+                    status.textContent = '✓ Lagret';
+                    status.className = 'shape-status ok';
+                } else {
+                    status.textContent = '❌ ' + (data.error || ('HTTP ' + r.status));
+                    status.className = 'shape-status err';
+                }
+            } catch (e) {
+                status.textContent = '❌ ' + e.message;
+                status.className = 'shape-status err';
+            }
+        });
+    });
+
+    // ---- Tabell tab: feed the raw schema directly into <json-table>.
+    // Top-level scalar edits mutate SCHEMA in place; nested objects/arrays
+    // render as nested tables (read-only).
+    (function(){
+        var SCHEMA = ${JSON.stringify(schema).replace(/</g, '\\u003c')};
+        var FILE = ${JSON.stringify(current.file)};
+        var host = document.getElementById('shape-table-host');
+        if (!host) return;
+
+        var table = document.createElement('json-table');
+        table.setAttribute('editable', '');
+        table.setAttribute('max-height', '540px');
+        host.appendChild(table);
+        customElements.whenDefined('json-table').then(function(){
+            table.data = SCHEMA;
+        });
+
+        var statusKey = 'table-' + FILE;
+        var status = document.querySelector('.shape-status[data-for="' + statusKey + '"]');
+        var saveBtn = document.querySelector('.shape-save-table[data-file="' + FILE + '"]');
+
+        if (saveBtn) {
+            saveBtn.addEventListener('click', async function(){
+                status.textContent = '⏳ Lagrer…';
+                status.className = 'shape-status';
+                try {
+                    var r = await fetch('/debug/schemas/' + FILE, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(SCHEMA, null, 2),
+                    });
+                    var data = await r.json();
+                    if (r.ok && data.ok) {
+                        status.textContent = '✓ Lagret';
+                        status.className = 'shape-status ok';
+                    } else {
+                        status.textContent = '❌ ' + (data.error || ('HTTP ' + r.status));
+                        status.className = 'shape-status err';
+                    }
+                } catch (e) {
+                    status.textContent = '❌ ' + e.message;
+                    status.className = 'shape-status err';
+                }
+            });
+        }
+    })();
+</script>
+</body>
+</html>`;
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(html);
+    }
+
+    function renderDataShapesER(req, res, entries) {
+        let diagram;
+        try {
+            diagram = JSON.parse(fs.readFileSync(path.join(__dirname, 'schemas', 'diagram.json'), 'utf8'));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+            res.end('Could not read schemas/diagram.json: ' + (e.message || e));
+            return;
+        }
+        const vb = diagram.viewBox || [0, 0, 1200, 800];
+        const ents = diagram.entities || [];
+        const edges = diagram.edges || [];
+        const byKey = {};
+        ents.forEach(e => { byKey[e.slug] = e; });
+
+        // For each edge, pick the closest pair of box edges as endpoints.
+        function endpoints(a, b) {
+            const ax = a.x + a.w / 2, ay = a.y + a.h / 2;
+            const bx = b.x + b.w / 2, by = b.y + b.h / 2;
+            // Pick a side based on dominant direction.
+            const dx = bx - ax, dy = by - ay;
+            let p1, p2;
+            if (Math.abs(dx) > Math.abs(dy)) {
+                if (dx > 0) { p1 = { x: a.x + a.w, y: ay }; p2 = { x: b.x,        y: by }; }
+                else        { p1 = { x: a.x,       y: ay }; p2 = { x: b.x + b.w, y: by }; }
+            } else {
+                if (dy > 0) { p1 = { x: ax, y: a.y + a.h }; p2 = { x: bx, y: b.y        }; }
+                else        { p1 = { x: ax, y: a.y       }; p2 = { x: bx, y: b.y + b.h  }; }
+            }
+            return { p1, p2 };
+        }
+
+        // SVG row height for entity field rows.
+        const HEAD_H = 26;
+        const ROW_H = 18;
+
+        function entitySvg(e) {
+            const slug = e.slug;
+            const labelY = e.y + 18;
+            const fields = (e.fields || []).slice(0, Math.max(0, Math.floor((e.h - HEAD_H - 6) / ROW_H)));
+            const rows = fields.map((f, i) => {
+                const isPk = (e.pk && (f === e.pk || (e.pk === 'key' && f === 'key') || (e.pk === 'id' && f === 'id')));
+                const cls = isPk ? 'er-field er-pk' : 'er-field';
+                return `<text class="${cls}" x="${e.x + 10}" y="${e.y + HEAD_H + i * ROW_H + 13}">${escapeHtml(f)}${isPk ? ' 🔑' : ''}</text>`;
+            }).join('');
+            const linkSlug = entries.find(en => en.slug === slug || en.slug === slug + 's' || (en.path || '').endsWith(slug + '.json'));
+            const href = linkSlug ? `/debug/data-shapes/${linkSlug.slug}` : null;
+            const open = href ? `<a href="${escapeHtml(href)}">` : '';
+            const close = href ? '</a>' : '';
+            return `<g class="er-entity">
+                ${open}
+                <rect x="${e.x}" y="${e.y}" width="${e.w}" height="${e.h}" rx="6" ry="6" class="er-box"></rect>
+                <line x1="${e.x}" y1="${e.y + HEAD_H}" x2="${e.x + e.w}" y2="${e.y + HEAD_H}" class="er-divider"/>
+                <text class="er-label" x="${e.x + 10}" y="${labelY}">${escapeHtml(e.label || slug)}</text>
+                ${rows}
+                ${close}
+            </g>`;
+        }
+
+        const edgeSvg = edges.map((ed, i) => {
+            const a = byKey[ed.from], b = byKey[ed.to];
+            if (!a || !b) return '';
+            const { p1, p2 } = endpoints(a, b);
+            const mx = (p1.x + p2.x) / 2;
+            const my = (p1.y + p2.y) / 2;
+            return `<g class="er-edge">
+                <path d="M ${p1.x} ${p1.y} L ${p2.x} ${p2.y}" class="er-line" marker-end="url(#er-arrow)"/>
+                <text class="er-edge-label" x="${mx}" y="${my - 4}" text-anchor="middle">${escapeHtml(ed.label || '')}</text>
+            </g>`;
+        }).join('');
+
+        const sidebar = `<aside class="dbg-side">
+            <h2>Data shapes</h2>
+            <nav class="dbg-nav">
+                <a href="/debug/data-shapes/_er" class="active">🗺 ER-diagram</a>
+                ${entries.map(e => `<a href="/debug/data-shapes/${escapeHtml(e.slug)}" title="${escapeHtml(e.path)}">${escapeHtml(e.slug)}</a>`).join('')}
+            </nav>
+            <h2 style="margin-top:18px">Other</h2>
+            <nav class="dbg-nav">
+                <a href="/debug">← components</a>
+                <a href="/debug/services">services</a>
+            </nav>
+        </aside>`;
+
+        const html = `<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="utf-8">
+    <title>Debug · ER diagram</title>
+    <link rel="stylesheet" href="/themes/paper.css">
+    <style>
+        body { font-family: var(--font-family, -apple-system, sans-serif); font-size: var(--font-size, 16px); margin: 0; line-height: 1.55; color: var(--text-strong); background: var(--bg); }
+        .dbg-page { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+        .dbg-side { background: var(--surface-head); border-right: 1px solid var(--border-faint); padding: 16px 14px; position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto; }
+        .dbg-side h2 { font-family: Georgia, serif; color: var(--accent); margin: 0 0 10px; font-size: 1.05em; }
+        .dbg-nav { display: flex; flex-direction: column; gap: 2px; }
+        .dbg-nav a { display: block; padding: 6px 10px; border-radius: 4px; color: var(--text); text-decoration: none; font-family: ui-monospace, monospace; font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .dbg-nav a:hover { background: var(--surface-alt); }
+        .dbg-nav a.active { background: var(--accent); color: var(--text-on-accent, white); }
+        .dbg-main { padding: 20px 26px; }
+        .dbg-head h1 { font-family: Georgia, serif; color: var(--accent); font-size: 1.4em; margin: 0 0 4px; }
+        .dbg-head .desc { color: var(--text-muted); font-size: 0.9em; margin-bottom: 14px; }
+        .er-wrap { background: var(--surface); border: 1px solid var(--border-faint); border-radius: 8px; padding: 8px; overflow: auto; }
+        svg.er { display: block; min-width: 100%; height: auto; background: var(--surface-alt, #fafafa); border-radius: 6px; }
+        .er-box { fill: var(--surface, white); stroke: var(--accent, #4a90e2); stroke-width: 1.4; }
+        .er-divider { stroke: var(--border-faint, #ddd); stroke-width: 1; }
+        .er-label { font-family: Georgia, serif; font-size: 14px; font-weight: 700; fill: var(--accent); }
+        .er-field { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; fill: var(--text-strong); }
+        .er-pk { font-weight: 700; }
+        .er-line { fill: none; stroke: var(--text-muted, #888); stroke-width: 1.2; }
+        .er-edge:hover .er-line { stroke: var(--accent); stroke-width: 2; }
+        .er-edge-label { font-family: ui-monospace, monospace; font-size: 10px; fill: var(--text-muted); paint-order: stroke; stroke: var(--surface-alt, #fafafa); stroke-width: 3; }
+        .er-edge:hover .er-edge-label { fill: var(--accent); }
+        .er-entity a { cursor: pointer; }
+        .er-entity:hover .er-box { stroke-width: 2.4; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.12)); }
+        .legend { margin-top: 10px; color: var(--text-muted); font-size: 0.84em; }
+    </style>
+</head>
+<body>
+<div class="dbg-page">
+    ${sidebar}
+    <main class="dbg-main">
+        <div class="dbg-head">
+            <h1>ER-diagram · disk data</h1>
+            <p class="desc">Entiteter og relasjoner mellom JSON-filene under <code>data/</code>. Layout og kanter ligger i <code>schemas/diagram.json</code>. Klikk på en boks for å åpne det aktuelle skjemaet.</p>
+        </div>
+        <div class="er-wrap">
+            <svg class="er" viewBox="${vb.join(' ')}" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <marker id="er-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                        <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--text-muted, #888)"/>
+                    </marker>
+                </defs>
+                ${edgeSvg}
+                ${ents.map(entitySvg).join('')}
+            </svg>
+        </div>
+        <p class="legend">🔑 = primær-/lookup-nøkkel · piler peker fra refererende felt mot målentitetens nøkkel.</p>
+    </main>
+</div>
+</body>
+</html>`;
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(html);
+    }
+
+    // Raw schema files: /debug/schemas/<file>.schema.json (GET + PUT)
+    if (pathname.startsWith('/debug/schemas/') && pathname.endsWith('.schema.json')) {
+        const slug = pathname.slice('/debug/schemas/'.length);
+        if (slug.includes('/') || slug.includes('..')) { res.writeHead(400); res.end('Bad'); return; }
+        const filePath = path.join(__dirname, 'schemas', slug);
+        if (req.method === 'PUT') {
+            let body = '';
+            req.on('data', c => body += c);
+            req.on('end', () => {
+                try {
+                    const parsed = JSON.parse(body || '{}');
+                    const pretty = JSON.stringify(parsed, null, 2) + '\n';
+                    fs.writeFileSync(filePath, pretty);
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ ok: true }));
+                } catch (e) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ ok: false, error: e.message || String(e) }));
+                }
+            });
+            return;
+        }
+        try {
+            const data = fs.readFileSync(filePath);
+            res.writeHead(200, { 'Content-Type': 'application/schema+json; charset=utf-8', 'Cache-Control': 'no-cache' });
+            res.end(data);
+        } catch (e) {
+            res.writeHead(404, { 'Content-Type': 'text/plain' });
+            res.end('Not found');
+        }
+        return;
+    }
+
+    if (pathname === '/debug/tests/scenarios.js') {
+        try {
+            const data = fs.readFileSync(path.join(__dirname, 'tests', 'scenarios.js'));
+            res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache' });
+            res.end(data);
+        } catch (e) {
+            res.writeHead(404); res.end('Not found');
+        }
+        return;
+    }
+    if (pathname === '/debug/tests/last-run.json') {
+        try {
+            const data = fs.readFileSync(path.join(__dirname, 'tests', '.last-run.json'));
+            res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' });
+            res.end(data);
+        } catch (e) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'no last run found' }));
+        }
+        return;
+    }
+
+    function renderTestsDebug(req, res) {
+        const html = `<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="utf-8">
+    <title>Debug · tests</title>
+    <link rel="stylesheet" href="/themes/paper.css">
+    <link rel="stylesheet" href="/style.css">
+    <style>
+        .dbg-shell { display: grid; grid-template-columns: 240px 1fr; gap: 18px; padding: 18px; max-width: 1400px; margin: 0 auto; }
+        .dbg-side { border-right: 1px solid var(--border-faint); padding-right: 14px; }
+        .dbg-side h2 { font-family: Georgia, serif; color: var(--accent); font-size: 1em; margin: 8px 0 6px; }
+        .dbg-group-label { font-size: 0.78em; color: var(--text-muted); margin: 12px 0 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+        .dbg-nav { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+        .dbg-nav a { color: var(--text); text-decoration: none; padding: 3px 6px; border-radius: 4px; font-size: 0.92em; }
+        .dbg-nav a:hover { background: var(--surface-alt); color: var(--accent); }
+        .dbg-nav a.active { background: var(--accent); color: var(--text-on-accent); }
+        .dbg-main { min-width: 0; }
+        h1 { font-family: Georgia, serif; color: var(--accent); margin: 0 0 4px; }
+        .lede { color: var(--text-muted); margin: 0 0 16px; }
+        .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+        .toolbar button { font: inherit; padding: 6px 14px; border: 1px solid var(--border); background: var(--surface); color: var(--text-strong); border-radius: 6px; cursor: pointer; }
+        .toolbar button.primary { background: var(--accent); color: var(--text-on-accent); border-color: var(--accent); }
+        .toolbar button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .summary { font-size: 0.92em; color: var(--text-muted); margin-left: auto; }
+        .summary .pass { color: #1a7f37; font-weight: 600; }
+        .summary .fail { color: #c0392b; font-weight: 600; }
+        .summary .pending { color: var(--text-muted); }
+        .scenarios { display: flex; flex-direction: column; gap: 14px; }
+        .sc-group { display: flex; flex-direction: column; gap: 4px; }
+        .sc-group-head { display: flex; align-items: baseline; gap: 8px; padding: 4px 2px; border-bottom: 1px solid var(--border-faint); margin-bottom: 4px; }
+        .sc-group-name { font-family: ui-monospace, monospace; font-size: 0.92em; color: var(--accent); font-weight: 600; }
+        .sc-group-count { font-size: 0.78em; color: var(--text-muted); }
+        .sc-group-link { margin-left: auto; font-size: 0.78em; color: var(--text-muted); text-decoration: none; }
+        .sc-group-link:hover { color: var(--accent); text-decoration: underline; }
+        .sc { display: grid; grid-template-columns: 80px 1fr 80px 160px; gap: 10px; align-items: start; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border-faint); border-radius: 6px; }
+        .sc.idle .sc-status { color: var(--text-muted); }
+        .sc.running .sc-status { color: #b8860b; }
+        .sc.pass { border-left: 3px solid #1a7f37; }
+        .sc.pass .sc-status { color: #1a7f37; font-weight: 600; }
+        .sc.fail { border-left: 3px solid #c0392b; }
+        .sc.fail .sc-status { color: #c0392b; font-weight: 600; }
+        .sc-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .sc-meta .sc-name { font-weight: 500; color: var(--text-strong); }
+        .sc-meta .sc-id { font-family: ui-monospace, monospace; font-size: 0.8em; color: var(--text-muted); }
+        .sc-meta .sc-url { font-family: ui-monospace, monospace; font-size: 0.78em; color: var(--text-muted); }
+        .sc-meta .sc-error { font-family: ui-monospace, monospace; font-size: 0.8em; color: #c0392b; background: #fef0ed; padding: 6px 8px; border-radius: 4px; margin-top: 4px; white-space: pre-wrap; word-break: break-word; }
+        .sc-time { font-family: ui-monospace, monospace; font-size: 0.85em; color: var(--text-muted); text-align: right; }
+        .sc-action { display: flex; gap: 4px; justify-content: flex-end; flex-wrap: wrap; }
+        .sc-action button { font: inherit; font-size: 0.85em; padding: 4px 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text-strong); border-radius: 4px; cursor: pointer; }
+        .sc-action button:hover { background: var(--surface-alt); }
+        .sc-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: none; align-items: center; justify-content: center; z-index: 1000; }
+        .sc-modal-backdrop.open { display: flex; }
+        .sc-modal { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; width: min(960px, 94vw); max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 10px 40px rgba(0,0,0,0.3); }
+        .sc-modal-head { padding: 12px 16px; border-bottom: 1px solid var(--border-faint); display: flex; align-items: baseline; gap: 10px; }
+        .sc-modal-head h3 { margin: 0; font-family: Georgia, serif; color: var(--accent); font-size: 1.1em; }
+        .sc-modal-head .sc-modal-id { font-family: ui-monospace, monospace; font-size: 0.85em; color: var(--text-muted); }
+        .sc-modal-head .sc-modal-close { margin-left: auto; font: inherit; font-size: 1.2em; padding: 0 8px; background: transparent; border: 0; cursor: pointer; color: var(--text-muted); }
+        .sc-modal-body { padding: 12px 16px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+        .sc-modal-body label { font-size: 0.82em; color: var(--text-muted); display: flex; flex-direction: column; gap: 4px; }
+        .sc-modal-body input, .sc-modal-body textarea { font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-alt); color: var(--text); }
+        .sc-modal-body textarea { font-family: ui-monospace, monospace; font-size: 0.86em; min-height: 320px; resize: vertical; tab-size: 4; }
+        .sc-modal-foot { padding: 10px 16px; border-top: 1px solid var(--border-faint); display: flex; gap: 8px; align-items: center; }
+        .sc-modal-foot .spacer { flex: 1; }
+        .sc-modal-foot button { font: inherit; padding: 6px 14px; border: 1px solid var(--border); background: var(--surface); color: var(--text-strong); border-radius: 6px; cursor: pointer; }
+        .sc-modal-foot button.primary { background: var(--accent); color: var(--text-on-accent); border-color: var(--accent); }
+        .sc-modal-foot .sc-modal-msg { font-size: 0.85em; color: var(--text-muted); }
+        .sc-modal-foot .sc-modal-msg.err { color: #c0392b; }
+        .sc-modal-foot .sc-modal-msg.ok { color: #1a7f37; }
+        .sc-modal-note { font-size: 0.78em; color: var(--text-muted); font-style: italic; }
+        #runner-iframe { position: fixed; left: -9999px; top: 0; width: 1200px; height: 800px; border: 0; }
+        .pw-card { margin-top: 24px; background: var(--surface); border: 1px solid var(--border-faint); border-radius: 6px; padding: 12px 14px; }
+        .pw-card h3 { margin: 0 0 6px; color: var(--accent); font-family: Georgia, serif; font-size: 1.05em; }
+        .pw-meta { font-size: 0.88em; color: var(--text-muted); margin-bottom: 8px; }
+        .pw-list { display: flex; flex-direction: column; gap: 4px; font-family: ui-monospace, monospace; font-size: 0.84em; }
+        .pw-pass { color: #1a7f37; }
+        .pw-fail { color: #c0392b; }
+        .pw-skip { color: var(--text-muted); }
+        .pw-note { color: var(--text-muted); font-style: italic; }
+    </style>
+    <script defer src="/debug/_mock-services.js"></script>
+    <script defer src="/debug/tests/scenarios.js"></script>
+</head>
+<body>
+    <div class="dbg-shell">
+        <aside class="dbg-side">
+            <h2>Other</h2>
+            <nav class="dbg-nav">
+                <a href="/debug/services">services</a>
+                <a href="/debug/data-shapes">data shapes</a>
+                <a href="/debug/tests" class="active">tests</a>
+            </nav>
+            <p style="font-size:0.82em;color:var(--text-muted);margin-top:14px">
+                Scenarios are defined in
+                <code style="font-family:ui-monospace,monospace">tests/scenarios.js</code>
+                and run both here (in iframes) and via Playwright.
+            </p>
+        </aside>
+        <main class="dbg-main">
+            <h1>UI test scenarios</h1>
+            <p class="lede">Component-level scenarios that drive the <code>/debug/&lt;component&gt;</code> playground pages with mock services. Click <strong>Run all</strong> to execute every scenario in a hidden iframe; the same scenarios run via <code>npm test</code> under Playwright.</p>
+
+            <div class="toolbar">
+                <button id="run-all" class="primary" type="button">▶ Run all</button>
+                <button id="run-failed" type="button" disabled>Run failed only</button>
+                <span class="summary" id="summary"></span>
+            </div>
+
+            <div class="scenarios" id="scenarios"></div>
+
+            <div class="pw-card" id="pw-card">
+                <h3>Last Playwright run</h3>
+                <div class="pw-meta" id="pw-meta">Loading…</div>
+                <div class="pw-list" id="pw-list"></div>
+            </div>
+        </main>
+    </div>
+
+    <iframe id="runner-iframe" src="about:blank" sandbox="allow-scripts allow-same-origin"></iframe>
+
+    <div class="sc-modal-backdrop" id="sc-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="sc-modal-title">
+        <div class="sc-modal">
+            <div class="sc-modal-head">
+                <h3 id="sc-modal-title">Scenario details</h3>
+                <span class="sc-modal-id" id="sc-modal-id"></span>
+                <button type="button" class="sc-modal-close" id="sc-modal-close" title="Lukk (Esc)">✕</button>
+            </div>
+            <div class="sc-modal-body">
+                <label>Name <input type="text" id="sc-modal-name" readonly></label>
+                <label>URL <input type="text" id="sc-modal-url" readonly></label>
+                <label>run(ctx) — edit and Apply to swap in-memory; reload page to revert
+                    <textarea id="sc-modal-src" spellcheck="false"></textarea>
+                </label>
+                <p class="sc-modal-note">Edits live only in this browser tab. To persist, copy the source back into <code>tests/scenarios.js</code>.</p>
+            </div>
+            <div class="sc-modal-foot">
+                <button type="button" id="sc-modal-apply">Apply</button>
+                <button type="button" id="sc-modal-run" class="primary">Apply &amp; Run</button>
+                <span class="sc-modal-msg" id="sc-modal-msg"></span>
+                <span class="spacer"></span>
+                <button type="button" id="sc-modal-cancel">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    (function () {
+        function $(id) { return document.getElementById(id); }
+        function el(tag, cls, txt) { var e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; }
+        function fmtMs(ms) { return ms == null ? '' : (ms < 1000 ? ms + ' ms' : (ms / 1000).toFixed(2) + ' s'); }
+
+        function ready(fn) {
+            if (window.WN_TEST_SCENARIOS) return fn();
+            var poll = setInterval(function () {
+                if (window.WN_TEST_SCENARIOS) { clearInterval(poll); fn(); }
+            }, 30);
+        }
+
+        var iframe = $('runner-iframe');
+        var resultsByID = Object.create(null);
+
+        function groupOf(s) {
+            // Derive group name from the scenario URL: "/debug/<slug>" → "<slug>".
+            var m = /^\\/debug\\/([^/?#]+)/.exec(s.url || '');
+            return m ? m[1] : 'other';
+        }
+
+        function renderScenarios() {
+            var host = $('scenarios');
+            host.textContent = '';
+            // Group scenarios by URL slug, preserving first-seen order.
+            var order = [];
+            var byGroup = Object.create(null);
+            window.WN_TEST_SCENARIOS.forEach(function (s) {
+                var g = groupOf(s);
+                if (!byGroup[g]) { byGroup[g] = []; order.push(g); }
+                byGroup[g].push(s);
+            });
+
+            order.forEach(function (g) {
+                var groupEl = el('div', 'sc-group');
+                groupEl.dataset.group = g;
+                var head = el('div', 'sc-group-head');
+                head.appendChild(el('span', 'sc-group-name', g));
+                head.appendChild(el('span', 'sc-group-count', byGroup[g].length + (byGroup[g].length === 1 ? ' scenario' : ' scenarios')));
+                var link = el('a', 'sc-group-link', '/debug/' + g + ' ↗');
+                link.href = '/debug/' + g;
+                link.target = '_blank';
+                link.rel = 'noopener';
+                head.appendChild(link);
+                groupEl.appendChild(head);
+
+                byGroup[g].forEach(function (s) {
+                    var prev = resultsByID[s.id] || { status: 'idle' };
+                    var row = el('div', 'sc ' + prev.status);
+                    row.dataset.id = s.id;
+
+                    var status = el('div', 'sc-status', prev.status === 'idle' ? '— idle' : prev.status);
+                    row.appendChild(status);
+
+                    var meta = el('div', 'sc-meta');
+                    meta.appendChild(el('div', 'sc-name', s.name));
+                    meta.appendChild(el('div', 'sc-id', s.id));
+                    meta.appendChild(el('div', 'sc-url', s.url));
+                    if (prev.error) {
+                        meta.appendChild(el('div', 'sc-error', prev.error));
+                    }
+                    row.appendChild(meta);
+
+                    row.appendChild(el('div', 'sc-time', fmtMs(prev.ms)));
+
+                    var actCell = el('div', 'sc-action');
+                    var btn = el('button', null, 'Run');
+                    btn.type = 'button';
+                    btn.addEventListener('click', function () { runOne(s); });
+                    actCell.appendChild(btn);
+
+                    var dbtn = el('button', null, 'Details');
+                    dbtn.type = 'button';
+                    dbtn.addEventListener('click', function () { openDetails(s); });
+                    actCell.appendChild(dbtn);
+
+                    row.appendChild(actCell);
+
+                    groupEl.appendChild(row);
+                });
+
+                host.appendChild(groupEl);
+            });
+            updateSummary();
+        }
+
+        function updateSummary() {
+            var total = window.WN_TEST_SCENARIOS.length;
+            var passed = 0, failed = 0, pending = 0;
+            window.WN_TEST_SCENARIOS.forEach(function (s) {
+                var r = resultsByID[s.id];
+                if (!r || r.status === 'idle') pending++;
+                else if (r.status === 'pass') passed++;
+                else if (r.status === 'fail') failed++;
+            });
+            var sm = $('summary');
+            sm.innerHTML = '';
+            sm.appendChild(el('span', 'pass', passed + ' passed'));
+            sm.appendChild(document.createTextNode(' · '));
+            sm.appendChild(el('span', 'fail', failed + ' failed'));
+            sm.appendChild(document.createTextNode(' · '));
+            sm.appendChild(el('span', 'pending', pending + ' pending'));
+            sm.appendChild(document.createTextNode(' / ' + total));
+            $('run-failed').disabled = failed === 0;
+        }
+
+        function setRowStatus(id, status, extra) {
+            var r = document.querySelector('.sc[data-id="' + id + '"]');
+            if (!r) return;
+            r.classList.remove('idle','running','pass','fail');
+            r.classList.add(status);
+            r.querySelector('.sc-status').textContent = status === 'idle' ? '— idle' : status;
+            r.querySelector('.sc-time').textContent = fmtMs(extra && extra.ms);
+            var meta = r.querySelector('.sc-meta');
+            var oldErr = meta.querySelector('.sc-error');
+            if (oldErr) oldErr.remove();
+            if (extra && extra.error) {
+                meta.appendChild(el('div', 'sc-error', extra.error));
+            }
+        }
+
+        function loadIframe(url) {
+            return new Promise(function (resolve) {
+                function done() {
+                    iframe.removeEventListener('load', done);
+                    resolve(iframe);
+                }
+                iframe.addEventListener('load', done);
+                iframe.src = url;
+            });
+        }
+
+        function waitForMocks(win, timeout) {
+            timeout = timeout || 5000;
+            return new Promise(function (resolve, reject) {
+                var start = Date.now();
+                (function tick() {
+                    if (win.MockServices) return resolve();
+                    if (Date.now() - start > timeout) return reject(new Error('MockServices not loaded in iframe'));
+                    setTimeout(tick, 30);
+                })();
+            });
+        }
+
+        async function runOne(s) {
+            setRowStatus(s.id, 'running');
+            var t0 = performance.now();
+            try {
+                await loadIframe(s.url);
+                await waitForMocks(iframe.contentWindow);
+                var ctx = {
+                    doc: iframe.contentDocument,
+                    win: iframe.contentWindow,
+                    sleep: window.WN_TEST_HELPERS.sleep,
+                    waitFor: window.WN_TEST_HELPERS.waitFor,
+                    assert: window.WN_TEST_HELPERS.assert,
+                };
+                await s.run(ctx);
+                var ms = Math.round(performance.now() - t0);
+                resultsByID[s.id] = { status: 'pass', ms: ms };
+                setRowStatus(s.id, 'pass', { ms: ms });
+            } catch (e) {
+                var ms2 = Math.round(performance.now() - t0);
+                resultsByID[s.id] = { status: 'fail', ms: ms2, error: String(e && e.message || e) };
+                setRowStatus(s.id, 'fail', { ms: ms2, error: String(e && e.message || e) });
+            }
+            updateSummary();
+        }
+
+        async function runAll(filter) {
+            var btn = $('run-all'), btn2 = $('run-failed');
+            btn.disabled = true; btn2.disabled = true;
+            for (var i = 0; i < window.WN_TEST_SCENARIOS.length; i++) {
+                var s = window.WN_TEST_SCENARIOS[i];
+                if (filter && !filter(s)) continue;
+                await runOne(s);
+            }
+            btn.disabled = false;
+            updateSummary();
+        }
+
+        function loadLastPlaywrightRun() {
+            fetch('/debug/tests/last-run.json').then(function (r) {
+                if (!r.ok) return null;
+                return r.json();
+            }).then(function (data) {
+                var meta = $('pw-meta'), list = $('pw-list');
+                if (!data || data.error) {
+                    meta.textContent = 'No Playwright run found. Run \`npm test\` to generate.';
+                    return;
+                }
+                var stats = data.stats || {};
+                var startedAt = stats.startTime ? new Date(stats.startTime).toLocaleString() : 'unknown';
+                var duration = stats.duration ? (stats.duration / 1000).toFixed(2) + 's' : '?';
+                meta.innerHTML = '';
+                meta.appendChild(document.createTextNode('Run started ' + startedAt + ' · duration ' + duration + ' · '));
+                meta.appendChild(el('span', 'pw-pass', (stats.expected || 0) + ' passed'));
+                meta.appendChild(document.createTextNode(' · '));
+                meta.appendChild(el('span', 'pw-fail', (stats.unexpected || 0) + ' failed'));
+                if (stats.flaky) {
+                    meta.appendChild(document.createTextNode(' · '));
+                    meta.appendChild(el('span', 'pw-skip', stats.flaky + ' flaky'));
+                }
+                if (stats.skipped) {
+                    meta.appendChild(document.createTextNode(' · '));
+                    meta.appendChild(el('span', 'pw-skip', stats.skipped + ' skipped'));
+                }
+                list.textContent = '';
+                walkSuites(data.suites || [], function (test) {
+                    var status = test.outcome || (test.results && test.results[0] && test.results[0].status) || 'unknown';
+                    var cls = status === 'expected' || status === 'passed' ? 'pw-pass'
+                            : status === 'unexpected' || status === 'failed' ? 'pw-fail' : 'pw-skip';
+                    var icon = cls === 'pw-pass' ? '✓' : cls === 'pw-fail' ? '✗' : '○';
+                    var line = el('div', cls);
+                    line.textContent = icon + ' ' + test.title;
+                    list.appendChild(line);
+                });
+            }).catch(function () {
+                $('pw-meta').textContent = 'Could not load last run.';
+            });
+        }
+
+        function walkSuites(suites, visit) {
+            suites.forEach(function (s) {
+                (s.specs || []).forEach(function (spec) {
+                    (spec.tests || []).forEach(function (t) {
+                        visit({ title: spec.title, outcome: t.status === 'expected' ? 'expected' : (t.status === 'unexpected' ? 'unexpected' : t.status), results: t.results });
+                    });
+                });
+                if (s.suites) walkSuites(s.suites, visit);
+            });
+        }
+
+        $('run-all').addEventListener('click', function () { runAll(); });
+        $('run-failed').addEventListener('click', function () {
+            runAll(function (s) {
+                var r = resultsByID[s.id];
+                return r && r.status === 'fail';
+            });
+        });
+
+        // ───── Details modal ─────
+        var modalCurrent = null;
+
+        function setModalMsg(text, kind) {
+            var m = $('sc-modal-msg');
+            m.textContent = text || '';
+            m.className = 'sc-modal-msg' + (kind ? ' ' + kind : '');
+        }
+
+        function openDetails(s) {
+            modalCurrent = s;
+            $('sc-modal-id').textContent = s.id;
+            $('sc-modal-name').value = s.name || '';
+            $('sc-modal-url').value = s.url || '';
+            $('sc-modal-src').value = s.run ? s.run.toString() : '';
+            setModalMsg('');
+            $('sc-modal-backdrop').classList.add('open');
+        }
+
+        function closeDetails() {
+            $('sc-modal-backdrop').classList.remove('open');
+            modalCurrent = null;
+        }
+
+        function applyEdit() {
+            if (!modalCurrent) return false;
+            var src = $('sc-modal-src').value;
+            try {
+                // Wrap in parens so a leading "function" / "async function" / arrow is parsed as expression.
+                // eslint-disable-next-line no-eval
+                var fn = (0, eval)('(' + src + ')');
+                if (typeof fn !== 'function') throw new Error('Source did not evaluate to a function.');
+                modalCurrent.run = fn;
+                setModalMsg('Applied (in-memory only).', 'ok');
+                return true;
+            } catch (e) {
+                setModalMsg('Parse error: ' + (e && e.message || e), 'err');
+                return false;
+            }
+        }
+
+        $('sc-modal-close').addEventListener('click', closeDetails);
+        $('sc-modal-cancel').addEventListener('click', closeDetails);
+        $('sc-modal-backdrop').addEventListener('click', function (e) {
+            if (e.target === $('sc-modal-backdrop')) closeDetails();
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && $('sc-modal-backdrop').classList.contains('open')) closeDetails();
+        });
+        $('sc-modal-apply').addEventListener('click', applyEdit);
+        $('sc-modal-run').addEventListener('click', function () {
+            var s = modalCurrent;
+            if (!applyEdit()) return;
+            closeDetails();
+            runOne(s);
+        });
+
+        ready(function () {
+            renderScenarios();
+            loadLastPlaywrightRun();
+        });
+    })();
+    </script>
+</body>
+</html>`;
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(html);
+    }
+
     if (pathname === '/debug' || pathname.startsWith('/debug/')) {
         const COMPONENT_GROUPS = [
-            ['Shared',    ['help-modal', 'icon-picker', 'nav-button', 'nav-meta', 'time-picker', 'week-calendar', 'week-pill']],
+            ['Shared',    ['help-modal', 'icon-picker', 'json-table', 'modal-container', 'nav-button', 'nav-meta', 'time-picker', 'week-calendar', 'week-pill']],
             ['Context',   ['ctx-switcher']],
             ['Search',    ['global-search']],
-            ['Notes',     ['markdown-preview', 'note-card', 'note-editor', 'note-view']],
-            ['Tasks',     ['task-complete-modal', 'task-note-modal', 'task-open-list', 'task-completed', 'task-create', 'task-create-modal']],
+            ['Notes',     ['markdown-preview', 'note-card', 'note-editor', 'note-meta-view', 'note-meta-panel', 'note-view']],
+            ['Tasks',     ['task-add-modal', 'task-complete-modal', 'task-note', 'task-note-modal', 'task-open-list', 'task-completed', 'task-create']],
             ['Meetings',  ['meeting-create', 'upcoming-meetings', 'today-calendar', 'week-notes-calendar']],
             ['People',    ['company-card', 'entity-callout', 'entity-mention', 'people-page', 'person-card', 'place-card']],
             ['Results',   ['results-page', 'week-results']],
@@ -3800,6 +5401,13 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
         if (current === 'services') {
             return renderServicesDebug(req, res);
         }
+        if (current === 'data-shapes' || current.startsWith('data-shapes/')) {
+            const sub = current === 'data-shapes' ? '' : current.slice('data-shapes/'.length);
+            return renderDataShapesDebug(req, res, sub);
+        }
+        if (current === 'tests') {
+            return renderTestsDebug(req, res);
+        }
         if (!COMPONENTS.includes(current)) {
             res.writeHead(404, { 'Content-Type': 'text/plain' });
             res.end(`Unknown component: ${current}`);
@@ -3812,6 +5420,12 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
         // wrap      : optional surrounding HTML string with %HOST% placeholder
         // rawHtml   : for components that need bespoke markup (no attribute editor)
         // extraStyle: per-demo CSS additions
+        let notesMetaSample = null;
+        try {
+            notesMetaSample = JSON.parse(fs.readFileSync(path.join(__dirname, 'schemas', 'notes-meta.schema.json'), 'utf8'));
+        } catch (_) { notesMetaSample = null; }
+        const notesMetaJson = JSON.stringify(notesMetaSample, null, 2).replace(/</g, '\\u003c');
+
         const DEMOS = {
             'nav-meta': {
                 desc: `<p><strong>&lt;nav-meta&gt;</strong> is a small read-only navbar widget that shows the current weekday, date, ISO week badge and a live clock. It updates once per second and uses the Norwegian locale (<code>nb-NO</code>) for date and time formatting.</p>
@@ -3941,6 +5555,196 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                                 document.getElementById(id).addEventListener('valueChanged', function(e){ log(id, e); });
                             });
                         })();
+                    <\/script>`,
+            },
+            'json-table': {
+                desc: `<p><strong>&lt;json-table&gt;</strong> renders an array of objects as a sortable, scrollable HTML table. Used heavily on the <a href="/debug/services">services</a> page to display API responses.</p>
+                    <p><strong>Domain:</strong> none &mdash; presentational only.</p>
+                    <p><strong>Properties.</strong> Set <code>el.data = [{…},…]</code> for an array, or <code>el.data = {…}</code> for a single object &mdash; in object mode it renders one row using the object's property names as column headers. Primitives render with <code>String()</code>; nested objects render as JSON in a muted cell.</p>
+                    <p><strong>Attributes.</strong> <code>columns</code> (comma-separated list, default = union of keys), <code>max-height</code> (CSS, default <code>320px</code>), <code>empty-text</code>, <code>editable</code> (turn cells into <code>contenteditable</code>; commits on blur, Esc to revert, fires <code>cell-edit</code> events).</p>
+                    <p><strong>Sorting.</strong> Click a column header to sort ascending; click again for descending; a third click clears the sort.</p>`,
+                rawHtml: `<h4 style="margin:0 0 6px;font-size:0.9em;color:var(--text-muted)">Array of objects</h4>
+                    <json-table id="dbg-jt" max-height="220px"></json-table>
+                    <h4 style="margin:14px 0 6px;font-size:0.9em;color:var(--text-muted)">Single plain object (props become column headers)</h4>
+                    <json-table id="dbg-jt-obj" max-height="220px"></json-table>
+                    <h4 style="margin:14px 0 6px;font-size:0.9em;color:var(--text-muted)">Schema sample: <code>schemas/notes-meta.schema.json</code> (single object)</h4>
+                    <json-table id="dbg-jt-nm" max-height="320px"></json-table>
+                    <script>
+                        var NOTES_META_SAMPLE = ${notesMetaJson};
+                        customElements.whenDefined('json-table').then(function(){
+                            var t = document.getElementById('dbg-jt');
+                            if (t) t.data = [
+                                { id: 1, name: 'Anna',    role: 'PM',       active: true,  hours: 37.5, tags: ['lead','planlegging'] },
+                                { id: 2, name: 'Bjørn',   role: 'TechLead', active: true,  hours: 40,   tags: ['arkitektur'] },
+                                { id: 3, name: 'Cecilie', role: 'Dev',      active: false, hours: 32,   tags: [] },
+                                { id: 4, name: 'David',   role: 'Dev',      active: true,  hours: 38,   tags: ['onboarding'] },
+                            ];
+                            var o = document.getElementById('dbg-jt-obj');
+                            if (o) o.data = {
+                                version: '1.4.0',
+                                releasedAt: '2026-04-30',
+                                stable: true,
+                                downloads: 12480,
+                                authors: ['Petter', 'Copilot'],
+                                config: { theme: 'paper', autosave: true },
+                                notes: null,
+                            };
+                            var n = document.getElementById('dbg-jt-nm');
+                            if (n) {
+                                if (NOTES_META_SAMPLE && typeof NOTES_META_SAMPLE === 'object') {
+                                    n.data = NOTES_META_SAMPLE;
+                                } else {
+                                    n.setAttribute('empty-text', 'schemas/notes-meta.schema.json mangler');
+                                    n.data = [];
+                                }
+                            }
+                        });
+                    <\/script>`,
+            },
+            'modal-container': {
+                desc: `<p><strong>&lt;modal-container&gt;</strong> is the generic modal shell. All app modals (help, task-create, task-complete, task-note, results, note-view, …) wrap their content in a <code>&lt;modal-container&gt;</code> instead of duplicating backdrop / Escape / close-button plumbing.</p>
+                    <p><strong>Slots:</strong></p>
+                    <ul>
+                        <li><code>title</code> — header text</li>
+                        <li>default — body content</li>
+                        <li><code>footer</code> — custom footer markup (alternative to button API)</li>
+                    </ul>
+                    <p><strong>Attributes:</strong> <code>open</code>, <code>size</code> (<code>sm</code>|<code>md</code>|<code>lg</code>|<code>xl</code>|<code>full</code>), <code>no-close</code>, <code>no-backdrop-close</code>, <code>no-escape-close</code>.</p>
+                    <p><strong>Methods:</strong> <code>open()</code>, <code>close(reason?)</code>, <code>toggle(force?)</code>, <code>setButtons([{label, action, primary, dismiss, variant}])</code>, <code>setContent(htmlOrNode)</code>, <code>setTitle(text)</code>, <code>setup({title, content, init, actions, size})</code>.</p>
+                    <p><strong>Setup API.</strong> The <code>setup({...})</code> convenience method bundles content injection, event wiring and button configuration into one call:</p>
+                    <pre style="margin:6px 0;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:4px;font-size:0.85em;overflow:auto">modal.setup({
+    title: '🛠 Eksempel',
+    content: '&lt;input data-el="name"&gt;&lt;button data-el="hello"&gt;Hei&lt;/button&gt;',
+    init: (m) =&gt; {
+        m.querySelector('[data-el="hello"]').addEventListener('click', () =&gt; {
+            console.log(m.querySelector('[data-el="name"]').value);
+        });
+    },
+    actions: [
+        { label: 'Avbryt', variant: 'ghost' },
+        { label: 'Lagre', primary: true, action: (m) =&gt; save(m) },
+    ],
+});
+modal.open();</pre>
+                    <p><strong>Events:</strong> <code>modal-open</code>, <code>modal-close</code> (<code>detail.reason</code> ∈ <code>'escape'|'backdrop'|'button'|'programmatic'</code>).</p>
+                    <p><strong>Buttons API.</strong> <code>setButtons([…])</code> renders an action row in the footer. Each button has a <code>label</code>, optional <code>action(modal, btnEl)</code> callback, <code>primary</code> styling, <code>variant</code> (<code>'danger'</code>|<code>'ghost'</code>) and <code>dismiss</code> (default <code>true</code>: close after action; return <code>false</code> from action to prevent closing). Async actions disable the button while the promise is pending.</p>`,
+                rawHtml: `<div style="display:flex;gap:10px;flex-wrap:wrap">
+                        <button class="btn-summarize" data-mc="basic">Basic modal</button>
+                        <button class="btn-summarize" data-mc="buttons" style="background:var(--text-muted)">With buttons</button>
+                        <button class="btn-summarize" data-mc="danger" style="background:#c0392b">Confirm delete</button>
+                        <button class="btn-summarize" data-mc="async" style="background:#2a8a3e">Async action</button>
+                        <button class="btn-summarize" data-mc="setup" style="background:#7c3aed">setup() API</button>
+                    </div>
+                    <pre id="dbg-mc-log" style="margin-top:14px;padding:8px;background:var(--surface-head);border:1px solid var(--border-faint);border-radius:6px;font-size:0.85em;max-height:140px;overflow:auto"></pre>
+
+                    <script>
+                        customElements.whenDefined('modal-container').then(function(){
+                            var log = document.getElementById('dbg-mc-log');
+                            function append(line){ if (log) { log.textContent += line + '\\n'; log.scrollTop = log.scrollHeight; } }
+                            function makeModal(opts){
+                                opts = opts || {};
+                                var m = document.createElement('modal-container');
+                                if (opts.size) m.setAttribute('size', opts.size);
+                                document.body.appendChild(m);
+                                m.addEventListener('modal-close', function onClose(){
+                                    m.removeEventListener('modal-close', onClose);
+                                    setTimeout(function(){ if (m.parentNode) m.parentNode.removeChild(m); }, 0);
+                                });
+                                return m;
+                            }
+                            function wireLogging(m, label){
+                                m.addEventListener('modal-open', function(){ append('[' + label + '] open'); });
+                                m.addEventListener('modal-close', function(e){ append('[' + label + '] close (' + e.detail.reason + ')'); });
+                            }
+                            var openers = {
+                                basic: function(){
+                                    var m = makeModal();
+                                    wireLogging(m, 'basic');
+                                    m.setup({
+                                        title: 'Basic modal',
+                                        content: '<p>Lukk via ✕, Esc eller klikk på bakgrunnen.</p>',
+                                    });
+                                    m.open();
+                                },
+                                buttons: function(){
+                                    var m = makeModal();
+                                    wireLogging(m, 'buttons');
+                                    m.setup({
+                                        title: 'Bekreft handling',
+                                        content: '<p>Vil du lagre endringene?</p>',
+                                        actions: [
+                                            { label: 'Avbryt', variant: 'ghost', action: function(){ append('  → Avbryt'); } },
+                                            { label: 'Lagre',  primary: true,    action: function(){ append('  → Lagre'); } },
+                                        ],
+                                    });
+                                    m.open();
+                                },
+                                danger: function(){
+                                    var m = makeModal();
+                                    wireLogging(m, 'danger');
+                                    m.setup({
+                                        title: 'Slette element?',
+                                        content: '<p>Dette kan ikke angres.</p>',
+                                        actions: [
+                                            { label: 'Avbryt', variant: 'ghost' },
+                                            { label: 'Slett',  variant: 'danger', action: function(){ append('  → Slettet (mock)'); } },
+                                        ],
+                                    });
+                                    m.open();
+                                },
+                                async: function(){
+                                    var m = makeModal();
+                                    wireLogging(m, 'async');
+                                    m.setup({
+                                        title: 'Lagre med forsinkelse',
+                                        content: '<p>Knappen disables i 1.2s mens den «lagrer».</p>',
+                                        actions: [
+                                            { label: 'Avbryt', variant: 'ghost' },
+                                            { label: 'Lagre', primary: true, action: function(){
+                                                append('  → starter lagring…');
+                                                return new Promise(function(res){ setTimeout(function(){ append('  → ferdig'); res(); }, 1200); });
+                                            }},
+                                        ],
+                                    });
+                                    m.open();
+                                },
+                                setup: function(){
+                                    var m = makeModal({ size: 'md' });
+                                    wireLogging(m, 'setup');
+                                    m.setup({
+                                        title: '🛠 setup() API',
+                                        content:
+                                            '<p>Dette innholdet er injisert via <code>setContent</code> som en HTML-streng.</p>' +
+                                            '<label style="display:block;margin-top:8px">Navn: <input type="text" data-el="name" value="Per" style="margin-left:6px;padding:4px 8px;border:1px solid var(--border);border-radius:4px"></label>' +
+                                            '<button type="button" data-el="hello" style="margin-top:10px;padding:4px 10px">Si hei</button>' +
+                                            '<pre data-el="out" style="margin-top:8px;padding:6px;background:var(--surface);border:1px solid var(--border);border-radius:4px;min-height:1.4em"></pre>',
+                                        init: function(modal){
+                                            var helloBtn = modal.querySelector('[data-el="hello"]');
+                                            var nameIn   = modal.querySelector('[data-el="name"]');
+                                            var out      = modal.querySelector('[data-el="out"]');
+                                            helloBtn.addEventListener('click', function(){
+                                                out.textContent = 'Hei, ' + (nameIn.value || 'verden') + '!';
+                                            });
+                                            append('  → init() wired');
+                                        },
+                                        actions: [
+                                            { label: 'Avbryt', variant: 'ghost' },
+                                            { label: 'Bekreft', primary: true, action: function(mm){
+                                                var name = mm.querySelector('[data-el="name"]').value;
+                                                append('  → bekreftet med navn=' + JSON.stringify(name));
+                                            }},
+                                        ],
+                                    });
+                                    m.open();
+                                },
+                            };
+                            document.querySelectorAll('button[data-mc]').forEach(function(b){
+                                b.addEventListener('click', function(){
+                                    var fn = openers[b.dataset.mc];
+                                    if (typeof fn === 'function') fn();
+                                });
+                            });
+                        });
                     <\/script>`,
             },
             'help-modal': {
@@ -4185,7 +5989,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                 desc: `<p><strong>&lt;note-card&gt;</strong> is a dumb presentation card for a single note. It does not load anything itself &mdash; the host (typically <code>&lt;week-section&gt;</code>) calls <code>el.setData(d)</code> to populate it.</p>
                     <p><strong>Data shape:</strong> <code>{ week, file, name, type, pinned, snippet, themes, presentationStyle? }</code>. <code>type</code> drives the icon (📝 note, 🤝 meeting, 🎯 task, 🎤 presentation, 📌 other); <code>themes</code> render as <code>#tag</code> pills under the snippet; <code>pinned</code> shows a 📌 prefix.</p>
                     <p><strong>Lifecycle.</strong> <code>setData(d)</code> may be called before or after the element is connected. Until set, the card shows &ldquo;Laster…&rdquo;. Setting data also writes a <code>data-note-card="&lt;week&gt;/&lt;file&gt;"</code> attribute on the host so the legacy delete-handler selector keeps working.</p>
-                    <p><strong>Actions.</strong> Header buttons emit cancelable bubbling/composed events: <code>view</code>, <code>present</code> (only for <code>type=presentation</code>), <code>edit</code> and <code>delete</code>. Each carries <code>{ filePath: "WEEK/encoded-file.md" }</code>. The edit action also renders a real <code>&lt;a href="/editor/…"&gt;</code> for fallback navigation; <code>preventDefault()</code> on the event also blocks that.</p>`,
+                    <p><strong>Actions.</strong> All header buttons emit cancelable bubbling/composed events: <code>view</code>, <code>present</code> (only for <code>type=presentation</code>), <code>edit</code> and <code>delete</code>. Each carries <code>{ week, file }</code> (raw filename, not URI-encoded). The card itself never navigates &mdash; hosts decide what to do with the events.</p>`,
                 rawHtml: `<note-card id="dbg-note-card"></note-card>
                     <script>
                         customElements.whenDefined('note-card').then(function(){
@@ -4201,6 +6005,36 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                             });
                         });
                     <\/script>`,
+            },
+            'note-meta-view': {
+                desc: `<p><strong>&lt;note-meta-view&gt;</strong> is a service-less display card for a note's sidecar metadata. The host calls <code>el.meta = {…}</code> with the meta object; the component renders title, type chip, themes, key dates and emits <code>note-meta:view</code>, <code>note-meta:edit</code> and (for presentations) <code>note-meta:present</code> on its action buttons.</p>
+                    <p><strong>Data shape:</strong> <code>{ week, file, name?, type?, pinned?, themes?: string[], created?, modified?, createdBy?, lastSavedBy?, presentationStyle? }</code>.</p>`,
+                rawHtml: `<note-meta-view id="dbg-nmv"></note-meta-view>
+                    <script>
+                        customElements.whenDefined('note-meta-view').then(function(){
+                            var el = document.getElementById('dbg-nmv');
+                            if (!el) return;
+                            el.meta = {
+                                week: '2026-W18', file: 'demo.md', name: 'Demonstrasjon',
+                                type: 'note', pinned: true, themes: ['demo','planning'],
+                                created: '2026-04-27T08:30:00Z',
+                                modified: '2026-04-29T14:12:00Z',
+                                createdBy: 'me', lastSavedBy: 'sjur',
+                            };
+                        });
+                    <\/script>`,
+            },
+            'note-meta-panel': {
+                desc: `<p><strong>&lt;note-meta-panel&gt;</strong> is a self-loading wrapper around <code>&lt;note-meta-view&gt;</code> with two tabs: <em>Strukturert</em> (renders the structured meta card) and <em>Rå JSON</em> (pretty-printed sidecar JSON). Useful for debugging the sidecar shape directly.</p>
+                    <p><strong>Domain:</strong> <code>notes</code> &mdash; primary service from <code>notes_service</code>. The service must implement <code>meta(week, file)</code>.</p>
+                    <p><strong>Attributes.</strong> <code>path="YYYY-WNN/file.md"</code> (or <code>week</code> + <code>file</code>), and <code>tab</code> (<code>structured</code>|<code>raw</code>, default <code>structured</code>).</p>
+                    <p><strong>Public API.</strong> <code>el.reload()</code> re-fetches the sidecar.</p>`,
+                tag: 'note-meta-panel',
+                attrs: [
+                    { name: 'notes_service', type: 'text', default: 'MockNotesService' },
+                    { name: 'path', type: 'text', default: firstNote },
+                    { name: 'tab', type: 'text', default: 'structured' },
+                ],
             },
             'note-view': {
                 desc: `<p><strong>&lt;note-view&gt;</strong> is a modal overlay that loads and renders a note via <code>NotesService.renderHtml(week, file)</code>. Used by global-search to open note hits inline without leaving the current page.</p>
@@ -4226,12 +6060,13 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             'task-open-list': {
                 desc: `<p><strong>&lt;task-open-list&gt;</strong> is the &ldquo;Åpne oppgaver&rdquo; sidebar list shown on the home page. It loads all tasks via the tasks service, filters out completed ones, and renders each as a checkbox row with linked <code>@mentions</code> and a small note button.</p>
                     <p><strong>Domain:</strong> <code>tasks</code> &mdash; primary service from <code>tasks_service</code>. Also reads <code>people_service</code> and <code>companies_service</code> so mention text can be resolved to display names.</p>
-                    <p><strong>Lifecycle.</strong> <code>_load()</code> fetches tasks, people and companies in parallel. Renders &ldquo;Laster…&rdquo; → list / &ldquo;Ingen åpne oppgaver&rdquo; / &ldquo;Kunne ikke laste oppgaver&rdquo;. The header shows the open-task count.</p>
-                    <p><strong>Interactions.</strong> Toggling a checkbox first tries the legacy global <code>window.showCommentModal(cb)</code> (so the home page's existing comment-prompt flow keeps working); if it isn't defined the component emits a fallback event. The note button works the same way against <code>window.openNoteModal(id)</code>.</p>
-                    <p><strong>Events</strong> (cancelable, bubbling, composed):</p>
+                    <p><strong>Lifecycle.</strong> <code>_load()</code> fetches tasks, people and companies in parallel. Renders &ldquo;Laster…&rdquo; → list / &ldquo;Ingen åpne oppgaver&rdquo; / &ldquo;Kunne ikke laste oppgaver&rdquo;. The header shows the open-task count. Use <code>&lt;task-add-modal&gt;</code> alongside the list to add new tasks.</p>
+                    <p><strong>Interactions.</strong> Toggling a checkbox opens the embedded <code>&lt;task-complete-modal&gt;</code>; on confirm the component calls <code>service.toggle(id, comment)</code> and then re-loads. The 📓 note button opens a <code>&lt;modal-container&gt;</code> wrapping <code>&lt;task-note&gt;</code>; on save it calls <code>service.update(id, { note })</code>. The ✕ delete button calls <code>service.remove(id)</code> after a <code>confirm()</code>.</p>
+                    <p><strong>Events</strong> (bubbling, composed):</p>
                     <ul>
-                        <li><code>task-open-list:toggle</code> with <code>{ id, checkbox }</code> &mdash; fallback when no global comment modal exists</li>
-                        <li><code>task-open-list:note</code> with <code>{ id }</code> &mdash; fallback when no global note modal exists</li>
+                        <li><code>task:completed</code> with <code>{ id, comment }</code> &mdash; after a successful complete</li>
+                        <li><code>task:deleted</code> with <code>{ id }</code> &mdash; after a successful delete</li>
+                        <li><code>task-open-list:toggle</code> with <code>{ id, checkbox }</code> &mdash; fallback when the embedded complete modal isn&apos;t available</li>
                         <li><code>mention-clicked</code> &mdash; bubbled from rendered <code>@mentions</code></li>
                     </ul>`,
                 tag: 'task-open-list',
@@ -4241,8 +6076,23 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                     { name: 'companies_service', type: 'text', default: 'MockCompaniesService' },
                 ],
             },
+            'task-add-modal': {
+                desc: `<p><strong>&lt;task-add-modal&gt;</strong> renders a small <code>+</code> trigger button that opens a <code>&lt;modal-container&gt;</code> wrapping a <code>&lt;task-create&gt;</code> form. Designed for sidebar/header use where space is tight.</p>
+                    <p><strong>Behavior:</strong> the modal stays open after a task is created so the user can add several in a row. Dismissed only by the default Lukk button, the ✕ corner button, Esc or backdrop click.</p>
+                    <p><strong>Attributes</strong> (forwarded to <code>&lt;task-create&gt;</code>): <code>tasks_service</code>, <code>placeholder</code>, <code>button-label</code>. Trigger styling: <code>trigger-label</code> (default <code>+</code>), <code>trigger-title</code>.</p>
+                    <p><strong>Methods:</strong> <code>open()</code>, <code>close()</code>.</p>
+                    <p><strong>Events:</strong> bubbles <code>task:created</code> from the embedded <code>&lt;task-create&gt;</code>.</p>`,
+                tag: 'task-add-modal',
+                attrs: [
+                    { name: 'tasks_service', type: 'text', default: 'MockTaskService' },
+                    { name: 'placeholder', type: 'text', default: 'Beskriv oppgaven…' },
+                    { name: 'button-label', type: 'text', default: 'Legg til' },
+                    { name: 'trigger-label', type: 'text', default: '+' },
+                    { name: 'trigger-title', type: 'text', default: 'Ny oppgave' },
+                ],
+            },
             'task-create': {
-                desc: `<p><strong>&lt;task-create&gt;</strong> is a small reusable form &mdash; one input, one submit button &mdash; for creating a task. Used standalone in the tasks page and embedded inside <code>&lt;task-create-modal&gt;</code>.</p>
+                desc: `<p><strong>&lt;task-create&gt;</strong> is a small reusable form &mdash; one input, one submit button &mdash; for creating a task. Used standalone in the tasks page and embedded in a <code>&lt;modal-container&gt;</code>.</p>
                     <p><strong>Domain:</strong> <code>tasks</code> &mdash; reads from <code>tasks_service</code>. Calls <code>service.create(text)</code>; the service is expected to return either the created task or <code>{ task, tasks }</code>.</p>
                     <p><strong>Attributes:</strong> <code>placeholder</code>, <code>button-label</code>, <code>compact</code> (boolean &mdash; smaller layout for sidebars).</p>
                     <p><strong>Lifecycle.</strong> Trims input on submit; ignores empty submissions. Disables the button while in flight; re-enables on success/failure. Clears input and re-focuses on success. On error shows an inline error and keeps the input so the user can retry.</p>
@@ -4320,17 +6170,44 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                         });
                     <\/script>`,
             },
-            'task-create-modal': {
-                desc: `<p><strong>&lt;task-create-modal&gt;</strong> is a dumb modal hosting a <code>&lt;task-create&gt;</code> form. No trigger button — the host opens it imperatively via the callback API.</p>
-                    <p><strong>Domain:</strong> <code>tasks</code> (forwarded as <code>tasks_service</code> to the embedded <code>&lt;task-create&gt;</code>).</p>
-                    <p><strong>Attributes:</strong> <code>modal-title</code>, <code>placeholder</code>, <code>endpoint</code>.</p>
-                    <p><strong>Callback API:</strong> <code>modal.open(callback)</code> shows the modal. The callback is invoked once with <code>{ created: true, task, tasks }</code> on a successful create or <code>{ created: false }</code> on Esc / backdrop / ✕. <code>modal.close()</code> closes silently without firing the callback. The inner <code>&lt;task-create&gt;</code> still emits <code>task:created</code> (composed/bubbles) so any global listener (e.g. the SPA shell&apos;s task-list refresh wiring) keeps working.</p>`,
-                tag: 'task-create-modal',
-                attrs: [
-                    { name: 'modal-title', type: 'text', default: 'Ny oppgave' },
-                    { name: 'placeholder', type: 'text', default: 'Beskriv oppgaven…' },
-                    { name: 'endpoint', type: 'text', default: '/api/tasks' },
-                ],
+            'task-note': {
+                desc: `<p><strong>&lt;task-note&gt;</strong> is a dumb form for editing a task's note (markdown). It does not load or save anything &mdash; the host owns the service. Set the current task via the <code>.task</code> property and listen for <code>task-note:save</code> / <code>task-note:cancel</code>.</p>
+                    <p>Typically embedded inside a <code>&lt;modal-container&gt;</code>; the modal-container's footer buttons trigger <code>el.save()</code>/<code>el.cancel()</code>.</p>
+                    <p><strong>Properties:</strong> <code>.task = { id, text, note }</code>.</p>
+                    <p><strong>Methods:</strong> <code>focus()</code>, <code>save()</code>, <code>cancel()</code>.</p>
+                    <p><strong>Events</strong> (bubbles, composed):</p>
+                    <ul>
+                        <li><code>task-note:save</code> &mdash; <code>{ id, note }</code></li>
+                        <li><code>task-note:cancel</code> &mdash; <code>{ id }</code></li>
+                    </ul>
+                    <p><strong>Keyboard:</strong> Ctrl/⌘ + Enter saves, Esc cancels.</p>`,
+                rawHtml: `<button type="button" id="dbg-tn-trigger" class="btn"
+                    style="padding:8px 14px;background:var(--accent);color:var(--text-on-accent);border:0;border-radius:8px;font-weight:600;cursor:pointer">Rediger notat for «Send rapport til @anna»</button>
+                    <modal-container id="dbg-tn-modal" size="md">
+                        <span slot="title">📓 Notat</span>
+                        <task-note id="dbg-tn"></task-note>
+                    </modal-container>
+                    <script>
+                        Promise.all([
+                            customElements.whenDefined('task-note'),
+                            customElements.whenDefined('modal-container'),
+                        ]).then(function(){
+                            var modal = document.getElementById('dbg-tn-modal');
+                            var note = document.getElementById('dbg-tn');
+                            var btn = document.getElementById('dbg-tn-trigger');
+                            modal.setButtons([
+                                { label: 'Avbryt', variant: 'ghost', action: function(){ note.cancel(); return false; } },
+                                { label: '💾 Lagre', primary: true, action: function(){ note.save(); return false; } },
+                            ]);
+                            btn.addEventListener('click', function(){
+                                note.task = { id: 't42', text: 'Send rapport til @anna før fredag', note: 'Eksisterende notat. Husk vedlegg.' };
+                                modal.open();
+                                setTimeout(function(){ note.focus(); }, 0);
+                            });
+                            note.addEventListener('task-note:save', function(){ modal.close(); });
+                            note.addEventListener('task-note:cancel', function(){ modal.close(); });
+                        });
+                    <\/script>`,
             },
             'meeting-create': {
                 desc: `<p><strong>&lt;meeting-create&gt;</strong> is a reusable form for creating a meeting &mdash; title, type, date, start/end, attendees, location and notes. Used inside the calendar page&apos;s create-meeting overlay.</p>
@@ -4491,13 +6368,13 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                     <p><strong>Domain:</strong> none &mdash; presentational only.</p>
                     <p><strong>Attributes:</strong> <code>week</code> &mdash; ISO week (<code>YYYY-WNN</code>). The pill renders <code>U</code> + the two-digit week number; the full week is shown in a <code>title</code> tooltip.</p>
                     <p><strong>Lifecycle.</strong> Stateless. Re-renders when <code>week</code> changes.</p>
-                    <p><strong>Events.</strong> Cancelable bubbling/composed <code>week-clicked</code> with <code>{ week }</code> on click.</p>`,
+                    <p><strong>Events.</strong> Cancelable bubbling <code>week-clicked</code> with <code>{ year, weekNumber }</code> (numbers) on click.</p>`,
                 tag: 'week-pill',
                 attrs: [{ name: 'week', type: 'select', options: weeks, default: weeks[0] || '' }],
             },
             'global-search': {
                 desc: `<p><strong>&lt;global-search&gt;</strong> is the singleton command-bar / search modal triggered from the navbar's 🔍 button or <kbd>Ctrl+K</kbd>. Light-DOM via <code>&lt;slot&gt;</code> so server-rendered shell HTML stays styled.</p>
-                    <p><strong>Domain:</strong> <code>search</code> &mdash; from <code>search_service</code>. The service is expected to expose <code>query(text) → results</code>.</p>
+                    <p><strong>Domain:</strong> <code>search</code> &mdash; from <code>search_service</code>. The service is expected to expose <code>search(text) → results</code> and (optionally) <code>embedSearch(text) → results</code> for the embedding-based mode toggle.</p>
                     <p><strong>API.</strong> <code>openSearch()</code>, <code>closeSearch()</code>. Also responds to the window event <code>search:open</code>.</p>
                     <p><strong>Lifecycle.</strong> Debounced query as the user types; arrow-key navigation through results; Enter activates. Esc / backdrop click closes.</p>
                     <p><strong>Events</strong> (cancelable, bubbling, composed):</p>
@@ -4518,7 +6395,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                         <li><code>placeholder</code> &mdash; shown when the value is empty</li>
                         <li><code>offset</code> &mdash; programmatic scroll position in pixels (host writes do not re-emit the scroll event)</li>
                     </ul>
-                    <p><strong>Events.</strong> <code>markdown-preview:scroll</code> with <code>{ offset }</code> on user-initiated scroll &mdash; suppressed when the host writes <code>offset</code> programmatically. This lets editors implement two-pane scroll-sync without feedback loops.</p>
+                    <p><strong>Events.</strong> <code>markdown-preview:scroll</code> with <code>{ offset, scrollHeight, clientHeight }</code> on user-initiated scroll &mdash; suppressed when the host writes <code>offset</code> programmatically. This lets editors implement two-pane scroll-sync without feedback loops.</p>
                     <p><strong>Theming.</strong> Pure CSS variables, so it adopts the active app theme inside its shadow DOM.</p>`,
                 rawHtml: `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
                         <label style="font-size:0.85em;color:var(--text-muted)">offset (px):</label>
@@ -4543,11 +6420,11 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             'note-editor': {
                 desc: `<p><strong>&lt;note-editor&gt;</strong> is the standalone note authoring component used on <code>/editor/&hellip;</code> routes. Form layout: week selector, filename input, themes input, a markdown textarea on the left and a live <code>&lt;markdown-preview&gt;</code> on the right with synchronized scrolling.</p>
                     <p><strong>Domain:</strong> <code>notes</code> &mdash; from <code>notes_service</code>. The optional <code>preview_service</code> is forwarded to the embedded preview for relative-link resolution.</p>
-                    <p><strong>Lifecycle.</strong> Loads existing content via <code>service.load(week, file)</code> when both are present, otherwise starts blank. Save is via <code>service.save({ week, file, body, themes })</code>; cancel emits an event.</p>
+                    <p><strong>Lifecycle.</strong> Loads existing content via <code>service.raw(week, file)</code> when both are present, otherwise starts blank. Save is via <code>service.save({ folder, file, content, tags, type, presentationStyle? })</code>; cancel emits an event. The textarea is wired to a shared <code>&lt;wn-autocomplete&gt;</code> popover for <code>@</code> (people), <code>#</code> (themes) and <code>{{</code> (templates) triggers, and the live preview runs <code>linkMentions</code> so <code>@person</code> / <code>@company</code> chips render the same way as on read pages.</p>
                     <p><strong>Scroll-sync.</strong> Listens for <code>markdown-preview:scroll</code> from the preview and reflects scroll position back to the textarea (and vice versa).</p>
                     <p><strong>Events</strong> (cancelable, bubbling, composed):</p>
                     <ul>
-                        <li><code>note-editor:saved</code> with <code>{ week, file, body }</code></li>
+                        <li><code>note-editor:saved</code> with <code>{ folder, file, path, closeAfter }</code></li>
                         <li><code>note-editor:cancel</code></li>
                     </ul>`,
                 rawHtml: `<note-editor notes_service="MockNotesService" preview_service="MockNotesService"></note-editor>`,
@@ -4555,7 +6432,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             'week-notes-calendar': {
                 desc: `<p><strong>&lt;week-notes-calendar&gt;</strong> is the calendar <em>page</em> component: a toolbar (title, ISO-week badge, date range, prev/today/next nav buttons) wrapping an embedded <code>&lt;week-calendar&gt;</code>. Used on <code>/calendar</code> and <code>/calendar/&lt;week&gt;</code>.</p>
                     <p><strong>Domain:</strong> <code>meetings</code> &mdash; from <code>meetings_service</code>. The service supplies the meeting items for the current week.</p>
-                    <p><strong>Settings.</strong> When the host injects a <code>settings</code> attribute (JSON), the component reads <code>workHours</code> from it directly to avoid a roundtrip; otherwise it falls back to <code>service.getSettings()</code>.</p>
+                    <p><strong>Settings.</strong> When the host injects a <code>settings</code> attribute (JSON, observed) or sets the matching <code>el.settings</code> property, the component reads <code>workHours</code> / <code>visibleStartHour</code> / <code>visibleEndHour</code> from it and forwards them to the inner grid. With no settings provided, the grid renders without work-hour bands.</p>
                     <p><strong>Routing.</strong> Reflects URL changes (<code>/calendar/YYYY-WNN</code>) to its internal <code>week</code> attribute and vice versa &mdash; nav button clicks update <code>history</code> via the SPA router.</p>
                     <p><strong>Events.</strong> <code>calendar:week-changed</code> with <code>{ week }</code> when the user navigates. Forwards <code>week-calendar:item-selected</code> and <code>open-item-selected</code> from the inner grid.</p>`,
                 tag: 'week-notes-calendar',
@@ -4665,14 +6542,15 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                 };
             })(),
             'settings-page': {
-                desc: `<p><strong>&lt;settings-page&gt;</strong> is the master/detail editor on <code>/settings</code>: a list of contexts on the left, a form on the right for the selected context (name, icon, description, theme, working hours per weekday, default meeting length, meeting types).</p>
+                desc: `<p><strong>&lt;settings-page&gt;</strong> is the master/detail editor on <code>/settings</code>: a list of contexts on the left, a form on the right for the selected context (name, icon, description, theme, working hours per weekday, default meeting length, meeting types). Also hosts the application-wide settings tabs (search, summarization, themes, identity).</p>
                     <p><strong>Domains:</strong></p>
                     <ul>
-                        <li><code>settings</code> &mdash; from <code>settings_service</code>; <code>list()</code>, <code>load(id)</code>, <code>saveSettings(id, data)</code>, <code>create()</code>, <code>delete(id)</code></li>
-                        <li><code>context</code> &mdash; from <code>context_service</code>; used to switch the active context after rename/create/delete</li>
+                        <li><code>settings</code> &mdash; from <code>settings_service</code>; calls <code>getSettings(id)</code>, <code>saveSettings(id, data)</code>, <code>getMeetingTypes(id)</code> / <code>saveMeetingTypes(id, types)</code>, plus <code>listThemes()</code> / <code>createTheme()</code> / <code>updateTheme()</code> / <code>removeTheme()</code> for the theme picker</li>
+                        <li><code>context</code> &mdash; from <code>context_service</code>; <code>list()</code>, <code>switchTo(id)</code>, plus context lifecycle (create/clone/disconnect/migrations) used by the rail and detail buttons</li>
                     </ul>
                     <p><strong>Working hours block.</strong> Horizontal cards, one per weekday (Mon-Sun). Each card has a <code>HH:MM-HH:MM</code> text input (regex parsed) or empty for &ldquo;ledig&rdquo;. The form serializes to a length-7 array before saving.</p>
                     <p><strong>Møtetyper editor.</strong> One row per type with: icon, color (<code>&lt;input type="color"&gt;</code>), key (lowercased, used as <code>typeId</code>), label. Saved as <code>settings.meetingTypes = [{key, icon, label, color}]</code>. Falls back to <code>DEFAULT_MEETING_TYPES</code> when empty. The color is consumed by <code>&lt;week-calendar&gt;</code> via its <code>eventTypes</code> property to colorize meeting blocks.</p>
+                    <p><strong>Min identitet (👤 Bruker-fane).</strong> Per-context person picker that maps <code>@me</code> to a real person in the people register. Loads <code>GET /api/me</code> + <code>GET /api/people</code>; on submit calls <code>PUT /api/me</code> which writes to <code>data/user.json</code> &mdash; outside any context's git repo &mdash; so multiple users sharing a context each have their own mapping. Updates <code>window.mePersonKey</code> live on save.</p>
                     <p><strong>Lifecycle.</strong> Loads the context list on connect; when one is picked, fetches its settings and populates the form. Save is optimistic but writes through the service; on success re-renders the list to reflect rename/icon changes.</p>
                     <p><strong>Events.</strong> No bespoke events &mdash; navigation/reload happens through the context service.</p>`,
                 rawHtml: `<settings-page settings_service="MockSettingsService" context_service="MockContextService"></settings-page>`,
@@ -4754,6 +6632,8 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             <h2 style="margin-top:18px">Other</h2>
             <nav class="dbg-nav">
                 <a href="/debug/services">services</a>
+                <a href="/debug/data-shapes">data shapes</a>
+                <a href="/debug/tests">tests</a>
             </nav>
         </aside>`;
 
@@ -4778,6 +6658,8 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             'note-editor:saved', 'note-editor:cancel',
             'task:created', 'task:create-failed',
             'task:completed', 'task:uncompleted',
+            'task-note:save', 'task-note:cancel',
+            'modal-open', 'modal-close',
             'markdown-preview:scroll',
             'calendar:week-changed',
             'context-selected',
@@ -4800,12 +6682,17 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
     <script type="module" src="/components/nav-meta.js"></script>
     <script type="module" src="/components/nav-button.js"></script>
     <script type="module" src="/components/ctx-switcher.js"></script>
-    <script type="module" src="/components/help-modal.js"></script>
+    <script type="module" src="/components/modal-container.js"></script>
+<script type="module" src="/components/help-modal.js"></script>
+    <script type="module" src="/components/json-table.js"></script>
     <script type="module" src="/components/note-card.js"></script>
     <script type="module" src="/components/note-view.js"></script>
+    <script type="module" src="/components/note-meta-view.js"></script>
+    <script type="module" src="/components/note-meta-panel.js"></script>
     <script type="module" src="/components/task-open-list.js"></script>
     <script type="module" src="/components/task-create.js"></script>
-    <script type="module" src="/components/task-create-modal.js"></script>
+    <script type="module" src="/components/task-add-modal.js"></script>
+    <script type="module" src="/components/task-note.js"></script>
     <script type="module" src="/components/task-complete-modal.js"></script>
     <script type="module" src="/components/task-note-modal.js"></script>
     <script type="module" src="/components/meeting-create.js"></script>
@@ -4828,6 +6715,8 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
     <script type="module" src="/components/entity-callout.js"></script>
 <script type="module" src="/components/entity-mention.js"></script>
 <script type="module" src="/components/inline-action.js"></script>
+<script type="module" src="/components/inline-task.js"></script>
+<script type="module" src="/components/inline-result.js"></script>
 <script type="module" src="/components/icon-picker.js"></script>
 <script type="module" src="/components/tag-editor.js"></script>
 <script type="module" src="/components/people-page.js"></script>
@@ -6408,7 +8297,10 @@ document.addEventListener('keydown', function(e) {
         lines.push('## Aksjonspunkter', '', '- [ ] ', '');
         fs.writeFileSync(path.join(dir, file), lines.join('\n'), 'utf-8');
         const now = new Date().toISOString();
-        setNoteMeta(week, file, { type: 'meeting', meetingId: mid, created: now, modified: now });
+        const meMeta = getMePersonKey(getActiveContext());
+        const noteMeta = { type: 'meeting', meetingId: mid, created: now, modified: now };
+        if (meMeta) { noteMeta.createdBy = meMeta; noteMeta.lastSavedBy = meMeta; }
+        setNoteMeta(week, file, noteMeta);
         res.writeHead(302, { Location: `/editor/${week}/${encodeURIComponent(file)}` });
         res.end();
         return;
@@ -8193,6 +10085,30 @@ activateTab(initialParams.tab || 'people');
         return;
     }
 
+    // Per-machine identity: which person in the people register represents
+    // the active user on THIS machine, per context. Stored in data/user.json
+    // (outside any context's git repo), so multiple users sharing a context
+    // each have their own "@me" mapping.
+    if (pathname === '/api/me' && req.method === 'GET') {
+        const ctx = getActiveContext();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, context: ctx, key: getMePersonKey(ctx) }));
+        return;
+    }
+    if (pathname === '/api/me' && req.method === 'PUT') {
+        try {
+            const body = JSON.parse(await readBody(req) || '{}');
+            const ctx = getActiveContext();
+            const saved = setMePersonKey(ctx, body.key || '');
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, context: ctx, key: saved }));
+        } catch (e) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
+        return;
+    }
+
     // App-wide settings (currently just vector-search). Per-context settings
     // remain at /api/contexts/:id/settings.
     if (pathname === '/api/app-settings' && req.method === 'GET') {
@@ -8378,6 +10294,40 @@ activateTab(initialParams.tab || 'people');
     }
 
 
+    // API: read autosave temp content for a note (for restore-prompt preview).
+    // GET /api/save/autosave?folder=YYYY-WNN&file=foo.md
+    if (pathname === '/api/save/autosave' && req.method === 'GET') {
+        try {
+            const folder = url.searchParams.get('folder') || '';
+            const file = url.searchParams.get('file') || '';
+            if (!folder || !file || file.includes('/') || file.includes('\\') || folder.includes('/') || folder.includes('\\')) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Ugyldig mappe eller filnavn' }));
+                return;
+            }
+            const tmpPath = path.join(dataDir(), folder, '.' + file + '.autosave');
+            const resolved = path.resolve(tmpPath);
+            if (!resolved.startsWith(path.resolve(dataDir()))) {
+                res.writeHead(403, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Forbidden' }));
+                return;
+            }
+            if (!fs.existsSync(tmpPath)) {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: true, exists: false }));
+                return;
+            }
+            const stat = fs.statSync(tmpPath);
+            const content = fs.readFileSync(tmpPath, 'utf-8');
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, exists: true, content, modified: stat.mtime.toISOString() }));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Serverfeil: ' + e.message }));
+        }
+        return;
+    }
+
     if (pathname === '/api/save/autosave' && req.method === 'DELETE') {
         try {
             const body = JSON.parse(await readBody(req) || '{}');
@@ -8409,7 +10359,8 @@ activateTab(initialParams.tab || 'people');
     if (pathname === '/api/save' && req.method === 'POST') {
         try {
             const body = JSON.parse(await readBody(req));
-            const { folder, file, content, append, type, presentationStyle, autosave, themes, tags } = body;
+            const { folder, file: rawFile, content, append, type, presentationStyle, autosave, themes, tags, commit, createNew, title } = body;
+            let file = rawFile;
 
             if (!folder || !file || typeof content !== 'string') {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -8430,6 +10381,22 @@ activateTab(initialParams.tab || 'people');
             }
 
             fs.mkdirSync(path.join(dataDir(), folder), { recursive: true });
+            // When the client signals this is a brand new note (createNew),
+            // dedupe the filename against existing files in the week by
+            // appending "-2", "-3", … until we find a free slot. Skipped
+            // for autosave (writes to a temp path) and for edits of an
+            // existing note (which intentionally overwrite).
+            if (createNew && !autosave && !append) {
+                const base = file.replace(/\.md$/i, '');
+                let candidate = file;
+                let n = 2;
+                while (fs.existsSync(path.join(dataDir(), folder, candidate))) {
+                    candidate = `${base}-${n}.md`;
+                    n++;
+                    if (n > 9999) break;
+                }
+                file = candidate;
+            }
             const filePath = path.join(dataDir(), folder, file);
 
             // On EXPLICIT save (not autosave), process inline-create markers:
@@ -8446,39 +10413,52 @@ activateTab(initialParams.tab || 'people');
                 const inline = extractInlineTasks(finalContent);
                 if (inline.tasks.length > 0) {
                     const allTasks = loadTasks();
+                    const noteRef = `${folder}/${file}`;
+                    const newIds = [];
                     inline.tasks.forEach(text => {
+                        const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
                         allTasks.push({
-                            id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+                            id,
                             text,
                             done: false,
                             week: noteWeek,
+                            noteRef,
                             created: new Date().toISOString(),
                         });
+                        newIds.push(id);
                     });
                     saveTasks(allTasks);
                     createdTasks = inline.tasks.length;
-                    finalContent = inline.cleanNote;
+                    // Rewrite each {{X}} marker (in order) to {{?<newId>}}
+                    // so the saved file keeps a stable ref to the new task.
+                    // Preserve the link so the note can render an interactive
+                    // checkbox and close-from-note works.
+                    let i = 0;
+                    finalContent = finalContent.replace(/\{\{([^{}!?][^{}]*)\}\}/g, (m) => {
+                        if (i >= newIds.length) return m;
+                        return `{{?${newIds[i++]}}}`;
+                    });
                 }
                 // Process '{{!<id>}}' close markers: close the matching open
-                // task and replace the marker with '~~<task text>~~' so the
-                // saved file renders as strikethrough. Keeps a stable visual
-                // record in the note while the source stays compact when
-                // typing.
+                // task. The marker is left in the file so the rendered note
+                // can show a checked checkbox with the task text, and so
+                // close-from-note can flip {{?id}} → {{!id}} in place.
                 {
                     const allTasks = loadTasks();
                     const re = /\{\{!\s*([^{}\s]+)\s*\}\}/g;
                     const seen = new Set();
-                    finalContent = finalContent.replace(re, (m, id) => {
+                    let m;
+                    while ((m = re.exec(finalContent)) !== null) {
+                        const id = m[1];
                         const t = allTasks.find(x => x.id === id);
-                        if (!t) return m; // unknown id — leave marker as-is
+                        if (!t) continue;
                         if (!t.done) {
                             t.done = true;
                             t.completedWeek = noteWeek;
                             t.completedAt = new Date().toISOString();
                             if (!seen.has(id)) { closedTasks++; seen.add(id); }
                         }
-                        return `~~${t.text || id}~~`;
-                    });
+                    }
                     if (seen.size > 0) saveTasks(allTasks);
                 }
                 // Also close any open task whose text appears verbatim as
@@ -8504,25 +10484,9 @@ activateTab(initialParams.tab || 'people');
                         if (changed) saveTasks(allTasks);
                     }
                 }
-                const ext = extractResults(finalContent);
-                if (ext.results.length > 0) {
-                    const noteMentions = extractMentions(content);
-                    let allResults = loadResults();
-                    ext.results.forEach(text => {
-                        const textMentions = extractMentions(text);
-                        const allMentions = [...new Set([...noteMentions, ...textMentions])];
-                        allResults.push({
-                            id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
-                            text,
-                            week: noteWeek,
-                            people: allMentions,
-                            created: new Date().toISOString(),
-                        });
-                    });
-                    saveResults(allResults);
-                    createdResults = ext.results.length;
-                    finalContent = ext.cleanNote;
-                }
+                const resOut = processInlineResults(finalContent, noteWeek);
+                createdResults = resOut.createdCount;
+                finalContent = resOut.text;
             }
 
             if (autosave) {
@@ -8541,6 +10505,13 @@ activateTab(initialParams.tab || 'people');
             } else {
                 fs.writeFileSync(filePath, finalContent, 'utf-8');
             }
+            // Reconcile task→note backrefs against the post-write content.
+            // For append we need the merged file; for overwrite finalContent
+            // is the same as on-disk. Using readFileSync covers both.
+            try {
+                const onDisk = fs.readFileSync(filePath, 'utf-8');
+                syncTaskNoteRefs(`${folder}/${file}`, onDisk);
+            } catch (_) {}
             // Remove any stale autosave temp file now that we've persisted.
             try {
                 const tmpPath = path.join(dataDir(), folder, '.' + file + '.autosave');
@@ -8548,12 +10519,24 @@ activateTab(initialParams.tab || 'people');
             } catch (_) {}
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: true, path: `/${folder}/${file}`, content: finalContent, createdTasks, createdResults, closedTasks }));
+            res.end(JSON.stringify({ ok: true, path: `/${folder}/${file}`, file, folder, content: finalContent, createdTasks, createdResults, closedTasks }));
 
             const now = new Date().toISOString();
             const existing = getNoteMeta(folder, file);
-            const saves = existing.saves || [];
-            if (!autosave) saves.push(now);
+            const saves = Array.isArray(existing.saves) ? existing.saves.slice() : [];
+            const meKey = !autosave ? getMePersonKey(getActiveContext()) : '';
+            if (!autosave) {
+                const entry = { at: now };
+                if (meKey) entry.by = meKey;
+                try {
+                    const repo = dataDir();
+                    if (gitIsRepo(repo)) {
+                        const sha = git(repo, 'rev-parse HEAD').trim();
+                        if (sha) entry.sha = sha;
+                    }
+                } catch (_) {}
+                saves.push(entry);
+            }
             const updates = { type: type || existing.type || 'note', modified: now, saves };
             if (presentationStyle) updates.presentationStyle = presentationStyle;
             const incomingTags = Array.isArray(tags) ? tags : (Array.isArray(themes) ? themes : null);
@@ -8566,17 +10549,50 @@ activateTab(initialParams.tab || 'people');
                 updates.themes = norm;
             }
             if (!existing.created) updates.created = now;
+            // Display title — original heading text as typed (preserves
+            // æ/ø/å and other unicode the slugified filename loses).
+            // Falls back to the first H1 in finalContent when the client
+            // didn't supply one.
+            let displayTitle = (typeof title === 'string') ? title.trim() : '';
+            if (!displayTitle) {
+                const m = String(finalContent || '').match(/^\s*#\s+(.+?)\s*$/m);
+                if (m) displayTitle = m[1].trim();
+            }
+            if (displayTitle) updates.title = displayTitle;
+            // Author tracking: createdBy is set once (first explicit save with
+            // an identity), lastSavedBy updates on every explicit save. Both
+            // hold the person key from data/user.json (per-context @me mapping).
+            // Autosaves are not attributed.
+            if (!autosave && meKey) {
+                if (!existing.createdBy) updates.createdBy = meKey;
+                updates.lastSavedBy = meKey;
+            }
+            // Cross-entity references — recomputed from finalContent on
+            // each save so the sidecar always reflects what the note
+            // currently links to. Meeting notes carry meetingId as a
+            // first-class field; surface it here too for symmetry.
+            const references = computeNoteReferences(finalContent);
+            const meetingIdForRef = updates.meetingId || existing.meetingId;
+            if (meetingIdForRef && !references.meetings.includes(meetingIdForRef)) {
+                references.meetings = [meetingIdForRef, ...references.meetings];
+            }
+            updates.references = references;
             setNoteMeta(folder, file, updates);
             syncMentions(content);
 
-            // Commit the note (and its sidecar metadata) to the per-context
-            // git repo so we keep history. Best-effort, never blocks the
-            // response. Only runs on explicit save.
-            try {
+            // Commit the note (and *every* sidecar / related entity file
+            // touched by this save — git add -A sweeps the whole context
+            // repo) to git so we keep history. Best-effort, never blocks
+            // the response. Only runs when the client opted in (e.g. the
+            // editor's "Ferdig" button); plain Ctrl+S saves persist without
+            // creating a commit so iterative editing doesn't pollute
+            // history.
+            if (commit) try {
                 const repo = dataDir();
                 // Lazy-write the .week-notes marker on first explicit save
                 // (was previously written eagerly on context create/clone).
                 if (!fs.existsSync(path.join(repo, WEEK_NOTES_MARKER))) writeMarker(repo);
+                if (!gitIsRepo(repo)) gitInitIfNeeded(repo);
                 if (gitIsRepo(repo)) {
                     // Ensure autosave dotfiles and the embed sidecar never end up in commits.
                     const giPath = path.join(repo, '.gitignore');
@@ -8620,7 +10636,7 @@ activateTab(initialParams.tab || 'people');
                 return;
             }
 
-            const rendered = linkMentions(marked(content));
+            const rendered = linkMentions(marked(preTaskMarkers(content)));
             const name = file.replace('.md', '');
             const editLink = `/editor/${week}/${encodeURIComponent(file)}`;
             const body = `<div class="md-content">${rendered}</div>`;
@@ -8703,7 +10719,7 @@ activateTab(initialParams.tab || 'people');
             const hasNote = t.note && t.note.trim();
             const noteBtn = '<button onclick="openNoteModal(\\'' + t.id + '\\')" style="background:none;border:none;cursor:pointer;font-size:1em;opacity:' + (hasNote ? '1' : '0.35') + '" title="' + (hasNote ? 'Rediger notat' : 'Legg til notat') + '">📓</button>';
             const borderColor = t.done ? '#a0aec0' : '#2b6cb0';
-            const noteHtml = hasNote ? '<div class="md-content" style="padding:4px 14px 8px 46px;font-size:0.85em;color:var(--text-muted);background:var(--surface);border-left:4px solid ' + borderColor + ';border-radius:0 0 8px 8px;margin-top:-4px">' + linkMentions(marked.parse(t.note)) + '</div>' : '';
+            const noteHtml = hasNote ? '<div class="md-content" style="padding:4px 14px 8px 46px;font-size:0.85em;color:var(--text-muted);background:var(--surface);border-left:4px solid ' + borderColor + ';border-radius:0 0 8px 8px;margin-top:-4px">' + linkMentions(marked.parse(preTaskMarkers(t.note))) + '</div>' : '';
             const handle = t.done ? '' : '<span class="drag-handle" style="cursor:grab;color:var(--border);font-size:1.1em;padding:0 2px;user-select:none" title="Dra for å sortere">⠿</span>';
             return '<div data-id="' + t.id + '" draggable="' + (!t.done) + '" style="margin:4px 0" ondragstart="onDragStart(event)" ondragover="onDragOver(event)" ondrop="onDrop(event)" ondragend="onDragEnd(event)">'
                 + '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface);border-radius:' + (hasNote ? '8px 8px 0 0' : '8px') + ';border-left:4px solid ' + borderColor + '">'
@@ -8729,10 +10745,20 @@ activateTab(initialParams.tab || 'people');
         function linkMentions(html) {
             if (!html) return html;
             return html.replace(/(^|[\\s\\n(\\[>])@([a-zA-ZæøåÆØÅ][a-zA-ZæøåÆØÅ0-9_-]*)/g, function(m, pre, name) {
-                const p = mentionPeople.find(x => x.name === name || (x.key && x.key === name.toLowerCase()));
-                const display = p ? (p.firstName ? (p.lastName ? p.firstName + ' ' + p.lastName : p.firstName) : p.name) : name;
-                const key = p ? (p.key || (p.name || '').toLowerCase()) : name.toLowerCase();
-                return pre + '<entity-mention kind="person" key="' + escapeHtml(key) + '" label="' + escapeHtml(display) + '"></entity-mention>';
+                let lc = name.toLowerCase();
+                let display = name;
+                if (lc === 'me') {
+                    const mapped = window.mePersonKey || '';
+                    if (!mapped) {
+                        return pre + '<entity-mention kind="person" key="" label="@me"></entity-mention>';
+                    }
+                    lc = mapped;
+                    display = mapped;
+                }
+                const p = mentionPeople.find(x => x.name === display || (x.key && x.key === lc));
+                const finalDisplay = p ? (p.firstName ? (p.lastName ? p.firstName + ' ' + p.lastName : p.firstName) : p.name) : display;
+                const key = p ? (p.key || (p.name || '').toLowerCase()) : lc;
+                return pre + '<entity-mention kind="person" key="' + escapeHtml(key) + '" label="' + escapeHtml(finalDisplay) + '"></entity-mention>';
             });
         }
 
@@ -9484,6 +11510,7 @@ activateTab(initialParams.tab || 'people');
                 res.end(JSON.stringify({ ok: true, active: next }));
                 setImmediate(() => {
                     try { pullContextRemote(next); } catch (e) { console.error('bg pull', e.message); }
+                    try { rebuildTaskNoteRefs(); } catch (e) { console.error('rebuildTaskNoteRefs', e.message); }
                     reindexSearch();
                     if (getAppSettings().vectorSearch.enabled) restartEmbedWorker();
                 });
@@ -9642,8 +11669,9 @@ activateTab(initialParams.tab || 'people');
         const dirty = isRepo ? gitIsDirty(dir) : false;
         const last = isRepo ? gitLastCommit(dir) : null;
         const remote = isRepo ? gitGetRemote(dir) : null;
+        const branch = isRepo ? gitCurrentBranch(dir) : null;
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ isRepo, dirty, last, remote }));
+        res.end(JSON.stringify({ isRepo, dirty, last, remote, branch }));
         return;
     }
 
@@ -9674,6 +11702,7 @@ activateTab(initialParams.tab || 'people');
         }
         const dir = path.join(CONTEXTS_DIR, id);
         const result = gitPull(dir);
+        _cacheInvalidateContext(id);
         res.writeHead(result.ok ? 200 : 500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
         return;
@@ -9727,6 +11756,10 @@ activateTab(initialParams.tab || 'people');
                 commit: opts.commit !== false,
                 only: Array.isArray(opts.only) ? opts.only : null,
             });
+            // Migrations rewrite the on-disk shape — drop everything
+            // we cached for this context so subsequent reads pick up
+            // the new layout.
+            _cacheInvalidateContext(id);
             res.writeHead(r.ok ? 200 : 500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(r));
         });
@@ -9741,7 +11774,7 @@ activateTab(initialParams.tab || 'people');
         const filePath = path.join(dataDir(), week, file);
         try {
             const raw = fs.readFileSync(filePath, 'utf-8');
-            const html = linkMentions(marked(raw));
+            const html = linkMentions(marked(preTaskMarkers(raw)));
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: true, html, name: file.replace(/\.md$/, ''), week }));
         } catch (e) {
@@ -9813,8 +11846,10 @@ activateTab(initialParams.tab || 'people');
 
     // API: get all tasks
     if (pathname === '/api/tasks' && req.method === 'GET') {
+        const all = url.searchParams.get('all');
+        const includeDeleted = all === '1' || all === 'true';
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(loadTasks()));
+        res.end(JSON.stringify(includeDeleted ? loadAllTasks() : loadTasks()));
         return;
     }
 
@@ -9871,32 +11906,20 @@ activateTab(initialParams.tab || 'people');
             }
             if (task.done && comment) {
                 const week = task.completedWeek || task.week || getCurrentYearWeek();
-                const { results: resultTexts, cleanNote: cleanComment } = extractResults(comment);
-                if (resultTexts.length > 0) {
-                    const mentionNames = extractMentions(comment);
-                    let allResults = loadResults();
-                    resultTexts.forEach(text => {
-                        const textMentions = extractMentions(text);
-                        const allMentions = [...new Set([...mentionNames, ...textMentions])];
-                        allResults.push({
-                            id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
-                            text,
-                            week,
-                            taskId: task.id,
-                            taskText: task.text,
-                            people: allMentions,
-                            created: new Date().toISOString()
-                        });
-                    });
-                    saveResults(allResults);
+                const proc = processInlineResults(comment, week, { taskId: task.id, taskText: task.text });
+                if (proc.createdCount > 0) {
                     syncMentions(task.text, comment);
                 }
+                const cleanComment = proc.text;
                 const fileName = `oppgave-${task.id}.md`;
                 fs.mkdirSync(path.join(dataDir(), week), { recursive: true });
                 fs.writeFileSync(path.join(dataDir(), week, fileName),
                     `# ✅ ${task.text}\n\n${cleanComment}\n\n---\n*Fullført: ${dateStr}*\n`, 'utf-8');
                 task.commentFile = `${week}/${fileName}`;
-                setNoteMeta(week, fileName, { type: 'task' });
+                const meTask = getMePersonKey(getActiveContext());
+                const taskMeta = { type: 'task' };
+                if (meTask) { taskMeta.createdBy = meTask; taskMeta.lastSavedBy = meTask; }
+                setNoteMeta(week, fileName, taskMeta);
             }
         }
         saveTasks(tasks);
@@ -9905,16 +11928,66 @@ activateTab(initialParams.tab || 'people');
         return;
     }
 
-    // API: delete task
+    // API: close (or reopen) a task from a rendered note view, also
+    // flipping the {{?<id>}} ↔ {{!<id>}} marker in the source note file
+    // so the rendered checkbox state persists.
+    const closeFromNoteMatch = pathname.match(/^\/api\/tasks\/([^/]+)\/close-from-note$/);
+    if (closeFromNoteMatch && req.method === 'POST') {
+        const id = closeFromNoteMatch[1];
+        let body = {};
+        try { body = JSON.parse(await readBody(req)); } catch {}
+        const wantDone = body.done !== undefined ? !!body.done : true;
+        const tasks = loadTasks();
+        const task = tasks.find(t => t.id === id);
+        if (!task) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Task not found' }));
+            return;
+        }
+        task.done = wantDone;
+        if (wantDone) {
+            task.completedAt = new Date().toISOString();
+            task.completedWeek = getCurrentYearWeek();
+        } else {
+            delete task.completedAt;
+            delete task.completedWeek;
+        }
+        saveTasks(tasks);
+        // Flip the marker in the source file when noteRef is set.
+        let noteUpdated = false;
+        if (task.noteRef && /^[^/]+\/[^/]+\.md$/.test(task.noteRef)) {
+            const filePath = path.join(dataDir(), task.noteRef);
+            try {
+                if (fs.existsSync(filePath)) {
+                    let content = fs.readFileSync(filePath, 'utf-8');
+                    const fromKind = wantDone ? '?' : '!';
+                    const toKind = wantDone ? '!' : '?';
+                    const re = new RegExp(`\\{\\{\\${fromKind}\\s*${id}\\s*\\}\\}`, 'g');
+                    const next = content.replace(re, `{{${toKind}${id}}}`);
+                    if (next !== content) {
+                        fs.writeFileSync(filePath, next, 'utf-8');
+                        noteUpdated = true;
+                    }
+                }
+            } catch (e) { /* non-fatal */ }
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, task, noteUpdated }));
+        return;
+    }
     const deleteMatch = pathname.match(/^\/api\/tasks\/([^/]+)$/);
     if (deleteMatch && req.method === 'DELETE') {
-        let tasks = loadTasks();
-        tasks = tasks.filter(t => t.id !== deleteMatch[1]);
-        saveTasks(tasks);
+        const all = loadAllTasks();
+        const id = deleteMatch[1];
+        const idx = all.findIndex(t => t.id === id);
+        if (idx >= 0) {
+            all[idx] = { ...all[idx], deleted: true, deletedAt: new Date().toISOString() };
+            saveTasks(all);
+        }
         // Remove results for deleted task
-        saveResults(loadResults().filter(r => r.taskId !== deleteMatch[1]));
+        saveResults(loadResults().filter(r => r.taskId !== id));
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(tasks));
+        res.end(JSON.stringify(loadTasks()));
         return;
     }
 
@@ -10161,10 +12234,12 @@ activateTab(initialParams.tab || 'people');
     const deleteNoteMatch = pathname.match(/^\/api\/notes\/([^/]+)\/(.+)$/);
     if (deleteNoteMatch && req.method === 'DELETE') {
         const [, week, file] = deleteNoteMatch;
-        const filePath = path.join(dataDir(), week, decodeURIComponent(file));
+        const decoded = decodeURIComponent(file);
+        const filePath = path.join(dataDir(), week, decoded);
         try {
             fs.unlinkSync(filePath);
-            deleteNoteMeta(week, decodeURIComponent(file));
+            deleteNoteMeta(week, decoded);
+            clearTaskNoteRef(`${week}/${decoded}`);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: true }));
         } catch {
@@ -10324,6 +12399,7 @@ server.listen(PORT, () => {
     console.log(`Weeks server running at http://localhost:${PORT}/`);
     checkExternalTools();
     try { ensureAllContextsInitialised(); } catch (e) { console.error('ctx init', e.message); }
+    try { rebuildTaskNoteRefs(); } catch (e) { console.error('rebuildTaskNoteRefs', e.message); }
     startSearchWorker();
     startEmbedWorker();
     startSummarizeWorker();

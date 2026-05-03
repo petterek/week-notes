@@ -30,18 +30,27 @@ const STYLES = `
 .toolbar select, .toolbar button { font: inherit; background: var(--surface-alt, #fafafa); border: 1px solid var(--border-faint, #ddd); border-radius: 4px; padding: 2px 6px; cursor: pointer; color: var(--text-strong, #333); }
 .toolbar button:hover, .toolbar select:hover { background: var(--surface-head, #f0f0f0); }
 table { border-collapse: collapse; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--json-table-font-size, 12px); width: max-content; min-width: 100%; }
-th, td { padding: 4px 8px; border-bottom: 1px solid var(--border-faint, #eee); text-align: left; vertical-align: top; white-space: nowrap; }
-th { background: var(--surface-head, #f0f0f0); position: sticky; top: 0; font-weight: 600; color: var(--text-strong, #222); z-index: 1; cursor: pointer; user-select: none; }
+th, td { padding: 4px 8px; border-bottom: 1px solid var(--border-faint, #ddd); border-right: 1px solid var(--border-faint, #eee); text-align: left; vertical-align: top; white-space: nowrap; }
+th:last-child, td:last-child { border-right: none; }
+th { background: var(--surface-head, #f0f0f0); position: sticky; top: 0; font-weight: 600; color: var(--text-strong, #222); z-index: 1; cursor: pointer; user-select: none; border-bottom: 2px solid var(--border, #c8c8c8); }
 th:hover { color: var(--accent, #06c); }
 th .sort { display: inline-block; margin-left: 4px; opacity: 0.5; font-size: 0.85em; }
 th[data-sort="asc"] .sort, th[data-sort="desc"] .sort { opacity: 1; }
+th .col-toggle { background: none; border: none; cursor: pointer; padding: 0 4px 0 0; margin: 0; color: var(--text-subtle, #888); font: inherit; font-size: 0.9em; line-height: 1; opacity: 0.5; }
+th:hover .col-toggle { opacity: 1; }
+th .col-toggle:hover { color: var(--accent, #06c); }
+th.collapsed { width: 22px; min-width: 22px; max-width: 22px; padding: 4px 2px; text-align: center; cursor: default; }
+th.collapsed .col-toggle { padding: 0; opacity: 1; color: var(--accent, #06c); font-weight: 700; }
+td.cell-collapsed { width: 22px; min-width: 22px; max-width: 22px; padding: 4px 2px; text-align: center; color: var(--text-subtle, #aaa); font-style: italic; }
 tbody tr:hover { background: rgba(0,0,0,0.03); }
 td.cell-obj { color: var(--text-subtle, #888); font-style: italic; }
 td.cell-null { color: var(--text-subtle, #aaa); }
 td.cell-num { text-align: right; }
 td.cell-bool { color: var(--accent, #06c); font-weight: 600; }
-td.cell-nested { padding: 2px; white-space: normal; }
+td.cell-nested { padding: 4px; white-space: normal; background: var(--surface-alt, #fafafa); }
 td.cell-nested json-table { display: block; }
+td[contenteditable="true"] { cursor: text; }
+td[contenteditable="true"]:focus { outline: 2px solid var(--accent, #06c); outline-offset: -2px; background: var(--surface, white); }
 .empty { padding: 14px 18px; color: var(--text-subtle, #888); font-style: italic; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; }
 .overlay { display: none; }
 :host(.fullscreen) .overlay { display: flex; flex-direction: column; position: fixed; inset: 0; z-index: 9999; background: var(--surface, #fff); padding: 16px; box-sizing: border-box; }
@@ -54,7 +63,7 @@ td.cell-nested json-table { display: block; }
 `;
 
 export class JsonTable extends WNElement {
-    static get observedAttributes() { return ['columns', 'max-height', 'empty-text']; }
+    static get observedAttributes() { return ['columns', 'max-height', 'empty-text', 'editable']; }
 
     constructor() {
         super();
@@ -62,10 +71,20 @@ export class JsonTable extends WNElement {
         this._sortKey = null;
         this._sortDir = 0;
         this._fontSize = '12px';
+        this._collapsed = new Set();
     }
 
     set data(value) {
-        this._data = Array.isArray(value) ? value : [];
+        if (Array.isArray(value)) {
+            this._data = value;
+            this._mode = 'rows';
+        } else if (value && typeof value === 'object') {
+            this._data = [value];
+            this._mode = 'object';
+        } else {
+            this._data = [];
+            this._mode = 'rows';
+        }
         this._sortKey = null;
         this._sortDir = 0;
         if (this.isConnected) this.requestRender();
@@ -136,16 +155,27 @@ export class JsonTable extends WNElement {
             return html`<div class="wrap"><div class="empty">${empty}</div></div>`;
         }
         const rows = this._sortedRows();
+        const editable = this.hasAttribute('editable') && !this.hasAttribute('nested');
         const headers = cols.map(c => {
             const sort = this._sortKey === c ? (this._sortDir > 0 ? 'asc' : this._sortDir < 0 ? 'desc' : '') : '';
             const arrow = sort === 'asc' ? '▲' : sort === 'desc' ? '▼' : '↕';
-            return html`<th data-col="${c}"${sort ? html` data-sort="${sort}"` : html``}>${c}<span class="sort">${arrow}</span></th>`;
+            const isCol = this._collapsed.has(c);
+            if (isCol) {
+                return html`<th class="collapsed" data-col="${c}" title="${c} (klikk for å vise)"><button type="button" class="col-toggle" data-col-toggle="${c}" title="Vis kolonne ${c}">▸</button></th>`;
+            }
+            return html`<th data-col="${c}"${sort ? html` data-sort="${sort}"` : html``}><button type="button" class="col-toggle" data-col-toggle="${c}" title="Skjul kolonne">−</button>${c}<span class="sort">${arrow}</span></th>`;
         });
-        const body = rows.map(r => {
+        const body = rows.map((r, displayIdx) => {
+            const origIdx = this._data.indexOf(r);
             const tds = cols.map(c => {
+                if (this._collapsed.has(c)) {
+                    return html`<td class="cell-collapsed" data-col="${c}">…</td>`;
+                }
                 const cell = this._renderCell(r ? r[c] : undefined);
-                if (cell.raw) return html`<td class="${cell.cls}">${cell.raw}</td>`;
-                return html`<td class="${cell.cls}">${cell.text}</td>`;
+                const ed = editable && cell.cls !== 'cell-nested';
+                const edAttr = ed ? html` contenteditable="true" data-row="${String(origIdx)}" data-col="${c}"` : html``;
+                if (cell.raw) return html`<td class="${cell.cls}"${edAttr}>${cell.raw}</td>`;
+                return html`<td class="${cell.cls}"${edAttr}>${cell.text}</td>`;
             });
             return html`<tr>${tds}</tr>`;
         });
@@ -179,10 +209,13 @@ export class JsonTable extends WNElement {
             const id = Number(el.dataset.nestedId);
             const val = this._nested.get(id);
             if (val == null) continue;
-            const data = Array.isArray(val)
-                ? val.map(x => (x && typeof x === 'object' && !Array.isArray(x)) ? x : { value: x })
-                : Object.entries(val).map(([key, value]) => ({ key, value }));
-            el.data = data;
+            if (Array.isArray(val)) {
+                // Wrap primitive array elements so they get a 'value' column.
+                const allObj = val.every(x => x && typeof x === 'object' && !Array.isArray(x));
+                el.data = allObj ? val : val.map(x => (x && typeof x === 'object' && !Array.isArray(x)) ? x : { value: x });
+            } else {
+                el.data = val;
+            }
         }
     }
 
@@ -198,8 +231,18 @@ export class JsonTable extends WNElement {
         this.shadowRoot.addEventListener('click', this._onClick = (e) => {
             if (e.target.closest('.fs-btn')) { this.classList.add('fullscreen'); return; }
             if (e.target.closest('.overlay button.close')) { this.classList.remove('fullscreen'); return; }
+            const colBtn = e.target.closest('.col-toggle');
+            if (colBtn) {
+                e.stopPropagation();
+                const col = colBtn.dataset.colToggle;
+                if (this._collapsed.has(col)) this._collapsed.delete(col);
+                else this._collapsed.add(col);
+                this.requestRender();
+                return;
+            }
             const th = e.target.closest('th[data-col]');
             if (!th) return;
+            if (th.classList.contains('collapsed')) return;
             const col = th.dataset.col;
             if (this._sortKey !== col) {
                 this._sortKey = col; this._sortDir = 1;
@@ -216,6 +259,40 @@ export class JsonTable extends WNElement {
             }
         };
         document.addEventListener('keydown', this._onKey);
+        this.shadowRoot.addEventListener('keydown', (e) => {
+            const td = e.target.closest('td[contenteditable="true"]');
+            if (!td) return;
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); td.blur(); }
+            if (e.key === 'Escape') { td.textContent = td.dataset._orig != null ? td.dataset._orig : td.textContent; td.blur(); }
+        });
+        this.shadowRoot.addEventListener('focusin', (e) => {
+            const td = e.target.closest('td[contenteditable="true"]');
+            if (!td) return;
+            td.dataset._orig = td.textContent;
+        });
+        this.shadowRoot.addEventListener('focusout', (e) => {
+            const td = e.target.closest('td[contenteditable="true"]');
+            if (!td) return;
+            const orig = td.dataset._orig != null ? td.dataset._orig : '';
+            const text = td.textContent;
+            if (text === orig) return;
+            const rowIdx = Number(td.dataset.row);
+            const col = td.dataset.col;
+            const row = this._data[rowIdx];
+            if (!row) return;
+            const oldValue = row[col];
+            let newValue;
+            try { newValue = JSON.parse(text); }
+            catch (_) {
+                if (text === '') newValue = (oldValue === null || oldValue === undefined) ? null : '';
+                else newValue = text;
+            }
+            row[col] = newValue;
+            this.dispatchEvent(new CustomEvent('cell-edit', {
+                detail: { rowIndex: rowIdx, key: col, value: newValue, oldValue, row },
+                bubbles: true, composed: true,
+            }));
+        });
     }
 
     disconnectedCallback() {

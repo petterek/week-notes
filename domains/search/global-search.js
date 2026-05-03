@@ -271,12 +271,14 @@ class GlobalSearch extends WNElement {
         });
 
         // <note-card> events (from note results). 'view' → element-selected.
-        // 'edit' has a real <a href="/editor/..."> — let it navigate, but close modal.
-        // 'delete' → suppress in search context.
+        // 'edit' → navigate to editor and close modal. 'delete' is suppressed.
         resultsEl.addEventListener('view', (e) => {
             const card = e.target.closest('note-card.search-result');
             if (!card) return;
-            const fp = (e.detail && e.detail.filePath) || card.dataset.identifier || '';
+            const d = e.detail || {};
+            const fp = (d.week && d.file)
+                ? `${d.week}/${encodeURIComponent(d.file)}`
+                : (card.dataset.identifier || '');
             e.preventDefault();
             this.dispatchEvent(new CustomEvent('element-selected', {
                 bubbles: true, cancelable: true,
@@ -284,7 +286,16 @@ class GlobalSearch extends WNElement {
             }));
             close();
         });
-        resultsEl.addEventListener('edit', () => { close(); });
+        resultsEl.addEventListener('edit', (e) => {
+            const d = e.detail || {};
+            if (d.week && d.file) {
+                e.preventDefault();
+                const url = `/editor/${d.week}/${encodeURIComponent(d.file)}`;
+                if (window.spaNavigate && window.spaNavigate(url)) { close(); return; }
+                window.location.href = url;
+            }
+            close();
+        });
         resultsEl.addEventListener('delete', (e) => { e.preventDefault(); });
 
         input.addEventListener('keydown', (e) => {
