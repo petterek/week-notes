@@ -258,7 +258,7 @@ class NoteView extends WNElement {
                         ${tab === 'meta' ? html`
                             ${this._metaError ? html`<div class="nv-error">${escapeHtml(this._metaError)}</div>` : ''}
                             ${(!this._metaError && this._meta == null) ? html`<div class="nv-loading">Laster…</div>` : ''}
-                            ${(!this._metaError && this._meta != null) ? html`<pre class="nv-meta">${escapeHtml(JSON.stringify(this._meta, null, 2))}</pre>` : ''}
+                            ${(!this._metaError && this._meta != null) ? html`<pre class="nv-meta">${JSON.stringify(this._meta, null, 2)}</pre>` : ''}
                         ` : ''}
                     </div>
                 </div>

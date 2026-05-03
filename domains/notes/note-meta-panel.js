@@ -143,7 +143,7 @@ class NoteMetaPanel extends WNElement {
             ${this._loading ? html`<div class="nmp-loading">Laster…</div>` : ''}
             ${(!this._error && !this._loading && this._meta) ? (
                 tab === 'raw'
-                    ? html`<pre class="nmp-raw">${escapeHtml(JSON.stringify(this._meta, null, 2))}</pre>`
+                    ? html`<pre class="nmp-raw">${JSON.stringify(this._meta, null, 2)}</pre>`
                     : html`<note-meta-view></note-meta-view>`
             ) : ''}
         `;
