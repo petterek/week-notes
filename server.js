@@ -9015,7 +9015,8 @@ activateTab(initialParams.tab || 'people');
     if (pathname === '/api/save' && req.method === 'POST') {
         try {
             const body = JSON.parse(await readBody(req));
-            const { folder, file, content, append, type, presentationStyle, autosave, themes, tags, commit } = body;
+            const { folder, file: rawFile, content, append, type, presentationStyle, autosave, themes, tags, commit, createNew } = body;
+            let file = rawFile;
 
             if (!folder || !file || typeof content !== 'string') {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -9036,6 +9037,22 @@ activateTab(initialParams.tab || 'people');
             }
 
             fs.mkdirSync(path.join(dataDir(), folder), { recursive: true });
+            // When the client signals this is a brand new note (createNew),
+            // dedupe the filename against existing files in the week by
+            // appending "-2", "-3", … until we find a free slot. Skipped
+            // for autosave (writes to a temp path) and for edits of an
+            // existing note (which intentionally overwrite).
+            if (createNew && !autosave && !append) {
+                const base = file.replace(/\.md$/i, '');
+                let candidate = file;
+                let n = 2;
+                while (fs.existsSync(path.join(dataDir(), folder, candidate))) {
+                    candidate = `${base}-${n}.md`;
+                    n++;
+                    if (n > 9999) break;
+                }
+                file = candidate;
+            }
             const filePath = path.join(dataDir(), folder, file);
 
             // On EXPLICIT save (not autosave), process inline-create markers:
@@ -9151,7 +9168,7 @@ activateTab(initialParams.tab || 'people');
             } catch (_) {}
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: true, path: `/${folder}/${file}`, content: finalContent, createdTasks, createdResults, closedTasks }));
+            res.end(JSON.stringify({ ok: true, path: `/${folder}/${file}`, file, folder, content: finalContent, createdTasks, createdResults, closedTasks }));
 
             const now = new Date().toISOString();
             const existing = getNoteMeta(folder, file);

@@ -1290,7 +1290,15 @@ class NoteEditor extends WNElement {
             if (presentationStyle) payload.presentationStyle = presentationStyle;
             if (autosave) payload.autosave = true;
             if (closeAfter && !autosave) payload.commit = true;
+            if (!this._editing && !autosave) payload.createNew = true;
             const data = await this.service.save(payload);
+            // Server may have deduped the filename if this was a new note
+            // colliding with an existing file. Adopt whatever the server
+            // actually wrote.
+            if (data && typeof data.file === 'string' && data.file !== file) {
+                file = data.file;
+                if (this._fileEl) this._fileEl.value = file;
+            }
             // Server may strip {{...}} / [[...]] markers and create entities on
             // explicit save; reflect the cleaned content in the editor.
             if (data && typeof data.content === 'string' && data.content !== content) {
