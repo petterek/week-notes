@@ -1215,6 +1215,7 @@ class NoteEditor extends WNElement {
             const payload = { folder, file, content, tags, type };
             if (presentationStyle) payload.presentationStyle = presentationStyle;
             if (autosave) payload.autosave = true;
+            if (closeAfter && !autosave) payload.commit = true;
             const data = await this.service.save(payload);
             // Server may strip {{...}} / [[...]] markers and create entities on
             // explicit save; reflect the cleaned content in the editor.

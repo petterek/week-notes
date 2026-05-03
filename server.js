@@ -9015,7 +9015,7 @@ activateTab(initialParams.tab || 'people');
     if (pathname === '/api/save' && req.method === 'POST') {
         try {
             const body = JSON.parse(await readBody(req));
-            const { folder, file, content, append, type, presentationStyle, autosave, themes, tags } = body;
+            const { folder, file, content, append, type, presentationStyle, autosave, themes, tags, commit } = body;
 
             if (!folder || !file || typeof content !== 'string') {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -9202,14 +9202,19 @@ activateTab(initialParams.tab || 'people');
             setNoteMeta(folder, file, updates);
             syncMentions(content);
 
-            // Commit the note (and its sidecar metadata) to the per-context
-            // git repo so we keep history. Best-effort, never blocks the
-            // response. Only runs on explicit save.
-            try {
+            // Commit the note (and *every* sidecar / related entity file
+            // touched by this save — git add -A sweeps the whole context
+            // repo) to git so we keep history. Best-effort, never blocks
+            // the response. Only runs when the client opted in (e.g. the
+            // editor's "Ferdig" button); plain Ctrl+S saves persist without
+            // creating a commit so iterative editing doesn't pollute
+            // history.
+            if (commit) try {
                 const repo = dataDir();
                 // Lazy-write the .week-notes marker on first explicit save
                 // (was previously written eagerly on context create/clone).
                 if (!fs.existsSync(path.join(repo, WEEK_NOTES_MARKER))) writeMarker(repo);
+                if (!gitIsRepo(repo)) gitInitIfNeeded(repo);
                 if (gitIsRepo(repo)) {
                     // Ensure autosave dotfiles and the embed sidecar never end up in commits.
                     const giPath = path.join(repo, '.gitignore');
