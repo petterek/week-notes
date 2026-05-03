@@ -69,6 +69,10 @@ const STYLES = `
         color: var(--text-muted);
         font-size: 0.9em; margin-right: auto;
     }
+    .ne-autosave-info {
+        color: var(--text-subtle);
+        font-size: 0.85em;
+    }
     button {
         padding: 8px 16px; border-radius: 6px; border: 1px solid transparent;
         cursor: pointer; font: inherit;
@@ -255,9 +259,9 @@ class NoteEditor extends WNElement {
             </div>
             <div class="ne-actions">
                 <span class="ne-status" aria-live="polite"></span>
+                <span class="ne-autosave-info" aria-live="polite"></span>
                 <button type="button" class="ne-detach" title="Åpne forhåndsvisning i eget vindu">📤 Detach</button>
                 <button type="button" class="ne-cancel">Avbryt</button>
-                <button type="button" class="ne-save">Lagre</button>
                 <button type="button" class="ne-save-close" title="Ctrl+Shift+S">Lagre og lukk</button>
             </div>
             <div class="ne-meta-footer">
@@ -317,7 +321,7 @@ class NoteEditor extends WNElement {
         this._detachBtn = this.shadowRoot.querySelector('.ne-detach');
         this._reattachBtn = this.shadowRoot.querySelector('.ne-reattach');
         this._statusEl = this.shadowRoot.querySelector('.ne-status');
-        this._saveBtn = this.shadowRoot.querySelector('.ne-save');
+        this._autosaveInfoEl = this.shadowRoot.querySelector('.ne-autosave-info');
         const saveCloseBtn = this.shadowRoot.querySelector('.ne-save-close');
         const cancelBtn = this.shadowRoot.querySelector('.ne-cancel');
 
@@ -328,8 +332,8 @@ class NoteEditor extends WNElement {
         this._installAutocompletes();
         this._installTagSpaceCommit();
         this._installHistoryPanel();
+        this._updateAutosaveInfo();
 
-        this._saveBtn.addEventListener('click', () => this.save(false));
         if (saveCloseBtn) saveCloseBtn.addEventListener('click', () => this.save(true));
         cancelBtn.addEventListener('click', () => this.cancel());
         this._detachBtn.addEventListener('click', () => {
@@ -373,7 +377,7 @@ class NoteEditor extends WNElement {
         this._dirty = true;
         if (this._countdownTimer) return;
         this._countdownLeft = 30;
-        this._updateSaveBtnLabel();
+        this._updateAutosaveInfo();
         this._countdownTimer = setInterval(() => {
             this._countdownLeft -= 1;
             if (this._countdownLeft <= 0) {
@@ -381,7 +385,7 @@ class NoteEditor extends WNElement {
                 if (this._dirty && !this._saving) this.save(false, true);
                 return;
             }
-            this._updateSaveBtnLabel();
+            this._updateAutosaveInfo();
         }, 1000);
     }
 
@@ -391,16 +395,25 @@ class NoteEditor extends WNElement {
             this._countdownTimer = null;
         }
         this._countdownLeft = 0;
-        this._updateSaveBtnLabel();
+        this._updateAutosaveInfo();
     }
 
-    _updateSaveBtnLabel() {
-        if (!this._saveBtn) return;
+    _updateAutosaveInfo() {
+        if (!this._autosaveInfoEl) return;
+        const parts = [];
         if (this._countdownTimer && this._countdownLeft > 0) {
-            this._saveBtn.textContent = `Lagre(${this._countdownLeft})`;
-        } else {
-            this._saveBtn.textContent = 'Lagre';
+            parts.push(`Autolagrer om ${this._countdownLeft}s`);
         }
+        if (this._lastAutosaveAt) {
+            try {
+                const d = new Date(this._lastAutosaveAt);
+                if (!isNaN(d.getTime())) {
+                    const t = d.toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    parts.push(`Sist autolagret ${t}`);
+                }
+            } catch (_) {}
+        }
+        this._autosaveInfoEl.textContent = parts.join(' · ');
     }
 
     _renderPreview() {
@@ -1194,7 +1207,7 @@ class NoteEditor extends WNElement {
             this._fileEl.value = file;
         }
         if (!file.endsWith('.md')) file += '.md';
-        this._setStatus('Lagrer…');
+        if (!autosave) this._setStatus('Lagrer…');
         try {
             const payload = { folder, file, content, tags, type };
             if (presentationStyle) payload.presentationStyle = presentationStyle;
@@ -1208,6 +1221,12 @@ class NoteEditor extends WNElement {
             if (pinned !== this._initialPinned && this.service.setPinned) {
                 try { await this.service.setPinned(folder, file, pinned); } catch (_) {}
                 this._initialPinned = pinned;
+            }
+            if (autosave) {
+                this._lastAutosaveAt = new Date().toISOString();
+                this._dirty = false;
+                this._updateAutosaveInfo();
+                return;
             }
             this._setStatus('Lagret');
             const evt = new CustomEvent('note-editor:saved', {
