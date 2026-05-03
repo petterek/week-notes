@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": [
+      "id",
+      "key",
+      "name"
+    ],
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "key": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "address": {
+        "type": "string"
+      },
+      "lat": {
+        "type": "number"
+      },
+      "lng": {
+        "type": "number"
+      },
+      "notes": {
+        "type": "string"
+      },
+      "created": {
+        "type": "string",
+        "format": "date-time"
+      }
+    }
+  }
+}

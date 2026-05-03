@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": [
+      "id",
+      "date",
+      "start",
+      "title"
+    ],
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "date": {
+        "type": "string",
+        "format": "date",
+        "description": "YYYY-MM-DD"
+      },
+      "start": {
+        "type": "string",
+        "pattern": "^[0-2][0-9]:[0-5][0-9]$"
+      },
+      "end": {
+        "type": "string",
+        "pattern": "^[0-2][0-9]:[0-5][0-9]$"
+      },
+      "title": {
+        "type": "string"
+      },
+      "type": {
+        "type": "string",
+        "description": "Meeting type key (see settings.meetingTypes)."
+      },
+      "attendees": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "description": "Person key."
+        }
+      },
+      "location": {
+        "type": "string"
+      },
+      "placeKey": {
+        "type": "string",
+        "description": "Optional place reference."
+      },
+      "notes": {
+        "type": "string"
+      },
+      "created": {
+        "type": "string",
+        "format": "date-time"
+      }
+    }
+  }
+}

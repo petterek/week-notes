@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": [
+      "id",
+      "key",
+      "name"
+    ],
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "key": {
+        "type": "string",
+        "description": "Mention slug. Unique per context."
+      },
+      "name": {
+        "type": "string"
+      },
+      "orgnr": {
+        "type": "string",
+        "description": "Norwegian organization number, optional."
+      },
+      "url": {
+        "type": "string",
+        "format": "uri"
+      },
+      "address": {
+        "type": "string"
+      },
+      "notes": {
+        "type": "string"
+      },
+      "created": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "deleted": {
+        "type": "boolean"
+      },
+      "deletedAt": {
+        "type": "string",
+        "format": "date-time"
+      }
+    }
+  }
+}
