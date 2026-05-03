@@ -1975,7 +1975,7 @@ function navLinksHtml(extra) {
                 <a href="/people" data-key="p" title="Personer og steder (Alt+P)">👥 Personer og steder <kbd>Alt+P</kbd></a>
                 <a href="/results" data-key="r" title="Resultater (Alt+R)">⚖️ Resultater <kbd>Alt+R</kbd></a>
                 <a href="/editor" data-key="n" title="Nytt notat (Alt+N)">📝 Nytt <kbd>Alt+N</kbd></a>
-                <a href="#" id="navSearchBtn" data-key="/" title="Søk (Ctrl+K eller /)">🔎 Søk <kbd>Ctrl+K</kbd></a>
+                <a href="#" id="navSearchBtn" data-key="/" title="Søk (/)">🔎 Søk <kbd>/</kbd></a>
                 <a href="/settings" data-key="s" title="Innstillinger (Alt+S)">⚙️ Innstillinger <kbd>Alt+S</kbd></a>
                 <a href="#" id="helpBtn" title="Hjelp">❓ Hjelp</a>
                 ${extra || ''}`;
@@ -2019,7 +2019,7 @@ function pageHtml(title, body, extraNavLinks, opts) {
     <link id="themeStylesheet" rel="stylesheet" href="/themes/${theme}.css">
     <link rel="stylesheet" href="/style.css">
 </head>
-<body><header id="appHeader">${nav}</header><main id="content">${body}</main><entity-callout id="appEntityCallout"></entity-callout><help-modal></help-modal><footer id="shortcutsBar" class="shortcuts-bar" aria-label="Hurtigtaster"><span><kbd>Alt</kbd>+<kbd>H</kbd> Hjem</span><span><kbd>Alt</kbd>+<kbd>O</kbd> Oppgaver</span><span><kbd>Alt</kbd>+<kbd>K</kbd> Kalender</span><span><kbd>Alt</kbd>+<kbd>P</kbd> Personer</span><span><kbd>Alt</kbd>+<kbd>R</kbd> Resultater</span><span><kbd>Alt</kbd>+<kbd>N</kbd> Nytt notat</span><span><kbd>Alt</kbd>+<kbd>S</kbd> Innstillinger</span><span><kbd>Esc</kbd> Lukk</span><span><kbd>?</kbd> Hjelp</span></footer><script>
+<body><header id="appHeader">${nav}</header><main id="content">${body}</main><entity-callout id="appEntityCallout"></entity-callout><help-modal></help-modal><footer id="shortcutsBar" class="shortcuts-bar" aria-label="Hurtigtaster"><span><kbd>Alt</kbd>+<kbd>H</kbd> Hjem</span><span><kbd>Alt</kbd>+<kbd>O</kbd> Oppgaver</span><span><kbd>Alt</kbd>+<kbd>K</kbd> Kalender</span><span><kbd>Alt</kbd>+<kbd>P</kbd> Personer</span><span><kbd>Alt</kbd>+<kbd>R</kbd> Resultater</span><span><kbd>Alt</kbd>+<kbd>N</kbd> Nytt notat</span><span><kbd>Alt</kbd>+<kbd>S</kbd> Innstillinger</span><span><kbd>/</kbd> Søk</span><span><kbd>Esc</kbd> Lukk</span><span><kbd>?</kbd> Hjelp</span></footer><script>
 // ----- Entity callout host: listen for hover-* events bubbling from cards
 // (composed events cross every shadow boundary) and drive the dumb
 // <entity-callout> singleton. Services are loaded lazily on first hover. -----
@@ -2254,6 +2254,20 @@ document.addEventListener('keydown', function(e){
     }
     var hm = document.querySelector('help-modal');
     if (hm && typeof hm.open === 'function') { e.preventDefault(); hm.open(); }
+});
+
+// Global "/" hotkey opens the search modal (skip when typing in inputs).
+// Note: on Norwegian (and many EU) layouts, "/" is Shift+7, so we must
+// allow shiftKey here — e.key already resolves to "/" regardless.
+document.addEventListener('keydown', function(e){
+    if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+    var path = (typeof e.composedPath === 'function') ? e.composedPath() : [e.target];
+    for (var i = 0; i < path.length; i++) {
+        var n = path[i];
+        if (!n || !n.tagName) continue;
+        if (n.tagName === 'INPUT' || n.tagName === 'TEXTAREA' || n.isContentEditable) return;
+    }
+    if (typeof window.openSearch === 'function') { e.preventDefault(); window.openSearch(); }
 });
 
 // Highlight the active nav-button based on current pathname.
@@ -2502,6 +2516,7 @@ document.addEventListener('keydown', function(e){
 <script type="module" src="/components/upcoming-meetings.js"></script>
 <script type="module" src="/components/today-calendar.js"></script>
 <script type="module" src="/components/meeting-create.js"></script>
+<script type="module" src="/components/meeting-create-modal.js"></script>
 <script type="module" src="/components/week-results.js"></script>
 <script type="module" src="/components/task-completed.js"></script>
 <script type="module" src="/components/week-section.js"></script>
@@ -5361,12 +5376,12 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
 
     if (pathname === '/debug' || pathname.startsWith('/debug/')) {
         const COMPONENT_GROUPS = [
-            ['Shared',    ['help-modal', 'icon-picker', 'json-table', 'modal-container', 'nav-button', 'nav-meta', 'time-picker', 'week-calendar', 'week-pill']],
+            ['Shared',    ['help-modal', 'icon-picker', 'json-table', 'modal-container', 'nav-button', 'nav-meta', 'time-picker', 'date-time-picker', 'week-calendar', 'week-pill']],
             ['Context',   ['ctx-switcher']],
             ['Search',    ['global-search']],
             ['Notes',     ['markdown-preview', 'note-card', 'note-editor', 'note-meta-view', 'note-meta-panel', 'note-view']],
             ['Tasks',     ['task-add-modal', 'task-complete-modal', 'task-note', 'task-note-modal', 'task-open-list', 'task-completed', 'task-create']],
-            ['Meetings',  ['meeting-create', 'upcoming-meetings', 'today-calendar', 'week-notes-calendar']],
+            ['Meetings',  ['meeting-create', 'meeting-create-modal', 'upcoming-meetings', 'today-calendar', 'week-notes-calendar']],
             ['People',    ['company-card', 'entity-callout', 'entity-mention', 'people-page', 'person-card', 'place-card']],
             ['Results',   ['results-page', 'week-results']],
             ['Settings',  ['settings-page']],
@@ -6234,6 +6249,48 @@ modal.open();</pre>
                     { name: 'type', type: 'text' },
                 ],
             },
+            'meeting-create-modal': {
+                desc: `<p><strong>&lt;meeting-create-modal&gt;</strong> is a thin wrapper around <a href="/debug/modal-container"><code>&lt;modal-container&gt;</code></a> + <a href="/debug/meeting-create"><code>&lt;meeting-create&gt;</code></a>. By default it renders a small <code>+</code> trigger button; on click the modal opens with the create-meeting form inside.</p>
+                    <p><strong>Trigger appearance:</strong> override with <code>label</code> (default <code>+</code>) and <code>title</code> (default <code>Nytt møte</code>). The trigger is styled like the accent button used elsewhere in the sidebar, but the host is <code>display:inline-block</code> so it can be embedded next to other content.</p>
+                    <p><strong>Form attributes</strong> (forwarded verbatim to the inner form): <code>meetings_service</code>, <code>settings_service</code>, <code>context</code>, <code>date</code>, <code>start</code>, <code>end</code>, <code>type</code>. Changing any attribute after the modal has been opened updates the live form.</p>
+                    <p><strong>Public API:</strong> <code>el.open()</code> / <code>el.close()</code>. <code>el.types = [...]</code> injects an explicit type list onto the inner <code>&lt;meeting-create&gt;</code> (same shape as <code>&lt;meeting-create&gt;.types</code>).</p>
+                    <p><strong>Lifecycle.</strong> The modal is created lazily on first <code>open()</code> and appended to <code>document.body</code> so it isn&apos;t clipped by ancestor <code>overflow</code>. It is removed automatically when the host disconnects.</p>
+                    <p><strong>Events</strong> (bubbling, composed) re-emitted from the inner form, then the modal auto-closes for created/cancel:</p>
+                    <ul>
+                        <li><code>meeting-create:created</code> with <code>{ meeting }</code></li>
+                        <li><code>meeting-create:cancel</code></li>
+                        <li><code>meeting-create:error</code> with <code>{ error }</code></li>
+                    </ul>`,
+                tag: 'meeting-create-modal',
+                attrs: [
+                    { name: 'meetings_service', type: 'text', default: 'MockMeetingsService' },
+                    { name: 'settings_service', type: 'text', default: 'MockSettingsService' },
+                    { name: 'context', type: 'text', default: 'work' },
+                    { name: 'label', type: 'text', default: '+' },
+                    { name: 'title', type: 'text', default: 'Nytt møte' },
+                    { name: 'date', type: 'text' },
+                    { name: 'start', type: 'text' },
+                    { name: 'end', type: 'text' },
+                    { name: 'type', type: 'text' },
+                ],
+            },
+            'date-time-picker': {
+                desc: `<p><strong>&lt;date-time-picker&gt;</strong> is a custom calendar popup styled to match week-notes. It renders a Mon-first month grid (Norwegian weekday/month labels), prev/next navigation, an &ldquo;I dag&rdquo; (today) shortcut and Avbryt/OK actions. In <code>datetime</code> mode it also shows hour/minute selects (5-minute step).</p>
+                    <p><strong>Used by:</strong> <code>wn-date-trigger.js</code> &mdash; the keyboard shortcut helper attached to the markdown editor that opens this picker on <code>Ctrl+D</code> (date) and <code>Ctrl+Shift+D</code> (date+time) and inserts <code>YYYY-MM-DD</code> / <code>YYYY-MM-DD HH:MM</code> at the caret.</p>
+                    <p><strong>Attributes:</strong></p>
+                    <ul>
+                        <li><code>mode</code> &mdash; <code>"date"</code> (default) or <code>"datetime"</code></li>
+                        <li><code>value</code> &mdash; initial value, format <code>YYYY-MM-DD</code> or <code>YYYY-MM-DD HH:MM</code>. Empty means today/now.</li>
+                    </ul>
+                    <p><strong>JS API:</strong> <code>el.value</code> getter/setter.</p>
+                    <p><strong>Events.</strong> <code>datetime-selected</code> with detail <code>{ value }</code> when the user clicks OK / double-clicks a day / presses Enter. <code>datetime-cancelled</code> when Avbryt or Escape is used. Both bubble and are composed.</p>
+                    <p><strong>Keyboard.</strong> Arrow keys navigate days, <code>Enter</code> commits (in <code>datetime</code> mode it advances day → hour → minute → commit), <code>Alt+Enter</code> commits from anywhere, <code>Escape</code> cancels.</p>`,
+                tag: 'date-time-picker',
+                attrs: [
+                    { name: 'mode', type: 'select', options: ['date', 'datetime'], default: 'date' },
+                    { name: 'value', type: 'text', default: '' },
+                ],
+            },
             'time-picker': {
                 desc: `<p><strong>&lt;time-picker&gt;</strong> is a custom time-of-day input. It renders an hour <code>&lt;select&gt;</code> (00-23) and a minute <code>&lt;select&gt;</code> snapped to a configurable <code>step</code> (default 5 minutes), giving consistent UI across browsers — Chrome's native <code>&lt;input type=&quot;time&quot;&gt;</code> ignores <code>step</code> for the spinner.</p>
                     <p><strong>Form-associated.</strong> When inside a <code>&lt;form&gt;</code>, the current value is reported as a form value under the <code>name</code> attribute, so <code>FormData</code> picks it up automatically. <code>required</code> is honored via <code>ElementInternals.setValidity</code>; <code>checkValidity()</code> / <code>reportValidity()</code> are exposed on the element.</p>
@@ -6663,6 +6720,7 @@ modal.open();</pre>
             'markdown-preview:scroll',
             'calendar:week-changed',
             'context-selected',
+            'datetime-selected', 'datetime-cancelled',
             'toggle',
             'select-person', 'select-company', 'select-meeting', 'select-result', 'select-task',
             'hover-person',  'hover-company',  'hover-place',  'hover-meeting',  'hover-result',  'hover-task',
@@ -6696,6 +6754,7 @@ modal.open();</pre>
     <script type="module" src="/components/task-complete-modal.js"></script>
     <script type="module" src="/components/task-note-modal.js"></script>
     <script type="module" src="/components/meeting-create.js"></script>
+    <script type="module" src="/components/meeting-create-modal.js"></script>
     <script type="module" src="/components/upcoming-meetings.js"></script>
     <script type="module" src="/components/today-calendar.js"></script>
     <script type="module" src="/components/week-results.js"></script>
@@ -6718,6 +6777,7 @@ modal.open();</pre>
 <script type="module" src="/components/inline-task.js"></script>
 <script type="module" src="/components/inline-result.js"></script>
 <script type="module" src="/components/icon-picker.js"></script>
+<script type="module" src="/components/date-time-picker.js"></script>
 <script type="module" src="/components/tag-editor.js"></script>
 <script type="module" src="/components/people-page.js"></script>
 <script type="module" src="/components/results-page.js"></script>
@@ -10095,6 +10155,17 @@ activateTab(initialParams.tab || 'people');
         res.end(JSON.stringify({ ok: true, context: ctx, key: getMePersonKey(ctx) }));
         return;
     }
+    if (pathname === '/api/me/all' && req.method === 'GET') {
+        const active = getActiveContext();
+        const mappings = listContexts().map(c => ({
+            context: c,
+            key: getMePersonKey(c),
+            active: c === active,
+        }));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, active, mappings }));
+        return;
+    }
     if (pathname === '/api/me' && req.method === 'PUT') {
         try {
             const body = JSON.parse(await readBody(req) || '{}');
@@ -12385,6 +12456,86 @@ function initMentionAutocomplete(el) {
     document.addEventListener('click', e => {
         if (dropdown && !dropdown.contains(e.target) && e.target !== el) closeDropdown();
     }, true);
+
+    // ===== Ctrl+D / Ctrl+Shift+D date(time) picker (custom <date-time-picker>) =====
+    let popup = null;
+    let outsideHandler = null;
+
+    function ensurePickerLoaded() {
+        if (window.__wnDatePickerLoaded) return window.__wnDatePickerLoaded;
+        if (customElements.get('date-time-picker')) {
+            window.__wnDatePickerLoaded = Promise.resolve();
+            return window.__wnDatePickerLoaded;
+        }
+        window.__wnDatePickerLoaded = new Promise((resolve) => {
+            const s = document.createElement('script');
+            s.type = 'module';
+            s.src = '/components/date-time-picker.js';
+            s.onload = () => customElements.whenDefined('date-time-picker').then(resolve);
+            document.head.appendChild(s);
+        });
+        return window.__wnDatePickerLoaded;
+    }
+
+    function openDatePicker(kind) {
+        closeDatePicker();
+        const start = el.selectionStart != null ? el.selectionStart : el.value.length;
+        const end = el.selectionEnd != null ? el.selectionEnd : start;
+        ensurePickerLoaded().then(() => mountDatePicker(kind, start, end));
+    }
+
+    function mountDatePicker(kind, start, end) {
+        const picker = document.createElement('date-time-picker');
+        picker.setAttribute('mode', kind === 'datetime' ? 'datetime' : 'date');
+        picker.style.cssText = 'position:fixed;z-index:9999;visibility:hidden;left:-9999px;top:0';
+        document.body.appendChild(picker);
+        popup = picker;
+
+        const rect = el.getBoundingClientRect();
+        requestAnimationFrame(() => {
+            const pr = picker.getBoundingClientRect();
+            const top = Math.min(window.innerHeight - pr.height - 8, Math.max(8, rect.top + 24));
+            const left = Math.min(window.innerWidth - pr.width - 8, Math.max(8, rect.left + 8));
+            picker.style.cssText = 'position:fixed;z-index:9999;visibility:visible;top:' + top + 'px;left:' + left + 'px';
+        });
+
+        picker.addEventListener('datetime-selected', (e) => insertDateValue(start, end, e.detail.value));
+        picker.addEventListener('datetime-cancelled', () => { closeDatePicker(); el.focus(); });
+        picker.focus();
+
+        outsideHandler = (e) => {
+            if (popup && !popup.contains(e.target) && e.target !== el && !el.contains(e.target)) closeDatePicker();
+        };
+        setTimeout(() => document.addEventListener('mousedown', outsideHandler, true), 0);
+    }
+
+    function insertDateValue(start, end, str) {
+        const val = el.value;
+        const before = val.slice(0, start);
+        const after = val.slice(end);
+        el.value = before + str + after;
+        const np = before.length + str.length;
+        try { el.selectionStart = el.selectionEnd = np; } catch (_) {}
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        closeDatePicker();
+        el.focus();
+    }
+
+    function closeDatePicker() {
+        if (popup) { popup.remove(); popup = null; }
+        if (outsideHandler) {
+            document.removeEventListener('mousedown', outsideHandler, true);
+            outsideHandler = null;
+        }
+    }
+
+    el.addEventListener('keydown', e => {
+        if (!e.ctrlKey || e.altKey || e.metaKey) return;
+        if ((e.key || '').toLowerCase() !== 'd') return;
+        e.preventDefault();
+        e.stopPropagation();
+        openDatePicker(e.shiftKey ? 'datetime' : 'date');
+    });
 }
 `);
         return;

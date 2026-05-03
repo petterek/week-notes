@@ -101,7 +101,12 @@ note-card { display: block; }
 .week-task input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; }
 .home-layout { display: flex; gap: 24px; align-items: stretch; height: 100%; padding: 16px; box-sizing: border-box; }
 @media (max-width: 900px) { .home-layout { flex-direction: column; height: auto; } .task-sidebar { width: 100%; max-height: none; overflow: visible; } .home-main { overflow: visible; } }
-.home-main { flex: 1; min-width: 0; }
+.task-sidebar-inner { display: flex; flex-direction: column; min-height: 100%; }
+.task-sidebar-inner > .today-cal-wrap.sidebar-bottom { margin-top: auto; }
+.today-cal-wrap { position: relative; }
+.today-cal-wrap > .today-cal-add { position: absolute; top: 22px; right: 0; z-index: 1; }
+.home-main { flex: 1; min-width: 0; overflow-y: auto; height: 100%; }
+main#content:has(.home-layout) { overflow: hidden; }
 .home-main week-list, .home-main week-section { display: block; width: 100%; }
 .task-sidebar open-tasks, .task-sidebar upcoming-meetings { display: block; }
 .task-sidebar upcoming-meetings { margin-top: 18px; }

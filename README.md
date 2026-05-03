@@ -10,6 +10,19 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-05-03 (date-time-picker, `/`-søk, ny meeting-create-modal, home-layout)
+- Ny **`<date-time-picker>`**-komponent: egen kalender-popup (Mon-først, norske ukedags-/månedsnavn, "I dag"-snarvei, Avbryt/OK) med valgfri timer-/minutt-velger i `datetime`-modus. Erstatter native `<input type="date">` slik at popup-en faktisk åpner seg fra `Ctrl+D`/`Ctrl+Shift+D`-snarveiene i markdown-editoren.
+  - Public `focus()` fanger tastatur globalt mens picker-en er åpen og frigjør det igjen ved commit/avbryt; piltaster, Enter (kjedet dag → time → minutt → commit), Alt+Enter (universal commit) og Esc (avbryt).
+  - Events: `datetime-selected` (`{ value }`) og `datetime-cancelled` — begge bobler/composed.
+  - Brukes både fra moderne `<note-editor>` (via `wn-date-trigger.js`) og legacy `mention-autocomplete.js` (lazy module-load).
+- Global **`/`-snarvei** åpner søk (norsk-tastatur-vennlig — `e.key === '/'` matcher uavhengig av Shift). Snarveien vises i navbar-lenken og i snarvei-baren nederst.
+- `<note-editor>`-snarveier: byttet "tema"-label til **"tag"** for `#`-snarveien for å matche faktisk semantikk.
+- **Hjem-layout:**
+  - `<today-calendar>` ligger nå alltid **nederst** i venstre-sidebar (flexbox `margin-top: auto`), uavhengig av om innholdet over scroller.
+  - Fjernet det innebygde `+ Nytt møte`-knapp inne i `<today-calendar>` til fordel for en ny gjenbrukbar komponent.
+  - Senterspalten scroller nå alene; sidebar og hovedlayout står stille (`main#content:has(.home-layout) { overflow: hidden }` + `.home-main { overflow-y: auto; height: 100% }`).
+- Ny **`<meeting-create-modal>`**-komponent: tynn wrapper rundt `<modal-container>` + `<meeting-create>`. Render-er som en `+`-knapp (`label`/`title` overstyres) og lazy-mounter modalet til `document.body` ved klikk. Re-emitter `meeting-create:created/cancel/error` og auto-lukker ved created/cancel. Plassert flytende oppe-til-høyre på dagskalenderen i hjem-sidebaren.
+
 ### 2026-05-03 (UI-tester: Playwright + delt scenario-bibliotek)
 - Ny `tests/scenarios.js` med 24 delte UI-scenarioer som kjører både via **Playwright** (`npm test`) og live i nettleser fra `/debug/tests`. Hvert scenario er en selvstendig `async`-funksjon som driver en `/debug/<komponent>`-side med mock-tjenester.
 - `/debug/tests` viser scenarioene **gruppert per komponent** med Run-/Details-knapper, Run all / Run failed only og en "Last Playwright run"-rute som leser `tests/.last-run.json`.

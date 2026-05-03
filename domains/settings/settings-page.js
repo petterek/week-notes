@@ -73,12 +73,28 @@ const STYLES = `
     .welcome-list strong { color: var(--text-strong); font-weight: 600; white-space: nowrap; }
     .welcome-list code { font-family: ui-monospace, monospace; font-size: 0.92em; background: var(--surface-alt); padding: 1px 4px; border-radius: 3px; }
     .welcome-meta { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 0.85em; color: var(--text-muted); padding-top: 10px; border-top: 1px solid var(--border-soft); }
-    .user-form { display: flex; flex-direction: column; gap: 10px; max-width: 460px; margin-top: 6px; }
-    .user-row { display: grid; grid-template-columns: 110px 1fr; align-items: center; gap: 10px; }
-    .user-row > span { font-size: 0.9em; color: var(--text-muted); }
-    .user-row > input { padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px; font: inherit; background: var(--bg); color: var(--text-strong); }
-    .user-row > input:focus { outline: none; border-color: var(--accent); }
-    .user-actions { display: flex; gap: 8px; padding-left: 120px; margin-top: 4px; }
+    .user-form { display: flex; flex-direction: column; gap: 10px; max-width: 560px; margin-top: 6px; }
+    .me-list { display: flex; flex-direction: column; gap: 8px; }
+    .me-empty { color: var(--text-muted); font-style: italic; padding: 6px 0; }
+    .me-row { display: grid; grid-template-columns: 1fr 1.6fr auto; gap: 10px; align-items: center; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border-soft); border-radius: 6px; }
+    .me-row.is-active { border-color: var(--accent); background: var(--surface); }
+    .me-row .me-ctx { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .me-row .me-ctx-name { font-weight: 600; color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .me-row .me-ctx-tag { font-size: 0.78em; color: var(--accent); text-transform: uppercase; letter-spacing: 0.04em; }
+    .me-row .me-ctx-hint { font-size: 0.78em; color: var(--text-muted); }
+    .me-picker { position: relative; }
+    .me-picker input[type="text"] { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px; font: inherit; background: var(--bg); color: var(--text-strong); box-sizing: border-box; }
+    .me-picker input[type="text"]:focus { outline: none; border-color: var(--accent); }
+    .me-picker input[type="text"]:disabled { background: var(--surface-alt); color: var(--text-muted); cursor: not-allowed; }
+    .me-suggest { position: absolute; left: 0; right: 0; top: calc(100% + 2px); max-height: 240px; overflow-y: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,0.15); z-index: 50; padding: 4px 0; }
+    .me-suggest[hidden] { display: none !important; }
+    .me-suggest .me-opt { padding: 5px 10px; cursor: pointer; font-size: 0.92em; color: var(--text); }
+    .me-suggest .me-opt:hover, .me-suggest .me-opt.is-focus { background: var(--surface-alt); color: var(--accent); }
+    .me-suggest .me-opt.is-empty { color: var(--text-muted); font-style: italic; cursor: default; }
+    .me-suggest .me-opt .me-opt-key { color: var(--text-muted); font-family: ui-monospace, monospace; font-size: 0.85em; margin-left: 6px; }
+    .me-row .me-status { font-size: 0.82em; color: var(--text-muted); min-width: 70px; text-align: right; }
+    .me-row .me-status.is-ok { color: var(--success-strong, #1a7f37); }
+    .me-row .me-status.is-error { color: #c0392b; }
     .welcome-meta a { color: var(--accent); text-decoration: none; }
     .welcome-meta a:hover { text-decoration: underline; }
     .app-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
@@ -291,61 +307,208 @@ class SettingsPage extends WNElement {
 
     async _initUserTab() {
         const root = this.shadowRoot;
-        const form  = root.querySelector('[data-user="form"]');
-        const sel   = root.querySelector('[data-user="key"]');
+        const form = root.querySelector('[data-user="form"]');
+        const list = root.querySelector('[data-user="list"]');
         const statusEl = root.querySelector('[data-user="status"]');
-        if (!form || !sel) return;
+        if (!form || !list) return;
 
-        const setStatus = (txt, cls) => {
+        const setGlobalStatus = (txt, cls) => {
             if (!statusEl) return;
             statusEl.textContent = txt || '';
             statusEl.className = 'vs-save-status' + (cls ? ' ' + cls : '');
         };
 
-        // Load people for the active context, then current cookie value.
+        // Prevent native form submission (combobox autosaves on selection).
+        form.addEventListener('submit', (e) => e.preventDefault());
+
+        const personDisplay = (p) => p.firstName
+            ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName)
+            : (p.name || p.key || '');
+
+        const escAttr = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+        const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+        let people = [];
+        let mappings = [];
+        let active = '';
+
         try {
-            const [pp, me] = await Promise.all([
+            const [meAll, pp] = await Promise.all([
+                fetch('/api/me/all').then(r => r.json()).catch(() => ({ ok: false })),
                 fetch('/api/people').then(r => r.json()).catch(() => []),
-                fetch('/api/me').then(r => r.json()).catch(() => ({ key: '' })),
             ]);
-            const people = (Array.isArray(pp) ? pp : []).filter(p => !p.inactive);
-            people.sort((a, b) => {
-                const an = (a.firstName ? a.firstName + ' ' + (a.lastName || '') : (a.name || a.key || '')).trim();
-                const bn = (b.firstName ? b.firstName + ' ' + (b.lastName || '') : (b.name || b.key || '')).trim();
-                return an.localeCompare(bn, 'nb');
-            });
-            const cur = (me && me.key) || '';
-            const opts = ['<option value="">(ingen)</option>'];
-            for (const p of people) {
-                const key = p.key || (p.name || '').toLowerCase();
-                const display = p.firstName
-                    ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName)
-                    : (p.name || key);
-                opts.push(`<option value="${key.replace(/"/g, '&quot;')}"${key === cur ? ' selected' : ''}>${display.replace(/</g, '&lt;')}</option>`);
-            }
-            sel.innerHTML = opts.join('');
-        } catch {
-            setStatus('Kunne ikke laste', 'is-error');
+            if (!meAll || !meAll.ok) throw new Error('Kunne ikke laste identitets-mapping');
+            mappings = Array.isArray(meAll.mappings) ? meAll.mappings : [];
+            active = meAll.active || '';
+            people = (Array.isArray(pp) ? pp : []).filter(p => !p.inactive);
+            people.sort((a, b) => personDisplay(a).localeCompare(personDisplay(b), 'nb'));
+        } catch (err) {
+            list.innerHTML = '<div class="me-empty">Feil: ' + escHtml(err.message) + '</div>';
+            return;
         }
 
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            setStatus('Lagrer…');
+        if (!mappings.length) {
+            list.innerHTML = '<div class="me-empty">Ingen kontekster funnet.</div>';
+            return;
+        }
+
+        const peopleByKey = new Map(people.map(p => [(p.key || personDisplay(p).toLowerCase()), p]));
+
+        // Render rows: one per context.
+        list.innerHTML = mappings.map(m => {
+            const isActive = m.context === active;
+            const curKey = m.key || '';
+            // For inactive contexts we don't have the people list — show the raw key.
+            const display = isActive
+                ? (curKey ? (peopleByKey.has(curKey) ? personDisplay(peopleByKey.get(curKey)) : curKey) : '')
+                : (curKey || '');
+            const placeholder = isActive ? 'Søk person…' : 'Bytt kontekst for å endre';
+            return `
+                <div class="me-row${isActive ? ' is-active' : ''}" data-ctx="${escAttr(m.context)}" data-active="${isActive}">
+                    <div class="me-ctx">
+                        <span class="me-ctx-name">📁 ${escHtml(m.context)}${isActive ? ' <span class="me-ctx-tag">aktiv</span>' : ''}</span>
+                        ${!isActive && curKey ? `<span class="me-ctx-hint">@${escHtml(curKey)}</span>` : ''}
+                        ${!isActive && !curKey ? `<span class="me-ctx-hint">(ingen)</span>` : ''}
+                    </div>
+                    <div class="me-picker">
+                        <input type="text" data-me="search" autocomplete="off" spellcheck="false"
+                            placeholder="${escAttr(placeholder)}"
+                            value="${escAttr(display)}"
+                            ${isActive ? '' : 'disabled'}>
+                        <input type="hidden" data-me="key" value="${escAttr(curKey)}">
+                        <div class="me-suggest" data-me="suggest" hidden></div>
+                    </div>
+                    <span class="me-status" data-me="status"></span>
+                </div>
+            `;
+        }).join('');
+
+        // Wire up the active row's combobox.
+        const activeRow = list.querySelector('.me-row.is-active');
+        if (!activeRow) return;
+        const search = activeRow.querySelector('input[data-me="search"]');
+        const hidden = activeRow.querySelector('input[data-me="key"]');
+        const suggest = activeRow.querySelector('[data-me="suggest"]');
+        const rowStatus = activeRow.querySelector('[data-me="status"]');
+
+        let focusIdx = -1;
+        let lastDisplay = search.value;
+
+        const setRowStatus = (txt, cls) => {
+            rowStatus.textContent = txt || '';
+            rowStatus.className = 'me-status' + (cls ? ' ' + cls : '');
+        };
+
+        const filtered = (q) => {
+            const needle = (q || '').trim().toLowerCase();
+            if (!needle) return people.slice(0, 200);
+            return people.filter(p => {
+                const name = personDisplay(p).toLowerCase();
+                const key = (p.key || '').toLowerCase();
+                return name.includes(needle) || key.includes(needle);
+            }).slice(0, 200);
+        };
+
+        const renderSuggest = (q) => {
+            const items = filtered(q);
+            const rows = [
+                `<div class="me-opt" data-key="" data-idx="0">(ingen)</div>`,
+                ...items.map((p, i) => {
+                    const key = p.key || personDisplay(p).toLowerCase();
+                    return `<div class="me-opt" data-key="${escAttr(key)}" data-idx="${i + 1}">${escHtml(personDisplay(p))}<span class="me-opt-key">@${escHtml(key)}</span></div>`;
+                }),
+            ];
+            if (items.length === 0 && q) rows.push('<div class="me-opt is-empty">Ingen treff</div>');
+            suggest.innerHTML = rows.join('');
+            focusIdx = -1;
+            updateFocus();
+        };
+
+        const updateFocus = () => {
+            suggest.querySelectorAll('.me-opt').forEach((el, i) => {
+                el.classList.toggle('is-focus', i === focusIdx);
+            });
+            const cur = suggest.querySelector('.me-opt.is-focus');
+            if (cur) cur.scrollIntoView({ block: 'nearest' });
+        };
+
+        const openSuggest = () => {
+            renderSuggest(search.value);
+            suggest.hidden = false;
+        };
+
+        const closeSuggest = () => { suggest.hidden = true; };
+
+        const pick = async (key, displayText) => {
+            hidden.value = key;
+            search.value = displayText;
+            lastDisplay = displayText;
+            closeSuggest();
+            // Save immediately.
+            setRowStatus('Lagrer…');
             try {
                 const r = await fetch('/api/me', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ key: sel.value || '' }),
+                    body: JSON.stringify({ key }),
                 });
                 const d = await r.json();
                 if (!r.ok || !d.ok) throw new Error(d.error || 'Feil');
-                // Update window.mePersonKey live so already-rendered chips update on next interaction.
                 if (typeof window !== 'undefined') window.mePersonKey = d.key || '';
-                setStatus('Lagret ✓');
-                setTimeout(() => setStatus(''), 2000);
+                setRowStatus('Lagret ✓', 'is-ok');
+                setGlobalStatus('');
+                setTimeout(() => setRowStatus(''), 2000);
             } catch (err) {
-                setStatus('Feil: ' + err.message, 'is-error');
+                setRowStatus('Feil: ' + err.message, 'is-error');
             }
+        };
+
+        search.addEventListener('focus', openSuggest);
+        search.addEventListener('click', openSuggest);
+        search.addEventListener('input', () => {
+            renderSuggest(search.value);
+            suggest.hidden = false;
+        });
+
+        search.addEventListener('keydown', (e) => {
+            const opts = suggest.querySelectorAll('.me-opt:not(.is-empty)');
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (suggest.hidden) openSuggest();
+                if (opts.length) { focusIdx = (focusIdx + 1) % opts.length; updateFocus(); }
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (opts.length) { focusIdx = (focusIdx - 1 + opts.length) % opts.length; updateFocus(); }
+            } else if (e.key === 'Enter') {
+                if (!suggest.hidden && opts[focusIdx]) {
+                    e.preventDefault();
+                    const el = opts[focusIdx];
+                    const key = el.dataset.key || '';
+                    const txt = key ? el.firstChild.textContent : '';
+                    pick(key, txt);
+                }
+            } else if (e.key === 'Escape') {
+                if (!suggest.hidden) { e.preventDefault(); closeSuggest(); search.value = lastDisplay; }
+            }
+        });
+
+        suggest.addEventListener('mousedown', (e) => {
+            const opt = e.target.closest('.me-opt');
+            if (!opt || opt.classList.contains('is-empty')) return;
+            e.preventDefault();
+            const key = opt.dataset.key || '';
+            const txt = key ? opt.firstChild.textContent : '';
+            pick(key, txt);
+        });
+
+        document.addEventListener('mousedown', (e) => {
+            if (!activeRow.contains(e.target)) closeSuggest();
+        });
+
+        search.addEventListener('blur', () => {
+            // If the user typed but didn't pick, revert the visible text to the
+            // last committed display so we don't show a "phantom" name.
+            setTimeout(() => { if (suggest.hidden) search.value = lastDisplay; }, 150);
         });
     }
 
@@ -802,10 +965,9 @@ class SettingsPage extends WNElement {
                                     <span class="vs-save-status" data-user="status"></span>
                                 </div>
                             </div>
-                            <p class="app-help">Velg hvilken person fra registeret som er <code>@me</code> i denne nettleseren. Lagres som en informasjonskapsel — flere brukere kan dele samme kontekst med hver sin identitet.</p>
+                            <p class="app-help">Velg hvilken person fra registeret som er <code>@me</code> i denne nettleseren. Lagres i <code>data/user.json</code> per kontekst — flere brukere kan dele samme kontekst med hver sin identitet. Bare den <strong>aktive</strong> konteksten kan endres her; bytt kontekst for å endre andre.</p>
                             <form data-user="form" class="user-form">
-                                <label class="user-row"><span>Person</span><select data-user="key"><option value="">(ingen)</option></select></label>
-                                <div class="user-actions"><button type="submit" class="vs-action">Lagre</button></div>
+                                <div class="me-list" data-user="list"><div class="me-empty">Laster…</div></div>
                             </form>
                         </div>
                     </div>

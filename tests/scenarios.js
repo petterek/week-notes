@@ -451,6 +451,84 @@
                 }, { label: 'context options visible', timeout: 3000 });
             },
         },
+
+        {
+            id: 'note-editor-ctrl-d-date-trigger',
+            name: 'note-editor: Ctrl+D opens date picker, Ctrl+Shift+D opens datetime picker',
+            url: '/debug/note-editor',
+            run: async function (ctx) {
+                var doc = ctx.doc;
+                var win = ctx.win || (doc.defaultView);
+                var ne = await ctx.waitFor(function () { return doc.querySelector('note-editor'); }, { label: 'note-editor' });
+                var ta = await ctx.waitFor(function () {
+                    return ne.shadowRoot && ne.shadowRoot.querySelector('textarea');
+                }, { label: 'editor textarea' });
+
+                function pickers() {
+                    return doc.querySelectorAll('body > date-time-picker');
+                }
+                function fireKey(target, key, opts) {
+                    var ev = new (win.KeyboardEvent || KeyboardEvent)('keydown', Object.assign({
+                        key: key, bubbles: true, cancelable: true,
+                    }, opts || {}));
+                    target.dispatchEvent(ev);
+                }
+
+                // 1) Ctrl+D in textarea → date-time-picker opens in date mode.
+                ta.focus();
+                ta.value = 'note ';
+                ta.selectionStart = ta.selectionEnd = ta.value.length;
+                fireKey(ta, 'd', { ctrlKey: true });
+                var picker = await ctx.waitFor(function () {
+                    var ps = pickers();
+                    if (ps.length !== 1) return null;
+                    return ps[0].getAttribute('mode') !== 'datetime' ? ps[0] : null;
+                }, { label: 'date picker open' });
+                var today = new Date();
+                var pad = function (n) { return String(n).padStart(2, '0'); };
+                var expectedToday = today.getFullYear() + '-' + pad(today.getMonth() + 1) + '-' + pad(today.getDate());
+                ctx.assert(picker.value === expectedToday, 'picker should default to today ' + expectedToday + ', got ' + picker.value);
+
+                // 2) Set value & dispatch change → trigger inserts formatted date.
+                picker.value = '2026-01-15';
+                picker.dispatchEvent(new (win.CustomEvent || CustomEvent)('datetime-selected', {
+                    detail: { value: '2026-01-15' }, bubbles: true, composed: true,
+                }));
+                await ctx.waitFor(function () {
+                    return ta.value === 'note 2026-01-15';
+                }, { label: 'textarea contains formatted date' });
+                ctx.assert(pickers().length === 0, 'picker should close after selection');
+
+                // 3) Ctrl+Shift+D → datetime picker opens.
+                ta.value = 'when ';
+                ta.selectionStart = ta.selectionEnd = ta.value.length;
+                ta.focus();
+                fireKey(ta, 'D', { ctrlKey: true, shiftKey: true });
+                var dtPicker = await ctx.waitFor(function () {
+                    var ps = pickers();
+                    if (ps.length !== 1) return null;
+                    return ps[0].getAttribute('mode') === 'datetime' ? ps[0] : null;
+                }, { label: 'datetime picker open' });
+                ctx.assert(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(dtPicker.value), 'datetime picker should default to YYYY-MM-DD HH:MM, got ' + dtPicker.value);
+                dtPicker.value = '2026-12-31 15:30';
+                dtPicker.dispatchEvent(new (win.CustomEvent || CustomEvent)('datetime-selected', {
+                    detail: { value: '2026-12-31 15:30' }, bubbles: true, composed: true,
+                }));
+                await ctx.waitFor(function () {
+                    return ta.value === 'when 2026-12-31 15:30';
+                }, { label: 'textarea contains formatted datetime' });
+
+                // 4) Esc on the picker cancels without inserting.
+                ta.value = 'cancel ';
+                ta.selectionStart = ta.selectionEnd = ta.value.length;
+                ta.focus();
+                fireKey(ta, 'd', { ctrlKey: true });
+                await ctx.waitFor(function () { return pickers()[0]; }, { label: 'picker re-opens' });
+                doc.dispatchEvent(new (win.KeyboardEvent || KeyboardEvent)('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+                await ctx.waitFor(function () { return pickers().length === 0; }, { label: 'picker closes on Escape' });
+                ctx.assert(ta.value === 'cancel ', 'textarea unchanged after Escape, got ' + ta.value);
+            },
+        },
     ];
 
     if (typeof module !== 'undefined' && module.exports) {

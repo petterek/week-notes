@@ -26,6 +26,7 @@
  */
 import { WNElement, html, escapeHtml, linkMentions, isoWeek } from './_shared.js';
 import { attachAutocomplete, replaceRange, highlightMatch } from '/components/wn-autocomplete.js';
+import { attachDateTrigger } from '/components/wn-date-trigger.js';
 
 const STYLES = `
     :host {
@@ -60,6 +61,19 @@ const STYLES = `
         background: var(--surface); color: var(--text-strong);
     }
     textarea:focus { border-color: var(--accent); }
+    .ne-shortcuts {
+        margin-top: 6px;
+        font-size: 0.8em; color: var(--text-subtle);
+        line-height: 1.6;
+    }
+    .ne-shortcuts code {
+        background: var(--surface-alt, var(--surface));
+        border: 1px solid var(--border-soft, var(--border));
+        border-radius: 4px;
+        padding: 1px 5px;
+        font-size: 0.92em;
+        color: var(--text-muted);
+    }
     markdown-preview { min-height: 50vh; display: block; }
     .ne-actions {
         display: flex; gap: 10px; justify-content: flex-end;
@@ -278,6 +292,16 @@ class NoteEditor extends WNElement {
                         </div>
                     </div>
                 </div>
+            </div>
+            <div class="ne-shortcuts" aria-hidden="true">
+                Snarveier:
+                <code>@</code> person/firma ·
+                <code>#</code> tag ·
+                <code>{{?</code> oppgave ·
+                <code>[[?</code> resultat ·
+                <code>Ctrl+D</code> dato ·
+                <code>Ctrl+Shift+D</code> dato + tid ·
+                <code>Ctrl+Shift+S</code> lagre
             </div>
             <div class="ne-actions">
                 <span class="ne-status" aria-live="polite"></span>
@@ -658,6 +682,10 @@ class NoteEditor extends WNElement {
             try { this._acHandle.destroy(); } catch (_) {}
             this._acHandle = null;
             this._acAttached = false;
+        }
+        if (this._dateHandle) {
+            try { this._dateHandle.destroy(); } catch (_) {}
+            this._dateHandle = null;
         }
         if (this._docKeyHandler) {
             document.removeEventListener('keydown', this._docKeyHandler);
@@ -1095,6 +1123,7 @@ class NoteEditor extends WNElement {
             triggers: [taskTrigger, resultTrigger, tagTrigger, mentionTrigger],
             container: this.shadowRoot,
         });
+        this._dateHandle = attachDateTrigger(ta);
         this._acAttached = true;
     }
 

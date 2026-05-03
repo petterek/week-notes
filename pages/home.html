@@ -17,10 +17,16 @@
                 people_service="week-note-services.people_service"
                 companies_service="week-note-services.companies_service"
                 days="{{UPCOMING_MEETINGS_DAYS}}"></upcoming-meetings>
-            <today-calendar
-                meetings_service="week-note-services.meetings_service"
-                settings_service="week-note-services.settings_service"
-                context_service="week-note-services.context_service"></today-calendar>
+            <div class="today-cal-wrap sidebar-bottom">
+                <meeting-create-modal
+                    class="today-cal-add"
+                    meetings_service="week-note-services.meetings_service"
+                    settings_service="week-note-services.settings_service"></meeting-create-modal>
+                <today-calendar
+                    meetings_service="week-note-services.meetings_service"
+                    settings_service="week-note-services.settings_service"
+                    context_service="week-note-services.context_service"></today-calendar>
+            </div>
         </div>
     </aside>
     <div id="homeMain" class="home-main">
