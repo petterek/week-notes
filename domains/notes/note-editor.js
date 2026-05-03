@@ -1291,6 +1291,10 @@ class NoteEditor extends WNElement {
             if (autosave) payload.autosave = true;
             if (closeAfter && !autosave) payload.commit = true;
             if (!this._editing && !autosave) payload.createNew = true;
+            if (!autosave) {
+                const title = this._extractTitle(content);
+                if (title) payload.title = title;
+            }
             const data = await this.service.save(payload);
             // Server may have deduped the filename if this was a new note
             // colliding with an existing file. Adopt whatever the server
@@ -1361,6 +1365,11 @@ class NoteEditor extends WNElement {
         if (!this._statusEl) return;
         this._statusEl.textContent = msg || '';
         this._statusEl.style.color = isError ? 'var(--danger)' : '';
+    }
+
+    _extractTitle(content) {
+        const m = (content || '').match(/^\s*#\s+(.+?)\s*$/m);
+        return m ? m[1].trim() : '';
     }
 
     _suggestFilename(content) {

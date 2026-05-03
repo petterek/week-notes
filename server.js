@@ -9015,7 +9015,7 @@ activateTab(initialParams.tab || 'people');
     if (pathname === '/api/save' && req.method === 'POST') {
         try {
             const body = JSON.parse(await readBody(req));
-            const { folder, file: rawFile, content, append, type, presentationStyle, autosave, themes, tags, commit, createNew } = body;
+            const { folder, file: rawFile, content, append, type, presentationStyle, autosave, themes, tags, commit, createNew, title } = body;
             let file = rawFile;
 
             if (!folder || !file || typeof content !== 'string') {
@@ -9198,6 +9198,16 @@ activateTab(initialParams.tab || 'people');
                 updates.themes = norm;
             }
             if (!existing.created) updates.created = now;
+            // Display title — original heading text as typed (preserves
+            // æ/ø/å and other unicode the slugified filename loses).
+            // Falls back to the first H1 in finalContent when the client
+            // didn't supply one.
+            let displayTitle = (typeof title === 'string') ? title.trim() : '';
+            if (!displayTitle) {
+                const m = String(finalContent || '').match(/^\s*#\s+(.+?)\s*$/m);
+                if (m) displayTitle = m[1].trim();
+            }
+            if (displayTitle) updates.title = displayTitle;
             // Author tracking: createdBy is set once (first explicit save with
             // an identity), lastSavedBy updates on every explicit save. Both
             // hold the person key from data/user.json (per-context @me mapping).
