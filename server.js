@@ -8950,6 +8950,40 @@ activateTab(initialParams.tab || 'people');
     }
 
 
+    // API: read autosave temp content for a note (for restore-prompt preview).
+    // GET /api/save/autosave?folder=YYYY-WNN&file=foo.md
+    if (pathname === '/api/save/autosave' && req.method === 'GET') {
+        try {
+            const folder = url.searchParams.get('folder') || '';
+            const file = url.searchParams.get('file') || '';
+            if (!folder || !file || file.includes('/') || file.includes('\\') || folder.includes('/') || folder.includes('\\')) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Ugyldig mappe eller filnavn' }));
+                return;
+            }
+            const tmpPath = path.join(dataDir(), folder, '.' + file + '.autosave');
+            const resolved = path.resolve(tmpPath);
+            if (!resolved.startsWith(path.resolve(dataDir()))) {
+                res.writeHead(403, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Forbidden' }));
+                return;
+            }
+            if (!fs.existsSync(tmpPath)) {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: true, exists: false }));
+                return;
+            }
+            const stat = fs.statSync(tmpPath);
+            const content = fs.readFileSync(tmpPath, 'utf-8');
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, exists: true, content, modified: stat.mtime.toISOString() }));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Serverfeil: ' + e.message }));
+        }
+        return;
+    }
+
     if (pathname === '/api/save/autosave' && req.method === 'DELETE') {
         try {
             const body = JSON.parse(await readBody(req) || '{}');

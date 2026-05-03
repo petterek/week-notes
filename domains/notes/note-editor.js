@@ -283,6 +283,18 @@ class NoteEditor extends WNElement {
                     <markdown-preview class="ne-history-modal-body" placeholder="Laster…"></markdown-preview>
                 </div>
             </div>
+            <div class="ne-history-modal ne-restore-modal" hidden>
+                <div class="ne-history-modal-inner">
+                    <div class="ne-history-modal-head">
+                        <h3 class="ne-history-modal-title">💾 Gjenopprett autolagret versjon?</h3>
+                        <span class="ne-history-modal-meta ne-restore-meta meta"></span>
+                        <button type="button" class="ne-restore-apply">↩️ Gjenopprett</button>
+                        <button type="button" class="ne-restore-discard">🗑️ Forkast</button>
+                        <button type="button" class="ne-restore-cancel">Avbryt</button>
+                    </div>
+                    <markdown-preview class="ne-history-modal-body ne-restore-body" placeholder="Laster…"></markdown-preview>
+                </div>
+            </div>
         `;
     }
 
@@ -605,10 +617,11 @@ class NoteEditor extends WNElement {
     }
 
     async loadExisting(week, file) {
+        let realText = '';
         try {
-            const text = await this.service.raw(week, file);
+            realText = await this.service.raw(week, file);
             if (this._contentEl) {
-                this._contentEl.value = text;
+                this._contentEl.value = realText;
                 this._renderPreview();
             }
         } catch (_) {}
@@ -641,6 +654,74 @@ class NoteEditor extends WNElement {
                 }
             }
         } catch (_) {}
+        this._checkAutosave(week, file, realText);
+    }
+
+    async _checkAutosave(week, file, realText) {
+        try {
+            const f = file.endsWith('.md') ? file : file + '.md';
+            const url = `/api/save/autosave?folder=${encodeURIComponent(week)}&file=${encodeURIComponent(f)}`;
+            const r = await fetch(url);
+            if (!r.ok) return;
+            const data = await r.json();
+            if (!data || !data.exists || typeof data.content !== 'string') return;
+            if (data.content === realText) {
+                // Stale duplicate — clean up silently.
+                fetch('/api/save/autosave', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ folder: week, file: f }),
+                }).catch(() => {});
+                return;
+            }
+            this._showRestorePrompt(week, f, data.content, data.modified);
+        } catch (_) {}
+    }
+
+    _showRestorePrompt(week, file, autosaveContent, modifiedIso) {
+        const modal = this.shadowRoot.querySelector('.ne-restore-modal');
+        const body = this.shadowRoot.querySelector('.ne-restore-body');
+        const meta = this.shadowRoot.querySelector('.ne-restore-meta');
+        const applyBtn = this.shadowRoot.querySelector('.ne-restore-apply');
+        const discardBtn = this.shadowRoot.querySelector('.ne-restore-discard');
+        const cancelBtn = this.shadowRoot.querySelector('.ne-restore-cancel');
+        if (!modal || !body || !applyBtn || !discardBtn || !cancelBtn) return;
+
+        if (meta) meta.textContent = modifiedIso ? `Autolagret ${this._fmtDate(modifiedIso)}` : 'Autolagret versjon';
+        body.value = this._previewTransform ? this._previewTransform(autosaveContent) : autosaveContent;
+        modal.hidden = false;
+
+        const close = () => { modal.hidden = true; };
+        const onApply = () => {
+            if (this._contentEl) {
+                this._contentEl.value = autosaveContent;
+                this._renderPreview();
+                this._setStatus('Autolagret innhold gjenopprettet – husk å lagre');
+            }
+            close();
+            cleanup();
+        };
+        const onDiscard = () => {
+            fetch('/api/save/autosave', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ folder: week, file }),
+            }).catch(() => {});
+            close();
+            cleanup();
+        };
+        const onCancel = () => { close(); cleanup(); };
+        const onBackdrop = (e) => { if (e.target === modal) onCancel(); };
+        const cleanup = () => {
+            applyBtn.removeEventListener('click', onApply);
+            discardBtn.removeEventListener('click', onDiscard);
+            cancelBtn.removeEventListener('click', onCancel);
+            modal.removeEventListener('click', onBackdrop);
+        };
+        applyBtn.addEventListener('click', onApply);
+        discardBtn.addEventListener('click', onDiscard);
+        cancelBtn.addEventListener('click', onCancel);
+        modal.addEventListener('click', onBackdrop);
     }
 
     _fmtDate(iso) {
