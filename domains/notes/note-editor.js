@@ -77,10 +77,13 @@ const STYLES = `
         padding: 8px 16px; border-radius: 6px; border: 1px solid transparent;
         cursor: pointer; font: inherit;
     }
-    button.ne-save {
+    button.ne-save, button.ne-save-close {
         background: var(--accent); color: var(--text-on-accent); font-weight: 600;
     }
-    button.ne-save:hover { filter: brightness(0.95); }
+    button.ne-save:hover, button.ne-save-close:hover { filter: brightness(0.95); }
+    button.ne-save-close {
+        padding: 10px 22px; font-size: 1.05em; box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    }
     button.ne-cancel {
         background: var(--surface);
         border-color: var(--border);
