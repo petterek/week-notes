@@ -161,6 +161,25 @@ const STYLES = `
     .ne-history-modal-head h3 { margin: 0; font-size: 1em; color: var(--accent); }
     .ne-history-modal-head .meta { font-size: 0.85em; color: var(--text-muted); }
     .ne-history-modal-body { overflow: auto; flex: 1; min-height: 200px; }
+    .ne-restore-diff {
+        overflow: auto; flex: 1; min-height: 200px;
+        font-family: var(--font-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+        font-size: 0.88em; line-height: 1.45;
+        background: var(--surface-alt, #f6f6f6); border: 1px solid var(--border-soft); border-radius: 6px;
+        padding: 8px 0;
+    }
+    .ne-restore-diff .d-row {
+        display: grid; grid-template-columns: 28px 1fr; gap: 0;
+        padding: 0 10px; white-space: pre-wrap; word-break: break-word;
+    }
+    .ne-restore-diff .d-row .d-mark { color: var(--text-subtle); user-select: none; }
+    .ne-restore-diff .d-add { background: rgba(46, 160, 67, 0.18); }
+    .ne-restore-diff .d-add .d-mark { color: rgb(46, 160, 67); }
+    .ne-restore-diff .d-del { background: rgba(248, 81, 73, 0.18); }
+    .ne-restore-diff .d-del .d-mark { color: rgb(248, 81, 73); }
+    .ne-restore-diff .d-del .d-text { text-decoration: line-through; opacity: 0.85; }
+    .ne-restore-legend { font-size: 0.8em; color: var(--text-muted); display: flex; gap: 12px; flex-wrap: wrap; }
+    .ne-restore-legend .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
 `;
 
 const NOTE_TYPES = [
@@ -299,7 +318,11 @@ class NoteEditor extends WNElement {
                         <button type="button" class="ne-restore-discard">🗑️ Forkast</button>
                         <button type="button" class="ne-restore-cancel">Avbryt</button>
                     </div>
-                    <markdown-preview class="ne-history-modal-body ne-restore-body" placeholder="Laster…"></markdown-preview>
+                    <div class="ne-restore-legend">
+                        <span><span class="swatch" style="background: rgba(248,81,73,0.45)"></span>Lagret på disk</span>
+                        <span><span class="swatch" style="background: rgba(46,160,67,0.45)"></span>Autolagret (ikke lagret)</span>
+                    </div>
+                    <div class="ne-history-modal-body ne-restore-diff" aria-label="Diff"></div>
                 </div>
             </div>
         `;
@@ -706,21 +729,21 @@ class NoteEditor extends WNElement {
                 }).catch(() => {});
                 return;
             }
-            this._showRestorePrompt(week, f, data.content, data.modified);
+            this._showRestorePrompt(week, f, data.content, data.modified, realText);
         } catch (_) {}
     }
 
-    _showRestorePrompt(week, file, autosaveContent, modifiedIso) {
+    _showRestorePrompt(week, file, autosaveContent, modifiedIso, realText) {
         const modal = this.shadowRoot.querySelector('.ne-restore-modal');
-        const body = this.shadowRoot.querySelector('.ne-restore-body');
+        const diffEl = this.shadowRoot.querySelector('.ne-restore-diff');
         const meta = this.shadowRoot.querySelector('.ne-restore-meta');
         const applyBtn = this.shadowRoot.querySelector('.ne-restore-apply');
         const discardBtn = this.shadowRoot.querySelector('.ne-restore-discard');
         const cancelBtn = this.shadowRoot.querySelector('.ne-restore-cancel');
-        if (!modal || !body || !applyBtn || !discardBtn || !cancelBtn) return;
+        if (!modal || !diffEl || !applyBtn || !discardBtn || !cancelBtn) return;
 
         if (meta) meta.textContent = modifiedIso ? `Autolagret ${this._fmtDate(modifiedIso)}` : 'Autolagret versjon';
-        body.value = this._previewTransform ? this._previewTransform(autosaveContent) : autosaveContent;
+        diffEl.innerHTML = this._renderLineDiff(realText || '', autosaveContent || '');
         modal.hidden = false;
 
         const close = () => { modal.hidden = true; };
@@ -754,6 +777,41 @@ class NoteEditor extends WNElement {
         discardBtn.addEventListener('click', onDiscard);
         cancelBtn.addEventListener('click', onCancel);
         modal.addEventListener('click', onBackdrop);
+    }
+
+    // Render a line-level diff between `a` (saved on disk) and `b`
+    // (autosave). Returns HTML rows: unchanged plain, removed (in a only)
+    // marked red with strike-through, added (in b only) marked green.
+    _renderLineDiff(a, b) {
+        const A = (a || '').split('\n');
+        const B = (b || '').split('\n');
+        // LCS table — bounded by note size which is small.
+        const n = A.length, m = B.length;
+        const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+        for (let i = n - 1; i >= 0; i--) {
+            for (let j = m - 1; j >= 0; j--) {
+                dp[i][j] = (A[i] === B[j]) ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+            }
+        }
+        const rows = [];
+        let i = 0, j = 0;
+        while (i < n && j < m) {
+            if (A[i] === B[j]) { rows.push({ type: 'eq', text: A[i] }); i++; j++; }
+            else if (dp[i + 1][j] >= dp[i][j + 1]) { rows.push({ type: 'del', text: A[i] }); i++; }
+            else { rows.push({ type: 'add', text: B[j] }); j++; }
+        }
+        while (i < n) { rows.push({ type: 'del', text: A[i++] }); }
+        while (j < m) { rows.push({ type: 'add', text: B[j++] }); }
+
+        if (!rows.some(r => r.type !== 'eq')) {
+            return '<div class="ne-history-empty" style="padding:10px">Ingen endringer.</div>';
+        }
+        return rows.map(r => {
+            const cls = r.type === 'add' ? 'd-add' : r.type === 'del' ? 'd-del' : 'd-eq';
+            const mark = r.type === 'add' ? '+' : r.type === 'del' ? '−' : '\u00a0';
+            const text = r.text === '' ? '\u00a0' : escapeHtml(r.text);
+            return `<div class="d-row ${cls}"><span class="d-mark">${mark}</span><span class="d-text">${text}</span></div>`;
+        }).join('');
     }
 
     _fmtDate(iso) {
