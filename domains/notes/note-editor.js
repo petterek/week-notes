@@ -262,7 +262,7 @@ class NoteEditor extends WNElement {
                 <span class="ne-autosave-info" aria-live="polite"></span>
                 <button type="button" class="ne-detach" title="Åpne forhåndsvisning i eget vindu">📤 Detach</button>
                 <button type="button" class="ne-cancel">Avbryt</button>
-                <button type="button" class="ne-save-close" title="Ctrl+Shift+S">Lagre og lukk</button>
+                <button type="button" class="ne-save-close" title="Ctrl+Shift+S">Ferdig</button>
             </div>
             <div class="ne-meta-footer">
                 ${this._initialCreated ? html`<span><strong>Opprettet:</strong> ${this._fmtDate(this._initialCreated)}</span>` : ''}
