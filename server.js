@@ -2418,6 +2418,7 @@ document.addEventListener('keydown', function(e){
 <script type="module" src="/components/help-modal.js"></script>
 <script type="module" src="/components/note-card.js"></script>
 <script type="module" src="/components/note-meta-view.js"></script>
+<script type="module" src="/components/note-meta-panel.js"></script>
 <script type="module" src="/components/note-view.js"></script>
 <script type="module" src="/components/note-editor.js"></script>
 <script type="module" src="/components/task-open-list.js"></script>
@@ -4303,7 +4304,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             ['Shared',    ['help-modal', 'icon-picker', 'nav-button', 'nav-meta', 'time-picker', 'week-calendar', 'week-pill']],
             ['Context',   ['ctx-switcher']],
             ['Search',    ['global-search']],
-            ['Notes',     ['markdown-preview', 'note-card', 'note-editor', 'note-view']],
+            ['Notes',     ['markdown-preview', 'note-card', 'note-editor', 'note-meta-view', 'note-meta-panel', 'note-view']],
             ['Tasks',     ['task-complete-modal', 'task-note-modal', 'task-open-list', 'task-completed', 'task-create', 'task-create-modal']],
             ['Meetings',  ['meeting-create', 'upcoming-meetings', 'today-calendar', 'week-notes-calendar']],
             ['People',    ['company-card', 'entity-callout', 'entity-mention', 'people-page', 'person-card', 'place-card']],
@@ -4741,6 +4742,36 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                             });
                         });
                     <\/script>`,
+            },
+            'note-meta-view': {
+                desc: `<p><strong>&lt;note-meta-view&gt;</strong> is a service-less display card for a note's sidecar metadata. The host calls <code>el.meta = {…}</code> with the meta object; the component renders title, type chip, themes, key dates and emits <code>note-meta:view</code>, <code>note-meta:edit</code> and (for presentations) <code>note-meta:present</code> on its action buttons.</p>
+                    <p><strong>Data shape:</strong> <code>{ week, file, name?, type?, pinned?, themes?: string[], created?, modified?, createdBy?, lastSavedBy?, presentationStyle? }</code>.</p>`,
+                rawHtml: `<note-meta-view id="dbg-nmv"></note-meta-view>
+                    <script>
+                        customElements.whenDefined('note-meta-view').then(function(){
+                            var el = document.getElementById('dbg-nmv');
+                            if (!el) return;
+                            el.meta = {
+                                week: '2026-W18', file: 'demo.md', name: 'Demonstrasjon',
+                                type: 'note', pinned: true, themes: ['demo','planning'],
+                                created: '2026-04-27T08:30:00Z',
+                                modified: '2026-04-29T14:12:00Z',
+                                createdBy: 'me', lastSavedBy: 'sjur',
+                            };
+                        });
+                    <\/script>`,
+            },
+            'note-meta-panel': {
+                desc: `<p><strong>&lt;note-meta-panel&gt;</strong> is a self-loading wrapper around <code>&lt;note-meta-view&gt;</code> with two tabs: <em>Strukturert</em> (renders the structured meta card) and <em>Rå JSON</em> (pretty-printed sidecar JSON). Useful for debugging the sidecar shape directly.</p>
+                    <p><strong>Domain:</strong> <code>notes</code> &mdash; primary service from <code>notes_service</code>. The service must implement <code>meta(week, file)</code>.</p>
+                    <p><strong>Attributes.</strong> <code>path="YYYY-WNN/file.md"</code> (or <code>week</code> + <code>file</code>), and <code>tab</code> (<code>structured</code>|<code>raw</code>, default <code>structured</code>).</p>
+                    <p><strong>Public API.</strong> <code>el.reload()</code> re-fetches the sidecar.</p>`,
+                tag: 'note-meta-panel',
+                attrs: [
+                    { name: 'notes_service', type: 'text', default: 'MockNotesService' },
+                    { name: 'path', type: 'text', default: firstNote },
+                    { name: 'tab', type: 'text', default: 'structured' },
+                ],
             },
             'note-view': {
                 desc: `<p><strong>&lt;note-view&gt;</strong> is a modal overlay that loads and renders a note via <code>NotesService.renderHtml(week, file)</code>. Used by global-search to open note hits inline without leaving the current page.</p>
@@ -5346,6 +5377,8 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
     <script type="module" src="/components/help-modal.js"></script>
     <script type="module" src="/components/note-card.js"></script>
     <script type="module" src="/components/note-view.js"></script>
+    <script type="module" src="/components/note-meta-view.js"></script>
+    <script type="module" src="/components/note-meta-panel.js"></script>
     <script type="module" src="/components/task-open-list.js"></script>
     <script type="module" src="/components/task-create.js"></script>
     <script type="module" src="/components/task-create-modal.js"></script>
