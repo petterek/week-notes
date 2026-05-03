@@ -4299,9 +4299,485 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
         res.end(html);
     }
 
+    function renderDataShapesDebug(req, res) {
+        // Hand-written JSON Schemas for each on-disk JSON file. These describe
+        // the persisted shapes (not API responses). Keep schemas in sync with
+        // server.js when fields are added/removed.
+        const SHAPES = [
+            {
+                path: 'data/app-settings.json',
+                scope: 'global',
+                desc: 'Global app-level toggles. Loaded once at boot.',
+                schema: {
+                    $schema: 'http://json-schema.org/draft-07/schema#',
+                    type: 'object',
+                    properties: {
+                        vectorSearch: {
+                            type: 'object',
+                            properties: {
+                                enabled: { type: 'boolean' },
+                                model: { type: 'string', description: 'HF model id, e.g. Xenova/multilingual-e5-base' },
+                            },
+                        },
+                        searchIndex: {
+                            type: 'object',
+                            properties: { enabled: { type: 'boolean' } },
+                        },
+                        summarization: {
+                            type: 'object',
+                            properties: {
+                                enabled: { type: 'boolean' },
+                                model: { type: 'string' },
+                            },
+                        },
+                    },
+                },
+            },
+            {
+                path: 'data/user.json',
+                scope: 'global (per machine — outside any context git repo)',
+                desc: 'Per-machine identity. Maps each context to the @me person key for the current user.',
+                schema: {
+                    $schema: 'http://json-schema.org/draft-07/schema#',
+                    type: 'object',
+                    properties: {
+                        firstName: { type: 'string' },
+                        lastName: { type: 'string' },
+                        displayName: { type: 'string' },
+                        email: { type: 'string', format: 'email' },
+                        contexts: {
+                            type: 'array',
+                            items: {
+                                type: 'object',
+                                required: ['context'],
+                                properties: {
+                                    context: { type: 'string', description: 'Context id (folder name under data/).' },
+                                    mePersonKey: { type: 'string', description: 'Person key in that context to treat as @me.' },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+            {
+                path: 'data/<ctx>/settings.json',
+                scope: 'per context',
+                desc: 'Settings for one workspace: theme, calendar visibility, working hours, meeting type catalogue, available note themes.',
+                schema: {
+                    $schema: 'http://json-schema.org/draft-07/schema#',
+                    type: 'object',
+                    properties: {
+                        name: { type: 'string' },
+                        description: { type: 'string' },
+                        icon: { type: 'string', description: 'Single emoji.' },
+                        theme: { type: 'string', enum: ['paper', 'dark', 'mono', 'serif'], description: 'Visual theme name.' },
+                        remote: { type: 'string', description: 'Git remote URL (empty if disconnected).' },
+                        upcomingMeetingsDays: { type: 'integer', minimum: 1, default: 14 },
+                        visibleStartHour: { type: 'integer', minimum: 0, maximum: 23, default: 0 },
+                        visibleEndHour: { type: 'integer', minimum: 1, maximum: 24, default: 24 },
+                        defaultMeetingMinutes: { type: 'integer', minimum: 5, default: 60 },
+                        availableThemes: {
+                            type: 'array', items: { type: 'string' },
+                            description: 'Note theme tags allowed in this context.',
+                        },
+                        workHours: {
+                            type: 'array',
+                            minItems: 7, maxItems: 7,
+                            description: 'Per weekday work band. Index 0 = Monday … 6 = Sunday. null = no work.',
+                            items: {
+                                oneOf: [
+                                    { type: 'null' },
+                                    {
+                                        type: 'object',
+                                        required: ['start', 'end'],
+                                        properties: {
+                                            start: { type: 'string', pattern: '^[0-2][0-9]:[0-5][0-9]$' },
+                                            end:   { type: 'string', pattern: '^[0-2][0-9]:[0-5][0-9]$' },
+                                        },
+                                    },
+                                ],
+                            },
+                        },
+                        meetingTypes: {
+                            type: 'array',
+                            description: 'Per-context meeting type override. Falls back to meeting-types.json or defaults.',
+                            items: { $ref: '#/definitions/meetingType' },
+                        },
+                    },
+                    definitions: {
+                        meetingType: {
+                            type: 'object',
+                            required: ['key', 'label'],
+                            properties: {
+                                key: { type: 'string' },
+                                icon: { type: 'string' },
+                                label: { type: 'string' },
+                                color: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' },
+                                defaultMinutes: { type: 'integer', minimum: 5 },
+                            },
+                        },
+                    },
+                },
+            },
+            {
+                path: 'data/<ctx>/meeting-types.json',
+                scope: 'per context (optional)',
+                desc: 'Optional override for meeting types. Falls back to defaults if absent.',
+                schema: {
+                    $schema: 'http://json-schema.org/draft-07/schema#',
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        required: ['key', 'label'],
+                        properties: {
+                            key: { type: 'string' },
+                            icon: { type: 'string' },
+                            label: { type: 'string' },
+                            mins: { type: 'integer', minimum: 5, description: 'Default duration in minutes.' },
+                        },
+                    },
+                },
+            },
+            {
+                path: 'data/<ctx>/people.json',
+                scope: 'per context',
+                desc: 'People directory for one workspace. Keyed by `key` for @mentions.',
+                schema: {
+                    $schema: 'http://json-schema.org/draft-07/schema#',
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        required: ['id', 'key', 'name'],
+                        properties: {
+                            id: { type: 'string', description: 'Stable internal id.' },
+                            key: { type: 'string', description: 'Mention slug (a-z0-9). Must be unique per context.' },
+                            name: { type: 'string', description: 'Display name.' },
+                            firstName: { type: 'string' },
+                            lastName: { type: 'string' },
+                            title: { type: 'string' },
+                            email: { type: 'string', format: 'email' },
+                            phone: { type: 'string' },
+                            notes: { type: 'string' },
+                            inactive: { type: 'boolean' },
+                            primaryCompanyKey: { type: 'string' },
+                            extraCompanyKeys: { type: 'array', items: { type: 'string' } },
+                            created: { type: 'string', format: 'date-time' },
+                            deleted: { type: 'boolean' },
+                            deletedAt: { type: 'string', format: 'date-time' },
+                        },
+                    },
+                },
+            },
+            {
+                path: 'data/<ctx>/companies.json',
+                scope: 'per context',
+                desc: 'Companies linked to people via `primaryCompanyKey` / `extraCompanyKeys`.',
+                schema: {
+                    $schema: 'http://json-schema.org/draft-07/schema#',
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        required: ['id', 'key', 'name'],
+                        properties: {
+                            id: { type: 'string' },
+                            key: { type: 'string', description: 'Mention slug. Unique per context.' },
+                            name: { type: 'string' },
+                            orgnr: { type: 'string', description: 'Norwegian organization number, optional.' },
+                            url: { type: 'string', format: 'uri' },
+                            address: { type: 'string' },
+                            notes: { type: 'string' },
+                            created: { type: 'string', format: 'date-time' },
+                            deleted: { type: 'boolean' },
+                            deletedAt: { type: 'string', format: 'date-time' },
+                        },
+                    },
+                },
+            },
+            {
+                path: 'data/<ctx>/places.json',
+                scope: 'per context',
+                desc: 'Place / location directory used for meetings.',
+                schema: {
+                    $schema: 'http://json-schema.org/draft-07/schema#',
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        required: ['id', 'key', 'name'],
+                        properties: {
+                            id: { type: 'string' },
+                            key: { type: 'string' },
+                            name: { type: 'string' },
+                            address: { type: 'string' },
+                            lat: { type: 'number' },
+                            lng: { type: 'number' },
+                            notes: { type: 'string' },
+                            created: { type: 'string', format: 'date-time' },
+                        },
+                    },
+                },
+            },
+            {
+                path: 'data/<ctx>/tasks.json',
+                scope: 'per context',
+                desc: 'Open + completed tasks. Inline-task markers in notes write here too.',
+                schema: {
+                    $schema: 'http://json-schema.org/draft-07/schema#',
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        required: ['id', 'text'],
+                        properties: {
+                            id: { type: 'string' },
+                            text: { type: 'string' },
+                            done: { type: 'boolean' },
+                            week: { type: 'string', pattern: '^\\d{4}-W\\d{2}$', description: 'ISO week the task was created in.' },
+                            created: { type: 'string', format: 'date-time' },
+                            completedAt: { type: 'string', format: 'date-time' },
+                            completedWeek: { type: 'string', pattern: '^\\d{4}-W\\d{2}$' },
+                            note: { type: 'string', description: 'Inline note attached to the task.' },
+                            commentFile: { type: 'string', description: 'Path to a sidecar markdown comment file (week/file).' },
+                        },
+                    },
+                },
+            },
+            {
+                path: 'data/<ctx>/results.json',
+                scope: 'per context',
+                desc: 'Result / outcome log entries linked to a week.',
+                schema: {
+                    $schema: 'http://json-schema.org/draft-07/schema#',
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        required: ['id', 'text', 'week'],
+                        properties: {
+                            id: { type: 'string' },
+                            text: { type: 'string' },
+                            week: { type: 'string', pattern: '^\\d{4}-W\\d{2}$' },
+                            people: { type: 'array', items: { type: 'string', description: 'Person key.' } },
+                            created: { type: 'string', format: 'date-time' },
+                        },
+                    },
+                },
+            },
+            {
+                path: 'data/<ctx>/meetings.json',
+                scope: 'per context',
+                desc: 'All meetings (past + future) for one workspace.',
+                schema: {
+                    $schema: 'http://json-schema.org/draft-07/schema#',
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        required: ['id', 'date', 'start', 'title'],
+                        properties: {
+                            id: { type: 'string' },
+                            date: { type: 'string', format: 'date', description: 'YYYY-MM-DD' },
+                            start: { type: 'string', pattern: '^[0-2][0-9]:[0-5][0-9]$' },
+                            end:   { type: 'string', pattern: '^[0-2][0-9]:[0-5][0-9]$' },
+                            title: { type: 'string' },
+                            type: { type: 'string', description: 'Meeting type key (see settings.meetingTypes).' },
+                            attendees: { type: 'array', items: { type: 'string', description: 'Person key.' } },
+                            location: { type: 'string' },
+                            placeKey: { type: 'string', description: 'Optional place reference.' },
+                            notes: { type: 'string' },
+                            created: { type: 'string', format: 'date-time' },
+                        },
+                    },
+                },
+            },
+            {
+                path: 'data/<ctx>/notes-meta.json',
+                scope: 'per context',
+                desc: 'Sidecar metadata for every note. Keyed by "<week>/<file>.md".',
+                schema: {
+                    $schema: 'http://json-schema.org/draft-07/schema#',
+                    type: 'object',
+                    additionalProperties: { $ref: '#/definitions/noteMeta' },
+                    definitions: {
+                        noteMeta: {
+                            type: 'object',
+                            properties: {
+                                type: { type: 'string', enum: ['note', 'meeting', 'task', 'presentation'] },
+                                title: { type: 'string', description: 'Original H1 as typed (preserves Norwegian characters).' },
+                                pinned: { type: 'boolean' },
+                                themes: { type: 'array', items: { type: 'string' } },
+                                created: { type: 'string', format: 'date-time' },
+                                modified: { type: 'string', format: 'date-time' },
+                                createdBy: { type: 'string', description: 'Person key of the user who created the note.' },
+                                lastSavedBy: { type: 'string', description: 'Person key of the most recent saver.' },
+                                presentationStyle: { type: 'string', description: 'Slide theme when type=presentation.' },
+                                saves: {
+                                    type: 'array',
+                                    description: 'Save history. Legacy entries may be bare ISO strings.',
+                                    items: {
+                                        oneOf: [
+                                            { type: 'string', format: 'date-time' },
+                                            {
+                                                type: 'object',
+                                                required: ['at'],
+                                                properties: {
+                                                    at: { type: 'string', format: 'date-time' },
+                                                    by: { type: 'string', description: 'Person key.' },
+                                                    sha: { type: 'string', description: 'Git HEAD sha at save time, when in a repo.' },
+                                                },
+                                            },
+                                        ],
+                                    },
+                                },
+                                references: {
+                                    type: 'object',
+                                    description: 'Cross-domain mention index computed at save time.',
+                                    additionalProperties: { type: 'array', items: { type: 'string' } },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+            {
+                path: 'data/<ctx>/<week>/<file>.md',
+                scope: 'per context · per week',
+                desc: 'Markdown content for one note. Plain text on disk; structured fields live in notes-meta.json.',
+                schema: {
+                    $schema: 'http://json-schema.org/draft-07/schema#',
+                    type: 'string',
+                    contentMediaType: 'text/markdown',
+                    description: 'Filenames are slugified (a-z0-9 + dashes); duplicates are deduped with a -N suffix.',
+                },
+            },
+            {
+                path: 'data/<ctx>/<week>/.<file>.md.autosave',
+                scope: 'per context · per week (gitignored hidden file)',
+                desc: 'Editor autosave temp. Removed on explicit save or discard.',
+                schema: {
+                    $schema: 'http://json-schema.org/draft-07/schema#',
+                    type: 'string',
+                    contentMediaType: 'text/markdown',
+                },
+            },
+            {
+                path: 'data/<ctx>/.cache/search-index.json',
+                scope: 'per context (gitignored)',
+                desc: 'Lunr-style flat search index, rebuilt on save.',
+                schema: {
+                    $schema: 'http://json-schema.org/draft-07/schema#',
+                    type: 'object',
+                    required: ['version', 'docs'],
+                    properties: {
+                        version: { type: 'integer' },
+                        signature: { type: 'string', description: 'Hash of source data; used to detect staleness.' },
+                        docs: {
+                            type: 'array',
+                            items: {
+                                type: 'object',
+                                required: ['type', 'identifier'],
+                                properties: {
+                                    type: { type: 'string', enum: ['note', 'task', 'meeting', 'person', 'company', 'place', 'result'] },
+                                    identifier: { type: 'string' },
+                                    title: { type: 'string' },
+                                    subtitle: { type: 'string' },
+                                    href: { type: 'string' },
+                                    searchText: { type: 'string' },
+                                    body: { type: 'string' },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+            {
+                path: 'data/<ctx>/.cache/embeddings.json',
+                scope: 'per context (gitignored)',
+                desc: 'Vector embeddings for semantic search. One entry per indexed doc.',
+                schema: {
+                    $schema: 'http://json-schema.org/draft-07/schema#',
+                    type: 'object',
+                    required: ['dim', 'model', 'entries'],
+                    properties: {
+                        dim: { type: 'integer', description: 'Embedding dimensionality.' },
+                        model: { type: 'string' },
+                        entries: {
+                            type: 'object',
+                            description: 'Keyed by "<type>:<identifier>".',
+                            additionalProperties: {
+                                type: 'object',
+                                required: ['hash', 'vector'],
+                                properties: {
+                                    hash: { type: 'string', description: 'Content hash; if it changes, the vector is recomputed.' },
+                                    vector: { type: 'array', items: { type: 'number' } },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        ];
+
+        const html = `<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="utf-8">
+    <title>Debug · data shapes</title>
+    <link rel="stylesheet" href="/themes/paper.css">
+    <style>
+        body { font-family: var(--font-family, -apple-system, sans-serif); font-size: var(--font-size, 16px); margin: 0; line-height: 1.55; color: var(--text-strong); background: var(--bg); }
+        .dbg-page { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }
+        .dbg-side { background: var(--surface-head); border-right: 1px solid var(--border-faint); padding: 16px 14px; position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto; }
+        .dbg-side h2 { font-family: Georgia, serif; color: var(--accent); margin: 0 0 10px; font-size: 1.05em; }
+        .dbg-nav { display: flex; flex-direction: column; gap: 2px; }
+        .dbg-nav a { display: block; padding: 6px 10px; border-radius: 4px; color: var(--text); text-decoration: none; font-family: ui-monospace, monospace; font-size: 0.85em; word-break: break-all; }
+        .dbg-nav a:hover { background: var(--surface-alt); }
+        .dbg-nav a.active { background: var(--accent); color: var(--text-on-accent, white); }
+        .dbg-group-label { font-size: 0.72em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin: 12px 8px 4px; }
+        .dbg-group-label:first-of-type { margin-top: 0; }
+        .dbg-main { padding: 20px 26px; max-width: 1100px; }
+        .dbg-head h1 { font-family: Georgia, serif; color: var(--accent); font-size: 1.4em; margin: 0 0 4px; }
+        .dbg-head .desc { color: var(--text-muted); font-size: 0.9em; margin-bottom: 14px; }
+        .shape { background: var(--surface); border: 1px solid var(--border-faint); border-radius: 8px; padding: 14px 18px; margin-bottom: 22px; }
+        .shape h2 { margin: 0 0 4px; font-family: ui-monospace, monospace; color: var(--accent); font-size: 1em; word-break: break-all; }
+        .shape .scope { display: inline-block; font-size: 0.74em; color: var(--text-muted); background: var(--surface-alt); padding: 2px 8px; border-radius: 10px; margin-bottom: 6px; }
+        .shape .desc { color: var(--text-muted); font-size: 0.9em; margin: 4px 0 10px; }
+        .shape pre { margin: 0; padding: 12px 14px; background: var(--surface-head, #f6f6f6); border: 1px solid var(--border-faint); border-radius: 6px; font-family: ui-monospace, monospace; font-size: 0.82em; line-height: 1.45; white-space: pre-wrap; word-break: break-word; max-height: 540px; overflow: auto; }
+    </style>
+</head>
+<body>
+<div class="dbg-page">
+    <aside class="dbg-side">
+        <h2>Data shapes</h2>
+        <nav class="dbg-nav">
+            ${SHAPES.map(s => `<a href="#${escapeHtml(s.path)}">${escapeHtml(s.path)}</a>`).join('')}
+        </nav>
+        <h2 style="margin-top:18px">Other</h2>
+        <nav class="dbg-nav">
+            <a href="/debug">← components</a>
+            <a href="/debug/services">services</a>
+        </nav>
+    </aside>
+    <main class="dbg-main">
+        <div class="dbg-head">
+            <h1>Disk data shapes</h1>
+            <p class="desc">Hand-written JSON Schema (draft-07) for every JSON file persisted under <code>data/</code>. Update these when fields change.</p>
+        </div>
+        ${SHAPES.map(s => `
+            <section class="shape" id="${escapeHtml(s.path)}">
+                <h2>${escapeHtml(s.path)}</h2>
+                <span class="scope">${escapeHtml(s.scope)}</span>
+                <p class="desc">${escapeHtml(s.desc)}</p>
+                <pre>${escapeHtml(JSON.stringify(s.schema, null, 2))}</pre>
+            </section>
+        `).join('')}
+    </main>
+</div>
+</body>
+</html>`;
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(html);
+    }
+
     if (pathname === '/debug' || pathname.startsWith('/debug/')) {
         const COMPONENT_GROUPS = [
-            ['Shared',    ['help-modal', 'icon-picker', 'nav-button', 'nav-meta', 'time-picker', 'week-calendar', 'week-pill']],
+            ['Shared',    ['help-modal', 'icon-picker', 'json-table', 'nav-button', 'nav-meta', 'time-picker', 'week-calendar', 'week-pill']],
             ['Context',   ['ctx-switcher']],
             ['Search',    ['global-search']],
             ['Notes',     ['markdown-preview', 'note-card', 'note-editor', 'note-meta-view', 'note-meta-panel', 'note-view']],
@@ -4340,6 +4816,9 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
         }
         if (current === 'services') {
             return renderServicesDebug(req, res);
+        }
+        if (current === 'data-shapes') {
+            return renderDataShapesDebug(req, res);
         }
         if (!COMPONENTS.includes(current)) {
             res.writeHead(404, { 'Content-Type': 'text/plain' });
@@ -4482,6 +4961,26 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                                 document.getElementById(id).addEventListener('valueChanged', function(e){ log(id, e); });
                             });
                         })();
+                    <\/script>`,
+            },
+            'json-table': {
+                desc: `<p><strong>&lt;json-table&gt;</strong> renders an array of objects as a sortable, scrollable HTML table. Used heavily on the <a href="/debug/services">services</a> page to display API responses.</p>
+                    <p><strong>Domain:</strong> none &mdash; presentational only.</p>
+                    <p><strong>Properties.</strong> Set <code>el.data = [{…},…]</code> to populate; the component re-renders. Primitives render with <code>String()</code>; nested objects render as JSON in a muted cell.</p>
+                    <p><strong>Attributes.</strong> <code>columns</code> (comma-separated list, default = union of keys), <code>max-height</code> (CSS, default <code>320px</code>), <code>empty-text</code>.</p>
+                    <p><strong>Sorting.</strong> Click a column header to sort ascending; click again for descending; a third click clears the sort.</p>`,
+                rawHtml: `<json-table id="dbg-jt" max-height="260px"></json-table>
+                    <script>
+                        customElements.whenDefined('json-table').then(function(){
+                            var t = document.getElementById('dbg-jt');
+                            if (!t) return;
+                            t.data = [
+                                { id: 1, name: 'Anna',    role: 'PM',       active: true,  hours: 37.5, tags: ['lead','planlegging'] },
+                                { id: 2, name: 'Bjørn',   role: 'TechLead', active: true,  hours: 40,   tags: ['arkitektur'] },
+                                { id: 3, name: 'Cecilie', role: 'Dev',      active: false, hours: 32,   tags: [] },
+                                { id: 4, name: 'David',   role: 'Dev',      active: true,  hours: 38,   tags: ['onboarding'] },
+                            ];
+                        });
                     <\/script>`,
             },
             'help-modal': {
@@ -5328,6 +5827,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             <h2 style="margin-top:18px">Other</h2>
             <nav class="dbg-nav">
                 <a href="/debug/services">services</a>
+                <a href="/debug/data-shapes">data shapes</a>
             </nav>
         </aside>`;
 
@@ -5375,6 +5875,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
     <script type="module" src="/components/nav-button.js"></script>
     <script type="module" src="/components/ctx-switcher.js"></script>
     <script type="module" src="/components/help-modal.js"></script>
+    <script type="module" src="/components/json-table.js"></script>
     <script type="module" src="/components/note-card.js"></script>
     <script type="module" src="/components/note-view.js"></script>
     <script type="module" src="/components/note-meta-view.js"></script>
