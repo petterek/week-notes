@@ -21,6 +21,7 @@
  * the ✕ button cancel.
  */
 import { WNElement, html, escapeHtml } from './_shared.js';
+import { attachDateTrigger } from '/components/wn-date-trigger.js';
 
 const STYLES = `
     :host { display: inline-block; font: inherit; }
@@ -130,6 +131,7 @@ class TaskNoteModal extends WNElement {
             const ta = this.shadowRoot && this.shadowRoot.querySelector('[data-el="note"]');
             if (ta) {
                 ta.value = initial;
+                if (!ta.__wnDateAttached) attachDateTrigger(ta);
                 ta.focus();
                 const len = ta.value.length;
                 try { ta.setSelectionRange(len, len); } catch {}

@@ -3,6 +3,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { marked } = require('marked');
+marked.use({ breaks: true, gfm: true });
 const { execSync } = require('child_process');
 const { Worker } = require('worker_threads');
 const crypto = require('crypto');
@@ -829,7 +830,10 @@ function _cacheInvalidateCollection(dirName, ctx) {
 function _cacheInvalidateNotesMeta(ctx) {
     const target = ctx || getActiveContext();
     const b = _ctxCache.get(target);
-    if (b) delete b.notesMeta;
+    if (b) {
+        delete b.notesMeta;
+        delete b.notesMetaLoadedWeeks;
+    }
 }
 function _cacheInvalidateSettings(ctx) {
     const target = ctx || getActiveContext();
@@ -1333,46 +1337,82 @@ function syncTaskNote(task, rawNote, allTasks) {
     return cleanNote;
 }
 
+// In-memory note-meta cache shape (per context bucket):
+//   bucket.notesMeta            = { [week]: { [file]: metaObj } }   nested map
+//   bucket.notesMetaLoadedWeeks = Set<week>                         weeks fully scanned
+//
+// A week present in the Set means we've enumerated its sidecar dir; a missing
+// file under such a week is authoritative (returns {}). For weeks not in the
+// Set, individual files may still be present opportunistically (single-file
+// reads in getNoteMeta) but we don't know what's missing.
+
+function _ensureNotesMetaBucket(bucket) {
+    if (!bucket.notesMeta) bucket.notesMeta = {};
+    if (!bucket.notesMetaLoadedWeeks) bucket.notesMetaLoadedWeeks = new Set();
+    return bucket;
+}
+
+// Load all sidecars for a single week into the cache. Cheap when the week dir
+// is small (typical: a handful of notes). Idempotent — safe to call repeatedly.
+function _loadWeekNotesMeta(week, bucket) {
+    if (!bucket) return null;
+    _ensureNotesMetaBucket(bucket);
+    if (bucket.notesMetaLoadedWeeks.has(week)) return bucket.notesMeta[week] || {};
+    const wdir = path.join(notesMetaDir(), week);
+    const map = bucket.notesMeta[week] || (bucket.notesMeta[week] = {});
+    let files;
+    try { files = fs.readdirSync(wdir); } catch { files = []; }
+    for (const fname of files) {
+        if (!fname.endsWith('.json')) continue;
+        const noteFile = fname.slice(0, -5);
+        if (map[noteFile]) continue; // already memoized via single-file path
+        try {
+            map[noteFile] = JSON.parse(fs.readFileSync(path.join(wdir, fname), 'utf-8'));
+        } catch {}
+    }
+    bucket.notesMetaLoadedWeeks.add(week);
+    return map;
+}
+
 function loadNotesMeta() {
     const ctx = getActiveContext();
     const bucket = _ctxCacheBucket(ctx);
-    if (bucket && bucket.notesMeta) {
-        // Shallow-clone keys so callers can mutate.
-        const out = {};
-        for (const k of Object.keys(bucket.notesMeta)) out[k] = { ...bucket.notesMeta[k] };
-        return out;
-    }
-    // New layout: notes-meta/<week>/<file>.json. Falls back to legacy
+    // Sidecar layout: notes-meta/<week>/<file>.json. Falls back to legacy
     // single-file notes-meta.json for unmigrated contexts.
     const dir = notesMetaDir();
-    let result;
     if (fs.existsSync(dir)) {
-        result = {};
+        // Load every week, then flatten to the legacy "week/file" key shape.
         let weekDirs;
         try { weekDirs = fs.readdirSync(dir, { withFileTypes: true }); }
         catch { weekDirs = []; }
+        if (bucket) _ensureNotesMetaBucket(bucket);
         for (const wd of weekDirs) {
             if (!wd.isDirectory()) continue;
-            const wdir = path.join(dir, wd.name);
-            let files;
-            try { files = fs.readdirSync(wdir); } catch { continue; }
-            for (const fname of files) {
-                if (!fname.endsWith('.json')) continue;
-                const noteFile = fname.slice(0, -5);
-                try {
-                    result[wd.name + '/' + noteFile] = JSON.parse(fs.readFileSync(path.join(wdir, fname), 'utf-8'));
-                } catch {}
+            if (bucket) _loadWeekNotesMeta(wd.name, bucket);
+        }
+        const out = {};
+        if (bucket && bucket.notesMeta) {
+            for (const w of Object.keys(bucket.notesMeta)) {
+                const wmap = bucket.notesMeta[w] || {};
+                for (const f of Object.keys(wmap)) out[w + '/' + f] = { ...wmap[f] };
             }
         }
-    } else {
-        try { result = JSON.parse(fs.readFileSync(notesMetaFile(), 'utf-8')); }
-        catch { result = {}; }
+        return out;
     }
+    // Legacy single-file fallback (unmigrated contexts).
+    let result;
+    try { result = JSON.parse(fs.readFileSync(notesMetaFile(), 'utf-8')); }
+    catch { result = {}; }
     if (bucket) {
-        // Cache a deep-ish copy.
-        const cached = {};
-        for (const k of Object.keys(result)) cached[k] = { ...result[k] };
-        bucket.notesMeta = cached;
+        _ensureNotesMetaBucket(bucket);
+        for (const k of Object.keys(result)) {
+            const slash = k.indexOf('/');
+            if (slash < 0) continue;
+            const w = k.slice(0, slash), f = k.slice(slash + 1);
+            if (!bucket.notesMeta[w]) bucket.notesMeta[w] = {};
+            bucket.notesMeta[w][f] = { ...result[k] };
+            bucket.notesMetaLoadedWeeks.add(w);
+        }
     }
     return result;
 }
@@ -1421,19 +1461,29 @@ function saveNotesMeta(meta) {
 }
 
 function getNoteMeta(week, file) {
-    // Cache-fast path: read from the in-memory map if present.
     const ctx = getActiveContext();
     const bucket = _ctxCacheBucket(ctx);
-    if (bucket && bucket.notesMeta) {
-        const v = bucket.notesMeta[week + '/' + file];
-        if (v) return { ...v };
+    if (bucket) {
+        _ensureNotesMetaBucket(bucket);
+        const wmap = bucket.notesMeta[week];
+        if (wmap && Object.prototype.hasOwnProperty.call(wmap, file)) {
+            return { ...wmap[file] };
+        }
+        // If the entire week has been scanned, a missing file is authoritative.
+        if (bucket.notesMetaLoadedWeeks.has(week)) {
+            return {};
+        }
     }
-    // Read the sidecar directly when present — O(1) lookup.
+    // Read a single sidecar — O(1) lookup. Memoize into the nested cache.
     try {
-        return JSON.parse(fs.readFileSync(notesMetaSidecarPath(week, file), 'utf-8'));
+        const data = JSON.parse(fs.readFileSync(notesMetaSidecarPath(week, file), 'utf-8'));
+        if (bucket) {
+            if (!bucket.notesMeta[week]) bucket.notesMeta[week] = {};
+            bucket.notesMeta[week][file] = { ...data };
+        }
+        return data;
     } catch {}
-    // Fallback: scan the legacy single-file shape if the sidecar
-    // doesn't exist (unmigrated context).
+    // Fallback: scan the legacy single-file shape (this also populates the cache).
     if (fs.existsSync(notesMetaFile())) {
         const meta = loadNotesMeta();
         return meta[week + '/' + file] || {};
@@ -1447,15 +1497,21 @@ function setNoteMeta(week, file, data) {
     const fpath = notesMetaSidecarPath(week, file);
     fs.mkdirSync(path.dirname(fpath), { recursive: true });
     fs.writeFileSync(fpath, JSON.stringify(merged, null, 2), 'utf-8');
-    _cacheInvalidateNotesMeta();
+    const bucket = _ctxCacheBucket(getActiveContext());
+    if (bucket) {
+        _ensureNotesMetaBucket(bucket);
+        if (!bucket.notesMeta[week]) bucket.notesMeta[week] = {};
+        bucket.notesMeta[week][file] = { ...merged };
+    }
 }
 
 function deleteNoteMeta(week, file) {
     try { fs.unlinkSync(notesMetaSidecarPath(week, file)); } catch {}
     // Tidy empty week dir.
+    let weekDirEmpty = false;
     try {
         const wdir = path.join(notesMetaDir(), week);
-        if (fs.readdirSync(wdir).length === 0) fs.rmdirSync(wdir);
+        if (fs.readdirSync(wdir).length === 0) { fs.rmdirSync(wdir); weekDirEmpty = true; }
     } catch {}
     // Legacy fallback: also strip the entry from the single-file map.
     if (fs.existsSync(notesMetaFile())) {
@@ -1465,7 +1521,14 @@ function deleteNoteMeta(week, file) {
             fs.writeFileSync(notesMetaFile(), JSON.stringify(meta, null, 2), 'utf-8');
         } catch {}
     }
-    _cacheInvalidateNotesMeta();
+    const bucket = _ctxCacheBucket(getActiveContext());
+    if (bucket && bucket.notesMeta && bucket.notesMeta[week]) {
+        delete bucket.notesMeta[week][file];
+        if (weekDirEmpty) {
+            delete bucket.notesMeta[week];
+            if (bucket.notesMetaLoadedWeeks) bucket.notesMetaLoadedWeeks.delete(week);
+        }
+    }
 }
 
 // Convert a UTC ISO timestamp to local-time { date: "YYYY-MM-DD", time: "HH:MM" }.
@@ -1553,21 +1616,79 @@ function getCalendarActivity(startIso, endIso) {
     return items;
 }
 
+// Stat-based caches for directory listings. Reading a directory hundreds of
+// times per request is the hot path for /api/notes, search, summarize, home
+// sidebar etc. fs.statSync only touches inode metadata (cheap), and the
+// parent directory's mtime changes whenever a child is added/removed/renamed
+// — so we can safely return a cached listing as long as mtime is unchanged.
+const _weekDirsCache = new Map();   // key: dataDir, val: { mtimeMs, value }
+const _mdFilesCache  = new Map();   // key: dataDir|week, val: { mtimeMs, value }
+
+function _statMtime(p) {
+    try { return fs.statSync(p).mtimeMs; } catch { return -1; }
+}
+
 function getWeekDirs() {
-    return fs.readdirSync(dataDir(), { withFileTypes: true })
-        .filter(d => d.isDirectory() && /^\d{4}-\d{1,2}$/.test(d.name))
-        .map(d => d.name)
-        .sort((a, b) => b.localeCompare(a));
+    const dir = dataDir();
+    const mtime = _statMtime(dir);
+    const cached = _weekDirsCache.get(dir);
+    if (cached && cached.mtimeMs === mtime && mtime !== -1) return cached.value;
+    let value;
+    try {
+        value = fs.readdirSync(dir, { withFileTypes: true })
+            .filter(d => d.isDirectory() && /^\d{4}-\d{1,2}$/.test(d.name))
+            .map(d => d.name)
+            .sort((a, b) => b.localeCompare(a));
+    } catch { value = []; }
+    _weekDirsCache.set(dir, { mtimeMs: mtime, value });
+    return value;
 }
 
 function getMdFiles(weekDir) {
+    const root = dataDir();
+    const full = path.join(root, weekDir);
+    const mtime = _statMtime(full);
+    if (mtime === -1) return [];
+    const key = root + '|' + weekDir;
+    const cached = _mdFilesCache.get(key);
+    if (cached && cached.mtimeMs === mtime) return cached.value;
+    let value;
     try {
-        return fs.readdirSync(path.join(dataDir(), weekDir))
+        value = fs.readdirSync(full)
             .filter(f => f.endsWith('.md'))
             .sort();
-    } catch {
-        return [];
-    }
+    } catch { value = []; }
+    _mdFilesCache.set(key, { mtimeMs: mtime, value });
+    return value;
+}
+
+// mtime-keyed cache for raw .md content + derived plain-text snippet.
+// Keyed by absolute path so it transparently spans contexts. Hot consumers:
+// /api/notes/:week/:file/card, search, summarize, anywhere a note is read
+// more than once between writes.
+const _noteContentCache = new Map(); // path -> { mtimeMs, raw, snippet, snippetLen }
+
+function readNoteCached(week, file) {
+    const full = path.join(dataDir(), week, file);
+    const mtime = _statMtime(full);
+    if (mtime === -1) return null;
+    const cached = _noteContentCache.get(full);
+    if (cached && cached.mtimeMs === mtime) return cached;
+    let raw;
+    try { raw = fs.readFileSync(full, 'utf-8'); } catch { return null; }
+    const entry = { mtimeMs: mtime, raw, snippet: null, snippetLen: 0 };
+    _noteContentCache.set(full, entry);
+    return entry;
+}
+
+function noteSnippetCached(week, file, len) {
+    const entry = readNoteCached(week, file);
+    if (!entry) return '';
+    const wantLen = len || 200;
+    if (entry.snippet != null && entry.snippetLen === wantLen) return entry.snippet;
+    entry.snippet = noteSnippet(entry.raw, wantLen);
+    entry.snippetLen = wantLen;
+    return entry.snippet;
 }
 
 function searchSnippet(content, q, pad = 60) {
@@ -1585,9 +1706,9 @@ function searchMdFiles(query) {
     const weeks = getWeekDirs();
     for (const week of weeks) {
         for (const file of getMdFiles(week)) {
-            const filePath = path.join(dataDir(), week, file);
-            let content;
-            try { content = fs.readFileSync(filePath, 'utf-8'); } catch { continue; }
+            const entry = readNoteCached(week, file);
+            if (!entry) continue;
+            const content = entry.raw;
             const nameLower = file.toLowerCase();
             const contentLower = content.toLowerCase();
             const nameMatch = nameLower.includes(q);
@@ -1722,10 +1843,8 @@ function summarizeWeek(week) {
 
         for (const f of files) {
             if (f === 'summarize.md') continue;
-            try {
-                const content = fs.readFileSync(path.join(dataDir(), week, f), 'utf-8');
-                context += `--- ${f} ---\n${content}\n\n`;
-            } catch {}
+            const entry = readNoteCached(week, f);
+            if (entry) context += `--- ${f} ---\n${entry.raw}\n\n`;
         }
 
         if (tasks.length > 0) {
@@ -2233,6 +2352,26 @@ function pageHtml(title, body, extraNavLinks, opts) {
     }
 })();
 
+// Auto-wire any <details data-persist-key="..."> in the SPA fragment so its
+// open/closed state is remembered across navigations.
+(function(){
+    function wire(root){
+        (root || document).querySelectorAll('details[data-persist-key]').forEach(function(d){
+            if (d._persistWired) return;
+            d._persistWired = true;
+            var key = d.getAttribute('data-persist-key');
+            if (localStorage.getItem(key) === 'true') d.open = true;
+            d.addEventListener('toggle', function(){
+                localStorage.setItem(key, d.open ? 'true' : 'false');
+            });
+        });
+    }
+    document.addEventListener('spa:navigated', function(){ wire(document); });
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function(){ wire(document); });
+    } else { wire(document); }
+})();
+
 document.addEventListener('keydown',function(e){
     if(!e.altKey||e.ctrlKey||e.metaKey)return;
     var t=e.target;
@@ -2348,8 +2487,27 @@ document.addEventListener('keydown', function(e){
     function handleDelete(e){
         var p = readWF(e.detail); if (!p) return;
         e.preventDefault();
-        var name = p.file.replace(/\.md$/, '');
-        if (typeof window.deleteNoteFromHome === 'function') window.deleteNoteFromHome(p.week, p.fileEnc, name);
+        // Find the originating <note-card> from the event path. This
+        // works whether the card is in light DOM or inside another
+        // component's shadow DOM (composedPath crosses shadow roots).
+        var path = (typeof e.composedPath === 'function') ? e.composedPath() : [];
+        var card = null;
+        for (var i = 0; i < path.length; i++) {
+            var n = path[i];
+            if (n && n.nodeType === 1 && n.tagName === 'NOTE-CARD') { card = n; break; }
+        }
+        if (!card) card = e.target && e.target.closest && e.target.closest('note-card');
+        var name = p.file.replace(/\\.md$/, '');
+        if (!confirm('Slette notatet "' + name + '"?\\n\\nDette kan ikke angres.')) return;
+        fetch('/api/notes/' + p.week + '/' + p.fileEnc, { method: 'DELETE' })
+            .then(function(resp){
+                if (!resp.ok) { alert('Kunne ikke slette notatet.'); return; }
+                if (card && card.remove) card.remove();
+                document.dispatchEvent(new CustomEvent('note:deleted', {
+                    bubbles: true, detail: { week: p.week, file: p.file },
+                }));
+            })
+            .catch(function(err){ alert('Nettverksfeil: ' + (err && err.message || err)); });
     }
     document.addEventListener('view', handleView);
     document.addEventListener('present', handlePresent);
@@ -2397,6 +2555,131 @@ document.addEventListener('keydown', function(e){
         document.dispatchEvent(new CustomEvent(ev, {
             bubbles: true, detail: { id: id },
         }));
+    });
+
+    // ===== Week summarize / show-summary =====
+    // <week-section> dispatches 'week-section:summarize' (and ':show-summary')
+    // when its "✨ Oppsummer" / "📋 Vis oppsummering" button is clicked.
+    // We wire those to /api/summarize and /api/notes/:week/summarize.md.
+    function ensureSummaryModal() {
+        var m = document.getElementById('summaryModal');
+        if (m) return m;
+        m = document.createElement('modal-container');
+        m.id = 'summaryModal';
+        m.setAttribute('size', 'lg');
+        var t = document.createElement('span');
+        t.setAttribute('slot', 'title');
+        m.appendChild(t);
+        var body = document.createElement('div');
+        body.className = 'summary-modal-body';
+        body.style.cssText = 'min-height:120px;font-size:0.95em;line-height:1.55;';
+        m.appendChild(body);
+        document.body.appendChild(m);
+        return m;
+    }
+    function setSummaryBody(modal, html) {
+        var body = modal.querySelector('.summary-modal-body');
+        if (body) body.innerHTML = html;
+    }
+    function escapeHtmlClient(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+    function renderMarkdown(md) {
+        if (window.marked && typeof window.marked.parse === 'function') {
+            try { return window.marked.parse(md || ''); } catch (_) {}
+        }
+        return '<pre style="white-space:pre-wrap;font-family:inherit">'
+            + escapeHtmlClient(md || '') + '</pre>';
+    }
+    function saveSummary(week, markdown) {
+        return fetch('/api/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ folder: week, file: 'summarize.md', content: markdown }),
+        }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, j: j }; }); });
+    }
+
+    function runSummarize(week) {
+        var modal = ensureSummaryModal();
+        modal.setTitle('Oppsummering &mdash; uke ' + escapeHtmlClient(week));
+        setSummaryBody(modal, '<p style="color:var(--text-muted)">⏳ Oppsummerer uke ' + escapeHtmlClient(week) + ' &hellip;</p>');
+        modal.setButtons([
+            { label: 'Lukk', variant: 'ghost', action: function(m){ m.close('button'); }, dismiss: false },
+        ]);
+        modal.open();
+        fetch('/api/summarize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ week: week }),
+        }).then(function(r){ return r.json().then(function(j){ return { ok: r.ok, j: j }; }); })
+        .then(function(res){
+            if (!res.ok || !res.j || !res.j.ok) {
+                var msg = (res.j && (res.j.error || res.j.message)) || 'Ukjent feil';
+                setSummaryBody(modal,
+                    '<p style="color:var(--danger,#c53030)"><strong>Kunne ikke oppsummere:</strong> '
+                    + escapeHtmlClient(msg) + '</p>');
+                return;
+            }
+            var md = res.j.summary || '';
+            setSummaryBody(modal, renderMarkdown(md));
+            modal.setButtons([
+                { label: 'Lukk', variant: 'ghost', action: function(m){ m.close('button'); }, dismiss: false },
+                { label: 'Kjør på nytt', action: function(){ runSummarize(week); return false; }, dismiss: false },
+                { label: '💾 Lagre som notat', primary: true, action: function(m, btn){
+                    btn.disabled = true;
+                    return saveSummary(week, md).then(function(res2){
+                        if (!res2.ok) {
+                            alert('Kunne ikke lagre: ' + ((res2.j && res2.j.error) || 'feil'));
+                            return false;
+                        }
+                        // Refresh the relevant <week-section> so the
+                        // "📋 Vis oppsummering" button appears.
+                        document.querySelectorAll('week-section').forEach(function(ws){
+                            if (ws.getAttribute('week') === week && typeof ws.refresh === 'function') ws.refresh();
+                        });
+                    }, function(){ alert('Lagring feilet'); return false; });
+                } },
+            ]);
+        }, function(err){
+            setSummaryBody(modal,
+                '<p style="color:var(--danger,#c53030)"><strong>Nettverksfeil:</strong> '
+                + escapeHtmlClient(err && err.message || err) + '</p>');
+        });
+    }
+
+    function showSavedSummary(week) {
+        var modal = ensureSummaryModal();
+        modal.setTitle('Oppsummering &mdash; uke ' + escapeHtmlClient(week));
+        setSummaryBody(modal, '<p style="color:var(--text-muted)">⏳ Henter lagret oppsummering &hellip;</p>');
+        modal.setButtons([
+            { label: 'Lukk', variant: 'ghost', action: function(m){ m.close('button'); }, dismiss: false },
+        ]);
+        modal.open();
+        fetch('/api/notes/' + encodeURIComponent(week) + '/summarize.md/raw')
+            .then(function(r){ return r.ok ? r.text() : Promise.reject(new Error('HTTP ' + r.status)); })
+            .then(function(md){
+                setSummaryBody(modal, renderMarkdown(md));
+                modal.setButtons([
+                    { label: 'Lukk', variant: 'ghost', action: function(m){ m.close('button'); }, dismiss: false },
+                    { label: '✨ Kjør på nytt', action: function(){ runSummarize(week); return false; }, dismiss: false },
+                ]);
+            }, function(err){
+                setSummaryBody(modal,
+                    '<p style="color:var(--danger,#c53030)"><strong>Kunne ikke hente:</strong> '
+                    + escapeHtmlClient(err && err.message || err) + '</p>');
+            });
+    }
+
+    window.summarizeWeek = runSummarize;
+    window.showWeekSummary = showSavedSummary;
+    document.addEventListener('week-section:summarize', function(e){
+        var w = e.detail && e.detail.week;
+        if (w) runSummarize(w);
+    });
+    document.addEventListener('week-section:show-summary', function(e){
+        var w = e.detail && e.detail.week;
+        if (w) showSavedSummary(w);
     });
 
     //   <task-completed> emits 'task-completed:undo' when the user clicks
@@ -2513,12 +2796,16 @@ document.addEventListener('keydown', function(e){
 <script type="module" src="/components/task-open-list.js"></script>
 <script type="module" src="/components/task-create.js"></script>
 <script type="module" src="/components/task-add-modal.js"></script>
+<script type="module" src="/components/task-complete-modal.js"></script>
+<script type="module" src="/components/task-note-modal.js"></script>
+<script type="module" src="/components/task-edit-modal.js"></script>
 <script type="module" src="/components/upcoming-meetings.js"></script>
 <script type="module" src="/components/today-calendar.js"></script>
 <script type="module" src="/components/meeting-create.js"></script>
 <script type="module" src="/components/meeting-create-modal.js"></script>
 <script type="module" src="/components/week-results.js"></script>
 <script type="module" src="/components/task-completed.js"></script>
+<script type="module" src="/components/task-view.js"></script>
 <script type="module" src="/components/week-section.js"></script>
 <script type="module" src="/components/week-list.js"></script>
 <script type="module" src="/components/week-pill.js"></script>
@@ -2540,6 +2827,7 @@ document.addEventListener('keydown', function(e){
 <script type="module" src="/components/people-page.js"></script>
 <script type="module" src="/components/results-page.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>if(window.marked&&marked.use)marked.use({breaks:true,gfm:true});</script>
 </body>
 </html>`;
 }
@@ -5380,7 +5668,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             ['Context',   ['ctx-switcher']],
             ['Search',    ['global-search']],
             ['Notes',     ['markdown-preview', 'note-card', 'note-editor', 'note-meta-view', 'note-meta-panel', 'note-view']],
-            ['Tasks',     ['task-add-modal', 'task-complete-modal', 'task-note', 'task-note-modal', 'task-open-list', 'task-completed', 'task-create']],
+            ['Tasks',     ['task-add-modal', 'task-complete-modal', 'task-note', 'task-note-modal', 'task-open-list', 'task-completed', 'task-create', 'task-view']],
             ['Meetings',  ['meeting-create', 'meeting-create-modal', 'upcoming-meetings', 'today-calendar', 'week-notes-calendar']],
             ['People',    ['company-card', 'entity-callout', 'entity-mention', 'people-page', 'person-card', 'place-card']],
             ['Results',   ['results-page', 'week-results']],
@@ -6224,6 +6512,74 @@ modal.open();</pre>
                         });
                     <\/script>`,
             },
+            'task-view': {
+                desc: `<p><strong>&lt;task-view&gt;</strong> is a read-only detail panel that renders <em>every</em> attribute of a task: id, text, done, week, created, completedWeek/completedAt, author, responsible, dueDate, note and commentFile. Unknown future fields are appended at the end so the view doesn&apos;t silently drop schema additions.</p>
+                    <p><strong>Usage.</strong> Set <code>.task = {…}</code> directly, or pass <code>taskid</code> + <code>tasks_service</code> to load the task by id from the service. <code>people_service</code> and <code>companies_service</code> are used to resolve <code>@mentions</code> in the text and to label <code>author</code> / <code>responsible</code>.</p>
+                    <p><strong>Behaviour.</strong> An overdue <code>dueDate</code> on an open task is highlighted. <code>commentFile</code> is rendered as a link. The component emits no events &mdash; it&apos;s purely presentational.</p>`,
+                rawHtml: `<task-view id="dbg-tv"
+                        people_service="week-note-services.people_service"
+                        companies_service="week-note-services.companies_service"></task-view>
+                    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+                        <button type="button" class="btn" data-tv="open"
+                            style="padding:6px 12px;background:var(--accent);color:var(--text-on-accent);border:0;border-radius:6px;cursor:pointer">Open task</button>
+                        <button type="button" class="btn" data-tv="done"
+                            style="padding:6px 12px;background:var(--surface-alt);color:var(--text-strong);border:1px solid var(--border);border-radius:6px;cursor:pointer">Completed task</button>
+                        <button type="button" class="btn" data-tv="overdue"
+                            style="padding:6px 12px;background:var(--surface-alt);color:var(--text-strong);border:1px solid var(--border);border-radius:6px;cursor:pointer">Overdue task</button>
+                        <button type="button" class="btn" data-tv="minimal"
+                            style="padding:6px 12px;background:var(--surface-alt);color:var(--text-strong);border:1px solid var(--border);border-radius:6px;cursor:pointer">Minimal task</button>
+                    </div>
+                    <script>
+                        customElements.whenDefined('task-view').then(function(){
+                            var v = document.getElementById('dbg-tv');
+                            var samples = {
+                                open: {
+                                    id: 't-open-1',
+                                    text: 'Send rapport til @anna før fredag',
+                                    done: false,
+                                    week: '2026-W18',
+                                    created: '2026-04-28T09:14:00.000Z',
+                                    author: 'me',
+                                    responsible: 'anna',
+                                    dueDate: '2026-05-08',
+                                    note: 'Husk å legge ved Q1-tallene og diagrammene fra @bob.'
+                                },
+                                done: {
+                                    id: 't-done-1',
+                                    text: 'Bestill nytt utstyr til @bob',
+                                    done: true,
+                                    week: '2026-W17',
+                                    created: '2026-04-21T08:00:00.000Z',
+                                    completedWeek: '2026-W18',
+                                    completedAt: '2026-04-30T14:22:00.000Z',
+                                    completed: '2026-04-30T14:22:00.000Z',
+                                    author: 'me',
+                                    responsible: 'me',
+                                    commentFile: '2026-W18/oppgave-t-done-1.md'
+                                },
+                                overdue: {
+                                    id: 't-overdue-1',
+                                    text: 'Følg opp avtale med @globex',
+                                    done: false,
+                                    week: '2026-W16',
+                                    created: '2026-04-13T10:00:00.000Z',
+                                    author: 'me',
+                                    responsible: 'me',
+                                    dueDate: '2026-04-25'
+                                },
+                                minimal: {
+                                    id: 't-min-1',
+                                    text: 'Quick todo'
+                                }
+                            };
+                            function set(k){ v.task = samples[k]; }
+                            document.querySelectorAll('button[data-tv]').forEach(function(b){
+                                b.addEventListener('click', function(){ set(b.dataset.tv); });
+                            });
+                            set('open');
+                        });
+                    <\/script>`,
+            },
             'meeting-create': {
                 desc: `<p><strong>&lt;meeting-create&gt;</strong> is a reusable form for creating a meeting &mdash; title, type, date, start/end, attendees, location and notes. Used inside the calendar page&apos;s create-meeting overlay.</p>
                     <p><strong>Domain:</strong> <code>meetings</code> &mdash; calls <code>meetings_service.create({...})</code> to persist the meeting.</p>
@@ -6734,6 +7090,7 @@ modal.open();</pre>
     <link rel="stylesheet" href="/themes/paper.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsoneditor@10.1.0/dist/jsoneditor.min.css">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>if(window.marked&&marked.use)marked.use({breaks:true,gfm:true});</script>
     <script src="https://cdn.jsdelivr.net/npm/jsoneditor@10.1.0/dist/jsoneditor.min.js"></script>
     <script type="module" src="/components/_shared.js"></script>
     <script defer src="/debug/_mock-services.js"></script>
@@ -6753,12 +7110,14 @@ modal.open();</pre>
     <script type="module" src="/components/task-note.js"></script>
     <script type="module" src="/components/task-complete-modal.js"></script>
     <script type="module" src="/components/task-note-modal.js"></script>
+    <script type="module" src="/components/task-edit-modal.js"></script>
     <script type="module" src="/components/meeting-create.js"></script>
     <script type="module" src="/components/meeting-create-modal.js"></script>
     <script type="module" src="/components/upcoming-meetings.js"></script>
     <script type="module" src="/components/today-calendar.js"></script>
     <script type="module" src="/components/week-results.js"></script>
     <script type="module" src="/components/task-completed.js"></script>
+    <script type="module" src="/components/task-view.js"></script>
     <script type="module" src="/components/week-section.js"></script>
     <script type="module" src="/components/week-list.js"></script>
     <script type="module" src="/components/week-pill.js"></script>
@@ -10527,6 +10886,8 @@ activateTab(initialParams.tab || 'people');
                             t.done = true;
                             t.completedWeek = noteWeek;
                             t.completedAt = new Date().toISOString();
+                            const meKey = getMePersonKey(getActiveContext());
+                            if (meKey) t.completedBy = meKey;
                             if (!seen.has(id)) { closedTasks++; seen.add(id); }
                         }
                     }
@@ -10542,12 +10903,14 @@ activateTab(initialParams.tab || 'people');
                     if (openByText.length) {
                         let changed = false;
                         const nowIso = new Date().toISOString();
+                        const meKey = getMePersonKey(getActiveContext());
                         for (const t of openByText) {
                             const marker = `~~${t.text}~~`;
                             if (finalContent.includes(marker)) {
                                 t.done = true;
                                 t.completedWeek = noteWeek;
                                 t.completedAt = nowIso;
+                                if (meKey) t.completedBy = meKey;
                                 changed = true;
                                 closedTasks++;
                             }
@@ -10620,6 +10983,9 @@ activateTab(initialParams.tab || 'people');
                 updates.themes = norm;
             }
             if (!existing.created) updates.created = now;
+            // Pre-compute the plaintext snippet so the card endpoint can
+            // serve it from the meta sidecar without reading the .md file.
+            updates.snippet = noteSnippet(finalContent, 220);
             // Display title — original heading text as typed (preserves
             // æ/ø/å and other unicode the slugified filename loses).
             // Falls back to the first H1 in finalContent when the client
@@ -10655,7 +11021,7 @@ activateTab(initialParams.tab || 'people');
             // touched by this save — git add -A sweeps the whole context
             // repo) to git so we keep history. Best-effort, never blocks
             // the response. Only runs when the client opted in (e.g. the
-            // editor's "Ferdig" button); plain Ctrl+S saves persist without
+            // editor's "Ferdig" button / Ctrl+Enter); autosaves persist without
             // creating a commit so iterative editing doesn't pollute
             // history.
             if (commit) try {
@@ -11928,7 +12294,27 @@ activateTab(initialParams.tab || 'people');
     if (pathname === '/api/tasks' && req.method === 'POST') {
         const body = JSON.parse(await readBody(req));
         const tasks = loadTasks();
-        tasks.push({ id: Date.now().toString(36), text: body.text, done: false, created: new Date().toISOString(), week: body.week || getCurrentYearWeek() });
+        const meKey = getMePersonKey(getActiveContext()) || '';
+        const task = {
+            id: Date.now().toString(36),
+            text: body.text,
+            done: false,
+            created: new Date().toISOString(),
+            week: body.week || getCurrentYearWeek(),
+        };
+        if (meKey) task.author = meKey;
+        // Responsible defaults to author (@me); body may override with a
+        // different person key. Empty string explicitly clears it.
+        if (typeof body.responsible === 'string') {
+            const r = body.responsible.trim();
+            if (r) task.responsible = r;
+        } else if (meKey) {
+            task.responsible = meKey;
+        }
+        if (typeof body.dueDate === 'string' && /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?$/.test(body.dueDate.trim())) {
+            task.dueDate = body.dueDate.trim();
+        }
+        tasks.push(task);
         saveTasks(tasks);
         syncMentions(body.text);
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -11936,7 +12322,7 @@ activateTab(initialParams.tab || 'people');
         return;
     }
 
-    // API: edit task text / note
+    // API: edit task text / note / responsible / dueDate
     const editTaskMatch = pathname.match(/^\/api\/tasks\/([^/]+)$/);
     if (editTaskMatch && req.method === 'PUT') {
         const body = JSON.parse(await readBody(req));
@@ -11944,6 +12330,18 @@ activateTab(initialParams.tab || 'people');
         const task = tasks.find(t => t.id === editTaskMatch[1]);
         if (task) {
             if (body.text) task.text = body.text.trim();
+            if (typeof body.responsible === 'string') {
+                const r = body.responsible.trim();
+                if (r) task.responsible = r;
+                else delete task.responsible;
+            }
+            if (typeof body.dueDate === 'string') {
+                const d = body.dueDate.trim();
+                if (!d) delete task.dueDate;
+                else if (/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?$/.test(d)) task.dueDate = d;
+            } else if (body.dueDate === null) {
+                delete task.dueDate;
+            }
             if (body.note !== undefined) syncTaskNote(task, body.note, tasks);
             else syncMentions(task.text, task.note);
             saveTasks(tasks);
@@ -11971,9 +12369,12 @@ activateTab(initialParams.tab || 'people');
             if (task.done) {
                 task.completedAt = now.toISOString();
                 task.completedWeek = getCurrentYearWeek();
+                const meKey = getMePersonKey(getActiveContext());
+                if (meKey) task.completedBy = meKey;
             } else {
                 delete task.completedAt;
                 delete task.completedWeek;
+                delete task.completedBy;
             }
             if (task.done && comment) {
                 const week = task.completedWeek || task.week || getCurrentYearWeek();
@@ -11988,7 +12389,7 @@ activateTab(initialParams.tab || 'people');
                     `# ✅ ${task.text}\n\n${cleanComment}\n\n---\n*Fullført: ${dateStr}*\n`, 'utf-8');
                 task.commentFile = `${week}/${fileName}`;
                 const meTask = getMePersonKey(getActiveContext());
-                const taskMeta = { type: 'task' };
+                const taskMeta = { type: 'task', created: now.toISOString() };
                 if (meTask) { taskMeta.createdBy = meTask; taskMeta.lastSavedBy = meTask; }
                 setNoteMeta(week, fileName, taskMeta);
             }
@@ -12008,6 +12409,7 @@ activateTab(initialParams.tab || 'people');
         let body = {};
         try { body = JSON.parse(await readBody(req)); } catch {}
         const wantDone = body.done !== undefined ? !!body.done : true;
+        const comment = (typeof body.comment === 'string') ? body.comment.trim() : '';
         const tasks = loadTasks();
         const task = tasks.find(t => t.id === id);
         if (!task) {
@@ -12019,9 +12421,30 @@ activateTab(initialParams.tab || 'people');
         if (wantDone) {
             task.completedAt = new Date().toISOString();
             task.completedWeek = getCurrentYearWeek();
+            const meKey = getMePersonKey(getActiveContext());
+            if (meKey) task.completedBy = meKey;
         } else {
             delete task.completedAt;
             delete task.completedWeek;
+            delete task.completedBy;
+        }
+        // Optional completion comment: create the same oppgave-<id>.md
+        // sidecar note as POST /api/tasks/:id/toggle does.
+        if (wantDone && comment) {
+            const week = task.completedWeek || task.week || getCurrentYearWeek();
+            const proc = processInlineResults(comment, week, { taskId: task.id, taskText: task.text });
+            if (proc.createdCount > 0) syncMentions(task.text, comment);
+            const cleanComment = proc.text;
+            const fileName = `oppgave-${task.id}.md`;
+            const dateStr = new Date().toISOString().slice(0, 10);
+            fs.mkdirSync(path.join(dataDir(), week), { recursive: true });
+            fs.writeFileSync(path.join(dataDir(), week, fileName),
+                `# ✅ ${task.text}\n\n${cleanComment}\n\n---\n*Fullført: ${dateStr}*\n`, 'utf-8');
+            task.commentFile = `${week}/${fileName}`;
+            const meKey = getMePersonKey(getActiveContext());
+            const taskMeta = { type: 'task', created: new Date().toISOString() };
+            if (meKey) { taskMeta.createdBy = meKey; taskMeta.lastSavedBy = meKey; }
+            setNoteMeta(week, fileName, taskMeta);
         }
         saveTasks(tasks);
         // Flip the marker in the source file when noteRef is set.
@@ -12178,8 +12601,10 @@ activateTab(initialParams.tab || 'people');
                 .map(d => d.name);
         } catch {}
         const out = [];
+        const _bucket = _ctxCacheBucket(getActiveContext());
         for (const week of weekDirs) {
             const files = getMdFiles(week).filter(f => f !== 'summarize.md');
+            if (_bucket) _loadWeekNotesMeta(week, _bucket);
             for (const file of files) {
                 const meta = getNoteMeta(week, file);
                 const tagsArr = Array.isArray(meta.tags) ? meta.tags : (Array.isArray(meta.themes) ? meta.themes : []);
@@ -12217,6 +12642,8 @@ activateTab(initialParams.tab || 'people');
         const week = weekInfoMatch[1];
         const files = getMdFiles(week);
         const hasSummary = files.includes('summarize.md');
+        const _bucket = _ctxCacheBucket(getActiveContext());
+        if (_bucket) _loadWeekNotesMeta(week, _bucket);
         const noteFiles = files.filter(f => f !== 'summarize.md').map(f => {
             const m = getNoteMeta(week, f);
             return { file: f, pinned: !!m.pinned, created: m.created || '' };
@@ -12240,25 +12667,48 @@ activateTab(initialParams.tab || 'people');
     }
 
     // API: note card data (name, type, pinned, presentationStyle, snippet HTML)
+    // Reads from the meta sidecar only — `snippet` (plaintext) and `title`
+    // (H1 heading) are recomputed and persisted on every save. For old notes
+    // whose sidecar predates these fields, lazily compute + persist on first
+    // read.
     const cardMatch = pathname.match(/^\/api\/notes\/([^/]+)\/(.+)\/card$/);
     if (cardMatch && req.method === 'GET') {
         const [, week, fileEnc] = cardMatch;
         const file = decodeURIComponent(fileEnc);
         const meta = getNoteMeta(week, file);
-        const filePath = path.join(dataDir(), week, file);
-        let raw = '';
-        try { raw = fs.readFileSync(filePath, 'utf-8'); } catch {
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: false, error: 'not found' }));
-            return;
+        let snippetText = (typeof meta.snippet === 'string') ? meta.snippet : null;
+        let titleText = (typeof meta.title === 'string' && meta.title) ? meta.title : null;
+        if (snippetText == null || titleText == null) {
+            const entry = readNoteCached(week, file);
+            if (!entry) {
+                res.writeHead(404, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: 'not found' }));
+                return;
+            }
+            const lazy = {};
+            if (snippetText == null) {
+                snippetText = noteSnippet(entry.raw, 220);
+                lazy.snippet = snippetText;
+            }
+            if (titleText == null) {
+                const m = String(entry.raw || '').match(/^\s*#\s+(.+?)\s*$/m);
+                if (m) {
+                    titleText = m[1].trim();
+                    lazy.title = titleText;
+                }
+            }
+            if (Object.keys(lazy).length) {
+                try { setNoteMeta(week, file, lazy); } catch (_) {}
+            }
         }
         const name = file.replace(/\.md$/, '');
-        const snippet = linkMentions(escapeHtml(noteSnippet(raw, 220)));
+        const snippet = linkMentions(escapeHtml(snippetText || ''));
         const cardTags = Array.isArray(meta.tags) ? meta.tags : (Array.isArray(meta.themes) ? meta.themes : []);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             ok: true,
             week, file, name,
+            title: titleText || '',
             type: meta.type || 'note',
             pinned: !!meta.pinned,
             presentationStyle: meta.presentationStyle || null,
@@ -12290,11 +12740,11 @@ activateTab(initialParams.tab || 'people');
         if (!resolved.startsWith(path.resolve(dataDir()))) {
             res.writeHead(403); res.end('Forbidden'); return;
         }
-        try {
-            const content = fs.readFileSync(filePath, 'utf-8');
+        const entry = readNoteCached(week, fileName);
+        if (entry) {
             res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-            res.end(content);
-        } catch {
+            res.end(entry.raw);
+        } else {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Filen finnes ikke' }));
         }

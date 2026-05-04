@@ -20,6 +20,7 @@
 import { WNElement, html, unsafeHTML, escapeHtml, linkMentions, wireMentionClicks } from './_shared.js';
 import './task-complete-modal.js';
 import './task-note-modal.js';
+import './task-edit-modal.js';
 
 const STYLES = `
         :host { display: block; color: var(--text-strong); font: inherit; font-size: 0.92em; }
@@ -46,14 +47,21 @@ const STYLES = `
         .row-text a:hover { text-decoration: underline; }
         .row-note-btn {
             border: 0; background: transparent; cursor: pointer;
-            opacity: 0.6; padding: 0 4px; font-size: 1em;
+            opacity: 0.85; padding: 0 4px; font-size: 1em;
+            color: var(--text);
         }
-        .row-note-btn:hover { opacity: 1; }
-        .row-note-btn.empty { opacity: 0.25; }
+        .row-note-btn:hover { opacity: 1; color: var(--text-strong); }
+        .row-note-btn.empty { opacity: 0.45; }
+        .row-edit-btn {
+            border: 0; background: transparent; cursor: pointer;
+            opacity: 0.85; padding: 0 4px; font-size: 1em;
+            color: var(--text);
+        }
+        .row-edit-btn:hover { opacity: 1; color: var(--accent); }
         .row-del-btn {
             border: 0; background: transparent; cursor: pointer;
-            opacity: 0.35; padding: 0 4px; font-size: 1em;
-            color: #c53030;
+            opacity: 0.7; padding: 0 4px; font-size: 1em;
+            color: var(--danger, #c53030);
         }
         .row-del-btn:hover { opacity: 1; }
         .row-note-body {
@@ -61,7 +69,30 @@ const STYLES = `
             color: var(--text); font-size: 0.92em;
         }
         .row-note-body p { margin: 2px 0; }
+        .due-pill {
+            display: inline-flex; align-items: center; gap: 3px;
+            font-size: 0.78em;
+            padding: 1px 7px; border-radius: 10px;
+            background: var(--surface-alt); color: var(--text-muted);
+            border: 1px solid var(--border-soft);
+            white-space: nowrap;
+        }
+        .due-pill.overdue {
+            background: var(--danger-soft, rgba(197, 48, 48, 0.12));
+            color: var(--danger, #c53030);
+            border-color: var(--danger, #c53030);
+            font-weight: 600;
+        }
 `;
+
+function isOverdue(due, done) {
+    if (done || !due) return false;
+    const m = String(due).match(/^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}):(\d{2}))?$/);
+    if (!m) return false;
+    const hasTime = m[4] != null;
+    const d = new Date(+m[1], +m[2] - 1, +m[3], hasTime ? +m[4] : 23, hasTime ? +m[5] : 59);
+    return d < new Date();
+}
 
 function renderTask(t, people, companies) {
         const id = t.id || '';
@@ -75,13 +106,20 @@ function renderTask(t, people, companies) {
         const noteBody = hasNote ? unsafeHTML(`<div class="md-content row-note-body">${noteHtml}</div>`) : '';
         const noteBtnCls = hasNote ? 'row-note-btn' : 'row-note-btn empty';
         const noteBtnTitle = hasNote ? 'Rediger notat' : 'Legg til notat';
+        const due = t.dueDate || '';
+        const overdue = isOverdue(due, t.done);
+        const duePill = due
+            ? unsafeHTML(`<span class="due-pill${overdue ? ' overdue' : ''}" title="Frist${overdue ? ' (forfalt)' : ''}">📅 ${escapeHtml(due)}</span>`)
+            : '';
         return html`
             <div class="sidebar-task" data-taskid="${id}">
                 <div class="row">
                     <input type="checkbox" data-taskid="${id}" data-tasktext="${t.text || ''}" data-act="toggle" />
                     <span class="row-text">${textHtml}</span>
+                    ${duePill}
                     ${weekBadge}
                     <button type="button" class="${noteBtnCls}" data-act="note" data-taskid="${id}" title="${noteBtnTitle}">📓</button>
+                    <button type="button" class="row-edit-btn" data-act="edit" data-taskid="${id}" title="Rediger oppgave">✎</button>
                     <button type="button" class="row-del-btn" data-act="delete" data-taskid="${id}" data-tasktext="${t.text || ''}" title="Slett oppgave">✕</button>
                 </div>
                 ${noteBody}
@@ -136,31 +174,30 @@ class TaskOpenList extends WNElement {
                 if (!cb.checked) return;
                 const id = cb.dataset.taskid;
                 const text = cb.dataset.tasktext || '';
-                const modal = this.shadowRoot.querySelector('task-complete-modal');
-                if (!modal || typeof modal.open !== 'function') {
-                    cb.checked = false;
-                    this.dispatchEvent(new CustomEvent('task-open-list:toggle', {
-                        bubbles: true, composed: true, detail: { id, checkbox: cb },
-                    }));
-                    return;
-                }
-                modal.open({ id, text }, async (res) => {
-                    if (!res || !res.confirmed) {
-                        cb.checked = false;
-                        return;
-                    }
-                    try {
-                        if (this.service && typeof this.service.toggle === 'function') {
-                            await this.service.toggle(res.id, res.comment || '');
-                        }
-                    } catch (err) {
-                        console.error('task-open-list: toggle failed', err);
-                    }
-                    this.refresh();
-                    this.dispatchEvent(new CustomEvent('task:completed', {
-                        bubbles: true, composed: true, detail: { id: res.id, comment: res.comment || '' },
-                    }));
-                });
+                this.dispatchEvent(new CustomEvent('task:request-complete', {
+                    bubbles: true, composed: true,
+                    detail: {
+                        id, text,
+                        callback: async (res) => {
+                            if (!res || !res.confirmed) {
+                                cb.checked = false;
+                                return;
+                            }
+                            try {
+                                if (this.service && typeof this.service.toggle === 'function') {
+                                    await this.service.toggle(res.id, res.comment || '');
+                                }
+                            } catch (err) {
+                                console.error('task-open-list: toggle failed', err);
+                            }
+                            this.refresh();
+                            this.dispatchEvent(new CustomEvent('task:completed', {
+                                bubbles: true, composed: true,
+                                detail: { id: res.id, comment: res.comment || '' },
+                            }));
+                        },
+                    },
+                }));
             });
             this.shadowRoot.addEventListener('click', (ev) => {
                 const noteBtn = ev.target.closest('button[data-act="note"]');
@@ -181,6 +218,23 @@ class TaskOpenList extends WNElement {
                     }
                     this.refresh();
                 });
+            });
+            this.shadowRoot.addEventListener('click', (ev) => {
+                const editBtn = ev.target.closest('button[data-act="edit"]');
+                if (!editBtn) return;
+                const id = editBtn.dataset.taskid;
+                const task = (this._state && this._state.open || []).find(t => String(t.id) === String(id));
+                if (!task) return;
+                this.dispatchEvent(new CustomEvent('task:request-edit', {
+                    bubbles: true, composed: true,
+                    detail: {
+                        task,
+                        service: this.service,
+                        callback: (res) => {
+                            if (res && res.saved) this.refresh();
+                        },
+                    },
+                }));
             });
             this.shadowRoot.addEventListener('click', (ev) => {
                 const delBtn = ev.target.closest('button[data-act="delete"]');
@@ -213,7 +267,10 @@ class TaskOpenList extends WNElement {
                 <span class="side-h-title">Åpne oppgaver${countLabel ? ' · ' + countLabel : ''}</span>
             </h3>
         `;
-        const modals = html`<task-complete-modal></task-complete-modal><task-note-modal></task-note-modal>`;
+        // <task-complete-modal> lives at the page level; the document-
+        // level handler for `task:request-complete` opens it. The note
+        // modal is still per-instance because nothing else needs it.
+        const modals = html`<task-note-modal></task-note-modal>`;
         if (!this._state) return html`${header('')}<p class="empty-quiet">Laster…</p>${modals}`;
         if (this._state.error) return html`${header('')}<p class="empty-quiet">Kunne ikke laste oppgaver</p>${modals}`;
 

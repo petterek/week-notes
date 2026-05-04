@@ -10,4 +10,15 @@
         tasks_service="week-note-services.tasks_service"
         people_service="week-note-services.people_service"
         companies_service="week-note-services.companies_service"></task-open-list>
+
+    <details id="tasksPageDoneToggle" data-persist-key="tasksPageShowDone" style="margin-top:24px">
+        <summary style="cursor:pointer;font-size:0.9em;color:var(--text-muted);user-select:none;padding:4px 0">
+            Vis fullførte oppgaver
+        </summary>
+        <task-completed id="tasksPageDone"
+            tasks_service="week-note-services.tasks_service"
+            people_service="week-note-services.people_service"
+            companies_service="week-note-services.companies_service"
+            style="display:block;margin-top:12px"></task-completed>
+    </details>
 </div>

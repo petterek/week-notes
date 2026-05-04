@@ -99,7 +99,7 @@ note-card { display: block; }
 .week-task { display: flex; align-items: center; gap: 8px; padding: 4px 14px; font-size: 0.9em; color: var(--text-muted); }
 .week-task.done { color: #a0aec0; text-decoration: line-through; }
 .week-task input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; }
-.home-layout { display: flex; gap: 24px; align-items: stretch; height: 100%; padding: 16px; box-sizing: border-box; }
+.home-layout { display: flex; gap: 24px; align-items: stretch; height: 100%; padding: 16px; padding-bottom: 36px; box-sizing: border-box; }
 @media (max-width: 900px) { .home-layout { flex-direction: column; height: auto; } .task-sidebar { width: 100%; max-height: none; overflow: visible; } .home-main { overflow: visible; } }
 .task-sidebar-inner { display: flex; flex-direction: column; min-height: 100%; }
 .task-sidebar-inner > .today-cal-wrap.sidebar-bottom { margin-top: auto; }

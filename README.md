@@ -10,6 +10,15 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-05-04 (oppgaver: redigering, frist med tid, kommentar-notater i ukevisningen)
+- Ny **`<task-view>`**-komponent: skrivebeskyttet modal som viser alle felt på en oppgave, med norske labels (Forfatter, Ansvarlig, Frist, Fullført av, Fullført uke, …) og rød/fet markering når frist er passert.
+- Ny **`<task-edit-modal>`**-komponent: redigér åpne oppgaver (tekst, ansvarlig, frist, notat). Bruker `<date-time-picker>` i `datetime`-modus for frist, så tidspunkt kan settes ned til 5-minutters oppløsning.
+- **Frist (`dueDate`)** lagres som `YYYY-MM-DD` (legacy) eller `YYYY-MM-DD HH:MM`. Server + skjema validerer begge formater. Forfalt-sammenligning bruker faktisk `Date`-aritmetikk.
+- **`completedBy`** settes på alle 4 fullføringsstier (toggle, close-from-note, to auto-complete-stier ved notatlagring) basert på aktiv `@me`. Vises i `<task-view>` når oppgaven er fullført.
+- **`<task-open-list>`**-rader viser frist-pille (grå, rød+fet hvis forfalt), bedre kontrast på handlings-ikoner (📓/✎/🗑) via `--text`/`--accent`/`--danger`-variabler i stedet for hardkodede grå nyanser.
+- **Oppgave-kommentarnotater** (`oppgave-<id>.md` som skrives ved fullføring med kommentar) får nå `created`-tidsstempel i meta og dukker opp under riktig dag i ukevisningen i stedet for "Uten dato". Eksisterende filer er backfillet basert på `task.completedAt`.
+- **`<inline-task>`**-pille bruker nå `--surface-alt`/`--border`/`--text` i stedet for ikke-eksisterende `--neutral`/`--neutral-soft`-variabler — fikser kontrasten på nerd-temaet (lys grå pille på svart bakgrunn).
+
 ### 2026-05-03 (date-time-picker, `/`-søk, ny meeting-create-modal, home-layout)
 - Ny **`<date-time-picker>`**-komponent: egen kalender-popup (Mon-først, norske ukedags-/månedsnavn, "I dag"-snarvei, Avbryt/OK) med valgfri timer-/minutt-velger i `datetime`-modus. Erstatter native `<input type="date">` slik at popup-en faktisk åpner seg fra `Ctrl+D`/`Ctrl+Shift+D`-snarveiene i markdown-editoren.
   - Public `focus()` fanger tastatur globalt mens picker-en er åpen og frigjør det igjen ved commit/avbryt; piltaster, Enter (kjedet dag → time → minutt → commit), Alt+Enter (universal commit) og Esc (avbryt).
