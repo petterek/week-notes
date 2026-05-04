@@ -20,7 +20,9 @@ Vibe-coded. No specs, no tickets. Features grow organically.
 
 Stack:
 - Node.js (no framework, raw `http` module)
-- One big file: `server.js` (~5k lines)
+- Slim dispatcher in `server.js` (~9.4k lines, mostly the `http.createServer`
+  request handler) + helper layer in `lib/` (`lib/core.js` for the bulk,
+  `lib/dates.js` for date helpers; more per-domain splits TBD)
 - Markdown rendered with `marked` (CDN)
 - Slides via `reveal.js` (CDN)
 - No build step, no bundler, no TypeScript
@@ -32,7 +34,10 @@ Stack:
 
 ```
 /home/p/migration/weeks/
-├── server.js          # the entire backend + all HTML/CSS/JS (server-rendered)
+├── server.js          # slim dispatcher + the giant http.createServer request handler
+├── lib/               # server-side helpers (extracted from server.js)
+│   ├── core.js        # bulk: contexts, git, storage, domain loaders, render, workers
+│   └── dates.js       # ISO-week / date math (pure, no deps)
 ├── README.md          # user-facing docs + changelog
 ├── AGENTS.md          # this file — start here
 ├── agents/            # per-feature deep-dives (read the relevant ones)

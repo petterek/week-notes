@@ -10,6 +10,11 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-05-05 (refactor: server-helpers flyttet ut av `server.js`)
+- **`server.js` redusert fra ~13 000 til ~9 400 linjer.** Hele helper-/data-laget (app-settings, kontekster, git-ops, per-collection-cache, tasks/notes/people/meetings/results/companies/places-loaders, theme-helpers, render-helpers, search-/embed-/summarize-worker-mgmt) er flyttet til **`lib/core.js`**. `server.js` re-importerer alt via destrukturert `require('./lib/core')` og inneholder nå primært den store `http.createServer`-handleren.
+- **Ny modul:** `lib/dates.js` — rene ISO-8601-uke/dato-helpers (`dateToIsoWeek`, `isoWeekMonday`, `currentIsoWeek`, `shiftIsoWeek`, `isoWeekToDateRange`, `getCurrentYearWeek`). `lib/core.js` re-eksporterer dem så eksisterende callsites fortsetter å fungere uendret.
+- **Ingen funksjonsendringer** — alle ruter (/`, /calendar, /settings, /tasks, /people, /api/*) returnerer fortsatt 200 og samme respons. Forberedelse til videre per-domene-splitt (tasks, notes, people, meetings, …) i kommende commits.
+
 ### 2026-05-04 (oppgaver: redigering, frist med tid, kommentar-notater i ukevisningen)
 - Ny **`<task-view>`**-komponent: skrivebeskyttet modal som viser alle felt på en oppgave, med norske labels (Forfatter, Ansvarlig, Frist, Fullført av, Fullført uke, …) og rød/fet markering når frist er passert.
 - Ny **`<task-edit-modal>`**-komponent: redigér åpne oppgaver (tekst, ansvarlig, frist, notat). Bruker `<date-time-picker>` i `datetime`-modus for frist, så tidspunkt kan settes ned til 5-minutters oppløsning.
