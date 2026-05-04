@@ -301,14 +301,14 @@ class NoteEditor extends WNElement {
                 <code>[[?</code> resultat ·
                 <code>Ctrl+D</code> dato ·
                 <code>Ctrl+Shift+D</code> dato + tid ·
-                <code>Ctrl+Shift+S</code> lagre
+                <code>Ctrl+Enter</code> lagre og lukk
             </div>
             <div class="ne-actions">
                 <span class="ne-status" aria-live="polite"></span>
                 <span class="ne-autosave-info" aria-live="polite"></span>
                 <button type="button" class="ne-detach" title="Åpne forhåndsvisning i eget vindu">📤 Detach</button>
                 <button type="button" class="ne-cancel">Avbryt</button>
-                <button type="button" class="ne-save-close" title="Ctrl+Shift+S">Ferdig</button>
+                <button type="button" class="ne-save-close" title="Ctrl+Enter">Ferdig</button>
             </div>
             <div class="ne-meta-footer">
                 ${this._initialCreated ? html`<span><strong>Opprettet:</strong> ${this._fmtDate(this._initialCreated)}</span>` : ''}
@@ -395,6 +395,41 @@ class NoteEditor extends WNElement {
         const markDirty = () => this._markDirty();
         this._contentEl.addEventListener('input', () => { this._renderPreview(); markDirty(); });
         this._fileEl.addEventListener('input', () => { if (this._detached) this._publishPreview(); markDirty(); });
+
+        // Two-way scroll sync (percentage-based) between textarea and preview.
+        // Use a flag to avoid feedback loops; preview already has its own
+        // _suppressScroll guard for programmatic scrolls.
+        this._scrollSyncing = false;
+        const syncFromContent = () => {
+            if (this._scrollSyncing || this._detached || !this._previewEl) return;
+            const ta = this._contentEl;
+            const max = ta.scrollHeight - ta.clientHeight;
+            if (max <= 0) return;
+            const pct = ta.scrollTop / max;
+            const pv = this._previewEl;
+            const pvMax = pv.scrollHeight - pv.clientHeight;
+            if (pvMax <= 0) return;
+            this._scrollSyncing = true;
+            pv.offset = pvMax * pct;
+            requestAnimationFrame(() => { this._scrollSyncing = false; });
+        };
+        const syncFromPreview = (ev) => {
+            if (this._scrollSyncing || this._detached) return;
+            const d = ev.detail || {};
+            const pvMax = (d.scrollHeight || 0) - (d.clientHeight || 0);
+            if (pvMax <= 0) return;
+            const pct = (d.offset || 0) / pvMax;
+            const ta = this._contentEl;
+            const max = ta.scrollHeight - ta.clientHeight;
+            if (max <= 0) return;
+            this._scrollSyncing = true;
+            ta.scrollTop = max * pct;
+            requestAnimationFrame(() => { this._scrollSyncing = false; });
+        };
+        this._contentEl.addEventListener('scroll', syncFromContent, { passive: true });
+        if (this._previewEl) {
+            this._previewEl.addEventListener('markdown-preview:scroll', syncFromPreview);
+        }
         if (this._tagsEl) this._tagsEl.addEventListener('change', markDirty);
         if (this._pinnedEl) this._pinnedEl.addEventListener('change', markDirty);
         if (this._presStyleEl) this._presStyleEl.addEventListener('change', markDirty);
@@ -405,15 +440,15 @@ class NoteEditor extends WNElement {
             });
         }
         const saveKeyHandler = (e) => {
-            if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                 e.preventDefault();
-                if (e.shiftKey) this.save(true);
-                else this.save(false);
+                e.stopPropagation();
+                this.save(true);
             }
         };
         this._contentEl.addEventListener('keydown', saveKeyHandler);
         this._docKeyHandler = (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 's' || e.key === 'S')) {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                 e.preventDefault();
                 this.save(true);
                 return;
@@ -644,7 +679,10 @@ class NoteEditor extends WNElement {
 
         const marked = doc.createElement('script');
         marked.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
-        marked.onload = () => this._publishPreview();
+        marked.onload = () => {
+            try { if (doc.defaultView.marked && doc.defaultView.marked.use) doc.defaultView.marked.use({ breaks: true, gfm: true }); } catch (_) {}
+            this._publishPreview();
+        };
         doc.head.appendChild(marked);
 
         pip.addEventListener('pagehide', () => this._reattachPreview());
@@ -1298,6 +1336,13 @@ class NoteEditor extends WNElement {
 
     async save(closeAfter = true, autosave = false) {
         if (!this._contentEl) return;
+        if (this._saving) return;
+        this._saving = true;
+        try { return await this._saveImpl(closeAfter, autosave); }
+        finally { this._saving = false; }
+    }
+
+    async _saveImpl(closeAfter = true, autosave = false) {
         const folder = this._weekSel.value.trim();
         let file = this._fileEl.value.trim();
         const content = this._contentEl.value;

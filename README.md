@@ -10,6 +10,25 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-05-05 (refactor: rute-handlere splittet ut i `routes/`)
+- **`server.js` redusert fra ~9 400 til ~95 linjer.** Hele `http.createServer`-handleren er splittet per domene/URL-prefiks i nye `routes/`-moduler (`static-early`, `spa`, `debug`, `pages`, `tasks-page`, `note-render`, `assets-late`) og `routes/api/` (`misc`, `tasks`, `results`, `people`, `companies`, `places`, `meetings`, `themes`, `contexts`, `notes`).
+- **Ny dispatcher-konvensjon:** hver rutemodul eksporterer `(deps) => async (req, res, ctx) => void`. `server.js` itererer en ordnet `handlers`-liste og stopper når en handler enten har skrevet respons (`res.writableEnded`/`res.headersSent`) eller knyttet `data`/`end`-listeners på `req` (f.eks. POST-body-lesing). Async fil-callbacks (`fs.readFile`) er konvertert til `await fs.promises.readFile` så dispatcheren får riktig signal.
+- **Ingen funksjonsendringer.** Alle ruter (/`, /calendar, /settings, /tasks, /people, /help.md, /api/*, /pages/*, /components/*, /themes/*) returnerer fortsatt 200 og samme respons.
+
+### 2026-05-05 (refactor: server-helpers flyttet ut av `server.js`)
+- **`server.js` redusert fra ~13 000 til ~9 400 linjer.** Hele helper-/data-laget (app-settings, kontekster, git-ops, per-collection-cache, tasks/notes/people/meetings/results/companies/places-loaders, theme-helpers, render-helpers, search-/embed-/summarize-worker-mgmt) er flyttet til **`lib/core.js`**. `server.js` re-importerer alt via destrukturert `require('./lib/core')` og inneholder nå primært den store `http.createServer`-handleren.
+- **Ny modul:** `lib/dates.js` — rene ISO-8601-uke/dato-helpers (`dateToIsoWeek`, `isoWeekMonday`, `currentIsoWeek`, `shiftIsoWeek`, `isoWeekToDateRange`, `getCurrentYearWeek`). `lib/core.js` re-eksporterer dem så eksisterende callsites fortsetter å fungere uendret.
+- **Ingen funksjonsendringer** — alle ruter (/`, /calendar, /settings, /tasks, /people, /api/*) returnerer fortsatt 200 og samme respons. Forberedelse til videre per-domene-splitt (tasks, notes, people, meetings, …) i kommende commits.
+
+### 2026-05-04 (oppgaver: redigering, frist med tid, kommentar-notater i ukevisningen)
+- Ny **`<task-view>`**-komponent: skrivebeskyttet modal som viser alle felt på en oppgave, med norske labels (Forfatter, Ansvarlig, Frist, Fullført av, Fullført uke, …) og rød/fet markering når frist er passert.
+- Ny **`<task-edit-modal>`**-komponent: redigér åpne oppgaver (tekst, ansvarlig, frist, notat). Bruker `<date-time-picker>` i `datetime`-modus for frist, så tidspunkt kan settes ned til 5-minutters oppløsning.
+- **Frist (`dueDate`)** lagres som `YYYY-MM-DD` (legacy) eller `YYYY-MM-DD HH:MM`. Server + skjema validerer begge formater. Forfalt-sammenligning bruker faktisk `Date`-aritmetikk.
+- **`completedBy`** settes på alle 4 fullføringsstier (toggle, close-from-note, to auto-complete-stier ved notatlagring) basert på aktiv `@me`. Vises i `<task-view>` når oppgaven er fullført.
+- **`<task-open-list>`**-rader viser frist-pille (grå, rød+fet hvis forfalt), bedre kontrast på handlings-ikoner (📓/✎/🗑) via `--text`/`--accent`/`--danger`-variabler i stedet for hardkodede grå nyanser.
+- **Oppgave-kommentarnotater** (`oppgave-<id>.md` som skrives ved fullføring med kommentar) får nå `created`-tidsstempel i meta og dukker opp under riktig dag i ukevisningen i stedet for "Uten dato". Eksisterende filer er backfillet basert på `task.completedAt`.
+- **`<inline-task>`**-pille bruker nå `--surface-alt`/`--border`/`--text` i stedet for ikke-eksisterende `--neutral`/`--neutral-soft`-variabler — fikser kontrasten på nerd-temaet (lys grå pille på svart bakgrunn).
+
 ### 2026-05-03 (date-time-picker, `/`-søk, ny meeting-create-modal, home-layout)
 - Ny **`<date-time-picker>`**-komponent: egen kalender-popup (Mon-først, norske ukedags-/månedsnavn, "I dag"-snarvei, Avbryt/OK) med valgfri timer-/minutt-velger i `datetime`-modus. Erstatter native `<input type="date">` slik at popup-en faktisk åpner seg fra `Ctrl+D`/`Ctrl+Shift+D`-snarveiene i markdown-editoren.
   - Public `focus()` fanger tastatur globalt mens picker-en er åpen og frigjør det igjen ved commit/avbryt; piltaster, Enter (kjedet dag → time → minutt → commit), Alt+Enter (universal commit) og Esc (avbryt).

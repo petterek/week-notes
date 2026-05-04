@@ -18,7 +18,12 @@ import { apiRequest as req } from '/services/_shared/http.js';
 
 export const TaskService = {
     list:    ()                  => req('GET',    BASE),
-    create:  (text)              => req('POST',   BASE, { text }),
+    /**
+     * Create a task.
+     *   create('Send rapport')
+     *   create('Send rapport', { responsible: 'anna', dueDate: '2026-05-09' })
+     */
+    create:  (text, opts = {})   => req('POST',   BASE, { text, ...opts }),
     update:  (id, patch)         => req('PUT',    `${BASE}/${encodeURIComponent(id)}`, patch),
     remove:  (id)                => req('DELETE', `${BASE}/${encodeURIComponent(id)}`),
     toggle:  (id, comment = '')  => req('PUT',    `${BASE}/${encodeURIComponent(id)}/toggle`, { comment }),

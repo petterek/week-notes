@@ -90,6 +90,7 @@ class TaskAddModal extends WNElement {
             <modal-container size="sm">
                 <span slot="title">Ny oppgave</span>
                 <task-create
+                    full
                     tasks_service="${tasksSvc}"
                     placeholder="${placeholder}"
                     button-label="${btnLabel}"></task-create>

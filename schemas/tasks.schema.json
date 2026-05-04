@@ -34,6 +34,23 @@
         "type": "string",
         "pattern": "^\\d{4}-W\\d{2}$"
       },
+      "completedBy": {
+        "type": "string",
+        "description": "Person key of the user who marked the task done (typically @me)."
+      },
+      "author": {
+        "type": "string",
+        "description": "Person key of the task author (set at create time, immutable)."
+      },
+      "responsible": {
+        "type": "string",
+        "description": "Person key of the person responsible for the task. Defaults to author at creation."
+      },
+      "dueDate": {
+        "type": "string",
+        "pattern": "^\\d{4}-\\d{2}-\\d{2}( \\d{2}:\\d{2})?$",
+        "description": "Optional ISO date (YYYY-MM-DD) or date+time (YYYY-MM-DD HH:MM) when the task is due."
+      },
       "note": {
         "type": "string",
         "description": "Inline note attached to the task."

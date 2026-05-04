@@ -117,6 +117,10 @@ class NoteView extends WNElement {
                 this.close();
                 return;
             }
+            if (t.dataset && t.dataset.action === 'copy') {
+                this.copyText();
+                return;
+            }
             const tabBtn = t.closest && t.closest('.nv-tab');
             if (tabBtn && tabBtn.dataset && tabBtn.dataset.tab) {
                 this._tab = tabBtn.dataset.tab;
@@ -175,6 +179,38 @@ class NoteView extends WNElement {
             bubbles: true, cancelable: true, composed: true,
             detail: { path: this.getAttribute('path') || '' }
         }));
+    }
+
+    async copyText() {
+        const parts = this._parsePath(this.getAttribute('path') || '');
+        if (!parts || !this.service || !this.service.raw) return;
+        try {
+            const text = await this.service.raw(parts.week, parts.file);
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(text || '');
+            } else {
+                const ta = document.createElement('textarea');
+                ta.value = text || '';
+                ta.style.position = 'fixed'; ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand('copy'); } finally { document.body.removeChild(ta); }
+            }
+            this._copied = true;
+            this.requestRender();
+            clearTimeout(this._copiedTimer);
+            this._copiedTimer = setTimeout(() => {
+                this._copied = false;
+                this.requestRender();
+            }, 1500);
+            this.dispatchEvent(new CustomEvent('note-view:copy', {
+                bubbles: true, composed: true,
+                detail: { path: this.getAttribute('path') || '' }
+            }));
+        } catch (e) {
+            this._error = 'Kunne ikke kopiere: ' + (e.message || e);
+            this.requestRender();
+        }
     }
 
     _parsePath(p) {
@@ -243,6 +279,7 @@ class NoteView extends WNElement {
                 <div class="nv-card" role="dialog" aria-modal="true">
                     <div class="nv-head">
                         <h2 class="nv-title">${escapeHtml(path)}</h2>
+                        <button type="button" class="nv-close" data-action="copy" title="Kopier markdown">${this._copied ? '✓ Kopiert' : '📋 Kopier'}</button>
                         <button type="button" class="nv-close" data-action="close">✕</button>
                     </div>
                     <div class="nv-tabs" role="tablist">

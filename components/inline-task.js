@@ -34,8 +34,9 @@ const STYLES = `
         vertical-align: baseline;
         padding: 0 4px;
         border-radius: 4px;
-        background: var(--neutral-soft, #f1f3f5);
-        border: 1px solid var(--neutral, #c8ccd0);
+        background: var(--surface-alt, #f1f3f5);
+        border: 1px solid var(--border, #c8ccd0);
+        color: var(--text, #1a1a1a);
         line-height: 1.35;
     }
     .wrap.done .text {
@@ -43,8 +44,9 @@ const STYLES = `
         opacity: 0.7;
     }
     .wrap.deleted {
-        background: var(--danger-soft, #fde8e8);
+        background: var(--surface-alt, #fde8e8);
         border-color: var(--danger, #c0392b);
+        color: var(--danger, #c0392b);
         opacity: 0.85;
     }
     .wrap.deleted .text {
@@ -140,27 +142,65 @@ class InlineTask extends WNElement {
         const errEl = this.shadowRoot.querySelector('.err');
         const textEl = this.shadowRoot.querySelector('.text');
         if (errEl) { errEl.hidden = true; errEl.textContent = ''; }
+
+        // When marking done, ask the user for an optional completion
+        // comment via <task-complete-modal> before flipping state.
+        // Re-opening (done → open) keeps the direct, no-prompt flow.
+        if (wantDone) {
+            try {
+                const task = (_taskCache && _taskCache[id])
+                    || { id, text: textEl ? textEl.textContent : '' };
+                const result = await new Promise((resolve) => {
+                    this.dispatchEvent(new CustomEvent('task:request-complete', {
+                        bubbles: true, composed: true,
+                        detail: { id, text: task.text || '', callback: resolve },
+                    }));
+                });
+                if (!result || !result.confirmed) {
+                    cb.checked = false;
+                    return;
+                }
+                if (textEl) textEl.classList.add('busy');
+                const resp = await fetch(`/api/tasks/${encodeURIComponent(id)}/close-from-note`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ done: true, comment: result.comment || '' }),
+                });
+                const data = await resp.json();
+                if (!resp.ok || !data.ok) throw new Error(data.error || 'Kunne ikke oppdatere');
+                if (_taskCache && _taskCache[id]) _taskCache[id].done = true;
+                this.setAttribute('state', 'done');
+                this.dispatchEvent(new CustomEvent('task-closed', {
+                    bubbles: true, composed: true,
+                    detail: { taskId: id, done: true, comment: result.comment || '' },
+                }));
+            } catch (err) {
+                cb.checked = false;
+                if (errEl) { errEl.hidden = false; errEl.textContent = '⚠ ' + (err.message || 'Feil'); }
+            } finally {
+                if (textEl) textEl.classList.remove('busy');
+            }
+            return;
+        }
+
+        // Re-open path (done → open): no dialog, direct API call.
         if (textEl) textEl.classList.add('busy');
         try {
             const resp = await fetch(`/api/tasks/${encodeURIComponent(id)}/close-from-note`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ done: wantDone }),
+                body: JSON.stringify({ done: false }),
             });
             const data = await resp.json();
             if (!resp.ok || !data.ok) throw new Error(data.error || 'Kunne ikke oppdatere');
-            if (_taskCache && _taskCache[id]) _taskCache[id].done = wantDone;
-            this.setAttribute('state', wantDone ? 'done' : 'open');
-            // Notify any global listeners (open-tasks sidebar, search
-            // index, etc.) so they can refresh. Bubbles + composed so
-            // it crosses shadow DOM boundaries.
+            if (_taskCache && _taskCache[id]) _taskCache[id].done = false;
+            this.setAttribute('state', 'open');
             this.dispatchEvent(new CustomEvent('task-closed', {
-                bubbles: true,
-                composed: true,
-                detail: { taskId: id, done: wantDone },
+                bubbles: true, composed: true,
+                detail: { taskId: id, done: false },
             }));
         } catch (err) {
-            cb.checked = !wantDone;
+            cb.checked = true;
             if (errEl) { errEl.hidden = false; errEl.textContent = '⚠ ' + (err.message || 'Feil'); }
         } finally {
             if (textEl) textEl.classList.remove('busy');

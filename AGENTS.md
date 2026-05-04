@@ -20,7 +20,9 @@ Vibe-coded. No specs, no tickets. Features grow organically.
 
 Stack:
 - Node.js (no framework, raw `http` module)
-- One big file: `server.js` (~5k lines)
+- Slim dispatcher in `server.js` (~9.4k lines, mostly the `http.createServer`
+  request handler) + helper layer in `lib/` (`lib/core.js` for the bulk,
+  `lib/dates.js` for date helpers; more per-domain splits TBD)
 - Markdown rendered with `marked` (CDN)
 - Slides via `reveal.js` (CDN)
 - No build step, no bundler, no TypeScript
@@ -32,7 +34,30 @@ Stack:
 
 ```
 /home/p/migration/weeks/
-├── server.js          # the entire backend + all HTML/CSS/JS (server-rendered)
+├── server.js          # slim dispatcher (~95 lines): bootstrap + handler chain
+├── lib/               # server-side helpers (extracted from server.js)
+│   ├── core.js        # bulk: contexts, git, storage, domain loaders, render, workers
+│   └── dates.js       # ISO-week / date math (pure, no deps)
+├── routes/            # per-domain route modules. Each exports `(deps) => async (req, res, ctx) => void`
+│   ├── static-early.js  # /welcome, /welcome.css, /themes/*.css, /_layouts, /help.md, /pages/*.html
+│   ├── spa.js           # /, /tasks /people /results /notes /settings SPA stubs, /calendar stub
+│   ├── debug-static.js  # /debug/_mock-services.js, /services/*.js, /services/_shared/*
+│   ├── debug.js         # /debug + helper functions (renderServicesDebug, renderDataShapesDebug, …)
+│   ├── pages.js         # /results /themes /settings /meeting-note/:id /calendar /people /editor /present
+│   ├── tasks-page.js    # /tasks (server-rendered HTML — kept until SPA port lands)
+│   ├── note-render.js   # catch-all GET /:week/:file.md (renders markdown)
+│   ├── assets-late.js   # /components/*.js, /style.css, /mention-autocomplete.js
+│   └── api/
+│       ├── misc.js      # /api/summarize, /api/search, /api/me, /api/app-settings, /api/embed*, /api/save*
+│       ├── tasks.js     # /api/tasks*, including /merge /reorder /:id/toggle /:id/close-from-note
+│       ├── results.js   # /api/results*
+│       ├── people.js    # /api/people*
+│       ├── companies.js # /api/companies*
+│       ├── places.js    # /api/places*
+│       ├── meetings.js  # /api/meetings*, /api/meeting-types
+│       ├── themes.js    # /api/themes*
+│       ├── contexts.js  # /api/contexts*, including settings/git/migrations subpaths
+│       └── notes.js     # /api/notes/* (render, meta, history, raw, pin, card, delete) + /api/weeks /api/week/:id
 ├── README.md          # user-facing docs + changelog
 ├── AGENTS.md          # this file — start here
 ├── agents/            # per-feature deep-dives (read the relevant ones)
@@ -122,6 +147,40 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3001/settings
 | `/note/...`, `/meeting-note/:id` | Note editors |
 | `/help.md` | Raw markdown for the help modal |
 | `/api/...` | JSON APIs (people, tasks, meetings, contexts/:id/settings, contexts/:id/meeting-types, contexts/switch, …) |
+
+### Adding/moving a route
+
+Routes live in `routes/` modules grouped by URL prefix or domain. Each
+module exports `(deps) => async (req, res, ctx) => void`, where `ctx`
+contains `{ pathname, url, method }`. Inside the function the original
+imperative pattern is preserved verbatim — match a path, write the
+response, `return;`. Modules destructure everything they need from
+`deps.core` (and `deps.rootDir` shadows `__dirname` so existing
+`path.join(__dirname, …)` calls keep working).
+
+Dispatch lives in `server.js`. After each handler runs the dispatcher
+checks three signals to decide whether the route owned the request:
+
+1. `res.writableEnded` (sync write+end)
+2. `res.headersSent` (e.g. SSE: writeHead but no end yet)
+3. New listeners added to `req` ('data'/'end') — i.e. the handler
+   started reading a POST body
+
+If none of those triggered, the next handler runs. The order in
+`server.js`'s `handlers = [...]` array is significant — most-specific
+static routes first, then per-domain APIs, then page catch-alls, then
+late assets. Don't reorder without thinking about the catch-all
+`/<week>/<file>.md` (note render) and `/api/notes/:ctx/(.+)` (delete
+note) interactions. `setImmediate(...)` after `res.end()` is fine for
+fire-and-forget background work — see `routes/api/contexts.js` switch
+for the canonical pattern.
+
+If you add a new route module, register it in `server.js`'s `handlers`
+array and place it in the right slot relative to siblings. If a
+handler does **async work via fs callbacks** (rather than awaitable
+APIs), promisify it (`await fs.promises.readFile(...)`) — otherwise
+the dispatcher will see no claim signal and forward the request to
+the next handler.
 
 ---
 
@@ -266,7 +325,7 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3001/settings
   `scripts/migrate-context.js` should use the `appliesBeforeTag('vN')`
   helper so contexts whose `.week-notes` marker pre-dates the tag get
   migrated; never hard-code arbitrary commit SHAs in `appliesTo`.
-  Current tags: `v1` → `fc809ad`, `v2` → `1d083d8`.
+  Current tags: `v1` → `fc809ad`, `v2` → `1d083d8`, `v3` → `c93b3cf`.
 
 ---
 

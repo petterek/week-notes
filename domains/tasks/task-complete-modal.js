@@ -200,3 +200,53 @@ class TaskCompleteModal extends WNElement {
 }
 
 if (!customElements.get('task-complete-modal')) customElements.define('task-complete-modal', TaskCompleteModal);
+
+// Page-level singleton + event handler. Any code that needs to confirm
+// task completion dispatches a bubbling `task:request-complete` event;
+// a single document-level listener mounts the modal lazily, opens it,
+// and resolves the callback supplied in event.detail.
+//
+//   el.dispatchEvent(new CustomEvent('task:request-complete', {
+//       bubbles: true, composed: true,
+//       detail: { id, text, callback: (res) => { ... } },
+//   }));
+//
+// `res` is `{ confirmed: true, id, comment }` or `{ confirmed: false, id }`.
+// `composed: true` lets the event escape shadow DOM boundaries.
+function getTaskCompleteModal() {
+    if (typeof document === 'undefined') return null;
+    let m = document.querySelector('body > task-complete-modal[data-singleton="page"]');
+    if (!m) {
+        m = document.createElement('task-complete-modal');
+        m.setAttribute('data-singleton', 'page');
+        document.body.appendChild(m);
+    }
+    return m;
+}
+
+if (typeof document !== 'undefined' && !document._taskCompleteRequestWired) {
+    document._taskCompleteRequestWired = true;
+    document.addEventListener('task:request-complete', (ev) => {
+        const detail = (ev && ev.detail) || {};
+        const cb = (typeof detail.callback === 'function') ? detail.callback : null;
+        const m = getTaskCompleteModal();
+        if (!m) {
+            if (cb) cb({ confirmed: false, id: detail.id });
+            return;
+        }
+        m.open({ id: detail.id, text: detail.text || '' }, (res) => {
+            if (cb) cb(res);
+        });
+    });
+}
+
+if (typeof window !== 'undefined') {
+    // Backwards-compatible direct entry points.
+    window.getTaskCompleteModal = getTaskCompleteModal;
+    window.openTaskCompleteModal = function openTaskCompleteModal(task, cb) {
+        const m = getTaskCompleteModal();
+        if (!m) { if (cb) cb({ confirmed: false, id: task && task.id }); return; }
+        m.open(task, cb);
+        return m;
+    };
+}

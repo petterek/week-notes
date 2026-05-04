@@ -87,7 +87,7 @@ I møte-modalen i kalenderen er det to felt for sted: **Sted (fritekst)** for ad
 ## Notater
 
 - Notatformat er markdown
-- Lagre med `Ctrl+S` i editoren
+- Lagre og lukk med `Ctrl+Enter` i editoren (autolagring skjer fortløpende)
 - Bruk `>` for sitater, `|` for tabeller — det styles automatisk
 - `@kortnavn` blir til lenker som peker på personkortet
 

@@ -138,7 +138,39 @@ class WeekSection extends WNElement {
                 tasksSvc ? tasksSvc.list() : Promise.resolve([]),
                 resultsSvc ? resultsSvc.list() : Promise.resolve([]),
             ]);
-            const noteList = info.notes || [];
+            const completed = (tasks || []).filter(t => t.done && (t.completedWeek || t.week) === week);
+            const weekResults = (results || []).filter(r => r.week === week);
+            this._state = {
+                info,
+                cards: new Map(),
+                cardsLoaded: false,
+                completedCount: completed.length,
+                resultCount: weekResults.length,
+            };
+        } catch {
+            this._state = { error: true };
+        }
+        this.requestRender();
+        if (!this._wired) {
+            this._wired = true;
+            this._wireEvents();
+        }
+        // Eagerly load cards for the current week (always expanded).
+        // Older weeks defer card loading until <details> opens.
+        const isCurrent = this.hasAttribute('current') || week === isoWeek(new Date());
+        if (isCurrent) this._loadCards();
+    }
+
+    async _loadCards() {
+        if (!this._state || this._state.error || this._state.cardsLoaded || this._state.cardsLoading) return;
+        const week = this.getAttribute('week');
+        const noteList = (this._state.info && this._state.info.notes) || [];
+        if (noteList.length === 0) {
+            this._state.cardsLoaded = true;
+            return;
+        }
+        this._state.cardsLoading = true;
+        try {
             const cardData = await Promise.all(noteList.map(n =>
                 this.service.card(week, n.file).catch(() => ({ ok: false, file: n.file }))
             ));
@@ -147,18 +179,12 @@ class WeekSection extends WNElement {
                 const file = noteList[i].file;
                 cards.set(file, d && d.ok ? { week, ...d } : { week, file, error: true });
             });
-            const completed = (tasks || []).filter(t => t.done && (t.completedWeek || t.week) === week);
-            const weekResults = (results || []).filter(r => r.week === week);
-            this._state = { info, cards, completedCount: completed.length, resultCount: weekResults.length };
-        } catch {
-            this._state = { error: true };
+            this._state.cards = cards;
+            this._state.cardsLoaded = true;
+        } finally {
+            this._state.cardsLoading = false;
         }
-        this.requestRender();
         this._injectCardData();
-        if (!this._wired) {
-            this._wired = true;
-            this._wireEvents();
-        }
     }
 
     _injectCardData() {
@@ -263,6 +289,13 @@ class WeekSection extends WNElement {
                 else this.dispatchEvent(new CustomEvent('week-section:show-summary', { bubbles: true, composed: true, detail: { week } }));
             }
         });
+
+        this.shadowRoot.addEventListener('toggle', (ev) => {
+            const d = ev.target;
+            if (d && d.tagName === 'DETAILS' && d.classList.contains('older-week') && d.open) {
+                this._loadCards();
+            }
+        }, true);
 
         ['view', 'present', 'edit'].forEach((act) => {
             this.shadowRoot.addEventListener(act, (ev) => {

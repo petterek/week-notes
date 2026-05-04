@@ -28,6 +28,7 @@ const STYLES = `
     .row {
         display: flex; align-items: center; gap: 8px;
         padding: 4px 6px; border-radius: 6px;
+        cursor: pointer;
     }
     .row:hover { background: var(--surface-alt); }
     .text {
@@ -41,6 +42,12 @@ const STYLES = `
         opacity: 0.5; padding: 0 4px; font-size: 0.9em; color: var(--text-muted);
     }
     .undo:hover { opacity: 1; }
+    .wk-group { margin-bottom: 12px; }
+    .wk-h {
+        font-family: var(--font-heading); font-weight: 600;
+        color: var(--text-muted); font-size: 0.85em;
+        margin: 8px 0 4px; padding-left: 6px;
+    }
 `;
 
 class TaskCompleted extends WNElement {
@@ -84,12 +91,27 @@ class TaskCompleted extends WNElement {
             this._wired = true;
             this.shadowRoot.addEventListener('click', (ev) => {
                 const btn = ev.target.closest('button[data-act="undo"]');
-                if (!btn) return;
-                const id = btn.dataset.taskid;
-                const text = btn.dataset.tasktext || '';
-                this.dispatchEvent(new CustomEvent('task-completed:undo', {
-                    bubbles: true, composed: true, cancelable: true,
-                    detail: { id, text },
+                if (btn) {
+                    ev.stopPropagation();
+                    const id = btn.dataset.taskid;
+                    const text = btn.dataset.tasktext || '';
+                    this.dispatchEvent(new CustomEvent('task-completed:undo', {
+                        bubbles: true, composed: true, cancelable: true,
+                        detail: { id, text },
+                    }));
+                    return;
+                }
+                // Mention clicks are handled by wireMentionClicks; don't open the modal.
+                if (ev.target.closest('a.mention-link')) return;
+                const row = ev.target.closest('.row[data-taskid]');
+                if (!row) return;
+                const id = row.dataset.taskid;
+                const tasks = (this._state && this._state.tasks) || [];
+                const task = tasks.find(t => t.id === id);
+                if (!task) return;
+                this.dispatchEvent(new CustomEvent('task:request-view', {
+                    bubbles: true, composed: true,
+                    detail: { task },
                 }));
             });
             wireMentionClicks(this.shadowRoot);
@@ -103,28 +125,49 @@ class TaskCompleted extends WNElement {
         if (this._state.error) return html`<h3 class="sec-h">Fullført</h3><p class="empty-quiet">Kunne ikke laste</p>`;
 
         const { tasks, people, companies } = this._state;
-        const done = (tasks || []).filter(t => t.done && (t.completedWeek || t.week) === week);
+        const allDone = (tasks || []).filter(t => t.done);
+        const done = week ? allDone.filter(t => (t.completedWeek || t.week) === week) : allDone;
         if (done.length === 0) {
             return html`<h3 class="sec-h">Fullført <span class="c">0</span></h3><p class="empty-quiet">Ingen fullførte oppgaver</p>`;
         }
 
-        const rows = done.map(t => {
+        const rowFor = (t) => {
             const id = t.id || '';
             const text = t.text || '';
             const textHtml = unsafeHTML(linkMentions(escapeHtml(text), people, companies));
             const dShort = t.completed ? `${t.completed.slice(8, 10)}.${t.completed.slice(5, 7)}` : '';
             return html`
-                <div class="row">
+                <div class="row" data-taskid="${id}" title="Vis detaljer">
                     <span class="text">${textHtml}</span>
                     ${dShort ? html`<span class="when">${dShort}</span>` : null}
                     <button type="button" class="undo" data-act="undo" data-taskid="${id}" data-tasktext="${text}" title="Angre">↺</button>
                 </div>
             `;
-        });
+        };
 
+        if (week) {
+            return html`
+                <h3 class="sec-h">Fullført <span class="c">${done.length}</span></h3>
+                ${done.map(rowFor)}
+            `;
+        }
+
+        // No week attribute → show every completed task grouped by week (newest first).
+        const byWeek = new Map();
+        done.forEach(t => {
+            const w = t.completedWeek || t.week || '—';
+            if (!byWeek.has(w)) byWeek.set(w, []);
+            byWeek.get(w).push(t);
+        });
+        const sortedWeeks = Array.from(byWeek.keys()).sort((a, b) => b.localeCompare(a));
         return html`
             <h3 class="sec-h">Fullført <span class="c">${done.length}</span></h3>
-            ${rows}
+            ${sortedWeeks.map(w => html`
+                <div class="wk-group">
+                    <div class="wk-h">Uke ${w}</div>
+                    ${byWeek.get(w).map(rowFor)}
+                </div>
+            `)}
         `;
     }
 }
