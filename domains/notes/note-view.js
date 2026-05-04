@@ -186,11 +186,26 @@ class NoteView extends WNElement {
         if (!parts || !this.service || !this.service.raw) return;
         try {
             const text = await this.service.raw(parts.week, parts.file);
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                await navigator.clipboard.writeText(text || '');
-            } else {
+            const htmlOut = this._html || '';
+            const plain = text || '';
+            let copied = false;
+            if (navigator.clipboard && typeof window.ClipboardItem === 'function' && navigator.clipboard.write) {
+                try {
+                    const item = new ClipboardItem({
+                        'text/html': new Blob([htmlOut], { type: 'text/html' }),
+                        'text/plain': new Blob([plain], { type: 'text/plain' }),
+                    });
+                    await navigator.clipboard.write([item]);
+                    copied = true;
+                } catch { /* fall through to text fallback */ }
+            }
+            if (!copied && navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(plain);
+                copied = true;
+            }
+            if (!copied) {
                 const ta = document.createElement('textarea');
-                ta.value = text || '';
+                ta.value = plain;
                 ta.style.position = 'fixed'; ta.style.opacity = '0';
                 document.body.appendChild(ta);
                 ta.select();
@@ -279,7 +294,7 @@ class NoteView extends WNElement {
                 <div class="nv-card" role="dialog" aria-modal="true">
                     <div class="nv-head">
                         <h2 class="nv-title">${escapeHtml(path)}</h2>
-                        <button type="button" class="nv-close" data-action="copy" title="Kopier markdown">${this._copied ? '✓ Kopiert' : '📋 Kopier'}</button>
+                        <button type="button" class="nv-close" data-action="copy" title="Kopier (HTML, med markdown-fallback)">${this._copied ? '✓ Kopiert' : '📋 Kopier'}</button>
                         <button type="button" class="nv-close" data-action="close">✕</button>
                     </div>
                     <div class="nv-tabs" role="tablist">
