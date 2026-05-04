@@ -14,15 +14,27 @@
 import { WNElement, html, unsafeHTML, escapeHtml, linkMentions, isoWeek, wireMentionClicks } from './_shared.js';
 
 const STYLES = `
-    :host { display: block; color: var(--text-strong); font: inherit; font-size: 0.92em; }
+    :host {
+        display: flex; flex-direction: column;
+        color: var(--text-strong); font: inherit; font-size: 0.92em;
+        max-height: 420px;
+        min-height: 0;
+    }
     .side-h {
+        flex: 0 0 auto;
         font-family: var(--font-heading); font-weight: 400;
         color: var(--accent); border-bottom: 1px solid var(--border-soft);
         padding-bottom: 6px; margin: 18px 0 10px; font-size: 1.05em;
     }
     .empty-quiet { color: var(--text-subtle); font-style: italic; margin: 0; }
     .empty-quiet a { color: var(--accent); }
-    .sidebar-meetings { display: flex; flex-direction: column; gap: 6px; }
+    .sidebar-meetings {
+        display: flex; flex-direction: column; gap: 6px;
+        overflow-y: auto;
+        min-height: 0;
+        flex: 1 1 auto;
+        padding-right: 4px;
+    }
     .sidebar-meeting {
         position: relative; padding: 8px 10px 8px 32px;
         border-radius: 6px; background: var(--surface); cursor: pointer;
@@ -42,6 +54,7 @@ const STYLES = `
     .mtg-loc { white-space: nowrap; }
     .mtg-type-icon { margin-right: 4px; }
     .upcoming-cal-link {
+        flex: 0 0 auto;
         margin-top: 10px; text-align: right; font-size: 0.85em;
     }
     .upcoming-cal-link a { color: var(--accent); text-decoration: none; }

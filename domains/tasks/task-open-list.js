@@ -23,8 +23,14 @@ import './task-note-modal.js';
 import './task-edit-modal.js';
 
 const STYLES = `
-        :host { display: block; color: var(--text-strong); font: inherit; font-size: 0.92em; }
+        :host {
+            display: flex; flex-direction: column;
+            color: var(--text-strong); font: inherit; font-size: 0.92em;
+            max-height: 420px;
+            min-height: 0;
+        }
         .side-h {
+            flex: 0 0 auto;
             display: flex; align-items: center;
             gap: 8px;
             font-family: var(--font-heading);
@@ -37,7 +43,13 @@ const STYLES = `
         }
         .side-h-title { display: flex; align-items: baseline; gap: 6px; }
         .empty-quiet { color: var(--text-subtle); font-style: italic; margin: 0; }
-        .sidebar-tasks { display: flex; flex-direction: column; gap: 6px; }
+        .sidebar-tasks {
+            display: flex; flex-direction: column; gap: 6px;
+            overflow-y: auto;
+            min-height: 0;
+            flex: 1 1 auto;
+            padding-right: 4px;
+        }
         .sidebar-task { padding: 6px 8px; border-radius: 6px; background: var(--surface); }
         .sidebar-task:hover { background: var(--surface-alt); }
         .row { display: flex; align-items: center; gap: 8px; }
