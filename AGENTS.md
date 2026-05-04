@@ -325,7 +325,7 @@ the next handler.
   `scripts/migrate-context.js` should use the `appliesBeforeTag('vN')`
   helper so contexts whose `.week-notes` marker pre-dates the tag get
   migrated; never hard-code arbitrary commit SHAs in `appliesTo`.
-  Current tags: `v1` → `fc809ad`, `v2` → `1d083d8`.
+  Current tags: `v1` → `fc809ad`, `v2` → `1d083d8`, `v3` → `c93b3cf`.
 
 ---
 
