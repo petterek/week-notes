@@ -10,6 +10,11 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 
 ## 📜 Changelog
 
+### 2026-05-05 (refactor: rute-handlere splittet ut i `routes/`)
+- **`server.js` redusert fra ~9 400 til ~95 linjer.** Hele `http.createServer`-handleren er splittet per domene/URL-prefiks i nye `routes/`-moduler (`static-early`, `spa`, `debug`, `pages`, `tasks-page`, `note-render`, `assets-late`) og `routes/api/` (`misc`, `tasks`, `results`, `people`, `companies`, `places`, `meetings`, `themes`, `contexts`, `notes`).
+- **Ny dispatcher-konvensjon:** hver rutemodul eksporterer `(deps) => async (req, res, ctx) => void`. `server.js` itererer en ordnet `handlers`-liste og stopper når en handler enten har skrevet respons (`res.writableEnded`/`res.headersSent`) eller knyttet `data`/`end`-listeners på `req` (f.eks. POST-body-lesing). Async fil-callbacks (`fs.readFile`) er konvertert til `await fs.promises.readFile` så dispatcheren får riktig signal.
+- **Ingen funksjonsendringer.** Alle ruter (/`, /calendar, /settings, /tasks, /people, /help.md, /api/*, /pages/*, /components/*, /themes/*) returnerer fortsatt 200 og samme respons.
+
 ### 2026-05-05 (refactor: server-helpers flyttet ut av `server.js`)
 - **`server.js` redusert fra ~13 000 til ~9 400 linjer.** Hele helper-/data-laget (app-settings, kontekster, git-ops, per-collection-cache, tasks/notes/people/meetings/results/companies/places-loaders, theme-helpers, render-helpers, search-/embed-/summarize-worker-mgmt) er flyttet til **`lib/core.js`**. `server.js` re-importerer alt via destrukturert `require('./lib/core')` og inneholder nå primært den store `http.createServer`-handleren.
 - **Ny modul:** `lib/dates.js` — rene ISO-8601-uke/dato-helpers (`dateToIsoWeek`, `isoWeekMonday`, `currentIsoWeek`, `shiftIsoWeek`, `isoWeekToDateRange`, `getCurrentYearWeek`). `lib/core.js` re-eksporterer dem så eksisterende callsites fortsetter å fungere uendret.
