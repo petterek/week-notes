@@ -180,6 +180,10 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-05-05 (perf: dedup av samtidige GET-kall fra web-komponenter)
+- **`apiRequest` i `domains/_shared/http.js` deduper nå GET-er.** Hvis flere komponenter ber om samme URL i samme tick (typisk hjem-siden hvor mange notatkort/tasks/personer-komponenter alle kaller `/api/people`, `/api/companies`, …), gjøres det bare ett HTTP-kall og alle ventere får en kopi av samme respons. I tillegg en kort 200ms TTL-cache som fanger den neste render-bølgen. Cachen tømmes ved enhver ikke-GET (skriving).
+- **Resultat på hjem-siden:** ressurser 250 → 84, API-kall 187 → 21 (`/api/people` 45 → 3, `/api/companies` 37 → 1), siste API-svar 562ms → 303ms. Ingen serverendringer — kun klientsiden.
+
 ### 2026-05-05 (refactor: rute-handlere splittet ut i `routes/`)
 - **`server.js` redusert fra ~9 400 til ~95 linjer.** Hele `http.createServer`-handleren er splittet per domene/URL-prefiks i nye `routes/`-moduler (`static-early`, `spa`, `debug`, `pages`, `tasks-page`, `note-render`, `assets-late`) og `routes/api/` (`misc`, `tasks`, `results`, `people`, `companies`, `places`, `meetings`, `themes`, `contexts`, `notes`).
 - **Ny dispatcher-konvensjon:** hver rutemodul eksporterer `(deps) => async (req, res, ctx) => void`. `server.js` itererer en ordnet `handlers`-liste og stopper når en handler enten har skrevet respons (`res.writableEnded`/`res.headersSent`) eller knyttet `data`/`end`-listeners på `req` (f.eks. POST-body-lesing). Async fil-callbacks (`fs.readFile`) er konvertert til `await fs.promises.readFile` så dispatcheren får riktig signal.
