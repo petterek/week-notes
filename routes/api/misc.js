@@ -295,6 +295,49 @@ module.exports = function(deps) {
     }
 
 
+    // ----- New-note draft (no filename yet) ---------------------------------
+    //
+    // While the user is composing a brand-new note, we don't want to commit to a
+    // filename or a week folder until they press Save. Autosaves of such drafts
+    // go to a single hidden file at the context root: `data/<ctx>/.draft-newnote.md`.
+    // On final save the real note file is created and the draft is removed.
+    //
+    // Single-slot is fine for a self-hosted single-user app — at most one
+    // unsaved new-note draft per context at a time.
+    if (pathname === '/api/save/draft' && req.method === 'GET') {
+        try {
+            const tmpPath = path.join(dataDir(), '.draft-newnote.md');
+            if (!fs.existsSync(tmpPath)) {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: true, exists: false }));
+                return;
+            }
+            const stat = fs.statSync(tmpPath);
+            const content = fs.readFileSync(tmpPath, 'utf-8');
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, exists: true, content, modified: stat.mtime.toISOString() }));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Serverfeil: ' + e.message }));
+        }
+        return;
+    }
+
+    if (pathname === '/api/save/draft' && req.method === 'DELETE') {
+        try {
+            const tmpPath = path.join(dataDir(), '.draft-newnote.md');
+            let removed = false;
+            try { if (fs.existsSync(tmpPath)) { fs.unlinkSync(tmpPath); removed = true; } } catch (_) {}
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, removed }));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Serverfeil: ' + e.message }));
+        }
+        return;
+    }
+
+
     // API: read autosave temp content for a note (for restore-prompt preview).
     // GET /api/save/autosave?folder=YYYY-WNN&file=foo.md
     if (pathname === '/api/save/autosave' && req.method === 'GET') {
@@ -360,8 +403,30 @@ module.exports = function(deps) {
     if (pathname === '/api/save' && req.method === 'POST') {
         try {
             const body = JSON.parse(await readBody(req));
-            const { folder, file: rawFile, content, append, type, presentationStyle, autosave, themes, tags, commit, createNew, title } = body;
+            const { folder, file: rawFile, content, append, type, presentationStyle, autosave, themes, tags, commit, createNew, title, draft } = body;
             let file = rawFile;
+
+            // Brand-new note autosave: no filename chosen yet. Write to
+            // `data/<ctx>/.draft-newnote.md` instead of materialising a file
+            // in the week folder. The real file is created on explicit save.
+            if (autosave && draft) {
+                if (typeof content !== 'string') {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'Mangler innhold' }));
+                    return;
+                }
+                try {
+                    const tmpPath = path.join(dataDir(), '.draft-newnote.md');
+                    fs.writeFileSync(tmpPath, content, 'utf-8');
+                    const stat = fs.statSync(tmpPath);
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ ok: true, autosave: true, draft: true, modified: stat.mtime.toISOString() }));
+                } catch (e) {
+                    res.writeHead(500, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'Serverfeil: ' + e.message }));
+                }
+                return;
+            }
 
             if (!folder || !file || typeof content !== 'string') {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -522,6 +587,14 @@ module.exports = function(deps) {
                 const tmpPath = path.join(dataDir(), folder, '.' + file + '.autosave');
                 if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
             } catch (_) {}
+            // If this save promotes a brand-new-note draft to a real file,
+            // discard the draft now.
+            if (draft) {
+                try {
+                    const draftPath = path.join(dataDir(), '.draft-newnote.md');
+                    if (fs.existsSync(draftPath)) fs.unlinkSync(draftPath);
+                } catch (_) {}
+            }
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: true, path: `/${folder}/${file}`, file, folder, content: finalContent, createdTasks, createdResults, closedTasks }));

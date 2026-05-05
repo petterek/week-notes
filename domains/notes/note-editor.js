@@ -377,6 +377,7 @@ class NoteEditor extends WNElement {
 
         this.loadWeeks(this._initialWeek);
         if (this._editing) this.loadExisting(this._initialWeek, this._initialFile);
+        else this._checkNewNoteDraft();
         this._renderPreview();
         this._loadThemeSuggestions();
         this._installAutocompletes();
@@ -795,11 +796,36 @@ class NoteEditor extends WNElement {
                 }).catch(() => {});
                 return;
             }
-            this._showRestorePrompt(week, f, data.content, data.modified, realText);
+            const discardAutosave = () => fetch('/api/save/autosave', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ folder: week, file: f }),
+            }).catch(() => {});
+            this._showRestorePrompt(data.content, data.modified, realText, discardAutosave);
         } catch (_) {}
     }
 
-    _showRestorePrompt(week, file, autosaveContent, modifiedIso, realText) {
+    // For the new-note flow: if a `.draft-newnote.md` is sitting on disk
+    // from a previous unfinished session, offer to restore it. This is the
+    // analogue of the autosave restore prompt for notes that haven't been
+    // saved yet (and therefore have no real file to compare against).
+    async _checkNewNoteDraft() {
+        try {
+            const r = await fetch('/api/save/draft');
+            if (!r.ok) return;
+            const data = await r.json();
+            if (!data || !data.exists || typeof data.content !== 'string') return;
+            const current = this._contentEl ? this._contentEl.value : '';
+            if (data.content === current) {
+                fetch('/api/save/draft', { method: 'DELETE' }).catch(() => {});
+                return;
+            }
+            const discardDraft = () => fetch('/api/save/draft', { method: 'DELETE' }).catch(() => {});
+            this._showRestorePrompt(data.content, data.modified, current, discardDraft);
+        } catch (_) {}
+    }
+
+    _showRestorePrompt(autosaveContent, modifiedIso, realText, discardFn) {
         const modal = this.shadowRoot.querySelector('.ne-restore-modal');
         const diffEl = this.shadowRoot.querySelector('.ne-restore-diff');
         const meta = this.shadowRoot.querySelector('.ne-restore-meta');
@@ -823,11 +849,7 @@ class NoteEditor extends WNElement {
             cleanup();
         };
         const onDiscard = () => {
-            fetch('/api/save/autosave', {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ folder: week, file }),
-            }).catch(() => {});
+            try { discardFn && discardFn(); } catch (_) {}
             close();
             cleanup();
         };
@@ -1318,12 +1340,19 @@ class NoteEditor extends WNElement {
         try {
             const folder = this._weekSel ? this._weekSel.value.trim() : '';
             const file = this._fileEl ? this._fileEl.value.trim() : '';
-            if (folder && file) {
+            if (this._editing && folder && file) {
                 const f = file.endsWith('.md') ? file : file + '.md';
                 fetch('/api/save/autosave', {
                     method: 'DELETE',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ folder, file: f }),
+                    keepalive: true,
+                }).catch(() => {});
+            } else if (!this._editing) {
+                // New note: kill the per-context draft so a fresh editor
+                // doesn't pop a stale restore prompt.
+                fetch('/api/save/draft', {
+                    method: 'DELETE',
                     keepalive: true,
                 }).catch(() => {});
             }
@@ -1352,6 +1381,24 @@ class NoteEditor extends WNElement {
         const type = this._typeEl ? this._typeEl.value : 'note';
         const presentationStyle = (type === 'presentation' && this._presStyleEl) ? this._presStyleEl.value : '';
         const pinned = !!(this._pinnedEl && this._pinnedEl.checked);
+        // New-note draft autosave: don't pick a filename or week; just stash
+        // the content in the per-context draft slot. The real file is only
+        // materialised on explicit save below.
+        if (autosave && !this._editing) {
+            try {
+                const r = await fetch('/api/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ autosave: true, draft: true, content }),
+                });
+                if (r.ok) {
+                    this._lastAutosaveAt = new Date().toISOString();
+                    this._dirty = false;
+                    this._updateAutosaveInfo();
+                }
+            } catch (_) {}
+            return;
+        }
         if (!folder) { this._setStatus('Velg uke', true); return; }
         if (!file) {
             file = this._suggestFilename(content) || 'notat.md';
@@ -1364,7 +1411,12 @@ class NoteEditor extends WNElement {
             if (presentationStyle) payload.presentationStyle = presentationStyle;
             if (autosave) payload.autosave = true;
             if (closeAfter && !autosave) payload.commit = true;
-            if (!this._editing && !autosave) payload.createNew = true;
+            if (!this._editing && !autosave) {
+                payload.createNew = true;
+                // Tells the server to discard `.draft-newnote.md` after the
+                // real file has been written.
+                payload.draft = true;
+            }
             if (!autosave) {
                 const title = this._extractTitle(content);
                 if (title) payload.title = title;

@@ -16,11 +16,19 @@ module.exports = function(deps) {
         const { pathname, url } = ctx;
     if (pathname === '/api/contexts' && req.method === 'GET') {
         const active = getActiveContext();
-        const list = listContexts().map(name => ({
-            id: name,
-            active: name === active,
-            settings: getContextSettings(name)
-        }));
+        const list = listContexts().map(name => {
+            const settings = getContextSettings(name);
+            // For the active context, surface the *union* of
+            // settings.availableThemes (preferences) and tags actually
+            // used by notes (derived from the inverted tag index, never
+            // persisted). For other contexts we can't cheaply read note
+            // meta, so we return raw settings.
+            if (name === active) {
+                const themes = getContextThemes(name);
+                return { id: name, active: true, settings: { ...settings, availableThemes: themes } };
+            }
+            return { id: name, active: false, settings };
+        });
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ active, contexts: list }));
         return;

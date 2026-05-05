@@ -13,6 +13,7 @@
  * Property: element.settings = {...}
  */
 import { WNElement, html } from './_shared.js';
+import './meeting-edit.js';
 
 const MONTH_NAMES = ['januar', 'februar', 'mars', 'april', 'mai', 'juni', 'juli', 'august', 'september', 'oktober', 'november', 'desember'];
 
@@ -130,6 +131,7 @@ class WeekNotesCalendar extends WNElement {
     disconnectedCallback() {
         if (this._onSpa) document.removeEventListener('spa:navigated', this._onSpa);
         if (this._onEsc) { document.removeEventListener('keydown', this._onEsc); this._onEsc = null; this._escWired = false; }
+        if (this._onEditEsc) { document.removeEventListener('keydown', this._onEditEsc); this._onEditEsc = null; this._editEscWired = false; }
     }
 
     attributeChangedCallback(name, oldV, newV) {
@@ -175,6 +177,15 @@ class WeekNotesCalendar extends WNElement {
                         ${html`<meeting-create meetings_service="${svcAttr}" settings_service="${setAttr}" context="${ctxAttr}"></meeting-create>`}
                     </div>
                 </div>
+                <div class="overlay" data-edit-panel>
+                    <div class="overlay-card" data-edit-card>
+                        <div class="overlay-head">
+                            <h2>Rediger møte</h2>
+                            <button type="button" data-edit-close title="Lukk">✕</button>
+                        </div>
+                        ${html`<meeting-edit meetings_service="${svcAttr}" settings_service="${setAttr}" context="${ctxAttr}"></meeting-edit>`}
+                    </div>
+                </div>
                 ${html`<week-calendar></week-calendar>`}
             </div>
         `;
@@ -213,8 +224,55 @@ class WeekNotesCalendar extends WNElement {
             this._apply();
         });
         this.shadowRoot.addEventListener('meeting-create:cancel', close);
+
+        // Edit overlay wiring
+        const editOverlay = this.shadowRoot.querySelector('[data-edit-panel]');
+        const editCard = this.shadowRoot.querySelector('[data-edit-card]');
+        const editClose = this.shadowRoot.querySelector('[data-edit-close]');
+        const closeEdit = () => { if (editOverlay) editOverlay.classList.remove('open'); };
+        if (editClose) editClose.addEventListener('click', closeEdit);
+        if (editOverlay) editOverlay.addEventListener('click', (ev) => {
+            if (editCard && editCard.contains(ev.target)) return;
+            closeEdit();
+        });
+        if (!this._editEscWired) {
+            this._editEscWired = true;
+            this._onEditEsc = (ev) => {
+                if (ev.key === 'Escape' && editOverlay && editOverlay.classList.contains('open')) closeEdit();
+            };
+            document.addEventListener('keydown', this._onEditEsc);
+        }
+        this.shadowRoot.addEventListener('open-item-selected', (ev) => {
+            const id = ev.detail && ev.detail.id;
+            if (id) this._openEdit(id);
+        });
+        this.shadowRoot.addEventListener('meeting-edit:saved', () => {
+            closeEdit();
+            this._apply();
+        });
+        this.shadowRoot.addEventListener('meeting-edit:deleted', () => {
+            closeEdit();
+            this._apply();
+        });
+        this.shadowRoot.addEventListener('meeting-edit:cancel', closeEdit);
+
         // Apply initial state after render
         setTimeout(() => this._apply(), 0);
+    }
+
+    _openEdit(id) {
+        const meeting = (this._meetingsById && this._meetingsById[id]) || null;
+        if (!meeting) return;
+        const overlay = this.shadowRoot.querySelector('[data-edit-panel]');
+        const form = this.shadowRoot.querySelector('meeting-edit');
+        if (!overlay || !form) return;
+        if (typeof form.setMeeting === 'function') form.setMeeting(meeting);
+        overlay.classList.add('open');
+        setTimeout(() => {
+            const root = form.shadowRoot;
+            const t = root && root.querySelector('input[name=title]');
+            if (t) t.focus();
+        }, 30);
     }
 
     _openCreate({ date, time, type } = {}) {
@@ -297,6 +355,8 @@ class WeekNotesCalendar extends WNElement {
             (types || []).forEach(t => { typeMap[t.key] = t; });
             this._typeMap = typeMap;
             this._items = (list || []).map(m => meetingToItem(m, typeMap));
+            this._meetingsById = {};
+            (list || []).forEach(m => { if (m && m.id) this._meetingsById[m.id] = m; });
             // Feed event types into the inner <week-calendar> for the right-click menu
             // and into <meeting-create> for the type dropdown.
             const eventTypes = (types || []).map(t => ({

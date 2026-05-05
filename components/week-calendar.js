@@ -622,8 +622,19 @@ class WeekCalendar extends WNElement {
         });
 
         root.addEventListener('dblclick', (ev) => {
+            const itemEl = ev.target.closest && ev.target.closest('.item, .allday-bar');
+            if (itemEl) {
+                ev.stopPropagation();
+                const idx = parseInt(itemEl.dataset.itemIdx != null ? itemEl.dataset.itemIdx : itemEl.dataset.alldayIdx, 10);
+                const item = this._items && this._items[idx];
+                if (!item) return;
+                this.dispatchEvent(new CustomEvent('open-item-selected', {
+                    bubbles: true, composed: true, detail: { item, id: item.id },
+                }));
+                return;
+            }
             const col = ev.target.closest && ev.target.closest('.col[data-date]');
-            if (!col || (ev.target.closest && ev.target.closest('.item'))) return;
+            if (!col) return;
             const { date, time } = this._cellAt(col, ev);
             this.dispatchEvent(new CustomEvent('datePeriodSelected', {
                 bubbles: true, composed: true, detail: { type: 'none', date, time },
