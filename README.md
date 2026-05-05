@@ -180,6 +180,11 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-05-05 (kalender: rediger møte ved klikk → ↗ eller dobbeltklikk)
+- **Edit-modal er tilbake.** Etter at kalenderen ble flyttet inn i shadow-DOM-komponenten `<week-calendar>` lå det gamle `.mtg`-baserte click-to-edit-handler-et i `routes/pages.js` å plukket opp ingen elementer lenger. `<week-notes-calendar>` lytter nå på `open-item-selected` fra inner `<week-calendar>` og åpner en ny redigeringsmodal.
+- **Ny komponent `<meeting-edit>`** (i `domains/meetings/meeting-edit.js`): redigeringsskjema med tittel, type, fra/til, deltakere, sted og notater. Fra/til bruker den kanoniske `<date-time-picker>` i `datetime`-modus via popup-trigger-mønsteret fra `<task-edit-modal>`. Inkluderer Slett-knapp som kaller `DELETE /api/meetings/:id` etter bekreftelse.
+- **UX:** dobbeltklikk på møte → åpne edit-modal direkte (i tillegg til single-click + ↗-knappen). Esc / ✕ / klikk utenfor lukker.
+
 ### 2026-05-05 (git: `push.autoSetupRemote=true` på alle kontekst-repoer)
 - Når en ny lokal branch opprettes inni en kontekst-repo (under `data/<ctx>/`), satte `git push` tidligere ingen upstream — første push feilet med "fatal: The current branch X has no upstream branch". Nå settes `push.autoSetupRemote=true` automatisk i alle kontekst-repoer (både ved `git init` og `git clone`), så første `git push` lager upstream-branchen automatisk.
 - **Self-healing for eksisterende kontekster:** `gitInitIfNeeded` setter konfigen idempotent på hvert kall, så eldre kontekster oppdateres uten manuell migrering — bare lagre konteksten en gang (eller bytt til den).
