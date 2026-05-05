@@ -180,9 +180,13 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-05-05 (tagger: invertert in-memory-indeks erstatter persistert sync)
+- **Refactor:** den forrige sync-løsningen som skrev tagger fra notater inn i `settings.availableThemes` er erstattet av en lat in-memory invertert indeks. Notater er nå eneste sannhetskilde for hvilke tagger de har — reverse-edgen (tag → notater) bygges på første tilgang fra cachet sidecar-data og dropp-invalideres på `setNoteMeta`/`deleteNoteMeta`/kontekstbytte. `settings.availableThemes` blir et UI-preferanselag (forhåndstaster tagger før noe notat bruker dem), og `getContextThemes` returnerer unionen av begge for aktiv kontekst — uten å persistere.
+- **Nye helpers** i `lib/core.js`: `notesByTag(tag)` (omvendt oppslag for aktiv kontekst) og `listTagsWithCounts()` (alle tagger med antall notater). `syncActiveContextTagsFromNotes` er fjernet.
+
 ### 2026-05-05 (tagger: synk fra notater til settings.availableThemes)
 - **Bug:** tagger lagt på et notat dukket ikke opp i Settings → Tagger med mindre de først var registrert manuelt der. Notatets `meta.tags` (sidecar) levde sitt eget liv fra `settings.availableThemes`.
-- **Fix:** ny helper `syncActiveContextTagsFromNotes()` i `lib/core.js` samler alle tagger fra notes-meta og slår dem case-insensitivt sammen med `settings.availableThemes` (skriver kun hvis noe er nytt). Kalles fra `GET /api/contexts` og `GET /api/notes/themes` (backfill av eksisterende kontekster) og fra notat-lagring (holder synket fremover).
+- **Fix:** ny helper `syncActiveContextTagsFromNotes()` i `lib/core.js` samler alle tagger fra notes-meta og slår dem case-insensitivt sammen med `settings.availableThemes` (skriver kun hvis noe er nytt). Kalles fra `GET /api/contexts` og `GET /api/notes/themes` (backfill av eksisterende kontekster) og fra notat-lagring (holder synket fremover). *(Erstattet samme dag av in-memory invertert indeks — se over.)*
 
 ### 2026-05-05 (kalender: rediger møte ved klikk → ↗ eller dobbeltklikk)
 - **Edit-modal er tilbake.** Etter at kalenderen ble flyttet inn i shadow-DOM-komponenten `<week-calendar>` lå det gamle `.mtg`-baserte click-to-edit-handler-et i `routes/pages.js` å plukket opp ingen elementer lenger. `<week-notes-calendar>` lytter nå på `open-item-selected` fra inner `<week-calendar>` og åpner en ny redigeringsmodal.
