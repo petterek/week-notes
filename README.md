@@ -180,6 +180,10 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-05-05 (git: `push.autoSetupRemote=true` på alle kontekst-repoer)
+- Når en ny lokal branch opprettes inni en kontekst-repo (under `data/<ctx>/`), satte `git push` tidligere ingen upstream — første push feilet med "fatal: The current branch X has no upstream branch". Nå settes `push.autoSetupRemote=true` automatisk i alle kontekst-repoer (både ved `git init` og `git clone`), så første `git push` lager upstream-branchen automatisk.
+- **Self-healing for eksisterende kontekster:** `gitInitIfNeeded` setter konfigen idempotent på hvert kall, så eldre kontekster oppdateres uten manuell migrering — bare lagre konteksten en gang (eller bytt til den).
+
 ### 2026-05-05 (perf: memoize `listContexts` + `getActiveContext`)
 - `listContexts()` og `getActiveContext()` i `lib/core.js` lå på request-hot-path (kalt 2-3 ganger per request via `_ctxCacheBucket(getActiveContext())` og dispatcherens welcome-guard) og gjorde sync `fs.readdirSync` + ett `fs.readFileSync` per kontekst på hvert kall. Begge er nå **memoisert** og invalideres eksplisitt fra alle mutasjonspunkter (`setActiveContext`, `createContext`, `cloneContext`, `setContextSettings`, `disconnectContext`, `pullContextRemote`).
 - Mikrobenchmark: `listContexts` 39μs → 0.55μs/kall (~70×), `getActiveContext` 30μs → 0.04μs/kall (~750×), `loadPeople` 35μs → 1.7μs/kall (~20×).
