@@ -180,6 +180,10 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-05-05 (tagger: synk fra notater til settings.availableThemes)
+- **Bug:** tagger lagt på et notat dukket ikke opp i Settings → Tagger med mindre de først var registrert manuelt der. Notatets `meta.tags` (sidecar) levde sitt eget liv fra `settings.availableThemes`.
+- **Fix:** ny helper `syncActiveContextTagsFromNotes()` i `lib/core.js` samler alle tagger fra notes-meta og slår dem case-insensitivt sammen med `settings.availableThemes` (skriver kun hvis noe er nytt). Kalles fra `GET /api/contexts` og `GET /api/notes/themes` (backfill av eksisterende kontekster) og fra notat-lagring (holder synket fremover).
+
 ### 2026-05-05 (kalender: rediger møte ved klikk → ↗ eller dobbeltklikk)
 - **Edit-modal er tilbake.** Etter at kalenderen ble flyttet inn i shadow-DOM-komponenten `<week-calendar>` lå det gamle `.mtg`-baserte click-to-edit-handler-et i `routes/pages.js` å plukket opp ingen elementer lenger. `<week-notes-calendar>` lytter nå på `open-item-selected` fra inner `<week-calendar>` og åpner en ny redigeringsmodal.
 - **Ny komponent `<meeting-edit>`** (i `domains/meetings/meeting-edit.js`): redigeringsskjema med tittel, type, fra/til, deltakere, sted og notater. Fra/til bruker den kanoniske `<date-time-picker>` i `datetime`-modus via popup-trigger-mønsteret fra `<task-edit-modal>`. Inkluderer Slett-knapp som kaller `DELETE /api/meetings/:id` etter bekreftelse.
