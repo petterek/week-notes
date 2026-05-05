@@ -180,6 +180,16 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-05-05 (notater: ny-notat-utkast skrives til temp-fil utenfor uka)
+- **Bakgrunn:** når man begynte å skrive et nytt notat ble autosaven plassert i uke-mappa under et gjettet filnavn (`<uke>/.notat.md.autosave`, eller hva `_suggestFilename` traff på). Filnavnet kunne endre seg mens man skrev (deriverer fra første H1), og uten lagring lå det igjen rare filer.
+- **Endring:** for nye notater (`/editor` uten uke/fil i URL) skrives autosaven nå til en enkelt slot per kontekst — `data/<ctx>/.draft-newnote.md` — uten å reservere et filnavn i uke-mappa. Først når man trykker "Ferdig" velges endelig uke og filnavn, og utkastet slettes.
+- **Restore-prompt** for nye notater: når man åpner editoren og det allerede finnes et utkast, dukker den vanlige restore-modalen opp med diff og knapper for å gjenopprette / forkaste / la stå.
+- **Server-API:** nye `GET /api/save/draft` og `DELETE /api/save/draft`. `POST /api/save` med `{ autosave: true, draft: true, content }` skriver utkast; `POST /api/save` med `draft: true` ved eksplisitt lagring sletter utkastet etter at den ekte fila er skrevet. Cancel sender DELETE.
+
+### 2026-05-05 (notater: rydd opp gamle autosave-filer ved oppstart og kontekstbytte)
+- **Bakgrunn:** autosave-prikkfiler (`<uke>/.<fil>.autosave`) skal aldri overleve redigerings-økten. De ryddes vanligvis ved Ferdig-lagring, men en server-kill eller kontekstbytte midt i en redigering kunne etterlate seg stale filer.
+- **Fix:** ny `cleanAutosaveFiles(ctx)`-helper i `lib/core.js` sveiper alle ISO-uke-mapper (`YYYY-WNN`) under hver kontekst og fjerner alle `.<fil>.autosave`-filer. Kalles fra `ensureAllContextsInitialised()` (oppstart, alle kontekster) og fra `setActiveContext()` (både fra-kontekst og til-kontekst). Notes-meta og andre kontekst-filer rørt ikke.
+
 ### 2026-05-05 (tagger: invertert in-memory-indeks erstatter persistert sync)
 - **Refactor:** den forrige sync-løsningen som skrev tagger fra notater inn i `settings.availableThemes` er erstattet av en lat in-memory invertert indeks. Notater er nå eneste sannhetskilde for hvilke tagger de har — reverse-edgen (tag → notater) bygges på første tilgang fra cachet sidecar-data og dropp-invalideres på `setNoteMeta`/`deleteNoteMeta`/kontekstbytte. `settings.availableThemes` blir et UI-preferanselag (forhåndstaster tagger før noe notat bruker dem), og `getContextThemes` returnerer unionen av begge for aktiv kontekst — uten å persistere.
 - **Nye helpers** i `lib/core.js`: `notesByTag(tag)` (omvendt oppslag for aktiv kontekst) og `listTagsWithCounts()` (alle tagger med antall notater). `syncActiveContextTagsFromNotes` er fjernet.
