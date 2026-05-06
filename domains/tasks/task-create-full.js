@@ -44,6 +44,7 @@
  */
 import { WNElement, html } from './_shared.js';
 import '/components/date-time-picker.js';
+import '/components/person-picker.js';
 
 const CSS = `
     :host { display: block; box-sizing: border-box; }
@@ -128,7 +129,6 @@ class TaskCreateFull extends WNElement {
             e.stopPropagation(); this._setDue('');
         });
         this._apply();
-        this._loadPeople();
         this._loadGoals();
         if (this.hasAttribute('task-id') && !this._task) this._loadTask();
         else if (this._task) this._applyTask();
@@ -174,9 +174,7 @@ class TaskCreateFull extends WNElement {
                 <div class="meta-grid">
                     <span class="lbl">Ansvarlig</span>
                     <span class="field">
-                        <select class="sel" data-el="responsible">
-                            <option value="">(ingen)</option>
-                        </select>
+                        <person-picker data-el="responsible" default-me></person-picker>
                     </span>
                     <span class="lbl">Mål</span>
                     <span class="field">
@@ -212,6 +210,12 @@ class TaskCreateFull extends WNElement {
         this._dueIn   = root.querySelector('[data-el="due"]');
         this._dueTrig = root.querySelector('[data-el="due-trigger"]');
         this._dueClr  = root.querySelector('[data-el="due-clear"]');
+        // Forward people_service attr to the <person-picker>.
+        if (this._respSel) {
+            const ps = this.getAttribute('people_service');
+            if (ps) this._respSel.setAttribute('people_service', ps);
+            if (this._isEdit()) this._respSel.removeAttribute('default-me');
+        }
     }
 
     get value() { return this._input ? this._input.value : ''; }
@@ -252,8 +256,7 @@ class TaskCreateFull extends WNElement {
         const due = (t.dueDate && /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?$/.test(t.dueDate)) ? t.dueDate : '';
         this._setDue(due);
         if (this._respSel) {
-            this._pendingResp = t.responsible || '';
-            if (this._peopleLoaded) this._respSel.value = this._pendingResp;
+            this._respSel.value = t.responsible || '';
         }
         if (this._goalSel) {
             this._pendingGoal = t.goalId || '';
@@ -327,40 +330,6 @@ class TaskCreateFull extends WNElement {
             this._duePicker.parentNode.removeChild(this._duePicker);
         }
         this._duePicker = null;
-    }
-
-    async _loadPeople() {
-        if (!this._respSel || this._peopleLoaded) return;
-        this._peopleLoaded = true;
-        const meKey = (typeof window !== 'undefined' && window.mePersonKey) || '';
-        try {
-            const peopleSvc = this.serviceFor('people');
-            let arr;
-            if (peopleSvc && typeof peopleSvc.list === 'function') {
-                arr = await peopleSvc.list();
-            } else {
-                const resp = await fetch('/api/people');
-                arr = await resp.json();
-            }
-            if (!Array.isArray(arr)) return;
-            const items = arr
-                .filter(p => p && p.key)
-                .map(p => ({ key: p.key, name: p.name || p.key, isMe: p.key === meKey }))
-                .sort((a, b) => {
-                    if (a.isMe !== b.isMe) return a.isMe ? -1 : 1;
-                    return a.name.localeCompare(b.name);
-                });
-            const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-            this._respSel.innerHTML =
-                '<option value="">(ingen)</option>' +
-                items.map(p => {
-                    const label = p.isMe ? `${esc(p.name)} (meg)` : esc(p.name);
-                    const selected = (p.isMe && !this._isEdit()) ? ' selected' : '';
-                    return `<option value="${esc(p.key)}"${selected}>${label}</option>`;
-                }).join('');
-            if (this._pendingResp != null) this._respSel.value = this._pendingResp;
-        } catch (_) { /* leave default */ }
     }
 
     async _loadGoals() {

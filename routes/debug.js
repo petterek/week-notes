@@ -1507,7 +1507,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             ['Notes',     ['markdown-preview', 'note-card', 'note-editor', 'note-meta-view', 'note-meta-panel', 'note-view']],
             ['Tasks',     ['task-add-modal', 'task-complete-modal', 'task-note', 'task-note-modal', 'task-open-list', 'task-completed', 'task-create', 'task-create-full', 'task-view']],
             ['Meetings',  ['meeting-create', 'meeting-create-modal', 'upcoming-meetings', 'today-calendar', 'week-notes-calendar']],
-            ['People',    ['company-card', 'entity-callout', 'entity-mention', 'people-page', 'person-card', 'place-card']],
+            ['People',    ['company-card', 'entity-callout', 'entity-mention', 'people-page', 'person-card', 'person-picker', 'place-card']],
             ['Results',   ['results-page', 'week-results']],
             ['Settings',  ['settings-page']],
             ['Composit',  ['week-list', 'week-section']],
@@ -2092,6 +2092,25 @@ modal.open();</pre>
                             refresh();
                         });
                     <\/script>`,
+            },
+            'person-picker': {
+                desc: `<p><strong>&lt;person-picker&gt;</strong> is a single-person picker. Renders a styled <code>&lt;select&gt;</code> populated from <code>people_service</code> (falls back to <code>fetch('/api/people')</code> if no service is configured). The <code>@me</code> person floats to the top with a "(meg)" suffix.</p>
+                    <p><strong>Domain:</strong> <code>people</code> &mdash; reads from <code>people_service</code>.</p>
+                    <p><strong>Attributes:</strong> <code>people_service</code>, <code>value</code> (initial key), <code>placeholder</code> (empty option text, default <code>(ingen)</code>), <code>default-me</code> (preselect @me when no value), <code>disabled</code>.</p>
+                    <p><strong>Properties:</strong> <code>.value</code> (string key), <code>.selectedPerson</code> (the loaded person object).</p>
+                    <p><strong>Events</strong> (bubbling, composed):</p>
+                    <ul>
+                        <li><code>change</code> with <code>{ value, person }</code> &mdash; user picked a person.</li>
+                        <li><code>people-loaded</code> with <code>{ count }</code> &mdash; option list populated.</li>
+                    </ul>`,
+                tag: 'person-picker',
+                attrs: [
+                    { name: 'people_service', type: 'text', default: 'MockPeopleService' },
+                    { name: 'value', type: 'text' },
+                    { name: 'placeholder', type: 'text', default: '(ingen)' },
+                    { name: 'default-me', type: 'bool' },
+                    { name: 'disabled', type: 'bool' },
+                ],
             },
             'place-card': {
                 desc: `<p><strong>&lt;place-card&gt;</strong> is a dumb presentation card for a single place. Used by <code>&lt;people-page&gt;</code> on the Steder tab.</p>
@@ -2995,6 +3014,7 @@ modal.open();</pre>
     <script type="module" src="/components/settings-page.js"></script>
     <script type="module" src="/components/company-card.js"></script>
     <script type="module" src="/components/person-card.js"></script>
+    <script type="module" src="/components/person-picker.js"></script>
     <script type="module" src="/components/place-card.js"></script>
     <script type="module" src="/components/entity-callout.js"></script>
 <script type="module" src="/components/entity-mention.js"></script>
