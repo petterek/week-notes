@@ -54,7 +54,7 @@ export function attachDateTrigger(el) {
         picker.addEventListener('datetime-selected', (e) => {
             insertValue(start, end, e.detail.value);
         });
-        picker.addEventListener('dateWeekSelected', (e) => {
+        picker.addEventListener('dateweek-selected', (e) => {
             insertValue(start, end, e.detail.value);
         });
         picker.addEventListener('datetime-cancelled', () => {
