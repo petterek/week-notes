@@ -55,7 +55,10 @@ export function attachDateTrigger(el) {
             insertValue(start, end, e.detail.value);
         });
         picker.addEventListener('dateweek-selected', (e) => {
-            insertValue(start, end, e.detail.value);
+            const v = String(e.detail.value || '');
+            const m = v.match(/^(\d{4})-W(\d{2})$/);
+            const text = m ? `Uke ${m[2]}, ${m[1]}` : v;
+            insertValue(start, end, text);
         });
         picker.addEventListener('datetime-cancelled', () => {
             closePicker();
