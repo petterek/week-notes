@@ -35,10 +35,12 @@ const STYLES = `
         background: var(--surface);
         color: var(--text-strong);
         border-radius: 10px;
-        max-width: 900px; width: 100%;
+        max-width: 95vw; width: 900px;
         box-shadow: 0 20px 60px rgba(0,0,0,0.3);
         display: flex; flex-direction: column;
-        max-height: 90vh;
+        max-height: 95vh; height: 80vh;
+        min-width: 360px; min-height: 240px;
+        resize: both; overflow: hidden;
     }
     .nv-head {
         display: flex; align-items: center; gap: 12px;
