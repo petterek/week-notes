@@ -326,8 +326,14 @@ class TaskCreateFull extends WNElement {
         this._peopleLoaded = true;
         const meKey = (typeof window !== 'undefined' && window.mePersonKey) || '';
         try {
-            const resp = await fetch('/api/people');
-            const arr = await resp.json();
+            const peopleSvc = this.serviceFor('people');
+            let arr;
+            if (peopleSvc && typeof peopleSvc.list === 'function') {
+                arr = await peopleSvc.list();
+            } else {
+                const resp = await fetch('/api/people');
+                arr = await resp.json();
+            }
             if (!Array.isArray(arr)) return;
             const items = arr
                 .filter(p => p && p.key)
@@ -342,7 +348,6 @@ class TaskCreateFull extends WNElement {
                 '<option value="">(ingen)</option>' +
                 items.map(p => {
                     const label = p.isMe ? `${esc(p.name)} (meg)` : esc(p.name);
-                    // In edit mode we'll set the value below; only auto-select me when creating.
                     const selected = (p.isMe && !this._isEdit()) ? ' selected' : '';
                     return `<option value="${esc(p.key)}"${selected}>${label}</option>`;
                 }).join('');
@@ -357,8 +362,14 @@ class TaskCreateFull extends WNElement {
             ? this._pendingGoal
             : (this.getAttribute('goal-id') || '');
         try {
-            const resp = await fetch('/api/goals');
-            const arr = await resp.json();
+            const goalsSvc = this.serviceFor('goals');
+            let arr;
+            if (goalsSvc && typeof goalsSvc.list === 'function') {
+                arr = await goalsSvc.list();
+            } else {
+                const resp = await fetch('/api/goals');
+                arr = await resp.json();
+            }
             if (!Array.isArray(arr)) return;
             const items = arr
                 .filter(g => g && g.id)

@@ -2252,7 +2252,7 @@ modal.open();</pre>
             'task-create-full': {
                 desc: `<p><strong>&lt;task-create-full&gt;</strong> is the expanded sibling of <code>&lt;task-create&gt;</code>. It renders a text input, an optional note textarea, and a meta-row with <em>Ansvarlig</em> (person picker, defaults to @me on create), <em>Mål</em> (goal picker, populated from <code>/api/goals</code>) and <em>Frist</em> (date), plus a submit button. Used by <code>&lt;task-add-modal&gt;</code>.</p>
                     <p><strong>Two modes.</strong> By default it creates a task via <code>service.create(text, opts)</code>. Set the <code>task-id</code> attribute (or the <code>el.task</code> property to a task object) and it switches to <strong>edit mode</strong>: the form prefills from the task and submit calls <code>service.update(id, patch)</code> instead. Button label defaults to <code>Lagre</code> when editing.</p>
-                    <p><strong>Domain:</strong> <code>tasks</code> &mdash; reads from <code>tasks_service</code>.</p>
+                    <p><strong>Domain:</strong> <code>tasks</code> &mdash; reads from <code>tasks_service</code>. Also reads <code>people_service</code> (Ansvarlig list) and <code>goals_service</code> (Mål list); both fall back to <code>fetch('/api/people')</code> / <code>fetch('/api/goals')</code> if no service attribute is set.</p>
                     <p><strong>Attributes:</strong> <code>placeholder</code>, <code>button-label</code>, <code>goal-id</code> (preselect goal), <code>week</code> (ISO YYYY-WNN, sent on create), <code>task-id</code> (switches to edit mode and fetches the task), <code>no-note</code> (hides the note textarea), <code>autofocus-on-connect</code>.</p>
                     <p><strong>Keyboard:</strong> Ctrl/⌘+Enter submits from any field.</p>
                     <p><strong>Events</strong> (bubbling, composed):</p>
@@ -2263,6 +2263,8 @@ modal.open();</pre>
                 tag: 'task-create-full',
                 attrs: [
                     { name: 'tasks_service', type: 'text', default: 'MockTaskService' },
+                    { name: 'people_service', type: 'text', default: 'MockPeopleService' },
+                    { name: 'goals_service', type: 'text', default: 'MockGoalsService' },
                     { name: 'placeholder', type: 'text', default: 'Ny oppgave...' },
                     { name: 'button-label', type: 'text' },
                     { name: 'goal-id', type: 'text' },
