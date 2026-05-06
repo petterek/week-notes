@@ -51,6 +51,7 @@ Stack:
 │       ├── misc.js      # /api/summarize, /api/search, /api/me, /api/app-settings, /api/embed*, /api/save*
 │       ├── tasks.js     # /api/tasks*, including /merge /reorder /:id/toggle /:id/close-from-note
 │       ├── results.js   # /api/results*
+│       ├── goals.js     # /api/goals*
 │       ├── people.js    # /api/people*
 │       ├── companies.js # /api/companies*
 │       ├── places.js    # /api/places*
@@ -67,6 +68,7 @@ Stack:
 │   ├── calendar.md
 │   ├── home.md
 │   ├── results.md
+│   ├── goals.md
 │   ├── contexts.md
 │   ├── git.md
 │   ├── presentations.md

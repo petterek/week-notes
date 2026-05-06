@@ -39,6 +39,12 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 - **Inactivate** to hide from autocomplete; **delete** uses tombstones so `@mentions` don't auto-recreate them
 - Result/outcome log per week
 
+### Goals 🏆
+- Long-term per-context goals (title, markdown description, optional target date, status `active` / `achieved` / `abandoned`)
+- Tasks and results can each be linked to a goal — the goal page rolls up progress from linked tasks
+- Dedicated `/goals` page with status-grouped list, plus an `<active-goals>` widget on the home sidebar
+- Snarvei `Alt+M`
+
 ### Contexts (multiple workspaces)
 Switch between completely isolated workspaces — e.g. **work**, **side-project**, **golf** — each with its own notes, tasks, people, meeting types, and settings.
 
@@ -179,6 +185,14 @@ No build step. No bundler. ~4300 lines of `server.js`.
 MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
+
+### 2026-05-06 (mål: nytt langsiktig mål-domene per kontekst)
+- **Ny feature `Mål` (Goals).** Per-kontekst langsiktige mål med tittel, beskrivelse (markdown), valgfri måldato og status (`active` / `achieved` / `abandoned`). Lagres i `data/<ctx>/goals.json`.
+- **Egen side `/goals`** (komponent `<goals-page>` i `domains/goals/`): grupperer mål etter status, viser progress per mål basert på antall fullførte vs åpne tasks koblet til målet, og lar deg opprette / redigere / sykle status / slette via modal. Resultater knyttet til målet vises også i kortet.
+- **Sidebar-widget `<active-goals>`** på hjemmesiden: kompakt liste over aktive mål med progress-bar, klikk for å hoppe til `/goals#g-<id>`.
+- **Task-redigerings-modal og Result-modal** har ny `Mål`-dropdown så hver task / result kan kobles til ett mål via `goalId`.
+- **API:** `GET/POST/PUT/DELETE /api/goals` med whitelist på status og `YYYY-MM-DD`-validering på `targetDate`. DELETE rydder også dangling `goalId` fra tasks/results slik at sletting aldri etterlater "døde" referanser.
+- **Snarvei `Alt+M`** og `🏆 Mål`-knapp i navbar.
 
 ### 2026-05-06 (week-calendar: ukenummer under mandag-overskriften)
 - Hver mandag-kolonne i `<week-calendar>` viser nå `Uke xx` rett under dato-overskriften, slik at flerukers visninger viser uka tydelig.

@@ -149,6 +149,12 @@ class TaskEditModal extends WNElement {
                             </select>
                         </div>
                         <div class="field">
+                            <label>Mål</label>
+                            <select data-el="goal">
+                                <option value="">(ingen)</option>
+                            </select>
+                        </div>
+                        <div class="field">
                             <label>Frist</label>
                             <div class="due-row">
                                 <button type="button" class="due-trigger empty" data-el="due-trigger">Velg tidspunkt…</button>
@@ -202,6 +208,7 @@ class TaskEditModal extends WNElement {
             this._loadPeople(t.responsible || '').then(() => {
                 if (resp) resp.value = t.responsible || '';
             });
+            this._loadGoals(t.goalId || '');
             if (text) {
                 text.focus();
                 try { text.setSelectionRange(text.value.length, text.value.length); } catch {}
@@ -242,6 +249,33 @@ class TaskEditModal extends WNElement {
         } catch {}
     }
 
+    async _loadGoals(currentId) {
+        const root = this.shadowRoot;
+        if (!root) return;
+        const sel = root.querySelector('[data-el="goal"]');
+        if (!sel) return;
+        try {
+            const resp = await fetch('/api/goals');
+            const arr = await resp.json();
+            if (!Array.isArray(arr)) return;
+            const items = arr
+                .filter(g => g && g.id)
+                .sort((a, b) => {
+                    const sa = a.status === 'active' ? 0 : 1;
+                    const sb = b.status === 'active' ? 0 : 1;
+                    if (sa !== sb) return sa - sb;
+                    return (a.title || '').localeCompare(b.title || '');
+                });
+            const opts = ['<option value="">(ingen)</option>'];
+            for (const g of items) {
+                const icon = g.status === 'achieved' ? '🏆 ' : g.status === 'abandoned' ? '🗑️ ' : '🎯 ';
+                opts.push(`<option value="${escapeHtml(g.id)}">${escapeHtml(icon + (g.title || ''))}</option>`);
+            }
+            sel.innerHTML = opts.join('');
+            if (currentId) sel.value = currentId;
+        } catch {}
+    }
+
     _currentId() {
         return (this._data && this._data.task && this._data.task.id) || null;
     }
@@ -270,10 +304,12 @@ class TaskEditModal extends WNElement {
         const note = (root.querySelector('[data-el="note"]') || {}).value || '';
         const due  = (root.querySelector('[data-el="due"]')  || {}).value || '';
         const resp = (root.querySelector('[data-el="responsible"]') || {}).value || '';
+        const goal = (root.querySelector('[data-el="goal"]') || {}).value || '';
         const patch = {
             text: text.trim(),
             note: note,
             responsible: resp,
+            goalId: goal,
             // Always send dueDate so server can clear it when blank.
             dueDate: due,
         };

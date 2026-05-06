@@ -30,6 +30,7 @@ const handlers = [
     require('./routes/tasks-page')(deps),
     require('./routes/api/tasks')(deps),
     require('./routes/api/results')(deps),
+    require('./routes/api/goals')(deps),
     require('./routes/api/people')(deps),
     require('./routes/api/companies')(deps),
     require('./routes/api/places')(deps),
