@@ -16,7 +16,7 @@
  * Goals carry an optional `targetDate` (YYYY-MM-DD) and one of three
  * statuses: 'active', 'achieved', 'abandoned'.
  */
-import { WNElement, html, unsafeHTML, escapeHtml, isoWeek } from './_shared.js';
+import { WNElement, html, unsafeHTML, escapeHtml } from './_shared.js';
 
 const STATUS_LABEL = { active: 'Aktiv', achieved: 'Oppnådd', abandoned: 'Forlatt' };
 const STATUS_ICON  = { active: '🎯', achieved: '🏆', abandoned: '🗑️' };
@@ -123,22 +123,7 @@ const STYLES = `
     }
     .gp-detail li a.wk:hover { color: var(--accent); text-decoration: underline; }
     .gp-detail .empty { color: var(--text-subtle); font-style: italic; font-size: 0.9em; }
-    .gp-quickadd {
-        display: flex; gap: 6px; margin-top: 6px;
-    }
-    .gp-quickadd input {
-        flex: 1; padding: 6px 8px; border: 1px solid var(--border-soft);
-        border-radius: 5px; background: var(--bg);
-        color: var(--text-strong); font: inherit; font-size: 0.92em;
-    }
-    .gp-quickadd input:focus { border-color: var(--accent); outline: none; }
-    .gp-quickadd button {
-        padding: 6px 12px; border: 1px solid var(--accent); border-radius: 5px;
-        background: var(--accent); color: var(--text-on-accent, #fff);
-        font: inherit; font-size: 0.9em; font-weight: 600; cursor: pointer;
-    }
-    .gp-quickadd button:hover { filter: brightness(0.95); }
-    .gp-quickadd button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .gp-quickadd { margin-top: 8px; }
 
     .modal {
         position: fixed; inset: 0; background: rgba(0,0,0,0.5);
@@ -263,16 +248,8 @@ class GoalsPage extends WNElement {
         if (this._wired) return;
         this._wired = true;
         this.shadowRoot.addEventListener('click', (e) => this._onClick(e));
-        this.shadowRoot.addEventListener('keydown', (e) => {
-            if (e.key !== 'Enter') return;
-            const t = e.target;
-            if (!t || !t.classList || !t.classList.contains('gp-quickadd-input')) return;
-            e.preventDefault();
-            const id = t.dataset.id;
-            const kind = t.dataset.kind;
-            if (kind === 'task') this._quickAddTask(id);
-            else if (kind === 'result') this._quickAddResult(id);
-        });
+        this.shadowRoot.addEventListener('task:created', () => this._load());
+        this.shadowRoot.addEventListener('result:created', () => this._load());
     }
 
     _onClick(e) {
@@ -293,10 +270,6 @@ class GoalsPage extends WNElement {
         if (delBtn) { this._delete(delBtn.dataset.id); return; }
         const titleEl = path.find(n => n.classList && n.classList.contains('gp-title'));
         if (titleEl && titleEl.dataset.id) { this._toggleExpanded(titleEl.dataset.id); return; }
-        const addTaskBtn = path.find(n => n.dataset && n.dataset.act === 'add-task');
-        if (addTaskBtn) { this._quickAddTask(addTaskBtn.dataset.id); return; }
-        const addResBtn = path.find(n => n.dataset && n.dataset.act === 'add-result');
-        if (addResBtn) { this._quickAddResult(addResBtn.dataset.id); return; }
         const backdrop = path.find(n => n.classList && n.classList.contains('modal'));
         if (backdrop && e.target === backdrop) { this._closeModal(); return; }
         if (path.find(n => n.classList && n.classList.contains('modal-close'))) { this._closeModal(); return; }
@@ -308,36 +281,6 @@ class GoalsPage extends WNElement {
         if (this._expanded.has(id)) this._expanded.delete(id);
         else this._expanded.add(id);
         this.requestRender();
-    }
-
-    async _quickAddTask(goalId) {
-        const root = this.shadowRoot;
-        const input = root.querySelector(`.gp-quickadd-input[data-kind="task"][data-id="${goalId}"]`);
-        if (!input) return;
-        const text = (input.value || '').trim();
-        if (!text) return;
-        const tasksSvc = this.serviceFor('tasks');
-        if (!tasksSvc || !tasksSvc.create) { alert('Tasks-tjeneste ikke tilgjengelig'); return; }
-        try {
-            await tasksSvc.create(text, { week: isoWeek(new Date()), goalId });
-            input.value = '';
-            await this._load();
-        } catch (e) { alert((e && e.message) || 'Feil'); }
-    }
-
-    async _quickAddResult(goalId) {
-        const root = this.shadowRoot;
-        const input = root.querySelector(`.gp-quickadd-input[data-kind="result"][data-id="${goalId}"]`);
-        if (!input) return;
-        const text = (input.value || '').trim();
-        if (!text) return;
-        const resSvc = this.serviceFor('results');
-        if (!resSvc || !resSvc.create) { alert('Resultat-tjeneste ikke tilgjengelig'); return; }
-        try {
-            await resSvc.create({ text, week: isoWeek(new Date()), goalId });
-            input.value = '';
-            await this._load();
-        } catch (e) { alert((e && e.message) || 'Feil'); }
     }
 
     _onKey(e) {
@@ -479,9 +422,11 @@ class GoalsPage extends WNElement {
                             </li>
                         `)}</ul>`}
                     <div class="gp-quickadd">
-                        <input type="text" class="gp-quickadd-input" data-kind="task" data-id="${g.id}"
-                            placeholder="➕ Ny oppgave – Enter for å lagre" />
-                        <button type="button" data-act="add-task" data-id="${g.id}">Legg til</button>
+                        <task-create compact
+                            tasks_service="week-note-services.tasks_service"
+                            goal-id="${g.id}"
+                            placeholder="➕ Ny oppgave knyttet til dette målet"
+                            button-label="Legg til"></task-create>
                     </div>
                 </div>
                 <div>
@@ -496,9 +441,11 @@ class GoalsPage extends WNElement {
                             </li>
                         `)}</ul>`}
                     <div class="gp-quickadd">
-                        <input type="text" class="gp-quickadd-input" data-kind="result" data-id="${g.id}"
-                            placeholder="➕ Nytt resultat – Enter for å lagre" />
-                        <button type="button" data-act="add-result" data-id="${g.id}">Legg til</button>
+                        <result-create compact
+                            results_service="week-note-services.results_service"
+                            goal-id="${g.id}"
+                            placeholder="➕ Nytt resultat knyttet til dette målet"
+                            button-label="Legg til"></result-create>
                     </div>
                 </div>
             </div>

@@ -193,6 +193,10 @@ class TaskCreate extends WNElement {
             if (this._respSel) opts.responsible = this._respSel.value || '';
             if (this._dueIn && this._dueIn.value) opts.dueDate = this._dueIn.value;
         }
+        const goalId = this.getAttribute('goal-id');
+        if (goalId) opts.goalId = goalId;
+        const week = this.getAttribute('week');
+        if (week) opts.week = week;
         this._btn.disabled = true;
         try {
             const tasks = await svc.create(text, opts);
