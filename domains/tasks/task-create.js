@@ -82,7 +82,10 @@ class TaskCreate extends WNElement {
             }
         });
         this._apply();
-        if (this.hasAttribute('full')) this._loadPeople();
+        if (this.hasAttribute('full')) {
+            this._loadPeople();
+            this._loadGoals();
+        }
         if (this.hasAttribute('autofocus-on-connect')) {
             setTimeout(() => this._input && this._input.focus(), 0);
         }
@@ -93,7 +96,10 @@ class TaskCreate extends WNElement {
         if (this.shadowRoot && oldVal !== newVal) {
             this._refreshRefs();
             this._apply();
-            if (name === 'full' && this.hasAttribute('full')) this._loadPeople();
+            if (name === 'full' && this.hasAttribute('full')) {
+                this._loadPeople();
+                this._loadGoals();
+            }
         }
     }
 
@@ -108,6 +114,12 @@ class TaskCreate extends WNElement {
                         <label>
                             <span>Ansvarlig:</span>
                             <select class="sel" data-el="responsible">
+                                <option value="">(ingen)</option>
+                            </select>
+                        </label>
+                        <label>
+                            <span>Mål:</span>
+                            <select class="sel" data-el="goal">
                                 <option value="">(ingen)</option>
                             </select>
                         </label>
@@ -138,6 +150,7 @@ class TaskCreate extends WNElement {
         this._btn   = root.querySelector('[data-el="submit"]');
         this._err   = root.querySelector('[data-err]');
         this._respSel = root.querySelector('[data-el="responsible"]');
+        this._goalSel = root.querySelector('[data-el="goal"]');
         this._dueIn   = root.querySelector('[data-el="due"]');
     }
 
@@ -178,6 +191,34 @@ class TaskCreate extends WNElement {
         } catch (_) { /* leave the empty option */ }
     }
 
+    async _loadGoals() {
+        if (!this._goalSel || this._goalsLoaded) return;
+        this._goalsLoaded = true;
+        const preselect = this.getAttribute('goal-id') || '';
+        try {
+            const resp = await fetch('/api/goals');
+            const arr = await resp.json();
+            if (!Array.isArray(arr)) return;
+            const items = arr
+                .filter(g => g && g.id)
+                .sort((a, b) => {
+                    const sa = a.status === 'active' ? 0 : 1;
+                    const sb = b.status === 'active' ? 0 : 1;
+                    if (sa !== sb) return sa - sb;
+                    return (a.title || '').localeCompare(b.title || '');
+                });
+            const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            this._goalSel.innerHTML =
+                '<option value="">(ingen)</option>' +
+                items.map(g => {
+                    const icon = g.status === 'achieved' ? '🏆 ' : g.status === 'abandoned' ? '🗑️ ' : '🎯 ';
+                    return `<option value="${esc(g.id)}">${esc(icon + (g.title || ''))}</option>`;
+                }).join('');
+            if (preselect) this._goalSel.value = preselect;
+        } catch (_) { /* leave the empty option */ }
+    }
+
     async _submit() {
         if (!this._input || !this._btn || !this._err) return;
         const text = (this._input.value || '').trim();
@@ -192,9 +233,12 @@ class TaskCreate extends WNElement {
         if (this.hasAttribute('full')) {
             if (this._respSel) opts.responsible = this._respSel.value || '';
             if (this._dueIn && this._dueIn.value) opts.dueDate = this._dueIn.value;
+            if (this._goalSel && this._goalSel.value) opts.goalId = this._goalSel.value;
         }
-        const goalId = this.getAttribute('goal-id');
-        if (goalId) opts.goalId = goalId;
+        if (!opts.goalId) {
+            const goalId = this.getAttribute('goal-id');
+            if (goalId) opts.goalId = goalId;
+        }
         const week = this.getAttribute('week');
         if (week) opts.week = week;
         this._btn.disabled = true;
