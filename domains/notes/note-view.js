@@ -73,6 +73,19 @@ const STYLES = `
         line-height: 1.55;
     }
     .nv-body :first-child { margin-top: 0; }
+    .nv-body table {
+        border-collapse: collapse;
+        margin: 0.6em 0;
+        max-width: 100%;
+    }
+    .nv-body th, .nv-body td {
+        border: 1px solid var(--border);
+        padding: 4px 10px;
+        text-align: left;
+        vertical-align: top;
+    }
+    .nv-body th { background: var(--surface-head); font-weight: 600; color: var(--text-strong); }
+    .nv-body tr:nth-child(even) td { background: var(--surface-alt); }
     .nv-loading, .nv-error {
         color: var(--text-muted); font-style: italic; padding: 16px 0;
     }
