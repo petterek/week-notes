@@ -43,10 +43,11 @@
  * Submit shortcut: Ctrl/Cmd+Enter while in any field.
  */
 import { WNElement, html } from './_shared.js';
+import '/components/date-time-picker.js';
 
 const CSS = `
     :host { display: block; box-sizing: border-box; }
-    input.txt, select.sel, input.date, textarea.note {
+    input.txt, select.sel, textarea.note {
         padding: 10px 14px; min-width: 0;
         border: 2px solid var(--border-soft);
         border-radius: 8px; font-size: 1em; outline: none;
@@ -55,7 +56,7 @@ const CSS = `
     }
     input.txt, textarea.note { width: 100%; box-sizing: border-box; }
     textarea.note { resize: vertical; min-height: 60px; line-height: 1.4; }
-    input.txt:focus, select.sel:focus, input.date:focus, textarea.note:focus {
+    input.txt:focus, select.sel:focus, textarea.note:focus {
         border-color: var(--accent);
     }
     button.btn {
@@ -69,13 +70,30 @@ const CSS = `
     .err { color: var(--danger); font-size: 0.8em; margin-top: 4px; min-height: 1em; }
 
     .form { display: grid; grid-template-columns: 1fr; gap: 8px; }
-    .meta-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .meta-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .meta-row label {
         display: flex; align-items: center; gap: 6px;
         color: var(--text-muted); font-size: 0.9em;
     }
     .actions { display: flex; justify-content: flex-end; gap: 8px; }
     :host([no-note]) textarea.note { display: none; }
+
+    .due-row { display: inline-flex; gap: 4px; align-items: stretch; }
+    .due-trigger {
+        text-align: left;
+        background: var(--bg); color: var(--text);
+        border: 2px solid var(--border-soft); border-radius: 8px;
+        padding: 8px 12px; font: inherit; font-size: 0.95em;
+        cursor: pointer; min-width: 140px;
+    }
+    .due-trigger:hover { border-color: var(--accent); }
+    .due-trigger.empty { color: var(--text-subtle); }
+    .due-clear {
+        border: 2px solid var(--border-soft); background: var(--bg);
+        color: var(--text-muted); border-radius: 8px;
+        padding: 0 10px; cursor: pointer; font: inherit;
+    }
+    .due-clear:hover { color: var(--text-strong); border-color: var(--accent); }
 `;
 
 class TaskCreateFull extends WNElement {
@@ -94,8 +112,13 @@ class TaskCreateFull extends WNElement {
         this._input.addEventListener('keydown', onKey);
         this._respSel && this._respSel.addEventListener('keydown', onKey);
         this._goalSel && this._goalSel.addEventListener('keydown', onKey);
-        this._dueIn   && this._dueIn.addEventListener('keydown', onKey);
         this._noteIn  && this._noteIn.addEventListener('keydown', onKey);
+        this._dueTrig && this._dueTrig.addEventListener('click', e => {
+            e.stopPropagation(); this._openDuePicker();
+        });
+        this._dueClr  && this._dueClr.addEventListener('click', e => {
+            e.stopPropagation(); this._setDue('');
+        });
         this._apply();
         this._loadPeople();
         this._loadGoals();
@@ -104,6 +127,11 @@ class TaskCreateFull extends WNElement {
         if (this.hasAttribute('autofocus-on-connect')) {
             setTimeout(() => this._input && this._input.focus(), 0);
         }
+    }
+
+    disconnectedCallback() {
+        super.disconnectedCallback && super.disconnectedCallback();
+        this._closeDuePicker();
     }
 
     attributeChangedCallback(name, oldVal, newVal) {
@@ -150,7 +178,11 @@ class TaskCreateFull extends WNElement {
                     </label>
                     <label>
                         <span>Frist:</span>
-                        <input class="date" type="date" data-el="due" />
+                        <span class="due-row">
+                            <button type="button" class="due-trigger empty" data-el="due-trigger">Velg tidspunkt…</button>
+                            <button type="button" class="due-clear" data-el="due-clear" title="Fjern frist">✕</button>
+                        </span>
+                        <input type="hidden" data-el="due" />
                     </label>
                 </div>
                 <div class="actions">
@@ -170,6 +202,8 @@ class TaskCreateFull extends WNElement {
         this._respSel = root.querySelector('[data-el="responsible"]');
         this._goalSel = root.querySelector('[data-el="goal"]');
         this._dueIn   = root.querySelector('[data-el="due"]');
+        this._dueTrig = root.querySelector('[data-el="due-trigger"]');
+        this._dueClr  = root.querySelector('[data-el="due-clear"]');
     }
 
     get value() { return this._input ? this._input.value : ''; }
@@ -207,9 +241,9 @@ class TaskCreateFull extends WNElement {
         const t = this._task;
         this._input.value = t.text || '';
         if (this._noteIn) this._noteIn.value = t.note || '';
-        if (this._dueIn)  this._dueIn.value = t.dueDate ? String(t.dueDate).slice(0, 10) : '';
+        const due = (t.dueDate && /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?$/.test(t.dueDate)) ? t.dueDate : '';
+        this._setDue(due);
         if (this._respSel) {
-            // _loadPeople may finish later; remember the desired value.
             this._pendingResp = t.responsible || '';
             if (this._peopleLoaded) this._respSel.value = this._pendingResp;
         }
@@ -218,6 +252,73 @@ class TaskCreateFull extends WNElement {
             if (this._goalsLoaded) this._goalSel.value = this._pendingGoal;
         }
         this._apply();
+    }
+
+    _setDue(value) {
+        if (this._dueIn) this._dueIn.value = value || '';
+        this._updateDueTrigger(value);
+    }
+
+    _updateDueTrigger(value) {
+        if (!this._dueTrig) return;
+        if (value) {
+            this._dueTrig.textContent = value;
+            this._dueTrig.classList.remove('empty');
+        } else {
+            this._dueTrig.textContent = 'Velg tidspunkt…';
+            this._dueTrig.classList.add('empty');
+        }
+    }
+
+    _openDuePicker() {
+        this._closeDuePicker();
+        if (!this._dueTrig) return;
+        const picker = document.createElement('date-time-picker');
+        picker.setAttribute('mode', 'datetime');
+        const current = (this._dueIn && this._dueIn.value) || '';
+        if (current) picker.setAttribute('value', current);
+        picker.style.cssText = 'position:fixed;z-index:9999;visibility:hidden;left:-9999px;top:0';
+        document.body.appendChild(picker);
+        this._duePicker = picker;
+        const place = () => {
+            const rect = this._dueTrig.getBoundingClientRect();
+            const w = picker.offsetWidth || 252;
+            const h = picker.offsetHeight || 280;
+            let left = rect.left;
+            let top = rect.bottom + 4;
+            if (left + w > window.innerWidth - 8) left = Math.max(8, window.innerWidth - w - 8);
+            if (top + h > window.innerHeight - 8) top = Math.max(8, rect.top - h - 4);
+            picker.style.left = left + 'px';
+            picker.style.top = top + 'px';
+            picker.style.visibility = 'visible';
+        };
+        requestAnimationFrame(place);
+        const onSelected = e => {
+            const v = (e && e.detail && e.detail.value) || '';
+            this._setDue(v);
+            this._closeDuePicker();
+        };
+        const onCancelled = () => this._closeDuePicker();
+        const onOutside = e => {
+            if (!this._duePicker) return;
+            if (e.target === picker || picker.contains(e.target)) return;
+            this._closeDuePicker();
+        };
+        picker.addEventListener('datetime-selected', onSelected);
+        picker.addEventListener('datetime-cancelled', onCancelled);
+        document.addEventListener('mousedown', onOutside, true);
+        this._dueOutsideHandler = onOutside;
+    }
+
+    _closeDuePicker() {
+        if (this._dueOutsideHandler) {
+            document.removeEventListener('mousedown', this._dueOutsideHandler, true);
+            this._dueOutsideHandler = null;
+        }
+        if (this._duePicker && this._duePicker.parentNode) {
+            this._duePicker.parentNode.removeChild(this._duePicker);
+        }
+        this._duePicker = null;
     }
 
     async _loadPeople() {
@@ -337,7 +438,7 @@ class TaskCreateFull extends WNElement {
                 const task = Array.isArray(tasks) ? tasks[tasks.length - 1] : null;
                 this._input.value = '';
                 if (this._noteIn) this._noteIn.value = '';
-                if (this._dueIn) this._dueIn.value = '';
+                this._setDue('');
                 this._input.focus();
                 this.dispatchEvent(new CustomEvent('task:created', {
                     bubbles: true, composed: true,
