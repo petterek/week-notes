@@ -87,6 +87,22 @@ const STYLES = `
         display: block; height: 100%; background: var(--accent);
         border-radius: 3px;
     }
+    .gp-value {
+        display: flex; align-items: center; gap: 10px;
+        margin: 6px 0 8px; font-size: 0.92em;
+    }
+    .gp-value .gp-vbar {
+        flex: 1; max-width: 220px; height: 8px;
+        background: var(--surface-head); border-radius: 4px; overflow: hidden;
+        position: relative;
+    }
+    .gp-value .gp-vbar > i {
+        display: block; height: 100%; background: var(--accent);
+        border-radius: 4px;
+    }
+    .gp-value .gp-vbar.done > i { background: var(--success, var(--accent)); }
+    .gp-value .gp-vnum { color: var(--text-strong); font-variant-numeric: tabular-nums; }
+    .gp-value .gp-vnum b { font-weight: 600; }
 
     .gp-empty { color: var(--text-subtle); font-style: italic; margin-top: 8px; }
     .gp-loading, .gp-error { padding: 24px; text-align: center; color: var(--text-muted); font-style: italic; }
@@ -277,6 +293,29 @@ class GoalsPage extends WNElement {
         if (path.find(n => n.dataset && n.dataset.act === 'save')) { this._save(); return; }
     }
 
+    _renderValue(g) {
+        const fmt = n => {
+            if (n == null || !Number.isFinite(n)) return '';
+            const s = Math.abs(n) >= 1000 ? Math.round(n).toLocaleString('no-NO')
+                : (Math.round(n * 100) / 100).toString();
+            return s;
+        };
+        const target = g.targetValue;
+        const current = (g.currentValue != null) ? g.currentValue : 0;
+        const unit = g.unit ? ' ' + g.unit : '';
+        const has = g.currentValue != null;
+        const pct = target ? Math.max(0, Math.min(100, Math.round((current / target) * 100))) : 0;
+        const done = target != null && current >= target;
+        return html`
+            <span class="gp-vnum">
+                ${has ? html`<b>${fmt(current)}</b>` : html`<i style="color:var(--text-subtle)">—</i>`}
+                ${' / '}<b>${fmt(target)}</b>${unit}
+                ${has && target ? html`<span style="color:var(--text-subtle); margin-left:6px;">(${pct}%)</span>` : ''}
+            </span>
+            ${target ? unsafeHTML(`<span class="gp-vbar${done ? ' done' : ''}"><i style="width:${pct}%"></i></span>`) : ''}
+        `;
+    }
+
     _toggleExpanded(id) {
         if (this._expanded.has(id)) this._expanded.delete(id);
         else this._expanded.add(id);
@@ -290,7 +329,8 @@ class GoalsPage extends WNElement {
     }
 
     _openNew() {
-        this._modal = { mode: 'new', title: '', description: '', targetDate: '', status: 'active' };
+        this._modal = { mode: 'new', title: '', description: '', targetDate: '', status: 'active',
+            targetValue: '', currentValue: '', unit: '' };
         this.requestRender();
         this._focusModalInput();
     }
@@ -302,6 +342,9 @@ class GoalsPage extends WNElement {
             description: g.description || '',
             targetDate: g.targetDate || '',
             status: g.status || 'active',
+            targetValue: g.targetValue != null ? String(g.targetValue) : '',
+            currentValue: g.currentValue != null ? String(g.currentValue) : '',
+            unit: g.unit || '',
         };
         this.requestRender();
         this._focusModalInput();
@@ -323,15 +366,27 @@ class GoalsPage extends WNElement {
         const description = root.getElementById('gpModalDesc').value || '';
         const targetDate = (root.getElementById('gpModalDate').value || '').trim();
         const status = root.getElementById('gpModalStatus').value || 'active';
+        const targetValueRaw = (root.getElementById('gpModalTargetValue').value || '').trim();
+        const currentValueRaw = (root.getElementById('gpModalCurrentValue').value || '').trim();
+        const unit = (root.getElementById('gpModalUnit').value || '').trim();
         if (!title) return;
+        const toNum = s => { if (s === '') return null; const n = Number(s); return Number.isFinite(n) ? n : null; };
+        const targetValue = toNum(targetValueRaw);
+        const currentValue = toNum(currentValueRaw);
         try {
             if (this._modal.mode === 'new') {
-                await this.service.create({ title, description, targetDate, status });
+                await this.service.create({
+                    title, description, targetDate, status,
+                    targetValue, currentValue, unit,
+                });
             } else {
                 await this.service.update(this._modal.id, {
                     title, description,
                     targetDate: targetDate || null,
                     status,
+                    targetValue: targetValueRaw === '' ? null : targetValue,
+                    currentValue: currentValueRaw === '' ? null : currentValue,
+                    unit: unit === '' ? null : unit,
                 });
             }
             this._modal = null;
@@ -383,6 +438,7 @@ class GoalsPage extends WNElement {
                     <button class="gp-act gp-del" data-id="${g.id}" title="Slett">✕</button>
                 </div>
                 ${g.description ? html`<div class="gp-desc">${g.description}</div>` : ''}
+                ${g.targetValue != null ? html`<div class="gp-value">${this._renderValue(g)}</div>` : ''}
                 <div class="gp-meta">
                     ${g.targetDate ? unsafeHTML(`<span class="due${dueOverdue ? ' overdue' : ''}">📅 ${escapeHtml(g.targetDate)}</span>`) : ''}
                     <span class="gp-progress">
@@ -472,6 +528,17 @@ class GoalsPage extends WNElement {
                         <label>Måldato (valgfritt)
                             <input type="date" id="gpModalDate" value="${this._modal.targetDate || ''}" />
                         </label>
+                        <div style="display:flex; gap:8px; align-items:flex-end;">
+                            <label style="flex:1;">Nåverdi (valgfritt)
+                                <input type="number" step="any" id="gpModalCurrentValue" value="${this._modal.currentValue || ''}" placeholder="0" />
+                            </label>
+                            <label style="flex:1;">Målverdi (valgfritt)
+                                <input type="number" step="any" id="gpModalTargetValue" value="${this._modal.targetValue || ''}" placeholder="100" />
+                            </label>
+                            <label style="flex:0 0 90px;">Enhet
+                                <input type="text" id="gpModalUnit" value="${this._modal.unit || ''}" placeholder="kg, NOK, …" maxlength="16" />
+                            </label>
+                        </div>
                         <label>Status
                             <select id="gpModalStatus">
                                 <option value="active" ${this._modal.status === 'active' ? 'selected' : ''}>🎯 Aktiv</option>

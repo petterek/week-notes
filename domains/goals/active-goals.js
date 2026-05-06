@@ -107,12 +107,21 @@ class ActiveGoals extends WNElement {
             const total = linked.length;
             const pct = total === 0 ? 0 : Math.round((done / total) * 100);
             const overdue = g.targetDate && g.targetDate < today;
+            const hasVal = g.targetValue != null;
+            const cur = g.currentValue != null ? g.currentValue : 0;
+            const valPct = hasVal && g.targetValue
+                ? Math.max(0, Math.min(100, Math.round((cur / g.targetValue) * 100)))
+                : 0;
+            const fmt = n => Number.isFinite(n)
+                ? (Math.abs(n) >= 1000 ? Math.round(n).toLocaleString('no-NO') : (Math.round(n * 100) / 100).toString())
+                : '';
             return html`
                 <div class="goal" data-id="${g.id}" title="${g.description || ''}">
                     <div class="goal-title">${g.title}</div>
                     <div class="goal-meta">
                         <span class="bar"><i style="width:${pct}%"></i></span>
                         <span>${done}/${total}</span>
+                        ${hasVal ? html`<span title="Verdi">${fmt(cur)}/${fmt(g.targetValue)}${g.unit ? ' ' + g.unit : ''}${g.targetValue ? ' (' + valPct + '%)' : ''}</span>` : ''}
                         ${g.targetDate ? html`<span class="${'due' + (overdue ? ' overdue' : '')}">${g.targetDate.slice(5)}</span>` : ''}
                     </div>
                 </div>

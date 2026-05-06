@@ -9,6 +9,12 @@ module.exports = function(deps) {
         return 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     }
 
+    function toNum(v) {
+        if (v === null || v === undefined || v === '') return null;
+        const n = Number(v);
+        return Number.isFinite(n) ? n : null;
+    }
+
     function sanitize(g) {
         if (!g) return null;
         const out = {
@@ -22,6 +28,11 @@ module.exports = function(deps) {
         if (g.targetDate && /^\d{4}-\d{2}-\d{2}$/.test(String(g.targetDate).trim())) {
             out.targetDate = String(g.targetDate).trim();
         }
+        const tv = toNum(g.targetValue);
+        if (tv !== null) out.targetValue = tv;
+        const cv = toNum(g.currentValue);
+        if (cv !== null) out.currentValue = cv;
+        if (g.unit && String(g.unit).trim()) out.unit = String(g.unit).trim().slice(0, 16);
         if (g.achievedAt) out.achievedAt = g.achievedAt;
         return out;
     }
@@ -49,6 +60,9 @@ module.exports = function(deps) {
                 description: data.description || '',
                 status: data.status || 'active',
                 targetDate: data.targetDate,
+                targetValue: data.targetValue,
+                currentValue: data.currentValue,
+                unit: data.unit,
                 created: new Date().toISOString(),
             });
             const all = loadGoals();
@@ -78,6 +92,22 @@ module.exports = function(deps) {
                 delete g.targetDate;
             } else if (typeof data.targetDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(data.targetDate.trim())) {
                 g.targetDate = data.targetDate.trim();
+            }
+            if ('targetValue' in data) {
+                const v = toNum(data.targetValue);
+                if (v === null) delete g.targetValue; else g.targetValue = v;
+            }
+            if ('currentValue' in data) {
+                const v = toNum(data.currentValue);
+                if (v === null) delete g.currentValue; else g.currentValue = v;
+            }
+            if ('unit' in data) {
+                if (data.unit === null || data.unit === '' || typeof data.unit !== 'string') {
+                    delete g.unit;
+                } else {
+                    g.unit = data.unit.trim().slice(0, 16);
+                    if (!g.unit) delete g.unit;
+                }
             }
             g.updated = new Date().toISOString();
             saveGoals(goals);
