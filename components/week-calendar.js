@@ -53,6 +53,18 @@ const DAY_NAMES = ['Mandag', 'Tirsdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lørdag'
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 
+function isoWeekOf(d) {
+    const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    const dow = (t.getUTCDay() + 6) % 7;
+    t.setUTCDate(t.getUTCDate() - dow + 3);
+    const year = t.getUTCFullYear();
+    const jan4 = new Date(Date.UTC(year, 0, 4));
+    const jan4Dow = (jan4.getUTCDay() + 6) % 7;
+    const week1Mon = new Date(jan4);
+    week1Mon.setUTCDate(jan4.getUTCDate() - jan4Dow);
+    return Math.round((t - week1Mon) / (7 * 24 * 3600 * 1000)) + 1;
+}
+
 function parseDate(s) {
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || '');
     if (!m) return null;
@@ -124,7 +136,7 @@ function buildCss(hourPx, hourSpan, dayCount) {
         .head.today .day-num { color: var(--accent); font-weight: 700; }
         .head .day-num { font-size: 1em; font-weight: 600; color: var(--text-strong); }
         .head .day-label { text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.8; }
-        .corner { background: var(--surface); position: sticky; top: 0; left: 0; z-index: 5; }
+        .corner { background: var(--surface); position: sticky; top: 0; left: 0; z-index: 5; display: flex; align-items: center; justify-content: center; font-size: 0.78em; font-weight: 600; color: var(--text-strong); letter-spacing: 0.04em; padding: 2px 4px; }
         .hours { background: var(--surface); }
         .hour { height: ${hourPx}px; border-bottom: 1px solid var(--border-soft); padding: 2px 6px; font-size: 0.75em; color: var(--text-muted); text-align: right; box-sizing: border-box; }
         .col { background: var(--surface); position: relative; min-height: ${hourPx * hourSpan}px; }
@@ -366,6 +378,7 @@ class WeekCalendar extends WNElement {
                     isToday: iso === todayStr,
                     workIdx: idx,
                     special: sp,
+                    weekday: idx,
                 });
             }
             cur.setUTCDate(cur.getUTCDate() + 1);
@@ -426,9 +439,15 @@ class WeekCalendar extends WNElement {
             return `<div class="${colCls.join(' ')}" data-date="${d.iso}">${band}${lines.join('')}${(itemsByDay[d.iso] || '')}${now}</div>`;
         }).join('');
 
+        const firstMonday = days.find(d => d.weekday === 0) || days[0];
+        let cornerLabel = '';
+        if (firstMonday) {
+            const fmDate = parseDate(firstMonday.iso);
+            if (fmDate) cornerLabel = `Uke ${pad2(isoWeekOf(fmDate))}`;
+        }
         const alldayRow = `<div class="allday-corner" title="Heldagshendelser">heldag</div>`
             + `<div class="allday-track" data-allday-track style="grid-column: 2 / span ${days.length}; height:${trackHeight}px">${alldayHtml}</div>`;
-        const markup = `<div class="grid"><div class="corner"></div>${dayHeads}${alldayRow}<div class="hours">${hourCells.join('')}</div>${dayCols}</div>`;
+        const markup = `<div class="grid"><div class="corner" title="Ukenummer">${escapeHtml(cornerLabel)}</div>${dayHeads}${alldayRow}<div class="hours">${hourCells.join('')}</div>${dayCols}</div>`;
 
         // Wire events after render
         setTimeout(() => this._wireItemEvents(), 0);
