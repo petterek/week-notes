@@ -17,6 +17,7 @@
  *
  * Events (bubbling, composed):
  *   datetime-selected  detail: { value }   — user clicked OK
+ *   dateWeekSelected   detail: { value }   — user pressed 'w'; value is YYYY-Www
  *   datetime-cancelled                       — user clicked Avbryt / Esc
  */
 import { WNElement, html, escapeHtml } from './_shared.js';
@@ -515,8 +516,8 @@ class DateTimePicker extends WNElement {
 
     _commitWeek() {
         const value = isoWeek(this._selected);
-        this.dispatchEvent(new CustomEvent('datetime-selected', {
-            detail: { value, kind: 'week' }, bubbles: true, composed: true,
+        this.dispatchEvent(new CustomEvent('dateWeekSelected', {
+            detail: { value }, bubbles: true, composed: true,
         }));
     }
 

@@ -1513,7 +1513,7 @@ document.addEventListener('keydown', function(e) {
                 <div class="cal-col-body" style="height:${(HOUR_END - HOUR_START + 1) * HOUR_PX}px">${workBand}${activityHtml}${blocks}${nowLineHtml}</div>
             </div>`;
         }).join('');
-        const hoursCol = `<div class="cal-hours"><div class="cal-col-head"></div><div class="cal-col-body" style="height:${(HOUR_END - HOUR_START + 1) * HOUR_PX}px">${hourLabels.map(h => `<div class="hour-line" style="top:${(h - HOUR_START) * HOUR_PX}px">${String(h).padStart(2,'0')}:00</div>`).join('')}</div></div>`;
+        const hoursCol = `<div class="cal-hours"><div class="cal-col-head cal-week-cell" title="Ukenummer">U${week.split('-W')[1]}</div><div class="cal-col-body" style="height:${(HOUR_END - HOUR_START + 1) * HOUR_PX}px">${hourLabels.map(h => `<div class="hour-line" style="top:${(h - HOUR_START) * HOUR_PX}px">${String(h).padStart(2,'0')}:00</div>`).join('')}</div></div>`;
         const meetingTypes = loadMeetingTypes();
         const dateRange = isoWeekToDateRange(week);
         const body = `
@@ -1624,6 +1624,7 @@ document.addEventListener('keydown', function(e) {
                 .work-band { position:absolute; left:0; right:0; background:rgba(43,108,176,0.07); border-top:1px dashed rgba(43,108,176,0.35); border-bottom:1px dashed rgba(43,108,176,0.35); pointer-events:none; z-index:0; }
                 .cal-hours .cal-col-body { cursor:default; }
                 .cal-hours .cal-col-body:hover { background:transparent; }
+                .cal-week-cell { justify-content:center; align-items:center; font-weight:600; color:var(--text-strong); letter-spacing:0.04em; }
                 .hour-line { position:absolute; left:0; right:0; height:0; padding:0 6px; font-size:0.7em; color:var(--text-subtle); text-align:right; line-height:1; display:flex; align-items:center; justify-content:flex-end; }
                 .hour-line:first-child { align-items:flex-start; padding-top:2px; }
                 .cal-col-body { background-image: repeating-linear-gradient(to bottom, var(--border-faint) 0, var(--border-faint) 1px, transparent 1px, transparent 48px); }
