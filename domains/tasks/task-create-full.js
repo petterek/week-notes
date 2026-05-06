@@ -69,22 +69,30 @@ const CSS = `
     button.btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .err { color: var(--danger); font-size: 0.8em; margin-top: 4px; min-height: 1em; }
 
-    .form { display: grid; grid-template-columns: 1fr; gap: 8px; }
-    .meta-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    .meta-row label {
-        display: flex; align-items: center; gap: 6px;
-        color: var(--text-muted); font-size: 0.9em;
+    .form { display: grid; grid-template-columns: 1fr; gap: 10px; }
+    .meta-grid {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 8px 12px;
+        align-items: center;
     }
+    .meta-grid > .lbl {
+        color: var(--text-muted); font-size: 0.9em;
+        justify-self: end;
+    }
+    .meta-grid > .field { min-width: 0; display: flex; }
+    .meta-grid > .field > .sel { flex: 1; }
     .actions { display: flex; justify-content: flex-end; gap: 8px; }
     :host([no-note]) textarea.note { display: none; }
 
-    .due-row { display: inline-flex; gap: 4px; align-items: stretch; }
+    .due-row { display: flex; gap: 4px; align-items: stretch; flex: 1; }
     .due-trigger {
+        flex: 1;
         text-align: left;
         background: var(--bg); color: var(--text);
         border: 2px solid var(--border-soft); border-radius: 8px;
         padding: 8px 12px; font: inherit; font-size: 0.95em;
-        cursor: pointer; min-width: 140px;
+        cursor: pointer; min-width: 0;
     }
     .due-trigger:hover { border-color: var(--accent); }
     .due-trigger.empty { color: var(--text-subtle); }
@@ -163,27 +171,27 @@ class TaskCreateFull extends WNElement {
             <div class="form">
                 <input class="txt" type="text" data-el="text" />
                 <textarea class="note" data-el="note" rows="3" placeholder="Notat (valgfritt)..."></textarea>
-                <div class="meta-row">
-                    <label>
-                        <span>Ansvarlig:</span>
+                <div class="meta-grid">
+                    <span class="lbl">Ansvarlig</span>
+                    <span class="field">
                         <select class="sel" data-el="responsible">
                             <option value="">(ingen)</option>
                         </select>
-                    </label>
-                    <label>
-                        <span>Mål:</span>
+                    </span>
+                    <span class="lbl">Mål</span>
+                    <span class="field">
                         <select class="sel" data-el="goal">
                             <option value="">(ingen)</option>
                         </select>
-                    </label>
-                    <label>
-                        <span>Frist:</span>
+                    </span>
+                    <span class="lbl">Frist</span>
+                    <span class="field">
                         <span class="due-row">
                             <button type="button" class="due-trigger empty" data-el="due-trigger">Velg tidspunkt…</button>
                             <button type="button" class="due-clear" data-el="due-clear" title="Fjern frist">✕</button>
                         </span>
                         <input type="hidden" data-el="due" />
-                    </label>
+                    </span>
                 </div>
                 <div class="actions">
                     <button class="btn" type="button" data-el="submit"></button>
