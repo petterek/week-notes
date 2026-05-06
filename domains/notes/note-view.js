@@ -112,11 +112,22 @@ class NoteView extends WNElement {
             }
         };
         document.addEventListener('keydown', this._onKey);
+        // Track where mousedown started so a resize drag that ends over the
+        // backdrop doesn't close the view.
+        this._mouseDownOnBackdrop = false;
+        this.shadowRoot.addEventListener('mousedown', (ev) => {
+            this._mouseDownOnBackdrop = !!(ev.target && ev.target.classList
+                && ev.target.classList.contains('nv-backdrop'));
+        });
         this.shadowRoot.addEventListener('click', (ev) => {
             const t = ev.target;
             if (!t) return;
-            if ((t.dataset && t.dataset.action === 'close') || (t.classList && t.classList.contains('nv-backdrop'))) {
+            if (t.dataset && t.dataset.action === 'close') {
                 this.close();
+                return;
+            }
+            if (t.classList && t.classList.contains('nv-backdrop')) {
+                if (this._mouseDownOnBackdrop) this.close();
                 return;
             }
             if (t.dataset && t.dataset.action === 'copy') {
