@@ -2217,16 +2217,20 @@ modal.open();</pre>
                 ],
             },
             'task-add-modal': {
-                desc: `<p><strong>&lt;task-add-modal&gt;</strong> renders a small <code>+</code> trigger button that opens a <code>&lt;modal-container&gt;</code> wrapping a <code>&lt;task-create&gt;</code> form. Designed for sidebar/header use where space is tight.</p>
+                desc: `<p><strong>&lt;task-add-modal&gt;</strong> renders a small <code>+</code> trigger button that opens a <code>&lt;modal-container&gt;</code> wrapping a <code>&lt;task-create-full&gt;</code> form. Designed for sidebar/header use where space is tight.</p>
                     <p><strong>Behavior:</strong> the modal stays open after a task is created so the user can add several in a row. Dismissed only by the default Lukk button, the ✕ corner button, Esc or backdrop click.</p>
-                    <p><strong>Attributes</strong> (forwarded to <code>&lt;task-create&gt;</code>): <code>tasks_service</code>, <code>placeholder</code>, <code>button-label</code>. Trigger styling: <code>trigger-label</code> (default <code>+</code>), <code>trigger-title</code>.</p>
+                    <p><strong>Attributes</strong> (forwarded to <code>&lt;task-create-full&gt;</code>): <code>tasks_service</code>, <code>people_service</code>, <code>goals_service</code>, <code>placeholder</code>, <code>button-label</code>, <code>goal-id</code>, <code>week</code>. Trigger styling: <code>trigger-label</code> (default <code>+</code>), <code>trigger-title</code>.</p>
                     <p><strong>Methods:</strong> <code>open()</code>, <code>close()</code>.</p>
-                    <p><strong>Events:</strong> bubbles <code>task:created</code> from the embedded <code>&lt;task-create&gt;</code>.</p>`,
+                    <p><strong>Events:</strong> bubbles <code>task:created</code> from the embedded <code>&lt;task-create-full&gt;</code>.</p>`,
                 tag: 'task-add-modal',
                 attrs: [
                     { name: 'tasks_service', type: 'text', default: 'MockTaskService' },
+                    { name: 'people_service', type: 'text', default: 'MockPeopleService' },
+                    { name: 'goals_service', type: 'text', default: 'MockGoalsService' },
                     { name: 'placeholder', type: 'text', default: 'Beskriv oppgaven…' },
                     { name: 'button-label', type: 'text', default: 'Legg til' },
+                    { name: 'goal-id', type: 'text' },
+                    { name: 'week', type: 'text' },
                     { name: 'trigger-label', type: 'text', default: '+' },
                     { name: 'trigger-title', type: 'text', default: 'Ny oppgave' },
                 ],
