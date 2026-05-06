@@ -19,6 +19,27 @@
  */
 import '/components/date-time-picker.js';
 
+// Scan around the caret for a YYYY-MM-DD (or YYYY-MM-DD HH:MM) and return
+// {start, end, value} if found. In datetime mode prefer a match that
+// includes the time; in date mode the time, if present, is dropped.
+function findDateAround(text, caretStart, caretEnd, mode) {
+    if (!text) return null;
+    const dateRe = /\b\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2})?\b/g;
+    let m;
+    while ((m = dateRe.exec(text)) !== null) {
+        const s = m.index;
+        const e = s + m[0].length;
+        // Caret may sit just after the match (cursor after "2026-05-06|").
+        if (caretStart >= s && caretEnd <= e + 1 && caretStart <= e) {
+            const raw = m[0].replace('T', ' ');
+            const value = mode === 'datetime' ? raw : raw.slice(0, 10);
+            return { start: s, end: e, value };
+        }
+        if (s > caretEnd) break;
+    }
+    return null;
+}
+
 export function attachDateTrigger(el) {
     if (!el || el.__wnDateAttached) return { destroy() {} };
     el.__wnDateAttached = true;
@@ -28,11 +49,19 @@ export function attachDateTrigger(el) {
 
     function openPicker(mode) {
         closePicker();
-        const start = el.selectionStart != null ? el.selectionStart : el.value.length;
-        const end = el.selectionEnd != null ? el.selectionEnd : start;
+        let start = el.selectionStart != null ? el.selectionStart : el.value.length;
+        let end = el.selectionEnd != null ? el.selectionEnd : start;
+
+        // If the caret/selection touches an existing date (or datetime) in
+        // the text, expand the range to cover it and pre-select that value
+        // in the picker — pressing Ctrl+D again on the date will round-trip.
+        const hit = findDateAround(el.value, start, end, mode);
+        let initialValue = '';
+        if (hit) { start = hit.start; end = hit.end; initialValue = hit.value; }
 
         const picker = document.createElement('date-time-picker');
         picker.setAttribute('mode', mode);
+        if (initialValue) picker.setAttribute('value', initialValue);
         const rect = el.getBoundingClientRect();
 
         // Place the popup off-screen first to measure, then anchor near
