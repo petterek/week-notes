@@ -92,6 +92,38 @@ const STYLES = `
     .gp-loading, .gp-error { padding: 24px; text-align: center; color: var(--text-muted); font-style: italic; }
     .gp-error { color: var(--danger, #c0392b); }
 
+    .gp-card .gp-title { cursor: pointer; user-select: none; }
+    .gp-chev {
+        display: inline-block; transition: transform 0.15s;
+        margin-right: 4px; color: var(--text-subtle); font-size: 0.85em;
+    }
+    .gp-card.expanded .gp-chev { transform: rotate(90deg); }
+
+    .gp-detail {
+        margin-top: 12px; padding-top: 12px;
+        border-top: 1px dashed var(--border-soft);
+        display: flex; flex-direction: column; gap: 14px;
+    }
+    .gp-detail h4 {
+        margin: 0 0 6px; font-size: 0.85em; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.04em;
+        color: var(--text-muted);
+    }
+    .gp-detail ul { list-style: none; margin: 0; padding: 0; }
+    .gp-detail li {
+        padding: 4px 0; font-size: 0.92em; color: var(--text-strong);
+        display: flex; align-items: baseline; gap: 8px;
+    }
+    .gp-detail li .mark { width: 1.1em; flex: 0 0 auto; color: var(--text-subtle); }
+    .gp-detail li.done .text { color: var(--text-subtle); text-decoration: line-through; }
+    .gp-detail li .text { flex: 1; word-break: break-word; }
+    .gp-detail li a.wk {
+        color: var(--text-subtle); font-size: 0.85em; text-decoration: none;
+        white-space: nowrap;
+    }
+    .gp-detail li a.wk:hover { color: var(--accent); text-decoration: underline; }
+    .gp-detail .empty { color: var(--text-subtle); font-style: italic; font-size: 0.9em; }
+
     .modal {
         position: fixed; inset: 0; background: rgba(0,0,0,0.5);
         display: none; align-items: center; justify-content: center;
@@ -153,6 +185,7 @@ class GoalsPage extends WNElement {
         this._state = null;
         this._error = null;
         this._modal = null;
+        this._expanded = new Set();
     }
 
     css() { return STYLES; }
@@ -160,6 +193,9 @@ class GoalsPage extends WNElement {
     connectedCallback() {
         super.connectedCallback();
         this._load();
+        // Auto-expand if URL hash points to a specific goal (e.g. /goals#g-abc)
+        const m = (location.hash || '').match(/^#g-(.+)$/);
+        if (m) this._expanded.add(decodeURIComponent(m[1]));
         if (!this._kbWired) {
             this._kbWired = true;
             this._onKey = this._onKey.bind(this);
@@ -229,11 +265,19 @@ class GoalsPage extends WNElement {
         }
         const delBtn = path.find(n => n.classList && n.classList.contains('gp-del'));
         if (delBtn) { this._delete(delBtn.dataset.id); return; }
+        const titleEl = path.find(n => n.classList && n.classList.contains('gp-title'));
+        if (titleEl && titleEl.dataset.id) { this._toggleExpanded(titleEl.dataset.id); return; }
         const backdrop = path.find(n => n.classList && n.classList.contains('modal'));
         if (backdrop && e.target === backdrop) { this._closeModal(); return; }
         if (path.find(n => n.classList && n.classList.contains('modal-close'))) { this._closeModal(); return; }
         if (path.find(n => n.dataset && n.dataset.act === 'cancel')) { this._closeModal(); return; }
         if (path.find(n => n.dataset && n.dataset.act === 'save')) { this._save(); return; }
+    }
+
+    _toggleExpanded(id) {
+        if (this._expanded.has(id)) this._expanded.delete(id);
+        else this._expanded.add(id);
+        this.requestRender();
     }
 
     _onKey(e) {
@@ -316,15 +360,19 @@ class GoalsPage extends WNElement {
         const tTotal = tasks.length;
         const pct = tTotal === 0 ? 0 : Math.round((tDone / tTotal) * 100);
         const statusCls = g.status === 'achieved' ? ' achieved' : g.status === 'abandoned' ? ' abandoned' : '';
+        const expanded = this._expanded.has(g.id);
+        const expCls = expanded ? ' expanded' : '';
         const dueOverdue = g.targetDate && g.status === 'active' && g.targetDate < new Date().toISOString().slice(0, 10);
         const nextStatus = g.status === 'active' ? 'achieved' : g.status === 'achieved' ? 'abandoned' : 'active';
         const statusBtnTitle = g.status === 'active' ? 'Marker som oppnådd'
             : g.status === 'achieved' ? 'Marker som forlatt'
             : 'Reaktiver';
         return html`
-            <article class="${'gp-card' + statusCls}" id="${'gp-card-' + g.id}">
+            <article class="${'gp-card' + statusCls + expCls}" id="${'gp-card-' + g.id}">
                 <div class="gp-row">
-                    <span class="gp-title">${STATUS_ICON[g.status] || '🎯'} ${g.title}</span>
+                    <span class="gp-title" data-id="${g.id}" title="Klikk for å vise detaljer">
+                        <span class="gp-chev">▸</span>${STATUS_ICON[g.status] || '🎯'} ${g.title}
+                    </span>
                     <button class="gp-act gp-status" data-id="${g.id}" data-next="${nextStatus}" title="${statusBtnTitle}">
                         ${g.status === 'active' ? '🏆' : g.status === 'achieved' ? '🗑️' : '↻'}
                     </button>
@@ -340,7 +388,50 @@ class GoalsPage extends WNElement {
                     </span>
                     ${results.length ? html`<span>📋 ${results.length} resultat${results.length === 1 ? '' : 'er'}</span>` : ''}
                 </div>
+                ${expanded ? this._renderDetail(g, tasks, results) : ''}
             </article>
+        `;
+    }
+
+    _renderDetail(g, tasks, results) {
+        const sortedTasks = tasks.slice().sort((a, b) => {
+            if (!!a.done !== !!b.done) return a.done ? 1 : -1;
+            return (b.created || '').localeCompare(a.created || '');
+        });
+        const sortedResults = results.slice().sort((a, b) =>
+            (b.week || '').localeCompare(a.week || '')
+            || (b.created || '').localeCompare(a.created || ''));
+        return html`
+            <div class="gp-detail">
+                <div>
+                    <h4>Oppgaver (${tasks.length})</h4>
+                    ${tasks.length === 0
+                        ? html`<p class="empty">Ingen oppgaver knyttet til dette målet ennå.</p>`
+                        : html`<ul>${sortedTasks.map(t => html`
+                            <li class="${t.done ? 'done' : ''}">
+                                <span class="mark">${t.done ? '☑' : '☐'}</span>
+                                <span class="text">${t.text || '(uten tekst)'}</span>
+                                ${t.completedWeek
+                                    ? html`<a class="wk" href="/${t.completedWeek}/" title="Fullført uke">${t.completedWeek}</a>`
+                                    : t.week
+                                        ? html`<a class="wk" href="/${t.week}/" title="Opprettet uke">${t.week}</a>`
+                                        : ''}
+                            </li>
+                        `)}</ul>`}
+                </div>
+                <div>
+                    <h4>Resultater (${results.length})</h4>
+                    ${results.length === 0
+                        ? html`<p class="empty">Ingen resultater knyttet til dette målet ennå.</p>`
+                        : html`<ul>${sortedResults.map(r => html`
+                            <li>
+                                <span class="mark">📋</span>
+                                <span class="text">${r.text || ''}</span>
+                                ${r.week ? html`<a class="wk" href="/${r.week}/" title="Uke">${r.week}</a>` : ''}
+                            </li>
+                        `)}</ul>`}
+                </div>
+            </div>
         `;
     }
 
