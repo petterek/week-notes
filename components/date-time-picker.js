@@ -437,7 +437,12 @@ class DateTimePicker extends WNElement {
         });
         sr.addEventListener('dblclick', (e) => {
             const t = e.target;
-            if (t instanceof Element && t.classList.contains('day')) this._commit();
+            if (t instanceof Element && t.classList.contains('day')) {
+                const value = format(this._selected, 'date');
+                this.dispatchEvent(new CustomEvent('datetime-selected', {
+                    detail: { value }, bubbles: true, composed: true,
+                }));
+            }
         });
         sr.addEventListener('keydown', (e) => {
             const t = e.target;
