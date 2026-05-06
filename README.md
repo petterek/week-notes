@@ -180,6 +180,12 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-05-06 (date-time-picker: ukekommando, dblclick i datetime-modus, smart Ctrl+D)
+- **Ny `w`-snarvei i date-time-picker:** trykk `w` i poppen for å committe ISO-uka til den valgte dagen. Egen event `dateweek-selected` med detail `{ value }` (`YYYY-Www`).
+- **Dobbeltklikk på en dag** committer alltid som ren `YYYY-MM-DD` (også i `datetime`-modus). Implementert som manuell timestamp-detektor siden re-render etter første klikk bytter ut knappen og dreper native `dblclick`.
+- **MD-editor (Ctrl+D / Ctrl+Shift+D):** hvis caret står inne i en eksisterende `YYYY-MM-DD[ HH:MM]` åpner picken på den datoen, og strengen blir markert slik at OK / dobbeltklikk / `w` skriver over den. Ukeverdier settes inn som `Uke xx, YYYY` istedenfor rå ISO.
+- **Kalender:** ukenummer vises nå i øvre venstre hjørne av timer-kolonnen (`U19`-stil).
+
 ### 2026-05-05 (notater: ny-notat-utkast skrives til temp-fil utenfor uka)
 - **Bakgrunn:** når man begynte å skrive et nytt notat ble autosaven plassert i uke-mappa under et gjettet filnavn (`<uke>/.notat.md.autosave`, eller hva `_suggestFilename` traff på). Filnavnet kunne endre seg mens man skrev (deriverer fra første H1), og uten lagring lå det igjen rare filer.
 - **Endring:** for nye notater (`/editor` uten uke/fil i URL) skrives autosaven nå til en enkelt slot per kontekst — `data/<ctx>/.draft-newnote.md` — uten å reservere et filnavn i uke-mappa. Først når man trykker "Ferdig" velges endelig uke og filnavn, og utkastet slettes.

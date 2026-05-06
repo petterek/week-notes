@@ -2476,8 +2476,8 @@ modal.open();</pre>
                         <li><code>value</code> &mdash; initial value, format <code>YYYY-MM-DD</code> or <code>YYYY-MM-DD HH:MM</code>. Empty means today/now.</li>
                     </ul>
                     <p><strong>JS API:</strong> <code>el.value</code> getter/setter.</p>
-                    <p><strong>Events.</strong> <code>datetime-selected</code> with detail <code>{ value }</code> when the user clicks OK / double-clicks a day / presses Enter. Double-click always commits as a date (<code>YYYY-MM-DD</code>) even in <code>datetime</code> mode &mdash; useful when you don't care about the time. <code>dateWeekSelected</code> with detail <code>{ value }</code> (where <code>value</code> is the ISO week <code>YYYY-Www</code> of the selected day) when the user presses <code>w</code>. <code>datetime-cancelled</code> when Avbryt or Escape is used. All bubble and are composed.</p>
-                    <p><strong>Keyboard.</strong> Arrow keys navigate days, <code>Enter</code> commits (in <code>datetime</code> mode it advances day → hour → minute → commit), <code>Alt+Enter</code> commits from anywhere, <code>w</code> commits the ISO week of the selected day (via <code>dateWeekSelected</code>), <code>Escape</code> cancels.</p>`,
+                    <p><strong>Events.</strong> <code>datetime-selected</code> with detail <code>{ value }</code> when the user clicks OK / double-clicks a day / presses Enter. Double-click always commits as a date (<code>YYYY-MM-DD</code>) even in <code>datetime</code> mode &mdash; useful when you don't care about the time. <code>dateweek-selected</code> with detail <code>{ value }</code> (where <code>value</code> is the ISO week <code>YYYY-Www</code> of the selected day) when the user presses <code>w</code>. <code>datetime-cancelled</code> when Avbryt or Escape is used. All bubble and are composed.</p>
+                    <p><strong>Keyboard.</strong> Arrow keys navigate days, <code>Enter</code> commits (in <code>datetime</code> mode it advances day → hour → minute → commit), <code>Alt+Enter</code> commits from anywhere, <code>w</code> commits the ISO week of the selected day (via <code>dateweek-selected</code>), <code>Escape</code> cancels.</p>`,
                 tag: 'date-time-picker',
                 attrs: [
                     { name: 'mode', type: 'select', options: ['date', 'datetime'], default: 'date' },
@@ -2913,7 +2913,7 @@ modal.open();</pre>
             'markdown-preview:scroll',
             'calendar:week-changed',
             'context-selected',
-            'datetime-selected', 'datetime-cancelled', 'dateWeekSelected',
+            'datetime-selected', 'datetime-cancelled', 'dateweek-selected',
             'toggle',
             'select-person', 'select-company', 'select-meeting', 'select-result', 'select-task',
             'hover-person',  'hover-company',  'hover-place',  'hover-meeting',  'hover-result',  'hover-task',
