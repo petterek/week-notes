@@ -468,6 +468,14 @@ class DateTimePicker extends WNElement {
                 return;
             }
 
+            if ((e.key === 'w' || e.key === 'W') && !e.ctrlKey && !e.metaKey && !e.altKey
+                && !isTimeSelect) {
+                e.preventDefault();
+                e.stopPropagation();
+                this._commitWeek();
+                return;
+            }
+
             if (!isDay) return;
             const arrow = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 }[e.key];
             if (arrow != null) {
