@@ -53,6 +53,18 @@ const DAY_NAMES = ['Mandag', 'Tirsdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lørdag'
 
 function pad2(n) { return String(n).padStart(2, '0'); }
 
+function isoWeekOf(d) {
+    const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    const dow = (t.getUTCDay() + 6) % 7;
+    t.setUTCDate(t.getUTCDate() - dow + 3);
+    const year = t.getUTCFullYear();
+    const jan4 = new Date(Date.UTC(year, 0, 4));
+    const jan4Dow = (jan4.getUTCDay() + 6) % 7;
+    const week1Mon = new Date(jan4);
+    week1Mon.setUTCDate(jan4.getUTCDate() - jan4Dow);
+    return Math.round((t - week1Mon) / (7 * 24 * 3600 * 1000)) + 1;
+}
+
 function parseDate(s) {
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || '');
     if (!m) return null;
@@ -160,6 +172,7 @@ function buildCss(hourPx, hourSpan, dayCount) {
         .col.special { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--danger) 5%, transparent) 0 8px, color-mix(in srgb, var(--danger) 10%, transparent) 8px 16px); }
         .col.special.workday { background: color-mix(in srgb, var(--accent) 6%, transparent); }
         .head .special-name { display: block; font-size: 0.7em; color: var(--danger); font-weight: 600; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .head .week-tag { display: block; font-size: 0.68em; color: var(--text-muted); font-weight: 600; letter-spacing: 0.04em; margin-top: 1px; }
         .head.special.workday .special-name { color: var(--accent); }
         .head.special .day-num { color: var(--danger); }
         .head.special.workday .day-num { color: var(--accent); }
@@ -366,6 +379,7 @@ class WeekCalendar extends WNElement {
                     isToday: iso === todayStr,
                     workIdx: idx,
                     special: sp,
+                    weekday: idx,
                 });
             }
             cur.setUTCDate(cur.getUTCDate() + 1);
@@ -383,8 +397,13 @@ class WeekCalendar extends WNElement {
             }
             const title = d.special ? (d.longLabel + ' · ' + d.special.name) : d.longLabel;
             const spName = d.special ? `<span class="special-name" title="${escapeHtml(d.special.name)}">${escapeHtml(d.special.name)}</span>` : '';
+            let weekTag = '';
+            if (d.weekday === 0) {
+                const dt = parseDate(d.iso);
+                if (dt) weekTag = `<span class="week-tag">Uke ${pad2(isoWeekOf(dt))}</span>`;
+            }
             return `<div class="${cls.join(' ')}" title="${escapeHtml(title)}">
-                <span class="day-label">${d.label}</span> <span class="day-num">${d.dayNum}.${d.monthNum}</span>${spName}
+                <span class="day-label">${d.label}</span> <span class="day-num">${d.dayNum}.${d.monthNum}</span>${spName}${weekTag}
             </div>`;
         }).join('');
         const wh = this._workHours;

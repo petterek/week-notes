@@ -180,6 +180,9 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-05-06 (week-calendar: ukenummer under mandag-overskriften)
+- Hver mandag-kolonne i `<week-calendar>` viser nå `Uke xx` rett under dato-overskriften, slik at flerukers visninger viser uka tydelig.
+
 ### 2026-05-06 (date-time-picker: ukekommando, dblclick i datetime-modus, smart Ctrl+D)
 - **Ny `w`-snarvei i date-time-picker:** trykk `w` i poppen for å committe ISO-uka til den valgte dagen. Egen event `dateweek-selected` med detail `{ value }` (`YYYY-Www`).
 - **Dobbeltklikk på en dag** committer alltid som ren `YYYY-MM-DD` (også i `datetime`-modus). Implementert som manuell timestamp-detektor siden re-render etter første klikk bytter ut knappen og dreper native `dblclick`.
