@@ -36,6 +36,7 @@
  */
 import { WNElement, html, escapeHtml } from './_shared.js';
 import '/components/date-time-picker.js';
+import '/components/person-picker.js';
 import { attachDateTrigger } from '/components/wn-date-trigger.js';
 
 const STYLES = `
@@ -144,9 +145,7 @@ class TaskEditModal extends WNElement {
                     <div class="meta-row">
                         <div class="field">
                             <label>Ansvarlig</label>
-                            <select data-el="responsible">
-                                <option value="">(ingen)</option>
-                            </select>
+                            <person-picker data-el="responsible"></person-picker>
                         </div>
                         <div class="field">
                             <label>Mål</label>
@@ -205,9 +204,7 @@ class TaskEditModal extends WNElement {
             const initialDue = (t.dueDate && /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?$/.test(t.dueDate)) ? t.dueDate : '';
             if (due) due.value = initialDue;
             this._updateDueTrigger(initialDue);
-            this._loadPeople(t.responsible || '').then(() => {
-                if (resp) resp.value = t.responsible || '';
-            });
+            if (resp) resp.value = t.responsible || '';
             this._loadGoals(t.goalId || '');
             if (text) {
                 text.focus();
@@ -220,33 +217,6 @@ class TaskEditModal extends WNElement {
         if (!this.hasAttribute('open')) return;
         this.removeAttribute('open');
         this._callback = null;
-    }
-
-    async _loadPeople(currentKey) {
-        const root = this.shadowRoot;
-        if (!root) return;
-        const sel = root.querySelector('[data-el="responsible"]');
-        if (!sel) return;
-        const meKey = (typeof window !== 'undefined' && window.mePersonKey) || '';
-        try {
-            const resp = await fetch('/api/people');
-            const arr = await resp.json();
-            if (!Array.isArray(arr)) return;
-            const items = arr
-                .filter(p => p && p.key)
-                .map(p => ({ key: p.key, name: p.name || p.key, isMe: p.key === meKey }))
-                .sort((a, b) => {
-                    if (a.isMe !== b.isMe) return a.isMe ? -1 : 1;
-                    return a.name.localeCompare(b.name);
-                });
-            const opts = ['<option value="">(ingen)</option>'];
-            for (const p of items) {
-                const label = p.isMe ? `${p.name} (meg)` : p.name;
-                opts.push(`<option value="${escapeHtml(p.key)}">${escapeHtml(label)}</option>`);
-            }
-            sel.innerHTML = opts.join('');
-            if (currentKey) sel.value = currentKey;
-        } catch {}
     }
 
     async _loadGoals(currentId) {

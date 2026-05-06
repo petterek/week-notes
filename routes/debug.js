@@ -2094,9 +2094,10 @@ modal.open();</pre>
                     <\/script>`,
             },
             'person-picker': {
-                desc: `<p><strong>&lt;person-picker&gt;</strong> is a single-person picker. Renders a styled <code>&lt;select&gt;</code> populated from <code>people_service</code> (falls back to <code>fetch('/api/people')</code> if no service is configured). The <code>@me</code> person floats to the top with a "(meg)" suffix.</p>
+                desc: `<p><strong>&lt;person-picker&gt;</strong> is a single-person combobox. The trigger input doubles as a filter &mdash; focus it to open the menu and start typing to narrow the list. Pick with mouse or keyboard (↑/↓/Enter), Esc reverts, ✕ clears.</p>
+                    <p>Loads people from <code>people_service</code> (falls back to <code>fetch('/api/people')</code> if no service is configured). The <code>@me</code> person floats to the top with a "(meg)" suffix.</p>
                     <p><strong>Domain:</strong> <code>people</code> &mdash; reads from <code>people_service</code>.</p>
-                    <p><strong>Attributes:</strong> <code>people_service</code>, <code>value</code> (initial key), <code>placeholder</code> (empty option text, default <code>(ingen)</code>), <code>default-me</code> (preselect @me when no value), <code>disabled</code>.</p>
+                    <p><strong>Attributes:</strong> <code>people_service</code>, <code>value</code> (initial key), <code>placeholder</code> (input placeholder when nothing is selected, default <code>Velg person…</code>), <code>default-me</code> (preselect @me when no value), <code>disabled</code>.</p>
                     <p><strong>Properties:</strong> <code>.value</code> (string key), <code>.selectedPerson</code> (the loaded person object).</p>
                     <p><strong>Events</strong> (bubbling, composed):</p>
                     <ul>
@@ -2107,7 +2108,7 @@ modal.open();</pre>
                 attrs: [
                     { name: 'people_service', type: 'text', default: 'MockPeopleService' },
                     { name: 'value', type: 'text' },
-                    { name: 'placeholder', type: 'text', default: '(ingen)' },
+                    { name: 'placeholder', type: 'text', default: 'Velg person…' },
                     { name: 'default-me', type: 'bool' },
                     { name: 'disabled', type: 'bool' },
                 ],
