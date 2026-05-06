@@ -17,6 +17,7 @@
  *
  * Events (bubbling, composed):
  *   datetime-selected  detail: { value }   — user clicked OK
+ *   dateWeekSelected   detail: { value }   — user pressed 'w'; value is YYYY-Www
  *   datetime-cancelled                       — user clicked Avbryt / Esc
  */
 import { WNElement, html, escapeHtml } from './_shared.js';
@@ -48,6 +49,21 @@ function format(parts, mode) {
     const date = `${parts.y}-${pad(parts.mo)}-${pad(parts.d)}`;
     if (mode !== 'datetime') return date;
     return `${date} ${pad(parts.h)}:${pad(parts.mi)}`;
+}
+
+// ISO 8601 week: Thursday of the same week determines the year.
+function isoWeek(parts) {
+    if (!parts) return '';
+    const d = new Date(Date.UTC(parts.y, parts.mo - 1, parts.d));
+    const dow = (d.getUTCDay() + 6) % 7; // Mon=0..Sun=6
+    d.setUTCDate(d.getUTCDate() - dow + 3); // Thursday of this week
+    const year = d.getUTCFullYear();
+    const jan4 = new Date(Date.UTC(year, 0, 4));
+    const jan4Dow = (jan4.getUTCDay() + 6) % 7;
+    const week1Mon = new Date(jan4);
+    week1Mon.setUTCDate(jan4.getUTCDate() - jan4Dow);
+    const week = Math.round((d - week1Mon) / (7 * 24 * 3600 * 1000)) + 1;
+    return `${year}-W${pad(week)}`;
 }
 
 // First weekday of the month grid (Monday=0). For ISO weeks this is what we want.
@@ -156,6 +172,16 @@ class DateTimePicker extends WNElement {
             e.stopPropagation();
             this._cancel();
             return;
+        }
+        if ((e.key === 'w' || e.key === 'W') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            // Don't hijack 'w' typed inside a select/input belonging to the picker.
+            const ae = (e.composedPath ? e.composedPath() : [])[0];
+            if (!(ae instanceof HTMLSelectElement) && !(ae instanceof HTMLInputElement)) {
+                e.preventDefault();
+                e.stopPropagation();
+                this._commitWeek();
+                return;
+            }
         }
         // Alt+Enter commits from anywhere — handy when focus is on a select
         // where plain Enter has its own native behavior.
@@ -411,7 +437,12 @@ class DateTimePicker extends WNElement {
         });
         sr.addEventListener('dblclick', (e) => {
             const t = e.target;
-            if (t instanceof Element && t.classList.contains('day')) this._commit();
+            if (t instanceof Element && t.classList.contains('day')) {
+                const value = format(this._selected, 'date');
+                this.dispatchEvent(new CustomEvent('datetime-selected', {
+                    detail: { value }, bubbles: true, composed: true,
+                }));
+            }
         });
         sr.addEventListener('keydown', (e) => {
             const t = e.target;
@@ -484,6 +515,13 @@ class DateTimePicker extends WNElement {
     _commit() {
         const value = format(this._selected, this._mode());
         this.dispatchEvent(new CustomEvent('datetime-selected', {
+            detail: { value }, bubbles: true, composed: true,
+        }));
+    }
+
+    _commitWeek() {
+        const value = isoWeek(this._selected);
+        this.dispatchEvent(new CustomEvent('dateWeekSelected', {
             detail: { value }, bubbles: true, composed: true,
         }));
     }
