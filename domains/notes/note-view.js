@@ -41,6 +41,16 @@ const STYLES = `
         max-height: 95vh; height: 80vh;
         min-width: 360px; min-height: 240px;
         resize: both; overflow: hidden;
+        position: relative;
+    }
+    .nv-card::after {
+        content: '';
+        position: absolute; right: 2px; bottom: 2px;
+        width: 14px; height: 14px;
+        background:
+            linear-gradient(135deg, transparent 0 6px, var(--text-muted) 6px 7px, transparent 7px 9px, var(--text-muted) 9px 10px, transparent 10px 12px, var(--text-muted) 12px 13px, transparent 13px);
+        pointer-events: none;
+        opacity: 0.7;
     }
     .nv-head {
         display: flex; align-items: center; gap: 12px;
