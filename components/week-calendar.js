@@ -136,7 +136,7 @@ function buildCss(hourPx, hourSpan, dayCount) {
         .head.today .day-num { color: var(--accent); font-weight: 700; }
         .head .day-num { font-size: 1em; font-weight: 600; color: var(--text-strong); }
         .head .day-label { text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.8; }
-        .corner { background: var(--surface); position: sticky; top: 0; left: 0; z-index: 5; display: flex; align-items: center; justify-content: center; font-size: 0.78em; font-weight: 600; color: var(--text-strong); letter-spacing: 0.04em; padding: 2px 4px; }
+        .corner { background: var(--surface); position: sticky; top: 0; left: 0; z-index: 5; }
         .hours { background: var(--surface); }
         .hour { height: ${hourPx}px; border-bottom: 1px solid var(--border-soft); padding: 2px 6px; font-size: 0.75em; color: var(--text-muted); text-align: right; box-sizing: border-box; }
         .col { background: var(--surface); position: relative; min-height: ${hourPx * hourSpan}px; }
@@ -172,6 +172,7 @@ function buildCss(hourPx, hourSpan, dayCount) {
         .col.special { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--danger) 5%, transparent) 0 8px, color-mix(in srgb, var(--danger) 10%, transparent) 8px 16px); }
         .col.special.workday { background: color-mix(in srgb, var(--accent) 6%, transparent); }
         .head .special-name { display: block; font-size: 0.7em; color: var(--danger); font-weight: 600; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .head .week-tag { display: block; font-size: 0.68em; color: var(--text-muted); font-weight: 600; letter-spacing: 0.04em; margin-top: 1px; }
         .head.special.workday .special-name { color: var(--accent); }
         .head.special .day-num { color: var(--danger); }
         .head.special.workday .day-num { color: var(--accent); }
@@ -396,8 +397,13 @@ class WeekCalendar extends WNElement {
             }
             const title = d.special ? (d.longLabel + ' · ' + d.special.name) : d.longLabel;
             const spName = d.special ? `<span class="special-name" title="${escapeHtml(d.special.name)}">${escapeHtml(d.special.name)}</span>` : '';
+            let weekTag = '';
+            if (d.weekday === 0) {
+                const dt = parseDate(d.iso);
+                if (dt) weekTag = `<span class="week-tag">Uke ${pad2(isoWeekOf(dt))}</span>`;
+            }
             return `<div class="${cls.join(' ')}" title="${escapeHtml(title)}">
-                <span class="day-label">${d.label}</span> <span class="day-num">${d.dayNum}.${d.monthNum}</span>${spName}
+                <span class="day-label">${d.label}</span> <span class="day-num">${d.dayNum}.${d.monthNum}</span>${spName}${weekTag}
             </div>`;
         }).join('');
         const wh = this._workHours;
@@ -439,15 +445,9 @@ class WeekCalendar extends WNElement {
             return `<div class="${colCls.join(' ')}" data-date="${d.iso}">${band}${lines.join('')}${(itemsByDay[d.iso] || '')}${now}</div>`;
         }).join('');
 
-        const firstMonday = days.find(d => d.weekday === 0) || days[0];
-        let cornerLabel = '';
-        if (firstMonday) {
-            const fmDate = parseDate(firstMonday.iso);
-            if (fmDate) cornerLabel = `Uke ${pad2(isoWeekOf(fmDate))}`;
-        }
         const alldayRow = `<div class="allday-corner" title="Heldagshendelser">heldag</div>`
             + `<div class="allday-track" data-allday-track style="grid-column: 2 / span ${days.length}; height:${trackHeight}px">${alldayHtml}</div>`;
-        const markup = `<div class="grid"><div class="corner" title="Ukenummer">${escapeHtml(cornerLabel)}</div>${dayHeads}${alldayRow}<div class="hours">${hourCells.join('')}</div>${dayCols}</div>`;
+        const markup = `<div class="grid"><div class="corner"></div>${dayHeads}${alldayRow}<div class="hours">${hourCells.join('')}</div>${dayCols}</div>`;
 
         // Wire events after render
         setTimeout(() => this._wireItemEvents(), 0);
