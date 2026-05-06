@@ -105,8 +105,15 @@
 
     window.MockTaskService = {
         list:   () => delay(JSON.parse(JSON.stringify(tasks))),
-        create: (text) => {
-            const t = { id: uid('t'), text: String(text || ''), done: false, created: now(), week: thisWeek, order: tasks.length };
+        create: (text, opts = {}) => {
+            const t = {
+                id: uid('t'), text: String(text || ''), done: false,
+                created: now(), week: opts.week || thisWeek, order: tasks.length,
+            };
+            if (opts.responsible) t.responsible = opts.responsible;
+            if (opts.dueDate) t.dueDate = opts.dueDate;
+            if (opts.goalId) t.goalId = opts.goalId;
+            if (opts.note) t.note = opts.note;
             tasks.push(t);
             return delay(JSON.parse(JSON.stringify(tasks)));
         },

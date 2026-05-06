@@ -1,0 +1,581 @@
+/**
+ * <task-create-full> — expanded "new task" / "edit task" form.
+ *
+ * The full-form sibling of <task-create>. Renders text input, optional
+ * note textarea, and a meta-row with "Ansvarlig" person picker, "Mål"
+ * goal picker and "Frist" due-date input, plus a submit button.
+ *
+ * Modes
+ * -----
+ * Create mode (default): submit calls `service.create(text, opts)`
+ *   and dispatches `task:created` with detail { task, tasks }.
+ *
+ * Edit mode: triggered by either the `task-id` attribute (the widget
+ *   fetches the matching task via service.list()) or by setting the
+ *   `task` property to a task object directly. In edit mode submit
+ *   calls `service.update(id, patch)` and dispatches `task:updated`
+ *   with detail { id, patch, task }. The button label defaults to
+ *   "Lagre" instead of "Legg til".
+ *
+ * Attributes (all optional):
+ *   placeholder    — input placeholder (default "Ny oppgave...")
+ *   button-label   — submit button text (default depends on mode)
+ *   goal-id        — preselected goal id; user may change/clear
+ *   week           — ISO-week (YYYY-WNN) sent on create
+ *   task-id        — switches to edit mode and prefills from the task
+ *   no-note        — boolean; hides the note textarea
+ *   autofocus-on-connect — focus the text input on mount
+ *   tasks_service  — service path attribute
+ *
+ * Properties:
+ *   task — set to a task object to enter edit mode without a fetch.
+ *
+ * Public API:
+ *   element.focus()  — focus the text input
+ *   element.value    — get/set current text
+ *
+ * Events:
+ *   task:created       — { task, tasks }       (create mode)
+ *   task:create-failed — { error }
+ *   task:updated       — { id, patch, task }   (edit mode)
+ *   task:update-failed — { error }
+ *
+ * Submit shortcut: Ctrl/Cmd+Enter while in any field.
+ */
+import { WNElement, html } from './_shared.js';
+
+const CSS = `
+    :host { display: block; box-sizing: border-box; }
+    input.txt, select.sel, input.date, textarea.note {
+        padding: 10px 14px; min-width: 0;
+        border: 2px solid var(--border-soft);
+        border-radius: 8px; font-size: 1em; outline: none;
+        background: var(--bg); color: var(--text);
+        font-family: inherit;
+    }
+    input.txt, textarea.note { width: 100%; box-sizing: border-box; }
+    textarea.note { resize: vertical; min-height: 60px; line-height: 1.4; }
+    input.txt:focus, select.sel:focus, input.date:focus, textarea.note:focus {
+        border-color: var(--accent);
+    }
+    button.btn {
+        padding: 10px 20px; background: var(--success); color: var(--text-on-accent);
+        border: none; border-radius: 8px; font-weight: 600;
+        cursor: pointer; font-size: 1em; font-family: inherit;
+        white-space: nowrap;
+    }
+    button.btn:hover:not(:disabled) { background: var(--success-strong); }
+    button.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .err { color: var(--danger); font-size: 0.8em; margin-top: 4px; min-height: 1em; }
+
+    .form { display: grid; grid-template-columns: 1fr; gap: 8px; }
+    .meta-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .meta-row label {
+        display: flex; align-items: center; gap: 6px;
+        color: var(--text-muted); font-size: 0.9em;
+    }
+    .actions { display: flex; justify-content: flex-end; gap: 8px; }
+    :host([no-note]) textarea.note { display: none; }
+`;
+
+class TaskCreateFull extends WNElement {
+    static get domain() { return 'tasks'; }
+    static get observedAttributes() { return ['placeholder', 'button-label', 'goal-id', 'task-id']; }
+
+    connectedCallback() {
+        super.connectedCallback();
+        if (this._wired) return;
+        this._wired = true;
+        this._refreshRefs();
+        this._btn.addEventListener('click', () => this._submit());
+        const onKey = e => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); this._submit(); }
+        };
+        this._input.addEventListener('keydown', onKey);
+        this._respSel && this._respSel.addEventListener('keydown', onKey);
+        this._goalSel && this._goalSel.addEventListener('keydown', onKey);
+        this._dueIn   && this._dueIn.addEventListener('keydown', onKey);
+        this._noteIn  && this._noteIn.addEventListener('keydown', onKey);
+        this._apply();
+        this._loadPeople();
+        this._loadGoals();
+        if (this.hasAttribute('task-id') && !this._task) this._loadTask();
+        else if (this._task) this._applyTask();
+        if (this.hasAttribute('autofocus-on-connect')) {
+            setTimeout(() => this._input && this._input.focus(), 0);
+        }
+    }
+
+    attributeChangedCallback(name, oldVal, newVal) {
+        super.attributeChangedCallback(name, oldVal, newVal);
+        if (this.shadowRoot && oldVal !== newVal) {
+            this._refreshRefs();
+            this._apply();
+            if (name === 'goal-id' && this._goalSel && !this._task) {
+                this._goalSel.value = this.getAttribute('goal-id') || '';
+            }
+            if (name === 'task-id' && this._wired) {
+                this._task = null;
+                this._loadTask();
+            }
+        }
+    }
+
+    /** Property setter: `el.task = {...}` enters edit mode without fetching. */
+    set task(t) {
+        this._task = t || null;
+        if (this._wired) this._applyTask();
+    }
+    get task() { return this._task || null; }
+
+    css() { return CSS; }
+
+    render() {
+        return html`
+            <div class="form">
+                <input class="txt" type="text" data-el="text" />
+                <textarea class="note" data-el="note" rows="3" placeholder="Notat (valgfritt)..."></textarea>
+                <div class="meta-row">
+                    <label>
+                        <span>Ansvarlig:</span>
+                        <select class="sel" data-el="responsible">
+                            <option value="">(ingen)</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>Mål:</span>
+                        <select class="sel" data-el="goal">
+                            <option value="">(ingen)</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>Frist:</span>
+                        <input class="date" type="date" data-el="due" />
+                    </label>
+                </div>
+                <div class="actions">
+                    <button class="btn" type="button" data-el="submit"></button>
+                </div>
+                <div class="err" data-err></div>
+            </div>
+        `;
+    }
+
+    _refreshRefs() {
+        const root = this.shadowRoot;
+        this._input  = root.querySelector('[data-el="text"]');
+        this._noteIn = root.querySelector('[data-el="note"]');
+        this._btn    = root.querySelector('[data-el="submit"]');
+        this._err    = root.querySelector('[data-err]');
+        this._respSel = root.querySelector('[data-el="responsible"]');
+        this._goalSel = root.querySelector('[data-el="goal"]');
+        this._dueIn   = root.querySelector('[data-el="due"]');
+    }
+
+    get value() { return this._input ? this._input.value : ''; }
+    set value(v) { if (this._input) this._input.value = v == null ? '' : String(v); }
+
+    focus() { if (this._input) this._input.focus(); }
+
+    _isEdit() { return !!(this._task || this.getAttribute('task-id')); }
+
+    _apply() {
+        if (!this._input || !this._btn) return;
+        this._input.placeholder = this.getAttribute('placeholder') || 'Ny oppgave...';
+        const defaultLabel = this._isEdit() ? 'Lagre' : 'Legg til';
+        this._btn.textContent = this.getAttribute('button-label') || defaultLabel;
+    }
+
+    async _loadTask() {
+        const id = this.getAttribute('task-id');
+        if (!id) return;
+        const svc = this.service;
+        if (!svc || typeof svc.list !== 'function') return;
+        try {
+            const tasks = await svc.list();
+            if (!Array.isArray(tasks)) return;
+            const t = tasks.find(x => x && x.id === id);
+            if (t) {
+                this._task = t;
+                this._applyTask();
+            }
+        } catch (_) { /* ignore */ }
+    }
+
+    _applyTask() {
+        if (!this._task || !this._input) return;
+        const t = this._task;
+        this._input.value = t.text || '';
+        if (this._noteIn) this._noteIn.value = t.note || '';
+        if (this._dueIn)  this._dueIn.value = t.dueDate ? String(t.dueDate).slice(0, 10) : '';
+        if (this._respSel) {
+            // _loadPeople may finish later; remember the desired value.
+            this._pendingResp = t.responsible || '';
+            if (this._peopleLoaded) this._respSel.value = this._pendingResp;
+        }
+        if (this._goalSel) {
+            this._pendingGoal = t.goalId || '';
+            if (this._goalsLoaded) this._goalSel.value = this._pendingGoal;
+        }
+        this._apply();
+    }
+
+    async _loadPeople() {
+        if (!this._respSel || this._peopleLoaded) return;
+        this._peopleLoaded = true;
+        const meKey = (typeof window !== 'undefined' && window.mePersonKey) || '';
+        try {
+            const resp = await fetch('/api/people');
+            const arr = await resp.json();
+            if (!Array.isArray(arr)) return;
+            const items = arr
+                .filter(p => p && p.key)
+                .map(p => ({ key: p.key, name: p.name || p.key, isMe: p.key === meKey }))
+                .sort((a, b) => {
+                    if (a.isMe !== b.isMe) return a.isMe ? -1 : 1;
+                    return a.name.localeCompare(b.name);
+                });
+            const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            this._respSel.innerHTML =
+                '<option value="">(ingen)</option>' +
+                items.map(p => {
+                    const label = p.isMe ? `${esc(p.name)} (meg)` : esc(p.name);
+                    // In edit mode we'll set the value below; only auto-select me when creating.
+                    const selected = (p.isMe && !this._isEdit()) ? ' selected' : '';
+                    return `<option value="${esc(p.key)}"${selected}>${label}</option>`;
+                }).join('');
+            if (this._pendingResp != null) this._respSel.value = this._pendingResp;
+        } catch (_) { /* leave default */ }
+    }
+
+    async _loadGoals() {
+        if (!this._goalSel || this._goalsLoaded) return;
+        this._goalsLoaded = true;
+        const preselect = (this._pendingGoal != null)
+            ? this._pendingGoal
+            : (this.getAttribute('goal-id') || '');
+        try {
+            const resp = await fetch('/api/goals');
+            const arr = await resp.json();
+            if (!Array.isArray(arr)) return;
+            const items = arr
+                .filter(g => g && g.id)
+                .sort((a, b) => {
+                    const sa = a.status === 'active' ? 0 : 1;
+                    const sb = b.status === 'active' ? 0 : 1;
+                    if (sa !== sb) return sa - sb;
+                    return (a.title || '').localeCompare(b.title || '');
+                });
+            const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            this._goalSel.innerHTML =
+                '<option value="">(ingen)</option>' +
+                items.map(g => {
+                    const icon = g.status === 'achieved' ? '🏆 ' : g.status === 'abandoned' ? '🗑️ ' : '🎯 ';
+                    return `<option value="${esc(g.id)}">${esc(icon + (g.title || ''))}</option>`;
+                }).join('');
+            if (preselect) this._goalSel.value = preselect;
+        } catch (_) { /* leave default */ }
+    }
+
+    async _submit() {
+        if (!this._input || !this._btn || !this._err) return;
+        const text = (this._input.value || '').trim();
+        this._err.textContent = '';
+        if (!text) { this._input.focus(); return; }
+        const svc = this.service;
+        if (!svc || typeof svc.create !== 'function') {
+            this._err.textContent = 'Tjeneste ikke koblet til';
+            return;
+        }
+
+        const responsible = this._respSel ? (this._respSel.value || '') : '';
+        const goalId      = this._goalSel ? (this._goalSel.value || '') : '';
+        const dueDate     = this._dueIn   ? (this._dueIn.value   || '') : '';
+        const note        = this._noteIn  ? (this._noteIn.value  || '') : '';
+
+        this._btn.disabled = true;
+        try {
+            if (this._task && this._task.id) {
+                // --- edit mode ---
+                if (typeof svc.update !== 'function') {
+                    throw new Error('update ikke støttet av tjenesten');
+                }
+                const id = this._task.id;
+                const patch = {
+                    text, note,
+                    responsible,
+                    dueDate,                       // empty string → server clears
+                    goalId: goalId || null,        // explicit clear
+                };
+                await svc.update(id, patch);
+                // Update local snapshot so subsequent submits see latest values.
+                Object.assign(this._task, {
+                    text, note, responsible,
+                    dueDate: dueDate || undefined,
+                    goalId: goalId || undefined,
+                });
+                this.dispatchEvent(new CustomEvent('task:updated', {
+                    bubbles: true, composed: true,
+                    detail: { id, patch, task: this._task },
+                }));
+            } else {
+                // --- create mode ---
+                const opts = {};
+                if (responsible) opts.responsible = responsible;
+                if (dueDate) opts.dueDate = dueDate;
+                if (goalId) opts.goalId = goalId;
+                else {
+                    const attr = this.getAttribute('goal-id');
+                    if (attr) opts.goalId = attr;
+                }
+                if (note) opts.note = note;
+                const week = this.getAttribute('week');
+                if (week) opts.week = week;
+                const tasks = await svc.create(text, opts);
+                const task = Array.isArray(tasks) ? tasks[tasks.length - 1] : null;
+                this._input.value = '';
+                if (this._noteIn) this._noteIn.value = '';
+                if (this._dueIn) this._dueIn.value = '';
+                this._input.focus();
+                this.dispatchEvent(new CustomEvent('task:created', {
+                    bubbles: true, composed: true,
+                    detail: { task, tasks },
+                }));
+            }
+        } catch (e) {
+            this._err.textContent = e.message || 'Feil ved lagring';
+            const evt = (this._task && this._task.id) ? 'task:update-failed' : 'task:create-failed';
+            this.dispatchEvent(new CustomEvent(evt, {
+                bubbles: true, composed: true,
+                detail: { error: e.message || String(e) },
+            }));
+        } finally {
+            this._btn.disabled = false;
+        }
+    }
+}
+
+if (!customElements.get('task-create-full')) customElements.define('task-create-full', TaskCreateFull);
+
+import { WNElement, html } from './_shared.js';
+
+const CSS = `
+    :host { display: block; box-sizing: border-box; }
+    input.txt, select.sel, input.date {
+        padding: 10px 14px; min-width: 0;
+        border: 2px solid var(--border-soft);
+        border-radius: 8px; font-size: 1em; outline: none;
+        background: var(--bg); color: var(--text);
+        font-family: inherit;
+    }
+    input.txt { width: 100%; box-sizing: border-box; }
+    input.txt:focus, select.sel:focus, input.date:focus { border-color: var(--accent); }
+    button.btn {
+        padding: 10px 20px; background: var(--success); color: var(--text-on-accent);
+        border: none; border-radius: 8px; font-weight: 600;
+        cursor: pointer; font-size: 1em; font-family: inherit;
+        white-space: nowrap;
+    }
+    button.btn:hover:not(:disabled) { background: var(--success-strong); }
+    button.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .err { color: var(--danger); font-size: 0.8em; margin-top: 4px; min-height: 1em; }
+
+    .form { display: grid; grid-template-columns: 1fr; gap: 8px; }
+    .meta-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .meta-row label {
+        display: flex; align-items: center; gap: 6px;
+        color: var(--text-muted); font-size: 0.9em;
+    }
+    .actions { display: flex; justify-content: flex-end; gap: 8px; }
+`;
+
+class TaskCreateFull extends WNElement {
+    static get domain() { return 'tasks'; }
+    static get observedAttributes() { return ['placeholder', 'button-label', 'goal-id']; }
+
+    connectedCallback() {
+        super.connectedCallback();
+        if (this._wired) return;
+        this._wired = true;
+        this._refreshRefs();
+        this._btn.addEventListener('click', () => this._submit());
+        const onKey = e => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); this._submit(); }
+        };
+        this._input.addEventListener('keydown', onKey);
+        this._respSel && this._respSel.addEventListener('keydown', onKey);
+        this._goalSel && this._goalSel.addEventListener('keydown', onKey);
+        this._dueIn   && this._dueIn.addEventListener('keydown', onKey);
+        this._apply();
+        this._loadPeople();
+        this._loadGoals();
+        if (this.hasAttribute('autofocus-on-connect')) {
+            setTimeout(() => this._input && this._input.focus(), 0);
+        }
+    }
+
+    attributeChangedCallback(name, oldVal, newVal) {
+        super.attributeChangedCallback(name, oldVal, newVal);
+        if (this.shadowRoot && oldVal !== newVal) {
+            this._refreshRefs();
+            this._apply();
+            if (name === 'goal-id' && this._goalSel) {
+                this._goalSel.value = this.getAttribute('goal-id') || '';
+            }
+        }
+    }
+
+    css() { return CSS; }
+
+    render() {
+        return html`
+            <div class="form">
+                <input class="txt" type="text" data-el="text" />
+                <div class="meta-row">
+                    <label>
+                        <span>Ansvarlig:</span>
+                        <select class="sel" data-el="responsible">
+                            <option value="">(ingen)</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>Mål:</span>
+                        <select class="sel" data-el="goal">
+                            <option value="">(ingen)</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>Frist:</span>
+                        <input class="date" type="date" data-el="due" />
+                    </label>
+                </div>
+                <div class="actions">
+                    <button class="btn" type="button" data-el="submit"></button>
+                </div>
+                <div class="err" data-err></div>
+            </div>
+        `;
+    }
+
+    _refreshRefs() {
+        const root = this.shadowRoot;
+        this._input  = root.querySelector('[data-el="text"]');
+        this._btn    = root.querySelector('[data-el="submit"]');
+        this._err    = root.querySelector('[data-err]');
+        this._respSel = root.querySelector('[data-el="responsible"]');
+        this._goalSel = root.querySelector('[data-el="goal"]');
+        this._dueIn   = root.querySelector('[data-el="due"]');
+    }
+
+    get value() { return this._input ? this._input.value : ''; }
+    set value(v) { if (this._input) this._input.value = v == null ? '' : String(v); }
+
+    focus() { if (this._input) this._input.focus(); }
+
+    _apply() {
+        if (!this._input || !this._btn) return;
+        this._input.placeholder = this.getAttribute('placeholder') || 'Ny oppgave...';
+        this._btn.textContent = this.getAttribute('button-label') || 'Legg til';
+    }
+
+    async _loadPeople() {
+        if (!this._respSel || this._peopleLoaded) return;
+        this._peopleLoaded = true;
+        const meKey = (typeof window !== 'undefined' && window.mePersonKey) || '';
+        try {
+            const resp = await fetch('/api/people');
+            const arr = await resp.json();
+            if (!Array.isArray(arr)) return;
+            const items = arr
+                .filter(p => p && p.key)
+                .map(p => ({ key: p.key, name: p.name || p.key, isMe: p.key === meKey }))
+                .sort((a, b) => {
+                    if (a.isMe !== b.isMe) return a.isMe ? -1 : 1;
+                    return a.name.localeCompare(b.name);
+                });
+            const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            this._respSel.innerHTML =
+                '<option value="">(ingen)</option>' +
+                items.map(p => {
+                    const label = p.isMe ? `${esc(p.name)} (meg)` : esc(p.name);
+                    const selected = p.isMe ? ' selected' : '';
+                    return `<option value="${esc(p.key)}"${selected}>${label}</option>`;
+                }).join('');
+        } catch (_) { /* leave default */ }
+    }
+
+    async _loadGoals() {
+        if (!this._goalSel || this._goalsLoaded) return;
+        this._goalsLoaded = true;
+        const preselect = this.getAttribute('goal-id') || '';
+        try {
+            const resp = await fetch('/api/goals');
+            const arr = await resp.json();
+            if (!Array.isArray(arr)) return;
+            const items = arr
+                .filter(g => g && g.id)
+                .sort((a, b) => {
+                    const sa = a.status === 'active' ? 0 : 1;
+                    const sb = b.status === 'active' ? 0 : 1;
+                    if (sa !== sb) return sa - sb;
+                    return (a.title || '').localeCompare(b.title || '');
+                });
+            const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            this._goalSel.innerHTML =
+                '<option value="">(ingen)</option>' +
+                items.map(g => {
+                    const icon = g.status === 'achieved' ? '🏆 ' : g.status === 'abandoned' ? '🗑️ ' : '🎯 ';
+                    return `<option value="${esc(g.id)}">${esc(icon + (g.title || ''))}</option>`;
+                }).join('');
+            if (preselect) this._goalSel.value = preselect;
+        } catch (_) { /* leave default */ }
+    }
+
+    async _submit() {
+        if (!this._input || !this._btn || !this._err) return;
+        const text = (this._input.value || '').trim();
+        this._err.textContent = '';
+        if (!text) { this._input.focus(); return; }
+        const svc = this.service;
+        if (!svc || typeof svc.create !== 'function') {
+            this._err.textContent = 'Tjeneste ikke koblet til';
+            return;
+        }
+        const opts = {};
+        if (this._respSel) opts.responsible = this._respSel.value || '';
+        if (this._dueIn && this._dueIn.value) opts.dueDate = this._dueIn.value;
+        if (this._goalSel && this._goalSel.value) opts.goalId = this._goalSel.value;
+        if (!opts.goalId) {
+            const goalId = this.getAttribute('goal-id');
+            if (goalId) opts.goalId = goalId;
+        }
+        const week = this.getAttribute('week');
+        if (week) opts.week = week;
+        this._btn.disabled = true;
+        try {
+            const tasks = await svc.create(text, opts);
+            const task = Array.isArray(tasks) ? tasks[tasks.length - 1] : null;
+            this._input.value = '';
+            if (this._dueIn) this._dueIn.value = '';
+            this._input.focus();
+            this.dispatchEvent(new CustomEvent('task:created', {
+                bubbles: true, composed: true,
+                detail: { task, tasks },
+            }));
+        } catch (e) {
+            this._err.textContent = e.message || 'Feil ved lagring';
+            this.dispatchEvent(new CustomEvent('task:create-failed', {
+                bubbles: true, composed: true,
+                detail: { error: e.message || String(e) },
+            }));
+        } finally {
+            this._btn.disabled = false;
+        }
+    }
+}
+
+if (!customElements.get('task-create-full')) customElements.define('task-create-full', TaskCreateFull);

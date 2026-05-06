@@ -1505,7 +1505,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             ['Context',   ['ctx-switcher']],
             ['Search',    ['global-search']],
             ['Notes',     ['markdown-preview', 'note-card', 'note-editor', 'note-meta-view', 'note-meta-panel', 'note-view']],
-            ['Tasks',     ['task-add-modal', 'task-complete-modal', 'task-note', 'task-note-modal', 'task-open-list', 'task-completed', 'task-create', 'task-view']],
+            ['Tasks',     ['task-add-modal', 'task-complete-modal', 'task-note', 'task-note-modal', 'task-open-list', 'task-completed', 'task-create', 'task-create-full', 'task-view']],
             ['Meetings',  ['meeting-create', 'meeting-create-modal', 'upcoming-meetings', 'today-calendar', 'week-notes-calendar']],
             ['People',    ['company-card', 'entity-callout', 'entity-mention', 'people-page', 'person-card', 'place-card']],
             ['Results',   ['results-page', 'week-results']],
@@ -2249,6 +2249,28 @@ modal.open();</pre>
                     { name: 'compact', type: 'bool' },
                 ],
             },
+            'task-create-full': {
+                desc: `<p><strong>&lt;task-create-full&gt;</strong> is the expanded sibling of <code>&lt;task-create&gt;</code>. It renders a text input, an optional note textarea, and a meta-row with <em>Ansvarlig</em> (person picker, defaults to @me on create), <em>Mål</em> (goal picker, populated from <code>/api/goals</code>) and <em>Frist</em> (date), plus a submit button. Used by <code>&lt;task-add-modal&gt;</code>.</p>
+                    <p><strong>Two modes.</strong> By default it creates a task via <code>service.create(text, opts)</code>. Set the <code>task-id</code> attribute (or the <code>el.task</code> property to a task object) and it switches to <strong>edit mode</strong>: the form prefills from the task and submit calls <code>service.update(id, patch)</code> instead. Button label defaults to <code>Lagre</code> when editing.</p>
+                    <p><strong>Domain:</strong> <code>tasks</code> &mdash; reads from <code>tasks_service</code>.</p>
+                    <p><strong>Attributes:</strong> <code>placeholder</code>, <code>button-label</code>, <code>goal-id</code> (preselect goal), <code>week</code> (ISO YYYY-WNN, sent on create), <code>task-id</code> (switches to edit mode and fetches the task), <code>no-note</code> (hides the note textarea), <code>autofocus-on-connect</code>.</p>
+                    <p><strong>Keyboard:</strong> Ctrl/⌘+Enter submits from any field.</p>
+                    <p><strong>Events</strong> (bubbling, composed):</p>
+                    <ul>
+                        <li><em>create mode:</em> <code>task:created</code> with <code>{ task, tasks }</code> &middot; <code>task:create-failed</code> with <code>{ error }</code></li>
+                        <li><em>edit mode:</em> <code>task:updated</code> with <code>{ id, patch, task }</code> &middot; <code>task:update-failed</code> with <code>{ error }</code></li>
+                    </ul>`,
+                tag: 'task-create-full',
+                attrs: [
+                    { name: 'tasks_service', type: 'text', default: 'MockTaskService' },
+                    { name: 'placeholder', type: 'text', default: 'Ny oppgave...' },
+                    { name: 'button-label', type: 'text' },
+                    { name: 'goal-id', type: 'text' },
+                    { name: 'week', type: 'text' },
+                    { name: 'task-id', type: 'text' },
+                    { name: 'no-note', type: 'bool' },
+                ],
+            },
             'task-complete-modal': {
                 desc: `<p><strong>&lt;task-complete-modal&gt;</strong> is a centered modal that confirms completion of a single task and lets the user attach an optional comment. The component is dumb &mdash; it does not load or save anything. The host opens the modal with a task object and a callback that receives the result.</p>
                     <p><strong>Methods:</strong></p>
@@ -2943,6 +2965,7 @@ modal.open();</pre>
     <script type="module" src="/components/note-meta-panel.js"></script>
     <script type="module" src="/components/task-open-list.js"></script>
     <script type="module" src="/components/task-create.js"></script>
+    <script type="module" src="/components/task-create-full.js"></script>
     <script type="module" src="/components/task-add-modal.js"></script>
     <script type="module" src="/components/task-note.js"></script>
     <script type="module" src="/components/task-complete-modal.js"></script>
