@@ -422,6 +422,22 @@ class DateTimePicker extends WNElement {
             if (t.classList.contains('ok')) { this._commit(); return; }
             if (t.classList.contains('day')) {
                 const y = +t.dataset.y, mo = +t.dataset.m, d = +t.dataset.d;
+                // Manual dblclick detection — re-rendering on the first click
+                // replaces the day button, so the browser-native dblclick
+                // event never fires (target identity changes).
+                const now = Date.now();
+                const last = this._lastDayClick;
+                this._lastDayClick = { y, mo, d, t: now };
+                if (last && last.y === y && last.mo === mo && last.d === d
+                    && (now - last.t) < 400) {
+                    this._lastDayClick = null;
+                    this._selected = { ...this._selected, y, mo, d };
+                    const value = format(this._selected, 'date');
+                    this.dispatchEvent(new CustomEvent('datetime-selected', {
+                        detail: { value }, bubbles: true, composed: true,
+                    }));
+                    return;
+                }
                 this._selected = { ...this._selected, y, mo, d };
                 this._cursor = { y, mo };
                 this.requestRender();
@@ -434,15 +450,6 @@ class DateTimePicker extends WNElement {
             if (!(t instanceof HTMLSelectElement)) return;
             if (t.classList.contains('hour')) this._selected = { ...this._selected, h: +t.value };
             else if (t.classList.contains('minute')) this._selected = { ...this._selected, mi: +t.value };
-        });
-        sr.addEventListener('dblclick', (e) => {
-            const t = e.target;
-            if (t instanceof Element && t.classList.contains('day')) {
-                const value = format(this._selected, 'date');
-                this.dispatchEvent(new CustomEvent('datetime-selected', {
-                    detail: { value }, bubbles: true, composed: true,
-                }));
-            }
         });
         sr.addEventListener('keydown', (e) => {
             const t = e.target;
