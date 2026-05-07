@@ -37,6 +37,7 @@
 import { WNElement, html, escapeHtml, unsafeHTML } from './_shared.js';
 import '/components/date-time-picker.js';
 import '/components/person-picker.js';
+import '/components/note-view.js';
 import { attachDateTrigger } from '/components/wn-date-trigger.js';
 
 const STYLES = `
@@ -418,6 +419,23 @@ class TaskEditModal extends WNElement {
         this._duePicker = null;
     }
 
+    _openSourceNote(week, file) {
+        if (typeof document === 'undefined') return;
+        if (typeof window !== 'undefined' && typeof window.openNoteViewModal === 'function') {
+            window.openNoteViewModal(week, encodeURIComponent(file));
+            return;
+        }
+        const existing = document.querySelector('note-view[data-task-source]');
+        if (existing) existing.remove();
+        const v = document.createElement('note-view');
+        v.setAttribute('notes_service', 'week-note-services.notes_service');
+        v.setAttribute('data-task-source', '1');
+        v.addEventListener('note-view:close', () => { try { v.remove(); } catch (_) {} });
+        document.body.appendChild(v);
+        if (typeof v.open === 'function') v.open(`${week}/${encodeURIComponent(file)}`);
+        else { v.setAttribute('path', `${week}/${encodeURIComponent(file)}`); v.setAttribute('open', ''); }
+    }
+
     _wire() {
         if (this._wired) return;
         const root = this.shadowRoot;
@@ -436,9 +454,7 @@ class TaskEditModal extends WNElement {
             if (a.dataset.act === 'view-source') {
                 e.preventDefault();
                 const w = a.dataset.week, f = a.dataset.file;
-                if (w && f && typeof window.openNoteViewModal === 'function') {
-                    window.openNoteViewModal(w, encodeURIComponent(f));
-                }
+                if (w && f) this._openSourceNote(w, f);
             }
         });
     }
