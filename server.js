@@ -4,6 +4,13 @@ const http = require('http');
 const _core = require('./lib/core');
 const _dates = require('./lib/dates');
 
+process.on('uncaughtException', (e) => {
+    console.error('uncaughtException', e && e.stack || e);
+});
+process.on('unhandledRejection', (e) => {
+    console.error('unhandledRejection', e && e.stack || e);
+});
+
 const {
     PORT,
     pageHtml,
