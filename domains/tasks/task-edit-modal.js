@@ -34,7 +34,7 @@
  *       detail: { task, callback: (res) => { ... } },
  *   }));
  */
-import { WNElement, html, escapeHtml } from './_shared.js';
+import { WNElement, html, escapeHtml, unsafeHTML } from './_shared.js';
 import '/components/date-time-picker.js';
 import '/components/person-picker.js';
 import { attachDateTrigger } from '/components/wn-date-trigger.js';
@@ -121,6 +121,18 @@ const STYLES = `
     button.save:hover { filter: brightness(0.95); }
 
     .hint { color: var(--text-subtle); font-size: 0.78em; margin-top: 6px; }
+    .source-ref {
+        margin: -4px 0 12px;
+        padding: 6px 10px;
+        background: var(--surface-alt);
+        border: 1px solid var(--border-soft);
+        border-radius: 6px;
+        font-size: 0.85em;
+        color: var(--text-muted);
+        display: flex; align-items: center; gap: 6px;
+    }
+    .source-ref a { color: var(--accent); text-decoration: none; }
+    .source-ref a:hover { text-decoration: underline; }
 `;
 
 class TaskEditModal extends WNElement {
@@ -131,6 +143,14 @@ class TaskEditModal extends WNElement {
     render() {
         const t = (this._data && this._data.task) || null;
         const id = t ? (t.id || '') : '';
+        const noteRef = (t && typeof t.noteRef === 'string' && /^[^/]+\/[^/]+\.md$/.test(t.noteRef)) ? t.noteRef : '';
+        let sourceRef = '';
+        if (noteRef) {
+            const [w, f] = noteRef.split('/');
+            const href = `/editor/${encodeURIComponent(w)}/${encodeURIComponent(f)}`;
+            const label = f.replace(/\.md$/, '');
+            sourceRef = `<div class="source-ref">📝 Fra notat: <a href="${escapeHtml(href)}" title="Åpne notatet">${escapeHtml(label)}</a> <span>· ${escapeHtml(w)}</span></div>`;
+        }
         return html`
             <div class="backdrop" data-backdrop>
                 <div class="card" role="dialog" aria-modal="true" aria-labelledby="tem-h">
@@ -138,6 +158,7 @@ class TaskEditModal extends WNElement {
                         <h3 id="tem-h">✎ Rediger oppgave</h3>
                         <button type="button" class="close" data-act="cancel" title="Lukk (Esc)">✕</button>
                     </div>
+                    ${sourceRef ? unsafeHTML(sourceRef) : ''}
                     <div class="field">
                         <label>Tekst</label>
                         <input type="text" data-el="text" />
