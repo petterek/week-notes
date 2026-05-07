@@ -53,6 +53,12 @@ const STYLES = `
         .sidebar-task { padding: 6px 8px; border-radius: 6px; background: var(--surface); }
         .sidebar-task:hover { background: var(--surface-alt); }
         .row { display: flex; align-items: center; gap: 8px; }
+        .row-meta {
+            display: flex; align-items: center; gap: 8px;
+            margin-top: 4px; padding-left: 26px;
+            color: var(--text-muted); font-size: 0.92em;
+        }
+        .row-meta-spacer { flex: 1; }
         .row input[type="checkbox"] { accent-color: var(--accent); }
         .row-text { flex: 1; word-break: break-word; }
         .row-text a { color: var(--accent); text-decoration: none; }
@@ -128,8 +134,11 @@ function renderTask(t, people, companies) {
                 <div class="row">
                     <input type="checkbox" data-taskid="${id}" data-tasktext="${t.text || ''}" data-act="toggle" />
                     <span class="row-text">${textHtml}</span>
+                </div>
+                <div class="row-meta">
                     ${duePill}
                     ${weekBadge}
+                    <span class="row-meta-spacer"></span>
                     <button type="button" class="${noteBtnCls}" data-act="note" data-taskid="${id}" title="${noteBtnTitle}">📓</button>
                     <button type="button" class="row-edit-btn" data-act="edit" data-taskid="${id}" title="Rediger oppgave">✎</button>
                     <button type="button" class="row-del-btn" data-act="delete" data-taskid="${id}" data-tasktext="${t.text || ''}" title="Slett oppgave">✕</button>
