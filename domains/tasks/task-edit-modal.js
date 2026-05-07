@@ -34,8 +34,10 @@
  *       detail: { task, callback: (res) => { ... } },
  *   }));
  */
-import { WNElement, html, escapeHtml } from './_shared.js';
+import { WNElement, html, escapeHtml, unsafeHTML } from './_shared.js';
 import '/components/date-time-picker.js';
+import '/components/person-picker.js';
+import '/components/note-view.js';
 import { attachDateTrigger } from '/components/wn-date-trigger.js';
 
 const STYLES = `
@@ -120,6 +122,18 @@ const STYLES = `
     button.save:hover { filter: brightness(0.95); }
 
     .hint { color: var(--text-subtle); font-size: 0.78em; margin-top: 6px; }
+    .source-ref {
+        margin: -4px 0 12px;
+        padding: 6px 10px;
+        background: var(--surface-alt);
+        border: 1px solid var(--border-soft);
+        border-radius: 6px;
+        font-size: 0.85em;
+        color: var(--text-muted);
+        display: flex; align-items: center; gap: 6px;
+    }
+    .source-ref a { color: var(--accent); text-decoration: none; }
+    .source-ref a:hover { text-decoration: underline; }
 `;
 
 class TaskEditModal extends WNElement {
@@ -130,6 +144,13 @@ class TaskEditModal extends WNElement {
     render() {
         const t = (this._data && this._data.task) || null;
         const id = t ? (t.id || '') : '';
+        const noteRef = (t && typeof t.noteRef === 'string' && /^[^/]+\/[^/]+\.md$/.test(t.noteRef)) ? t.noteRef : '';
+        let sourceRef = '';
+        if (noteRef) {
+            const [w, f] = noteRef.split('/');
+            const label = f.replace(/\.md$/, '');
+            sourceRef = `<div class="source-ref">📝 Fra notat: <a href="#" data-act="view-source" data-week="${escapeHtml(w)}" data-file="${escapeHtml(f)}" title="Vis notatet">${escapeHtml(label)}</a> <span>· ${escapeHtml(w)}</span></div>`;
+        }
         return html`
             <div class="backdrop" data-backdrop>
                 <div class="card" role="dialog" aria-modal="true" aria-labelledby="tem-h">
@@ -137,6 +158,7 @@ class TaskEditModal extends WNElement {
                         <h3 id="tem-h">✎ Rediger oppgave</h3>
                         <button type="button" class="close" data-act="cancel" title="Lukk (Esc)">✕</button>
                     </div>
+                    ${sourceRef ? unsafeHTML(sourceRef) : ''}
                     <div class="field">
                         <label>Tekst</label>
                         <input type="text" data-el="text" />
@@ -144,7 +166,11 @@ class TaskEditModal extends WNElement {
                     <div class="meta-row">
                         <div class="field">
                             <label>Ansvarlig</label>
-                            <select data-el="responsible">
+                            <person-picker data-el="responsible"></person-picker>
+                        </div>
+                        <div class="field">
+                            <label>Mål</label>
+                            <select data-el="goal">
                                 <option value="">(ingen)</option>
                             </select>
                         </div>
@@ -199,9 +225,8 @@ class TaskEditModal extends WNElement {
             const initialDue = (t.dueDate && /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?$/.test(t.dueDate)) ? t.dueDate : '';
             if (due) due.value = initialDue;
             this._updateDueTrigger(initialDue);
-            this._loadPeople(t.responsible || '').then(() => {
-                if (resp) resp.value = t.responsible || '';
-            });
+            if (resp) resp.value = t.responsible || '';
+            this._loadGoals(t.goalId || '');
             if (text) {
                 text.focus();
                 try { text.setSelectionRange(text.value.length, text.value.length); } catch {}
@@ -215,30 +240,30 @@ class TaskEditModal extends WNElement {
         this._callback = null;
     }
 
-    async _loadPeople(currentKey) {
+    async _loadGoals(currentId) {
         const root = this.shadowRoot;
         if (!root) return;
-        const sel = root.querySelector('[data-el="responsible"]');
+        const sel = root.querySelector('[data-el="goal"]');
         if (!sel) return;
-        const meKey = (typeof window !== 'undefined' && window.mePersonKey) || '';
         try {
-            const resp = await fetch('/api/people');
+            const resp = await fetch('/api/goals');
             const arr = await resp.json();
             if (!Array.isArray(arr)) return;
             const items = arr
-                .filter(p => p && p.key)
-                .map(p => ({ key: p.key, name: p.name || p.key, isMe: p.key === meKey }))
+                .filter(g => g && g.id)
                 .sort((a, b) => {
-                    if (a.isMe !== b.isMe) return a.isMe ? -1 : 1;
-                    return a.name.localeCompare(b.name);
+                    const sa = a.status === 'active' ? 0 : 1;
+                    const sb = b.status === 'active' ? 0 : 1;
+                    if (sa !== sb) return sa - sb;
+                    return (a.title || '').localeCompare(b.title || '');
                 });
             const opts = ['<option value="">(ingen)</option>'];
-            for (const p of items) {
-                const label = p.isMe ? `${p.name} (meg)` : p.name;
-                opts.push(`<option value="${escapeHtml(p.key)}">${escapeHtml(label)}</option>`);
+            for (const g of items) {
+                const icon = g.status === 'achieved' ? '🏆 ' : g.status === 'abandoned' ? '🗑️ ' : '🎯 ';
+                opts.push(`<option value="${escapeHtml(g.id)}">${escapeHtml(icon + (g.title || ''))}</option>`);
             }
             sel.innerHTML = opts.join('');
-            if (currentKey) sel.value = currentKey;
+            if (currentId) sel.value = currentId;
         } catch {}
     }
 
@@ -270,10 +295,12 @@ class TaskEditModal extends WNElement {
         const note = (root.querySelector('[data-el="note"]') || {}).value || '';
         const due  = (root.querySelector('[data-el="due"]')  || {}).value || '';
         const resp = (root.querySelector('[data-el="responsible"]') || {}).value || '';
+        const goal = (root.querySelector('[data-el="goal"]') || {}).value || '';
         const patch = {
             text: text.trim(),
             note: note,
             responsible: resp,
+            goalId: goal,
             // Always send dueDate so server can clear it when blank.
             dueDate: due,
         };
@@ -392,6 +419,23 @@ class TaskEditModal extends WNElement {
         this._duePicker = null;
     }
 
+    _openSourceNote(week, file) {
+        if (typeof document === 'undefined') return;
+        if (typeof window !== 'undefined' && typeof window.openNoteViewModal === 'function') {
+            window.openNoteViewModal(week, encodeURIComponent(file));
+            return;
+        }
+        const existing = document.querySelector('note-view[data-task-source]');
+        if (existing) existing.remove();
+        const v = document.createElement('note-view');
+        v.setAttribute('notes_service', 'week-note-services.notes_service');
+        v.setAttribute('data-task-source', '1');
+        v.addEventListener('note-view:close', () => { try { v.remove(); } catch (_) {} });
+        document.body.appendChild(v);
+        if (typeof v.open === 'function') v.open(`${week}/${encodeURIComponent(file)}`);
+        else { v.setAttribute('path', `${week}/${encodeURIComponent(file)}`); v.setAttribute('open', ''); }
+    }
+
     _wire() {
         if (this._wired) return;
         const root = this.shadowRoot;
@@ -407,6 +451,11 @@ class TaskEditModal extends WNElement {
             if (!a) return;
             if (a.dataset.act === 'cancel') this._cancel();
             if (a.dataset.act === 'save')   this._save();
+            if (a.dataset.act === 'view-source') {
+                e.preventDefault();
+                const w = a.dataset.week, f = a.dataset.file;
+                if (w && f) this._openSourceNote(w, f);
+            }
         });
     }
 }

@@ -4,6 +4,13 @@ const http = require('http');
 const _core = require('./lib/core');
 const _dates = require('./lib/dates');
 
+process.on('uncaughtException', (e) => {
+    console.error('uncaughtException', e && e.stack || e);
+});
+process.on('unhandledRejection', (e) => {
+    console.error('unhandledRejection', e && e.stack || e);
+});
+
 const {
     PORT,
     pageHtml,
@@ -30,6 +37,7 @@ const handlers = [
     require('./routes/tasks-page')(deps),
     require('./routes/api/tasks')(deps),
     require('./routes/api/results')(deps),
+    require('./routes/api/goals')(deps),
     require('./routes/api/people')(deps),
     require('./routes/api/companies')(deps),
     require('./routes/api/places')(deps),

@@ -150,7 +150,8 @@ class ResultsPage extends WNElement {
         super();
         this._state = null;
         this._error = null;
-        this._modal = null; // null | { mode: 'new' | 'edit', id?, text?, week? }
+        this._modal = null; // null | { mode: 'new' | 'edit', id?, text?, week?, goalId? }
+        this._goals = [];
     }
 
     css() { return STYLES; }
@@ -187,11 +188,13 @@ class ResultsPage extends WNElement {
         const peopleSvc = this.serviceFor('people');
         const compSvc = this.serviceFor('companies');
         try {
-            const [results, people, companies] = await Promise.all([
+            const [results, people, companies, goalsResp] = await Promise.all([
                 this.service.list(),
                 peopleSvc ? peopleSvc.list() : Promise.resolve([]),
                 compSvc ? compSvc.list() : Promise.resolve([]),
+                fetch('/api/goals').then(r => r.json()).catch(() => []),
             ]);
+            this._goals = Array.isArray(goalsResp) ? goalsResp : [];
             this._state = {
                 results: (results || []).slice().sort((a, b) => (b.created || '').localeCompare(a.created || '')),
                 people: people || [],
@@ -252,13 +255,13 @@ class ResultsPage extends WNElement {
     }
 
     _openNew() {
-        this._modal = { mode: 'new', text: '', week: currentYearWeek() };
+        this._modal = { mode: 'new', text: '', week: currentYearWeek(), goalId: '' };
         this.requestRender();
         this._focusModalInput();
     }
 
     _openEdit(r) {
-        this._modal = { mode: 'edit', id: r.id, text: r.text || '', week: r.week || '' };
+        this._modal = { mode: 'edit', id: r.id, text: r.text || '', week: r.week || '', goalId: r.goalId || '' };
         this.requestRender();
         this._focusModalInput();
     }
@@ -279,14 +282,16 @@ class ResultsPage extends WNElement {
         if (!this._modal) return;
         const ta = this.shadowRoot.getElementById('rpModalText');
         const wkInput = this.shadowRoot.getElementById('rpModalWeek');
+        const goalSel = this.shadowRoot.getElementById('rpModalGoal');
         const text = (ta ? ta.value : '').trim();
         const week = wkInput ? wkInput.value.trim() : this._modal.week;
+        const goalId = goalSel ? goalSel.value : '';
         if (!text) return;
         try {
             if (this._modal.mode === 'new') {
-                await this.service.create({ text, week });
+                await this.service.create({ text, week, goalId });
             } else {
-                await this.service.update(this._modal.id, { text });
+                await this.service.update(this._modal.id, { text, goalId });
             }
             this._modal = null;
             await this._load();
@@ -347,6 +352,12 @@ class ResultsPage extends WNElement {
     _renderModal() {
         if (!this._modal) return '';
         const isNew = this._modal.mode === 'new';
+        const goals = (this._goals || []).slice().sort((a, b) => {
+            const sa = a.status === 'active' ? 0 : 1;
+            const sb = b.status === 'active' ? 0 : 1;
+            if (sa !== sb) return sa - sb;
+            return (a.title || '').localeCompare(b.title || '');
+        });
         return html`
             <div class="modal open">
                 <div class="modal-card">
@@ -364,6 +375,12 @@ class ResultsPage extends WNElement {
                                 <input type="text" id="rpModalWeek" value=${this._modal.week || ''} placeholder="YYYY-WNN" />
                             </label>
                         ` : ''}
+                        <label>Mål (valgfritt)
+                            <select id="rpModalGoal">
+                                <option value="" ${!this._modal.goalId ? 'selected' : ''}>(ingen)</option>
+                                ${goals.map(g => unsafeHTML(`<option value="${escapeHtml(g.id)}"${g.id === this._modal.goalId ? ' selected' : ''}>${escapeHtml((g.status === 'achieved' ? '🏆 ' : g.status === 'abandoned' ? '🗑️ ' : '🎯 ') + (g.title || ''))}</option>`))}
+                            </select>
+                        </label>
                     </div>
                     <div class="modal-actions">
                         <button class="modal-btn" type="button" data-act="cancel">Avbryt</button>

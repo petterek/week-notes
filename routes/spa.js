@@ -29,6 +29,7 @@ module.exports = function(deps) {
             '/tasks':    'Oppgaver',
             '/people':   'Personer og steder',
             '/results':  'Resultater',
+            '/goals':    'Mål',
             '/notes':    'Notater',
             '/settings': 'Innstillinger'
         };

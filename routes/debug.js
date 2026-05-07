@@ -1505,9 +1505,9 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             ['Context',   ['ctx-switcher']],
             ['Search',    ['global-search']],
             ['Notes',     ['markdown-preview', 'note-card', 'note-editor', 'note-meta-view', 'note-meta-panel', 'note-view']],
-            ['Tasks',     ['task-add-modal', 'task-complete-modal', 'task-note', 'task-note-modal', 'task-open-list', 'task-completed', 'task-create', 'task-view']],
+            ['Tasks',     ['task-add-modal', 'task-complete-modal', 'task-note', 'task-note-modal', 'task-open-list', 'task-completed', 'task-create', 'task-create-full', 'task-view']],
             ['Meetings',  ['meeting-create', 'meeting-create-modal', 'upcoming-meetings', 'today-calendar', 'week-notes-calendar']],
-            ['People',    ['company-card', 'entity-callout', 'entity-mention', 'people-page', 'person-card', 'place-card']],
+            ['People',    ['company-card', 'entity-callout', 'entity-mention', 'people-page', 'person-card', 'person-picker', 'place-card']],
             ['Results',   ['results-page', 'week-results']],
             ['Settings',  ['settings-page']],
             ['Composit',  ['week-list', 'week-section']],
@@ -2093,6 +2093,26 @@ modal.open();</pre>
                         });
                     <\/script>`,
             },
+            'person-picker': {
+                desc: `<p><strong>&lt;person-picker&gt;</strong> is a single-person combobox. The trigger input doubles as a filter &mdash; focus it to open the menu and start typing to narrow the list. Pick with mouse or keyboard (↑/↓/Enter), Esc reverts, ✕ clears.</p>
+                    <p>Loads people from <code>people_service</code> (falls back to <code>fetch('/api/people')</code> if no service is configured). The <code>@me</code> person floats to the top with a "(meg)" suffix.</p>
+                    <p><strong>Domain:</strong> <code>people</code> &mdash; reads from <code>people_service</code>.</p>
+                    <p><strong>Attributes:</strong> <code>people_service</code>, <code>value</code> (initial key), <code>placeholder</code> (input placeholder when nothing is selected, default <code>Velg person…</code>), <code>default-me</code> (preselect @me when no value), <code>disabled</code>.</p>
+                    <p><strong>Properties:</strong> <code>.value</code> (string key), <code>.selectedPerson</code> (the loaded person object).</p>
+                    <p><strong>Events</strong> (bubbling, composed):</p>
+                    <ul>
+                        <li><code>change</code> with <code>{ value, person }</code> &mdash; user picked a person.</li>
+                        <li><code>people-loaded</code> with <code>{ count }</code> &mdash; option list populated.</li>
+                    </ul>`,
+                tag: 'person-picker',
+                attrs: [
+                    { name: 'people_service', type: 'text', default: 'MockPeopleService' },
+                    { name: 'value', type: 'text' },
+                    { name: 'placeholder', type: 'text', default: 'Velg person…' },
+                    { name: 'default-me', type: 'bool' },
+                    { name: 'disabled', type: 'bool' },
+                ],
+            },
             'place-card': {
                 desc: `<p><strong>&lt;place-card&gt;</strong> is a dumb presentation card for a single place. Used by <code>&lt;people-page&gt;</code> on the Steder tab.</p>
                     <p><strong>Domain:</strong> <code>people</code>. The host passes the <code>place</code> object plus <code>meetings</code> already filtered to that place. When <code>lat</code>/<code>lng</code> are finite numbers, a Leaflet mini-map renders inside the card&rsquo;s own shadow root (Leaflet is loaded lazily on first need).</p>
@@ -2217,16 +2237,20 @@ modal.open();</pre>
                 ],
             },
             'task-add-modal': {
-                desc: `<p><strong>&lt;task-add-modal&gt;</strong> renders a small <code>+</code> trigger button that opens a <code>&lt;modal-container&gt;</code> wrapping a <code>&lt;task-create&gt;</code> form. Designed for sidebar/header use where space is tight.</p>
+                desc: `<p><strong>&lt;task-add-modal&gt;</strong> renders a small <code>+</code> trigger button that opens a <code>&lt;modal-container&gt;</code> wrapping a <code>&lt;task-create-full&gt;</code> form. Designed for sidebar/header use where space is tight.</p>
                     <p><strong>Behavior:</strong> the modal stays open after a task is created so the user can add several in a row. Dismissed only by the default Lukk button, the ✕ corner button, Esc or backdrop click.</p>
-                    <p><strong>Attributes</strong> (forwarded to <code>&lt;task-create&gt;</code>): <code>tasks_service</code>, <code>placeholder</code>, <code>button-label</code>. Trigger styling: <code>trigger-label</code> (default <code>+</code>), <code>trigger-title</code>.</p>
+                    <p><strong>Attributes</strong> (forwarded to <code>&lt;task-create-full&gt;</code>): <code>tasks_service</code>, <code>people_service</code>, <code>goals_service</code>, <code>placeholder</code>, <code>button-label</code>, <code>goal-id</code>, <code>week</code>. Trigger styling: <code>trigger-label</code> (default <code>+</code>), <code>trigger-title</code>.</p>
                     <p><strong>Methods:</strong> <code>open()</code>, <code>close()</code>.</p>
-                    <p><strong>Events:</strong> bubbles <code>task:created</code> from the embedded <code>&lt;task-create&gt;</code>.</p>`,
+                    <p><strong>Events:</strong> bubbles <code>task:created</code> from the embedded <code>&lt;task-create-full&gt;</code>.</p>`,
                 tag: 'task-add-modal',
                 attrs: [
                     { name: 'tasks_service', type: 'text', default: 'MockTaskService' },
+                    { name: 'people_service', type: 'text', default: 'MockPeopleService' },
+                    { name: 'goals_service', type: 'text', default: 'MockGoalsService' },
                     { name: 'placeholder', type: 'text', default: 'Beskriv oppgaven…' },
                     { name: 'button-label', type: 'text', default: 'Legg til' },
+                    { name: 'goal-id', type: 'text' },
+                    { name: 'week', type: 'text' },
                     { name: 'trigger-label', type: 'text', default: '+' },
                     { name: 'trigger-title', type: 'text', default: 'Ny oppgave' },
                 ],
@@ -2247,6 +2271,30 @@ modal.open();</pre>
                     { name: 'placeholder', type: 'text', default: 'Ny oppgave...' },
                     { name: 'button-label', type: 'text', default: 'Legg til' },
                     { name: 'compact', type: 'bool' },
+                ],
+            },
+            'task-create-full': {
+                desc: `<p><strong>&lt;task-create-full&gt;</strong> is the expanded sibling of <code>&lt;task-create&gt;</code>. It renders a text input, an optional note textarea, and a meta-row with <em>Ansvarlig</em> (person picker, defaults to @me on create), <em>Mål</em> (goal picker, populated from <code>/api/goals</code>) and <em>Frist</em> (date), plus a submit button. Used by <code>&lt;task-add-modal&gt;</code>.</p>
+                    <p><strong>Two modes.</strong> By default it creates a task via <code>service.create(text, opts)</code>. Set the <code>task-id</code> attribute (or the <code>el.task</code> property to a task object) and it switches to <strong>edit mode</strong>: the form prefills from the task and submit calls <code>service.update(id, patch)</code> instead. Button label defaults to <code>Lagre</code> when editing.</p>
+                    <p><strong>Domain:</strong> <code>tasks</code> &mdash; reads from <code>tasks_service</code>. Also reads <code>people_service</code> (Ansvarlig list) and <code>goals_service</code> (Mål list); both fall back to <code>fetch('/api/people')</code> / <code>fetch('/api/goals')</code> if no service attribute is set.</p>
+                    <p><strong>Attributes:</strong> <code>placeholder</code>, <code>button-label</code>, <code>goal-id</code> (preselect goal), <code>week</code> (ISO YYYY-WNN, sent on create), <code>task-id</code> (switches to edit mode and fetches the task), <code>no-note</code> (hides the note textarea), <code>autofocus-on-connect</code>.</p>
+                    <p><strong>Keyboard:</strong> Ctrl/⌘+Enter submits from any field.</p>
+                    <p><strong>Events</strong> (bubbling, composed):</p>
+                    <ul>
+                        <li><em>create mode:</em> <code>task:created</code> with <code>{ task, tasks }</code> &middot; <code>task:create-failed</code> with <code>{ error }</code></li>
+                        <li><em>edit mode:</em> <code>task:updated</code> with <code>{ id, patch, task }</code> &middot; <code>task:update-failed</code> with <code>{ error }</code></li>
+                    </ul>`,
+                tag: 'task-create-full',
+                attrs: [
+                    { name: 'tasks_service', type: 'text', default: 'MockTaskService' },
+                    { name: 'people_service', type: 'text', default: 'MockPeopleService' },
+                    { name: 'goals_service', type: 'text', default: 'MockGoalsService' },
+                    { name: 'placeholder', type: 'text', default: 'Ny oppgave...' },
+                    { name: 'button-label', type: 'text' },
+                    { name: 'goal-id', type: 'text' },
+                    { name: 'week', type: 'text' },
+                    { name: 'task-id', type: 'text' },
+                    { name: 'no-note', type: 'bool' },
                 ],
             },
             'task-complete-modal': {
@@ -2943,6 +2991,7 @@ modal.open();</pre>
     <script type="module" src="/components/note-meta-panel.js"></script>
     <script type="module" src="/components/task-open-list.js"></script>
     <script type="module" src="/components/task-create.js"></script>
+    <script type="module" src="/components/task-create-full.js"></script>
     <script type="module" src="/components/task-add-modal.js"></script>
     <script type="module" src="/components/task-note.js"></script>
     <script type="module" src="/components/task-complete-modal.js"></script>
@@ -2966,6 +3015,7 @@ modal.open();</pre>
     <script type="module" src="/components/settings-page.js"></script>
     <script type="module" src="/components/company-card.js"></script>
     <script type="module" src="/components/person-card.js"></script>
+    <script type="module" src="/components/person-picker.js"></script>
     <script type="module" src="/components/place-card.js"></script>
     <script type="module" src="/components/entity-callout.js"></script>
 <script type="module" src="/components/entity-mention.js"></script>

@@ -105,8 +105,15 @@
 
     window.MockTaskService = {
         list:   () => delay(JSON.parse(JSON.stringify(tasks))),
-        create: (text) => {
-            const t = { id: uid('t'), text: String(text || ''), done: false, created: now(), week: thisWeek, order: tasks.length };
+        create: (text, opts = {}) => {
+            const t = {
+                id: uid('t'), text: String(text || ''), done: false,
+                created: now(), week: opts.week || thisWeek, order: tasks.length,
+            };
+            if (opts.responsible) t.responsible = opts.responsible;
+            if (opts.dueDate) t.dueDate = opts.dueDate;
+            if (opts.goalId) t.goalId = opts.goalId;
+            if (opts.note) t.note = opts.note;
             tasks.push(t);
             return delay(JSON.parse(JSON.stringify(tasks)));
         },
@@ -433,6 +440,27 @@
         removeTheme: (id) => { const i = themes.findIndex(t => t.id === id); if (i >= 0 && !themes[i].builtin) themes.splice(i, 1); return delay({ ok: true }); },
     };
 
+    // ---------- Goals ----------
+    const goals = [
+        { id: 'g1', title: 'Lansere v1 av plattformen', description: 'Stabilt produkt for første kohort av kunder.', status: 'active', targetDate: dayOffset(45), targetValue: 10, currentValue: 4, unit: 'kunder', created: now() },
+        { id: 'g2', title: 'Q1 omsetning', description: '', status: 'active', targetValue: 500000, currentValue: 215000, unit: 'NOK', created: now() },
+        { id: 'g3', title: 'Få på plass onboarding-flyt', description: '', status: 'achieved', achievedAt: now(), created: now() },
+    ];
+    window.MockGoalsService = {
+        list:   () => delay(JSON.parse(JSON.stringify(goals))),
+        create: (data) => {
+            const g = Object.assign({ id: uid('g'), status: 'active', created: now() }, data || {});
+            goals.push(g); return delay({ ok: true, goal: g });
+        },
+        update: (id, patch) => {
+            const i = goals.findIndex(x => x.id === id);
+            if (i < 0) return Promise.reject(new Error('not found'));
+            Object.assign(goals[i], patch || {});
+            return delay({ ok: true, goal: goals[i] });
+        },
+        remove: (id) => { const i = goals.findIndex(x => x.id === id); if (i >= 0) goals.splice(i, 1); return delay({ ok: true }); },
+    };
+
     // Convenience: also expose as a single namespace
     window.MockServices = {
         people:    window.MockPeopleService,
@@ -445,5 +473,6 @@
         search:   window.MockSearchService,
         context:  window.MockContextService,
         settings: window.MockSettingsService,
+        goals:    window.MockGoalsService,
     };
 })();

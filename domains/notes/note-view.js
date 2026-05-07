@@ -35,10 +35,22 @@ const STYLES = `
         background: var(--surface);
         color: var(--text-strong);
         border-radius: 10px;
-        max-width: 900px; width: 100%;
+        max-width: 95vw; width: 900px;
         box-shadow: 0 20px 60px rgba(0,0,0,0.3);
         display: flex; flex-direction: column;
-        max-height: 90vh;
+        max-height: 95vh; height: 80vh;
+        min-width: 360px; min-height: 240px;
+        resize: both; overflow: hidden;
+        position: relative;
+    }
+    .nv-card::after {
+        content: '';
+        position: absolute; right: 2px; bottom: 2px;
+        width: 14px; height: 14px;
+        background:
+            linear-gradient(135deg, transparent 0 6px, var(--text-muted) 6px 7px, transparent 7px 9px, var(--text-muted) 9px 10px, transparent 10px 12px, var(--text-muted) 12px 13px, transparent 13px);
+        pointer-events: none;
+        opacity: 0.7;
     }
     .nv-head {
         display: flex; align-items: center; gap: 12px;
@@ -61,6 +73,19 @@ const STYLES = `
         line-height: 1.55;
     }
     .nv-body :first-child { margin-top: 0; }
+    .nv-body table {
+        border-collapse: collapse;
+        margin: 0.6em 0;
+        max-width: 100%;
+    }
+    .nv-body th, .nv-body td {
+        border: 1px solid var(--border);
+        padding: 4px 10px;
+        text-align: left;
+        vertical-align: top;
+    }
+    .nv-body th { background: var(--surface-head); font-weight: 600; color: var(--text-strong); }
+    .nv-body tr:nth-child(even) td { background: var(--surface-alt); }
     .nv-loading, .nv-error {
         color: var(--text-muted); font-style: italic; padding: 16px 0;
     }
@@ -110,11 +135,22 @@ class NoteView extends WNElement {
             }
         };
         document.addEventListener('keydown', this._onKey);
+        // Track where mousedown started so a resize drag that ends over the
+        // backdrop doesn't close the view.
+        this._mouseDownOnBackdrop = false;
+        this.shadowRoot.addEventListener('mousedown', (ev) => {
+            this._mouseDownOnBackdrop = !!(ev.target && ev.target.classList
+                && ev.target.classList.contains('nv-backdrop'));
+        });
         this.shadowRoot.addEventListener('click', (ev) => {
             const t = ev.target;
             if (!t) return;
-            if ((t.dataset && t.dataset.action === 'close') || (t.classList && t.classList.contains('nv-backdrop'))) {
+            if (t.dataset && t.dataset.action === 'close') {
                 this.close();
+                return;
+            }
+            if (t.classList && t.classList.contains('nv-backdrop')) {
+                if (this._mouseDownOnBackdrop) this.close();
                 return;
             }
             if (t.dataset && t.dataset.action === 'copy') {

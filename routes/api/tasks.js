@@ -81,6 +81,9 @@ module.exports = function(deps) {
         if (typeof body.dueDate === 'string' && /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?$/.test(body.dueDate.trim())) {
             task.dueDate = body.dueDate.trim();
         }
+        if (typeof body.goalId === 'string' && body.goalId.trim()) {
+            task.goalId = body.goalId.trim();
+        }
         tasks.push(task);
         saveTasks(tasks);
         syncMentions(body.text);
@@ -111,6 +114,11 @@ module.exports = function(deps) {
             }
             if (body.note !== undefined) syncTaskNote(task, body.note, tasks);
             else syncMentions(task.text, task.note);
+            if (body.goalId === null || body.goalId === '') {
+                delete task.goalId;
+            } else if (typeof body.goalId === 'string' && body.goalId.trim()) {
+                task.goalId = body.goalId.trim();
+            }
             saveTasks(tasks);
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });

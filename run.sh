@@ -153,8 +153,12 @@ if command -v lsof &>/dev/null && lsof -iTCP:"$PORT" -sTCP:LISTEN &>/dev/null; t
   echo "Port $ORIG_PORT is in use; using free port $PORT instead"
 fi
 
-(exec -a "$PROCESS_NAME" env PORT="$PORT" node server.js) &
-echo $! > .server.pid
+LOG_FILE="weeks.log"
+nohup setsid env PORT="$PORT" node server.js >> "$LOG_FILE" 2>&1 < /dev/null &
+SERVER_PID=$!
+disown "$SERVER_PID" 2>/dev/null || true
+echo $SERVER_PID > .server.pid
 echo "$PORT" > "$PORT_FILE"
-echo "Server started in background (PID: $!, name: $PROCESS_NAME)"
+echo "Server started in background (PID: $SERVER_PID)"
 echo "  → http://localhost:$PORT/"
+echo "  → Logs: $LOG_FILE"
