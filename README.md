@@ -186,6 +186,9 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-05-07 (v4.8 — inline meeting-opprettelse fra notater)
+- **`{{m:Tittel @ YYYY-MM-DD HH:MM}}`** i et notat oppretter et møte ved lagring. Markøren rewrites til `{{m:?<id>}}` og rendres som `🤝 Møte`-lenke til kalenderen. Deltakere hentes fra `@`-mentions i notatet, varighet fra kontekstens default møte-lengde. Dokumentert i help (`/help.md`).
+
 ### 2026-05-07 (v4.7 — task-redigering, person-picker, prod-stabilitet)
 - **`<person-picker>` (ny komponent):** filterbar combobox for person-valg med typeahead. Bytter ut tidligere `<select>`-baserte løsninger i `<task-create-full>` og `<task-edit-modal>`. Tastaturnav ↑/↓/Enter/Esc/Tab, ✕-knapp, klikk utenfor reverter.
 - **`<task-create-full>` (ny widget):** felles create+edit-skjema for tasks med tekst, ansvarlig, mål, frist og notat. `<task-add-modal>` bruker den nå. Layout i 2-kol grid; frist via `<date-time-picker>`-popup.
