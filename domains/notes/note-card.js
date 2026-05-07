@@ -39,6 +39,7 @@ const STYLES = `
         font: inherit;
     }
     :host(:hover) { background: var(--surface-alt); }
+    :host { cursor: pointer; }
     .note-h {
         display: flex; justify-content: space-between; align-items: center;
         gap: 10px; font-weight: 500; color: var(--accent);
@@ -84,9 +85,9 @@ class NoteCard extends WNElement {
         if (this._wired) return;
         this._wired = true;
         this.shadowRoot.addEventListener('click', (ev) => {
+            if (!this._data) return;
             const trigger = ev.target.closest('[data-act]');
-            if (!trigger || !this._data) return;
-            const act = trigger.getAttribute('data-act');
+            const act = trigger ? trigger.getAttribute('data-act') : 'view';
             const { week, file } = this._data;
             ev.preventDefault();
             this.dispatchEvent(new CustomEvent(act, {
@@ -118,7 +119,6 @@ class NoteCard extends WNElement {
             <div class="note-h">
                 <span>${pinIcon}${typeIcon} ${display}</span>
                 <span class="note-actions">
-                    <button type="button" class="note-icon-btn" data-act="view" title="Vis ${display}">👁️</button>
                     ${presentBtn}
                     <button type="button" class="note-icon-btn" data-act="edit" title="Rediger ${display}">✏️</button>
                     <button type="button" class="note-icon-btn note-del" data-act="delete" title="Slett ${display}">🗑️</button>
