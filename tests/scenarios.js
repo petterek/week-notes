@@ -112,7 +112,7 @@
 
         {
             id: 'task-add-modal-opens',
-            name: 'task-add-modal opens on + click and shows task-create',
+            name: 'task-add-modal opens on + click and shows task-create-full',
             url: '/debug/task-add-modal',
             run: async function (ctx) {
                 var doc = ctx.doc;
@@ -123,8 +123,8 @@
                 var modal = sr.querySelector('modal-container');
                 ctx.assert(modal, 'modal-container should be in shadow root');
                 await ctx.waitFor(function () { return modal.hasAttribute('open') || (modal.shadowRoot && modal.shadowRoot.querySelector('.backdrop:not([hidden])')); }, { label: 'modal open' });
-                var tc = modal.querySelector('task-create');
-                ctx.assert(tc, 'expected <task-create> inside modal');
+                var tc = modal.querySelector('task-create-full');
+                ctx.assert(tc, 'expected <task-create-full> inside modal');
             },
         },
 

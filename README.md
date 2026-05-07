@@ -186,6 +186,16 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-05-07 (v4.7 — task-redigering, person-picker, prod-stabilitet)
+- **`<person-picker>` (ny komponent):** filterbar combobox for person-valg med typeahead. Bytter ut tidligere `<select>`-baserte løsninger i `<task-create-full>` og `<task-edit-modal>`. Tastaturnav ↑/↓/Enter/Esc/Tab, ✕-knapp, klikk utenfor reverter.
+- **`<task-create-full>` (ny widget):** felles create+edit-skjema for tasks med tekst, ansvarlig, mål, frist og notat. `<task-add-modal>` bruker den nå. Layout i 2-kol grid; frist via `<date-time-picker>`-popup.
+- **Open-task-liste i to rader:** rad 1 har checkbox + tekst, rad 2 (innrykket) viser frist-pille, uke-pille og 📓 / ✎ / ✕-knapper.
+- **`<note-card>`:** klikk hvor som helst på kortet åpner notatet (samme som det gamle 👁️-ikonet, som er fjernet).
+- **Task-redigering viser kilde-notat:** når en task ble opprettet i et notat (`task.noteRef`), vises en "📝 Fra notat: …"-info-bar i `<task-edit-modal>` med klikkbar lenke som åpner notatet i en `<note-view>`-overlay.
+- **Mål: målverdi, nåverdi og enhet** på Mål (eks. *3 / 10 leads*).
+- **`run.sh` + `server.js`:** prod-server overlever nå at den startende terminalen lukkes — `nohup setsid … & disown`, stdout/stderr går til `weeks.log`. Top-level `uncaughtException` / `unhandledRejection` logger i stedet for å la Node terminere prosessen.
+- **`<note-view>`:** modal er resizable (synlig håndtak nederst til høyre), lukker ikke når en resize-drag ender på backdrop, markdown-tabeller får synlige rammer.
+
 ### 2026-05-06 (mål: nytt langsiktig mål-domene per kontekst)
 - **Ny feature `Mål` (Goals).** Per-kontekst langsiktige mål med tittel, beskrivelse (markdown), valgfri måldato og status (`active` / `achieved` / `abandoned`). Lagres i `data/<ctx>/goals.json`.
 - **Egen side `/goals`** (komponent `<goals-page>` i `domains/goals/`): grupperer mål etter status, viser progress per mål basert på antall fullførte vs åpne tasks koblet til målet, og lar deg opprette / redigere / sykle status / slette via modal. Resultater knyttet til målet vises også i kortet.
