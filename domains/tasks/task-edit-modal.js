@@ -147,9 +147,8 @@ class TaskEditModal extends WNElement {
         let sourceRef = '';
         if (noteRef) {
             const [w, f] = noteRef.split('/');
-            const href = `/editor/${encodeURIComponent(w)}/${encodeURIComponent(f)}`;
             const label = f.replace(/\.md$/, '');
-            sourceRef = `<div class="source-ref">📝 Fra notat: <a href="${escapeHtml(href)}" title="Åpne notatet">${escapeHtml(label)}</a> <span>· ${escapeHtml(w)}</span></div>`;
+            sourceRef = `<div class="source-ref">📝 Fra notat: <a href="#" data-act="view-source" data-week="${escapeHtml(w)}" data-file="${escapeHtml(f)}" title="Vis notatet">${escapeHtml(label)}</a> <span>· ${escapeHtml(w)}</span></div>`;
         }
         return html`
             <div class="backdrop" data-backdrop>
@@ -434,6 +433,13 @@ class TaskEditModal extends WNElement {
             if (!a) return;
             if (a.dataset.act === 'cancel') this._cancel();
             if (a.dataset.act === 'save')   this._save();
+            if (a.dataset.act === 'view-source') {
+                e.preventDefault();
+                const w = a.dataset.week, f = a.dataset.file;
+                if (w && f && typeof window.openNoteViewModal === 'function') {
+                    window.openNoteViewModal(w, encodeURIComponent(f));
+                }
+            }
         });
     }
 }
