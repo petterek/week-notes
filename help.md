@@ -62,6 +62,24 @@ To måter å lage resultater på:
 
 `@navn`-omtaler i et resultat huskes som "involverte personer" og vises som lenker til personkortet.
 
+## Inline-opprettelse fra notater
+
+Du kan opprette oppgaver, resultater og møter direkte fra et notat ved å skrive markører i teksten. Når du lagrer notatet eksplisitt blir markørene erstattet med stabile referanser, og selve entiteten dukker opp på riktig sted.
+
+| Markør | Lager |
+| --- | --- |
+| `{{X}}` | Oppgave med teksten X |
+| `[[X]]` | Resultat med teksten X |
+| `{{m:Tittel @ YYYY-MM-DD HH:MM}}` | Møte med tittel og starttidspunkt |
+| `{{!<id>}}` | Lukker oppgaven `<id>` |
+
+Etter lagring blir markørene til:
+- `{{?<taskId>}}` (åpen oppgave) eller `{{!<taskId>}}` (lukket)
+- `[[?<resultId>]]`
+- `{{m:?<meetingId>}}` (planlagt) eller `{{m:!<meetingId>}}` (avholdt)
+
+Møter får standard varighet fra konteksten (`Generelt → Standard møtelengde`). `@navn`-omtaler i notatet blir møtedeltakere. Møtetypen er `standup` som default — endre i kalenderen om du trenger noe annet.
+
 ## Personer og steder
 
 Siden `/people` har tre faner: **Personer**, **Selskaper** og **Steder**.

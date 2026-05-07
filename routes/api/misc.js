@@ -473,6 +473,7 @@ module.exports = function(deps) {
             let finalContent = content;
             let createdTasks = 0;
             let createdResults = 0;
+            let createdMeetings = 0;
             let closedTasks = 0;
             if (!autosave) {
                 const noteWeek = (typeof folder === 'string' && /^\d{4}-W\d{2}$/.test(folder)) ? folder : getCurrentYearWeek();
@@ -498,9 +499,11 @@ module.exports = function(deps) {
                     // Rewrite each {{X}} marker (in order) to {{?<newId>}}
                     // so the saved file keeps a stable ref to the new task.
                     // Preserve the link so the note can render an interactive
-                    // checkbox and close-from-note works.
+                    // checkbox and close-from-note works. Skip {{m:…}} which
+                    // is reserved for meeting markers.
                     let i = 0;
-                    finalContent = finalContent.replace(/\{\{([^{}!?][^{}]*)\}\}/g, (m) => {
+                    finalContent = finalContent.replace(/\{\{([^{}!?][^{}]*)\}\}/g, (m, inner) => {
+                        if (/^m:/i.test(inner.trim())) return m;
                         if (i >= newIds.length) return m;
                         return `{{?${newIds[i++]}}}`;
                     });
@@ -557,6 +560,54 @@ module.exports = function(deps) {
                 const resOut = processInlineResults(finalContent, noteWeek);
                 createdResults = resOut.createdCount;
                 finalContent = resOut.text;
+
+                // Process inline meeting markers: {{m:Title @ YYYY-MM-DD HH:MM}}
+                // → create meeting, replace with {{m:?<id>}}. Skip already-
+                // resolved references {{m:?<id>}} / {{m:!<id>}}.
+                {
+                    const ctxId = getActiveContext();
+                    const defaultMins = getDefaultMeetingMinutes(ctxId);
+                    const allMeetings = loadMeetings();
+                    const noteMentions = extractMentions(finalContent);
+                    const noteRef = `${folder}/${file}`;
+                    let mtgChanged = false;
+                    finalContent = finalContent.replace(/\{\{m:([^{}]+)\}\}/g, (m, inner) => {
+                        const trimmed = inner.trim();
+                        if (!trimmed) return m;
+                        if (trimmed.startsWith('?') || trimmed.startsWith('!')) return m;
+                        // Parse "Title @ YYYY-MM-DD HH:MM"
+                        const at = trimmed.lastIndexOf('@');
+                        if (at < 0) return m;
+                        const titlePart = trimmed.slice(0, at).trim();
+                        const whenPart = trimmed.slice(at + 1).trim();
+                        const dt = whenPart.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})$/);
+                        if (!titlePart || !dt) return m;
+                        const date = dt[1];
+                        const startH = +dt[2], startM = +dt[3];
+                        const endTotal = startH * 60 + startM + (defaultMins || 60);
+                        const endH = Math.floor(endTotal / 60) % 24;
+                        const endM = endTotal % 60;
+                        const pad = n => String(n).padStart(2, '0');
+                        const id = meetingId();
+                        allMeetings.push({
+                            id,
+                            date,
+                            start: `${pad(startH)}:${pad(startM)}`,
+                            end: `${pad(endH)}:${pad(endM)}`,
+                            title: titlePart,
+                            type: 'standup',
+                            attendees: noteMentions,
+                            location: '',
+                            notes: '',
+                            noteRef,
+                            created: new Date().toISOString(),
+                        });
+                        mtgChanged = true;
+                        createdMeetings++;
+                        return `{{m:?${id}}}`;
+                    });
+                    if (mtgChanged) saveMeetings(allMeetings);
+                }
             }
 
             if (autosave) {
@@ -597,7 +648,7 @@ module.exports = function(deps) {
             }
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: true, path: `/${folder}/${file}`, file, folder, content: finalContent, createdTasks, createdResults, closedTasks }));
+            res.end(JSON.stringify({ ok: true, path: `/${folder}/${file}`, file, folder, content: finalContent, createdTasks, createdResults, createdMeetings, closedTasks }));
 
             const now = new Date().toISOString();
             const existing = getNoteMeta(folder, file);
