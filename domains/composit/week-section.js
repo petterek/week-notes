@@ -130,35 +130,51 @@ class WeekSection extends WNElement {
     async _load() {
         const week = this.getAttribute('week');
         if (!week) { this._state = null; this.requestRender(); return; }
+        const isCurrent = this.hasAttribute('current') || week === isoWeek(new Date());
+        // Older (collapsed) weeks: render a stub immediately. Full data is
+        // fetched on demand when the user expands the <details> element.
+        if (!isCurrent) {
+            this._state = { stub: true };
+            this.requestRender();
+            if (!this._wired) { this._wired = true; this._wireEvents(); }
+            return;
+        }
+        await this._loadFull();
+    }
+
+    async _loadFull() {
+        if (this._state && this._state.cardsLoaded) return;
+        if (this._fullLoading) return this._fullLoading;
+        const week = this.getAttribute('week');
         const tasksSvc = this.serviceFor('tasks');
         const resultsSvc = this.serviceFor('results');
-        try {
-            const [info, tasks, results] = await Promise.all([
-                this.service.getWeek(week),
-                tasksSvc ? tasksSvc.list() : Promise.resolve([]),
-                resultsSvc ? resultsSvc.list() : Promise.resolve([]),
-            ]);
-            const completed = (tasks || []).filter(t => t.done && (t.completedWeek || t.week) === week);
-            const weekResults = (results || []).filter(r => r.week === week);
-            this._state = {
-                info,
-                cards: new Map(),
-                cardsLoaded: false,
-                completedCount: completed.length,
-                resultCount: weekResults.length,
-            };
-        } catch {
-            this._state = { error: true };
-        }
-        this.requestRender();
-        if (!this._wired) {
-            this._wired = true;
-            this._wireEvents();
-        }
-        // Eagerly load cards for the current week (always expanded).
-        // Older weeks defer card loading until <details> opens.
-        const isCurrent = this.hasAttribute('current') || week === isoWeek(new Date());
-        if (isCurrent) this._loadCards();
+        this._fullLoading = (async () => {
+            try {
+                const [info, tasks, results] = await Promise.all([
+                    this.service.getWeek(week),
+                    tasksSvc ? tasksSvc.list() : Promise.resolve([]),
+                    resultsSvc ? resultsSvc.list() : Promise.resolve([]),
+                ]);
+                const completed = (tasks || []).filter(t => t.done && (t.completedWeek || t.week) === week);
+                const weekResults = (results || []).filter(r => r.week === week);
+                this._state = {
+                    info,
+                    cards: new Map(),
+                    cardsLoaded: false,
+                    completedCount: completed.length,
+                    resultCount: weekResults.length,
+                };
+            } catch {
+                this._state = { error: true };
+            }
+            this.requestRender();
+            if (!this._wired) {
+                this._wired = true;
+                this._wireEvents();
+            }
+            await this._loadCards();
+        })();
+        try { await this._fullLoading; } finally { this._fullLoading = null; }
     }
 
     async _loadCards() {
@@ -203,8 +219,20 @@ class WeekSection extends WNElement {
         if (!this._state) return html`<p class="empty-quiet">Laster…</p>`;
         if (this._state.error) return html`<p class="empty-quiet">Kunne ikke laste uke</p>`;
 
-        const { info, completedCount, resultCount } = this._state;
         const isCurrent = this.hasAttribute('current') || week === isoWeek(new Date());
+
+        // Stub render for collapsed older weeks: no data fetched yet.
+        if (this._state.stub) {
+            const weekNum = (week.split('-')[1] || '');
+            return html`
+                <details class="older-week">
+                    <summary class="older"><span class="caret">▸</span><span class="older-title">Uke ${weekNum}</span></summary>
+                    <div class="week-section older-body"><p class="empty-quiet">Laster…</p></div>
+                </details>
+            `;
+        }
+
+        const { info, completedCount, resultCount } = this._state;
         const weekNum = info.weekNum || (week.split('-')[1] || '');
         const dateRange = info.dateRange || '';
         const noteCount = (info.notes || []).length;
@@ -260,8 +288,9 @@ class WeekSection extends WNElement {
                 </div>
             `;
         } else {
+            const openAttr = this._opened ? ' open' : '';
             return html`
-                <details class="older-week">
+                <details class="older-week"${unsafeHTML(openAttr)}>
                     <summary class="older"><span class="caret">▸</span><span class="older-title">Uke ${weekNum}</span><span class="older-meta">${dateRange ? dateRange + '  ·  ' : ''}${summaryLine}</span></summary>
                     <div class="week-section older-body">
                         ${unsafeHTML(actions)}
@@ -293,7 +322,14 @@ class WeekSection extends WNElement {
         this.shadowRoot.addEventListener('toggle', (ev) => {
             const d = ev.target;
             if (d && d.tagName === 'DETAILS' && d.classList.contains('older-week') && d.open) {
-                this._loadCards();
+                this._opened = true;
+                if (this._state && this._state.stub) {
+                    this._loadFull();
+                } else {
+                    this._loadCards();
+                }
+            } else if (d && d.tagName === 'DETAILS' && d.classList.contains('older-week') && !d.open) {
+                this._opened = false;
             }
         }, true);
 
