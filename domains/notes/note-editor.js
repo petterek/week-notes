@@ -299,6 +299,7 @@ class NoteEditor extends WNElement {
                 <code>#</code> tag ·
                 <code>{{?</code> oppgave ·
                 <code>[[?</code> resultat ·
+                <code>{{m:</code> møte ·
                 <code>Ctrl+D</code> dato ·
                 <code>Ctrl+Shift+D</code> dato + tid ·
                 <code>Ctrl+Enter</code> lagre og lukk
