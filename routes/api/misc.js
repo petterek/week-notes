@@ -580,11 +580,13 @@ module.exports = function(deps) {
                         if (at < 0) return m;
                         const titlePart = trimmed.slice(0, at).trim();
                         const whenPart = trimmed.slice(at + 1).trim();
-                        const dt = whenPart.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})$/);
+                        const dt = whenPart.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})(?:\s+(\d+)m)?$/);
                         if (!titlePart || !dt) return m;
                         const date = dt[1];
                         const startH = +dt[2], startM = +dt[3];
-                        const endTotal = startH * 60 + startM + (defaultMins || 60);
+                        const customDur = dt[4] ? parseInt(dt[4], 10) : null;
+                        const durMins = (customDur && customDur > 0) ? customDur : (defaultMins || 60);
+                        const endTotal = startH * 60 + startM + durMins;
                         const endH = Math.floor(endTotal / 60) % 24;
                         const endM = endTotal % 60;
                         const pad = n => String(n).padStart(2, '0');

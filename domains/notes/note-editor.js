@@ -299,7 +299,7 @@ class NoteEditor extends WNElement {
                 <code>#</code> tag ·
                 <code>{{?</code> oppgave ·
                 <code>[[?</code> resultat ·
-                <code>{{m:</code> møte ·
+                <code>Ctrl+M</code> møte ·
                 <code>Ctrl+D</code> dato ·
                 <code>Ctrl+Shift+D</code> dato + tid ·
                 <code>Ctrl+Enter</code> lagre og lukk
@@ -957,35 +957,144 @@ class NoteEditor extends WNElement {
     }
 
     _installMeetingSnippet() {
-        // When the user types '{{m:' in the textarea, auto-expand it into a
-        // full template '{{m:Tittel @ YYYY-MM-DD HH:MM}}' (using today's date
-        // and a default 09:00 start) and select the "Tittel" portion so
-        // they can immediately type the meeting title.
+        // Ctrl+M opens a small popover with date-time-picker, title and
+        // duration. On commit insert '{{m:<title> @ <date> <start>[ <dur>m]}}'
+        // at the caret. The server creates the actual meeting on note save
+        // and replaces the marker with '{{m:?<id>}}'.
         if (!this._contentEl || this._meetingSnippetWired) return;
         const ta = this._contentEl;
-        ta.addEventListener('input', (e) => {
-            if (e.inputType && e.inputType !== 'insertText') return;
-            const caret = ta.selectionStart;
-            if (caret !== ta.selectionEnd) return;
-            const text = ta.value;
-            if (text.slice(caret - 4, caret) !== '{{m:') return;
-            // Only expand if not already followed by content on this line.
-            const after = text.slice(caret);
-            if (/^[^\n}]*}}/.test(after)) return;
+        let pickerLoaded = false;
+        const ensurePickerLoaded = async () => {
+            if (pickerLoaded) return;
+            try { await import('/components/date-time-picker.js'); } catch (_) {}
+            pickerLoaded = true;
+        };
+        let popup = null;
+        let outsideHandler = null;
+        let datePicker = null;
+        const closeDatePicker = () => {
+            if (datePicker) { datePicker.remove(); datePicker = null; }
+        };
+        const closePopup = () => {
+            closeDatePicker();
+            if (popup) { popup.remove(); popup = null; }
+            if (outsideHandler) { document.removeEventListener('mousedown', outsideHandler, true); outsideHandler = null; }
+        };
+        const fmtWhen = (date, start) => {
+            const months = ['jan', 'feb', 'mar', 'apr', 'mai', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'des'];
+            const m = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (!m) return `${date} ${start}`;
+            return `${parseInt(m[3], 10)}. ${months[parseInt(m[2], 10) - 1]} ${start}`;
+        };
+        const openPopup = (insertAt) => {
+            closePopup();
+            ensurePickerLoaded();
             const today = new Date();
             const pad = n => String(n).padStart(2, '0');
-            const dateStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
-            const placeholder = 'Tittel';
-            const snippet = `${placeholder} @ ${dateStr} 09:00}}`;
-            const before = text.slice(0, caret);
-            ta.value = before + snippet + after;
-            try {
-                const selStart = caret;
-                const selEnd = caret + placeholder.length;
-                ta.setSelectionRange(selStart, selEnd);
-            } catch (_) {}
-            this._renderPreview();
-            this._markDirty();
+            let chosenDate = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+            let chosenStart = '09:00';
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'position:fixed;z-index:9999;background:var(--surface,#fff);border:1px solid var(--border,#ccc);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.15);padding:10px;display:flex;flex-direction:column;gap:6px;min-width:260px;font-size:0.9em;color:var(--text);';
+            wrap.innerHTML = `
+                <div style="font-size:0.8em;color:var(--text-muted);">Nytt møte</div>
+                <button type="button" class="m-when" style="text-align:left;padding:4px 8px;border:1px solid var(--border-soft,#ccc);border-radius:4px;background:var(--surface);color:var(--text);cursor:pointer;">📅 ${fmtWhen(chosenDate, chosenStart)}</button>
+                <input class="m-title" type="text" placeholder="Tittel" style="padding:4px 6px;border:1px solid var(--border-soft,#ccc);border-radius:4px;background:var(--surface);color:var(--text);">
+                <select class="m-dur" style="padding:4px 6px;border:1px solid var(--border-soft,#ccc);border-radius:4px;background:var(--surface);color:var(--text);">
+                    <option value="15">15 min</option>
+                    <option value="30">30 min</option>
+                    <option value="45">45 min</option>
+                    <option value="60" selected>60 min</option>
+                    <option value="90">90 min</option>
+                    <option value="120">2 t</option>
+                </select>
+                <div style="display:flex;justify-content:flex-end;gap:6px;margin-top:4px;">
+                    <button type="button" class="m-cancel" style="padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);cursor:pointer;">Avbryt</button>
+                    <button type="button" class="m-ok" style="padding:3px 10px;border:none;border-radius:4px;background:var(--accent);color:var(--text-on-accent,#fff);cursor:pointer;">Sett inn</button>
+                </div>
+            `;
+            const taRect = ta.getBoundingClientRect();
+            wrap.style.left = Math.min(window.innerWidth - 280, Math.max(8, taRect.left + 16)) + 'px';
+            wrap.style.top = Math.min(window.innerHeight - 220, Math.max(8, taRect.top + 40)) + 'px';
+            document.body.appendChild(wrap);
+            popup = wrap;
+            const whenBtn = wrap.querySelector('.m-when');
+            const titleEl = wrap.querySelector('.m-title');
+            const durEl = wrap.querySelector('.m-dur');
+            const okBtn = wrap.querySelector('.m-ok');
+            const cancelBtn = wrap.querySelector('.m-cancel');
+            setTimeout(() => titleEl.focus(), 0);
+            const openDateTimePicker = async () => {
+                await ensurePickerLoaded();
+                closeDatePicker();
+                const picker = document.createElement('date-time-picker');
+                picker.setAttribute('mode', 'datetime');
+                picker.setAttribute('value', `${chosenDate} ${chosenStart}`);
+                picker.style.cssText = 'position:fixed;z-index:10000;visibility:hidden;left:-9999px;top:0';
+                document.body.appendChild(picker);
+                requestAnimationFrame(() => {
+                    const pr = picker.getBoundingClientRect();
+                    const wr = wrap.getBoundingClientRect();
+                    const top = Math.min(window.innerHeight - pr.height - 8, Math.max(8, wr.bottom + 4));
+                    const left = Math.min(window.innerWidth - pr.width - 8, Math.max(8, wr.left));
+                    picker.style.cssText = `position:fixed;z-index:10000;visibility:visible;top:${top}px;left:${left}px`;
+                });
+                picker.addEventListener('datetime-selected', (e) => {
+                    const v = String(e.detail.value || '');
+                    const m = v.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})$/);
+                    if (m) {
+                        chosenDate = m[1];
+                        chosenStart = m[2];
+                        whenBtn.textContent = `📅 ${fmtWhen(chosenDate, chosenStart)}`;
+                    }
+                    closeDatePicker();
+                    titleEl.focus();
+                });
+                picker.addEventListener('datetime-cancelled', () => {
+                    closeDatePicker();
+                    titleEl.focus();
+                });
+                datePicker = picker;
+                picker.focus();
+            };
+            whenBtn.addEventListener('click', openDateTimePicker);
+            const commit = () => {
+                const title = (titleEl.value || '').trim();
+                if (!title) { titleEl.focus(); return; }
+                const dur = parseInt(durEl.value, 10) || 60;
+                // Insert as text marker; the server creates the meeting on
+                // save and replaces this with '{{m:?<id>}}'.
+                const durSuffix = dur === 60 ? '' : ` ${dur}m`;
+                const snippet = `{{m:${title} @ ${chosenDate} ${chosenStart}${durSuffix}}}`;
+                const text = ta.value;
+                ta.value = text.slice(0, insertAt) + snippet + text.slice(insertAt);
+                const newCaret = insertAt + snippet.length;
+                try { ta.setSelectionRange(newCaret, newCaret); } catch (_) {}
+                closePopup();
+                ta.focus();
+                this._renderPreview();
+                this._markDirty();
+            };
+            const cancel = () => { closePopup(); ta.focus(); };
+            okBtn.addEventListener('click', commit);
+            cancelBtn.addEventListener('click', cancel);
+            wrap.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && e.target !== whenBtn) { e.preventDefault(); commit(); }
+                else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+            });
+            outsideHandler = (e) => {
+                if (datePicker && datePicker.contains(e.target)) return;
+                if (popup && !popup.contains(e.target) && e.target !== ta) cancel();
+            };
+            setTimeout(() => document.addEventListener('mousedown', outsideHandler, true), 0);
+        };
+        ta.addEventListener('keydown', (e) => {
+            if (!e.ctrlKey || e.altKey || e.metaKey) return;
+            if ((e.key || '').toLowerCase() !== 'm') return;
+            e.preventDefault();
+            e.stopPropagation();
+            if (popup) { closePopup(); return; }
+            const caret = ta.selectionStart != null ? ta.selectionStart : ta.value.length;
+            openPopup(caret);
         });
         this._meetingSnippetWired = true;
     }
