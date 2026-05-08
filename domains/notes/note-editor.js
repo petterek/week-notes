@@ -383,6 +383,7 @@ class NoteEditor extends WNElement {
         this._loadThemeSuggestions();
         this._installAutocompletes();
         this._installTagSpaceCommit();
+        this._installMeetingSnippet();
         this._installHistoryPanel();
         this._updateAutosaveInfo();
 
@@ -953,6 +954,40 @@ class NoteEditor extends WNElement {
             this._markDirty();
         });
         this._tagSpaceWired = true;
+    }
+
+    _installMeetingSnippet() {
+        // When the user types '{{m:' in the textarea, auto-expand it into a
+        // full template '{{m:Tittel @ YYYY-MM-DD HH:MM}}' (using today's date
+        // and a default 09:00 start) and select the "Tittel" portion so
+        // they can immediately type the meeting title.
+        if (!this._contentEl || this._meetingSnippetWired) return;
+        const ta = this._contentEl;
+        ta.addEventListener('input', (e) => {
+            if (e.inputType && e.inputType !== 'insertText') return;
+            const caret = ta.selectionStart;
+            if (caret !== ta.selectionEnd) return;
+            const text = ta.value;
+            if (text.slice(caret - 4, caret) !== '{{m:') return;
+            // Only expand if not already followed by content on this line.
+            const after = text.slice(caret);
+            if (/^[^\n}]*}}/.test(after)) return;
+            const today = new Date();
+            const pad = n => String(n).padStart(2, '0');
+            const dateStr = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
+            const placeholder = 'Tittel';
+            const snippet = `${placeholder} @ ${dateStr} 09:00}}`;
+            const before = text.slice(0, caret);
+            ta.value = before + snippet + after;
+            try {
+                const selStart = caret;
+                const selEnd = caret + placeholder.length;
+                ta.setSelectionRange(selStart, selEnd);
+            } catch (_) {}
+            this._renderPreview();
+            this._markDirty();
+        });
+        this._meetingSnippetWired = true;
     }
 
     _installHashTagAutocomplete() {
