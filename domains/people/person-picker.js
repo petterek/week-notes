@@ -133,7 +133,15 @@ class PersonPicker extends WNElement {
         document.addEventListener('mousedown', this._onOutside, true);
 
         if (this.hasAttribute('disabled')) this._input.disabled = true;
-        this._load();
+        // Load deferred: only fetch the people list when the picker is
+        // actually opened. For default-me, set the @me key synchronously
+        // (display falls back to the raw key until the list loads).
+        if (this.hasAttribute('default-me') && !this._value) {
+            const meKey = (typeof window !== 'undefined' && window.mePersonKey) || '';
+            if (meKey) { this._value = meKey; this._syncDisplay(); }
+        } else {
+            this._syncDisplay();
+        }
     }
 
     disconnectedCallback() {
@@ -173,6 +181,12 @@ class PersonPicker extends WNElement {
         this._activeIdx = -1;
         // When opening, clear the filter so all options are visible.
         this._input.value = '';
+        // Lazy-load the people list on first open.
+        if (!this._loaded) {
+            this._load().then(() => {
+                if (this.hasAttribute('open')) this._renderMenu();
+            });
+        }
         this._renderMenu();
     }
 
@@ -237,7 +251,11 @@ class PersonPicker extends WNElement {
         const p = this.selectedPerson;
         const placeholder = this.getAttribute('placeholder') || 'Velg person…';
         this._input.placeholder = placeholder;
-        this._input.value = p ? this._labelFor(p) : '';
+        // If we have a value but the people list hasn't loaded yet, show
+        // the raw key as a placeholder name. It'll be replaced with the
+        // proper display name as soon as the list loads (on open).
+        const fallback = this._value && !this._loaded ? this._value : '';
+        this._input.value = p ? this._labelFor(p) : fallback;
         this._clear.hidden = !this._value;
     }
 

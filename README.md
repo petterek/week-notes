@@ -186,6 +186,12 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-05-08 (v4.9 — home-page ytelse)
+- **Lazy-load eldre uker:** `<week-section>` for ikke-aktive uker rendrer en stub `▸ Uke NN` umiddelbart og henter data først når seksjonen ekspanderes. Sparer N+3 requests per ulest uke ved sidelast.
+- **Lat lasting av `<person-picker>`:** `/api/people` kalles først når picker'en åpnes. `default-me` settes synkront fra `window.mePersonKey` uten nettverk. Reduserte initial-load fra 17× til 1× `/api/people`.
+- **Klient-cache for tjenester:** `PeopleService`/`CompaniesService`/`PlacesService` har in-memory `list()`-cache med dedup av samtidige kall; muteringer invaliderer.
+- **Ett kall per uke:** `/api/week/:id` returnerer hver note med full `card`-payload inline. Hjemmesiden fjerner N oppfølgings-`/card`-requests per uke. `/api/notes/:week/:file/card` bevart for andre callers.
+
 ### 2026-05-07 (v4.8 — inline meeting-opprettelse fra notater)
 - **`{{m:Tittel @ YYYY-MM-DD HH:MM}}`** i et notat oppretter et møte ved lagring. Markøren rewrites til `{{m:?<id>}}` og rendres som `🤝 Møte`-lenke til kalenderen. Deltakere hentes fra `@`-mentions i notatet, varighet fra kontekstens default møte-lengde. Dokumentert i help (`/help.md`).
 

@@ -27,24 +27,50 @@ const PLACES = '/api/places';
 
 import { apiRequest as req } from '/services/_shared/http.js';
 
+// Persistent in-memory cache for list() endpoints. These collections are
+// modified only via this service module, so we can confidently keep a
+// process-lifetime cache and bust it on mutations. Concurrent callers
+// share the same in-flight promise.
+function makeCachedList(path) {
+    let cached = null;     // resolved array (cloned per caller)
+    let inFlight = null;   // promise of an in-flight fetch
+    const clone = (v) => {
+        if (v == null) return v;
+        try { return structuredClone(v); }
+        catch { try { return JSON.parse(JSON.stringify(v)); } catch { return v; } }
+    };
+    const list = async () => {
+        if (cached) return clone(cached);
+        if (inFlight) return clone(await inFlight);
+        inFlight = req('GET', path).then(v => { cached = v; return v; });
+        try { return clone(await inFlight); }
+        finally { inFlight = null; }
+    };
+    list.invalidate = () => { cached = null; inFlight = null; };
+    return list;
+}
+
+const _peopleList    = makeCachedList(PEOPLE);
+const _companiesList = makeCachedList(COMPANIES);
+const _placesList    = makeCachedList(PLACES);
 
 export const PeopleService = {
-    list:   ()           => req('GET',    PEOPLE),
-    create: (person)     => req('POST',   PEOPLE, person),
-    update: (id, patch)  => req('PUT',    `${PEOPLE}/${encodeURIComponent(id)}`, patch),
-    remove: (id)         => req('DELETE', `${PEOPLE}/${encodeURIComponent(id)}`),
+    list:   _peopleList,
+    create: async (person)     => { const r = await req('POST',   PEOPLE, person);                              _peopleList.invalidate(); return r; },
+    update: async (id, patch)  => { const r = await req('PUT',    `${PEOPLE}/${encodeURIComponent(id)}`, patch); _peopleList.invalidate(); return r; },
+    remove: async (id)         => { const r = await req('DELETE', `${PEOPLE}/${encodeURIComponent(id)}`);        _peopleList.invalidate(); return r; },
 };
 
 export const CompaniesService = {
-    list:   ()           => req('GET',    COMPANIES),
-    create: (company)    => req('POST',   COMPANIES, company),
-    update: (id, patch)  => req('PUT',    `${COMPANIES}/${encodeURIComponent(id)}`, patch),
-    remove: (id)         => req('DELETE', `${COMPANIES}/${encodeURIComponent(id)}`),
+    list:   _companiesList,
+    create: async (company)    => { const r = await req('POST',   COMPANIES, company);                              _companiesList.invalidate(); return r; },
+    update: async (id, patch)  => { const r = await req('PUT',    `${COMPANIES}/${encodeURIComponent(id)}`, patch); _companiesList.invalidate(); return r; },
+    remove: async (id)         => { const r = await req('DELETE', `${COMPANIES}/${encodeURIComponent(id)}`);        _companiesList.invalidate(); return r; },
 };
 
 export const PlacesService = {
-    list:   ()           => req('GET',    PLACES),
-    create: (place)      => req('POST',   PLACES, place),
-    update: (id, patch)  => req('PUT',    `${PLACES}/${encodeURIComponent(id)}`, patch),
-    remove: (id)         => req('DELETE', `${PLACES}/${encodeURIComponent(id)}`),
+    list:   _placesList,
+    create: async (place)      => { const r = await req('POST',   PLACES, place);                                _placesList.invalidate(); return r; },
+    update: async (id, patch)  => { const r = await req('PUT',    `${PLACES}/${encodeURIComponent(id)}`, patch); _placesList.invalidate(); return r; },
+    remove: async (id)         => { const r = await req('DELETE', `${PLACES}/${encodeURIComponent(id)}`);        _placesList.invalidate(); return r; },
 };
