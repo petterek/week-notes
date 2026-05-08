@@ -187,14 +187,22 @@ class WeekSection extends WNElement {
         }
         this._state.cardsLoading = true;
         try {
-            const cardData = await Promise.all(noteList.map(n =>
-                this.service.card(week, n.file).catch(() => ({ ok: false, file: n.file }))
-            ));
+            // Card data is now inlined in /api/week/:id (`note.card`),
+            // so no extra round-trips are needed. Older payloads without
+            // `card` fall back to the per-note /card endpoint.
+            const needsFetch = noteList.filter(n => !n.card);
+            const fetched = needsFetch.length
+                ? await Promise.all(needsFetch.map(n =>
+                    this.service.card(week, n.file).catch(() => ({ ok: false, file: n.file }))
+                ))
+                : [];
+            const fetchedByFile = new Map();
+            needsFetch.forEach((n, i) => fetchedByFile.set(n.file, fetched[i]));
             const cards = new Map();
-            cardData.forEach((d, i) => {
-                const file = noteList[i].file;
-                cards.set(file, d && d.ok ? { week, ...d } : { week, file, error: true });
-            });
+            for (const n of noteList) {
+                const d = n.card || fetchedByFile.get(n.file);
+                cards.set(n.file, d && d.ok ? { week, ...d } : { week, file: n.file, error: true });
+            }
             this._state.cards = cards;
             this._state.cardsLoaded = true;
         } finally {

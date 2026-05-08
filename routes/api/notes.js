@@ -183,6 +183,46 @@ module.exports = function(deps) {
         return;
     }
 
+    // Build card data for a note, mirroring the /card endpoint output.
+    function buildNoteCard(week, file) {
+        const meta = getNoteMeta(week, file);
+        let snippetText = (typeof meta.snippet === 'string') ? meta.snippet : null;
+        let titleText = (typeof meta.title === 'string' && meta.title) ? meta.title : null;
+        if (snippetText == null || titleText == null) {
+            const entry = readNoteCached(week, file);
+            if (!entry) return null;
+            const lazy = {};
+            if (snippetText == null) {
+                snippetText = noteSnippet(entry.raw, 220);
+                lazy.snippet = snippetText;
+            }
+            if (titleText == null) {
+                const m = String(entry.raw || '').match(/^\s*#\s+(.+?)\s*$/m);
+                if (m) {
+                    titleText = m[1].trim();
+                    lazy.title = titleText;
+                }
+            }
+            if (Object.keys(lazy).length) {
+                try { setNoteMeta(week, file, lazy); } catch (_) {}
+            }
+        }
+        const name = file.replace(/\.md$/, '');
+        const snippet = linkMentions(escapeHtml(snippetText || ''));
+        const cardTags = Array.isArray(meta.tags) ? meta.tags : (Array.isArray(meta.themes) ? meta.themes : []);
+        return {
+            ok: true,
+            week, file, name,
+            title: titleText || '',
+            type: meta.type || 'note',
+            pinned: !!meta.pinned,
+            presentationStyle: meta.presentationStyle || null,
+            tags: cardTags,
+            themes: cardTags,
+            snippet,
+        };
+    }
+
     // API: week summary used by <week-section>
     const weekInfoMatch = pathname.match(/^\/api\/week\/([^/]+)$/);
     if (weekInfoMatch && req.method === 'GET') {
@@ -193,7 +233,13 @@ module.exports = function(deps) {
         if (_bucket) _loadWeekNotesMeta(week, _bucket);
         const noteFiles = files.filter(f => f !== 'summarize.md').map(f => {
             const m = getNoteMeta(week, f);
-            return { file: f, pinned: !!m.pinned, created: m.created || '' };
+            const card = buildNoteCard(week, f);
+            return {
+                file: f,
+                pinned: !!m.pinned,
+                created: m.created || '',
+                card: card || { ok: false, week, file: f },
+            };
         });
         noteFiles.sort((a, b) => {
             if (!!a.pinned !== !!b.pinned) return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
@@ -222,47 +268,14 @@ module.exports = function(deps) {
     if (cardMatch && req.method === 'GET') {
         const [, week, fileEnc] = cardMatch;
         const file = decodeURIComponent(fileEnc);
-        const meta = getNoteMeta(week, file);
-        let snippetText = (typeof meta.snippet === 'string') ? meta.snippet : null;
-        let titleText = (typeof meta.title === 'string' && meta.title) ? meta.title : null;
-        if (snippetText == null || titleText == null) {
-            const entry = readNoteCached(week, file);
-            if (!entry) {
-                res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: false, error: 'not found' }));
-                return;
-            }
-            const lazy = {};
-            if (snippetText == null) {
-                snippetText = noteSnippet(entry.raw, 220);
-                lazy.snippet = snippetText;
-            }
-            if (titleText == null) {
-                const m = String(entry.raw || '').match(/^\s*#\s+(.+?)\s*$/m);
-                if (m) {
-                    titleText = m[1].trim();
-                    lazy.title = titleText;
-                }
-            }
-            if (Object.keys(lazy).length) {
-                try { setNoteMeta(week, file, lazy); } catch (_) {}
-            }
+        const card = buildNoteCard(week, file);
+        if (!card) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'not found' }));
+            return;
         }
-        const name = file.replace(/\.md$/, '');
-        const snippet = linkMentions(escapeHtml(snippetText || ''));
-        const cardTags = Array.isArray(meta.tags) ? meta.tags : (Array.isArray(meta.themes) ? meta.themes : []);
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            ok: true,
-            week, file, name,
-            title: titleText || '',
-            type: meta.type || 'note',
-            pinned: !!meta.pinned,
-            presentationStyle: meta.presentationStyle || null,
-            tags: cardTags,
-            themes: cardTags,
-            snippet,
-        }));
+        res.end(JSON.stringify(card));
         return;
     }
 
