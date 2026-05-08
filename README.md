@@ -186,6 +186,12 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-05-08 (v4.10 — Ctrl+M møte-popup + møte-referanser i note-meta)
+- **Ctrl+M åpner møte-popup i editor:** tittel, dato/tid via `<date-time-picker>`, varighet (15/30/45/60/90/120 min). OK setter inn `{{m:Tittel @ YYYY-MM-DD HH:MM[ Nm]}}` som tekst på cursor-posisjon. Ingen møte opprettes før notatet lagres. Hjelpe-stripa under editoren oppdatert.
+- **Valgfri varighets-suffiks:** server-parser aksepterer `{{m:Tittel @ YYYY-MM-DD HH:MM 30m}}`. Ved fravær brukes kontekstens default møte-lengde (eller 60 min).
+- **Preview-fix:** `{{m:...}}`-markører ble tidligere feilrendret som tasks i live-preview. Både klient-`linkMentions` og editorens preview-transform håndterer nå møte-markører eksplisitt.
+- **`references.meetings` i note-sidecar:** `computeNoteReferences` plukker nå opp `{{m:?<id>}}`/`{{m:!<id>}}`-markører og lister møte-id-ene i notatets metadata, ved siden av møtenotatets egen `meetingId`.
+
 ### 2026-05-08 (v4.9 — home-page ytelse)
 - **Lazy-load eldre uker:** `<week-section>` for ikke-aktive uker rendrer en stub `▸ Uke NN` umiddelbart og henter data først når seksjonen ekspanderes. Sparer N+3 requests per ulest uke ved sidelast.
 - **Lat lasting av `<person-picker>`:** `/api/people` kalles først når picker'en åpnes. `default-me` settes synkront fra `window.mePersonKey` uten nettverk. Reduserte initial-load fra 17× til 1× `/api/people`.
