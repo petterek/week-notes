@@ -554,11 +554,12 @@ class NoteEditor extends WNElement {
             return { text, done: kind === '!' };
         };
         // Token regex: '{{?id}}', '{{!id}}', or '{{X}}' (typing form).
-        // Inner text of typing form must not start with '!' or '?'.
-        const TOKEN = /\{\{(?:([!?])([^{}\s]+)|([^{}!?][^{}]*))\}\}/g;
-        const RUN = /(?:\{\{(?:[!?][^{}\s]+|[^{}!?][^{}]*)\}\}\s+){1,}\{\{(?:[!?][^{}\s]+|[^{}!?][^{}]*)\}\}/g;
+        // Inner text of typing form must not start with '!' or '?'. The
+        // 'm:' prefix is reserved for inline-meeting markers and skipped.
+        const TOKEN = /\{\{(?:([!?])([^{}\s]+)|(?!m:)([^{}!?][^{}]*))\}\}/g;
+        const RUN = /(?:\{\{(?:[!?][^{}\s]+|(?!m:)[^{}!?][^{}]*)\}\}\s+){1,}\{\{(?:[!?][^{}\s]+|(?!m:)[^{}!?][^{}]*)\}\}/g;
         const itemFor = (m) => {
-            const km = /\{\{(?:([!?])([^{}\s]+)|([^{}!?][^{}]*))\}\}/.exec(m);
+            const km = /\{\{(?:([!?])([^{}\s]+)|(?!m:)([^{}!?][^{}]*))\}\}/.exec(m);
             const kind = km[1] || 'X';
             const id = km[2] || (km[3] || '').trim();
             const r = resolve(kind, id);
@@ -566,7 +567,7 @@ class NoteEditor extends WNElement {
             return r.done ? `1. [x] ${r.text}` : `1. [ ] ${r.text}`;
         };
         let out = md.replace(RUN, (run) => {
-            const items = run.match(/\{\{(?:[!?][^{}\s]+|[^{}!?][^{}]*)\}\}/g) || [];
+            const items = run.match(/\{\{(?:[!?][^{}\s]+|(?!m:)[^{}!?][^{}]*)\}\}/g) || [];
             const lines = items.map(itemFor).filter(Boolean);
             if (lines.length < 2) return run;
             return `\n\n${lines.join('\n')}\n\n`;

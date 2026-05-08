@@ -31,7 +31,14 @@ export function escapeHtml(s) {
  */
 export function linkMentions(s, people, companies) {
     if (!s) return s;
-    let out = s.replace(/\{\{([^{}]+)\}\}/g, (_m, inner) => {
+    let out = s.replace(/\{\{m:([!?])([^{}\s]+)\}\}/g, (_m, kind, id) => {
+        const cls = kind === '!' ? 'inline-meeting done' : 'inline-meeting';
+        return `<a class="${cls}" href="/calendar#m-${escapeHtml(id)}" title="Vis i kalender">🤝 Møte</a>`;
+    });
+    out = out.replace(/\{\{m:([^{}]+)\}\}/g, (_m, inner) => {
+        return `<span class="inline-action meeting">🤝 ${escapeHtml(inner.trim())}</span>`;
+    });
+    out = out.replace(/\{\{([^{}]+)\}\}/g, (_m, inner) => {
         const t = inner.trim();
         if (!t) return '';
         return `<inline-action kind="task" label="${escapeHtml(t)}"></inline-action>`;
