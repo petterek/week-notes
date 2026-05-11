@@ -26,7 +26,7 @@
  *   result:created       — { result }
  *   result:create-failed — { error }
  */
-import { WNElement, html } from './_shared.js';
+import { WNElement, html, unsafeHTML } from './_shared.js';
 
 const CSS = `
     :host { display: block; box-sizing: border-box; }
@@ -64,53 +64,81 @@ const CSS = `
 
 class ResultCreate extends WNElement {
     static get domain() { return 'results'; }
-    static get observedAttributes() { return ['placeholder', 'button-label', 'full']; }
+    static get observedAttributes() { return ['placeholder', 'button-label', 'full', 'goal-id']; }
 
     connectedCallback() {
         super.connectedCallback();
         if (this._wired) return;
         this._wired = true;
-        this._refreshRefs();
-        this._btn.addEventListener('click', () => this._submit());
-        this._input.addEventListener('keydown', e => {
+        const sr = this.shadowRoot;
+        sr.addEventListener('click', (e) => {
+            const t = e.composedPath().find(n => n && n.dataset && n.dataset.el === 'submit');
+            if (t) this._submit();
+        });
+        sr.addEventListener('keydown', (e) => {
+            const t = e.composedPath().find(n => n && n.dataset && n.dataset.el === 'text');
+            if (!t) return;
             if (e.key === 'Enter' && !this.hasAttribute('full')) { e.preventDefault(); this._submit(); }
             if (e.key === 'Enter' && this.hasAttribute('full') && (e.ctrlKey || e.metaKey)) {
                 e.preventDefault(); this._submit();
             }
         });
-        this._apply();
-        if (this.hasAttribute('full')) this._loadGoals();
         if (this.hasAttribute('autofocus-on-connect')) {
-            setTimeout(() => this._input && this._input.focus(), 0);
+            setTimeout(() => { const i = this._inputEl(); if (i) i.focus(); }, 0);
         }
     }
 
     attributeChangedCallback(name, oldVal, newVal) {
+        if (oldVal !== newVal && (name === 'full' || name === 'goal-id')) this.invalidateAwait();
         super.attributeChangedCallback(name, oldVal, newVal);
-        if (this.shadowRoot && oldVal !== newVal) {
-            this._refreshRefs();
-            this._apply();
-            if (name === 'full' && this.hasAttribute('full')) this._loadGoals();
-        }
     }
 
     css() { return CSS; }
 
-    render() {
+    loadData() {
+        if (!this.hasAttribute('full')) return {};
+        return {
+            goals: async () => {
+                try {
+                    const arr = await fetch('/api/goals').then(r => r.json());
+                    if (!Array.isArray(arr)) return [];
+                    return arr.filter(g => g && g.id).sort((a, b) => {
+                        const sa = a.status === 'active' ? 0 : 1;
+                        const sb = b.status === 'active' ? 0 : 1;
+                        if (sa !== sb) return sa - sb;
+                        return (a.title || '').localeCompare(b.title || '');
+                    });
+                } catch (_) { return []; }
+            },
+        };
+    }
+
+    render(data = {}) {
+        const placeholder = this.getAttribute('placeholder') || 'Nytt resultat...';
+        const btnLabel = this.getAttribute('button-label') || 'Legg til';
         if (this.hasAttribute('full')) {
+            const preselect = this.getAttribute('goal-id') || '';
+            const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            const goalOpts = (data.goals || []).map(g => {
+                const icon = g.status === 'achieved' ? '🏆 ' : g.status === 'abandoned' ? '🗑️ ' : '🎯 ';
+                const sel = g.id === preselect ? ' selected' : '';
+                return `<option value="${esc(g.id)}"${sel}>${esc(icon + (g.title || ''))}</option>`;
+            }).join('');
             return html`
                 <div class="form">
-                    <input class="txt" type="text" data-el="text" />
+                    <input class="txt" type="text" data-el="text" placeholder="${placeholder}" />
                     <div class="meta-row">
                         <label>
                             <span>Mål:</span>
                             <select class="sel" data-el="goal">
                                 <option value="">(ingen)</option>
+                                ${unsafeHTML(goalOpts)}
                             </select>
                         </label>
                     </div>
                     <div class="actions">
-                        <button class="btn" type="button" data-el="submit"></button>
+                        <button class="btn" type="button" data-el="submit">${btnLabel}</button>
                     </div>
                     <div class="err" data-err></div>
                 </div>
@@ -118,94 +146,61 @@ class ResultCreate extends WNElement {
         }
         return html`
             <div class="row">
-                <input class="txt" type="text" data-el="text" />
-                <button class="btn" type="button" data-el="submit"></button>
+                <input class="txt" type="text" data-el="text" placeholder="${placeholder}" />
+                <button class="btn" type="button" data-el="submit">${btnLabel}</button>
             </div>
             <div class="err" data-err></div>
         `;
     }
 
-    _refreshRefs() {
-        const root = this.shadowRoot;
-        this._input = root.querySelector('[data-el="text"]');
-        this._btn   = root.querySelector('[data-el="submit"]');
-        this._err   = root.querySelector('[data-err]');
-        this._goalSel = root.querySelector('[data-el="goal"]');
-    }
+    _inputEl() { return this.shadowRoot && this.shadowRoot.querySelector('[data-el="text"]'); }
+    _btnEl()   { return this.shadowRoot && this.shadowRoot.querySelector('[data-el="submit"]'); }
+    _errEl()   { return this.shadowRoot && this.shadowRoot.querySelector('[data-err]'); }
+    _goalEl()  { return this.shadowRoot && this.shadowRoot.querySelector('[data-el="goal"]'); }
 
-    _apply() {
-        if (!this._input || !this._btn) return;
-        this._input.placeholder = this.getAttribute('placeholder') || 'Nytt resultat...';
-        this._btn.textContent = this.getAttribute('button-label') || 'Legg til';
-    }
+    get value() { const i = this._inputEl(); return i ? i.value : ''; }
+    set value(v) { const i = this._inputEl(); if (i) i.value = v == null ? '' : String(v); }
 
-    get value() { return this._input ? this._input.value : ''; }
-    set value(v) { if (this._input) this._input.value = v == null ? '' : String(v); }
-
-    focus() { if (this._input) this._input.focus(); }
-
-    async _loadGoals() {
-        if (!this._goalSel || this._goalsLoaded) return;
-        this._goalsLoaded = true;
-        const preselect = this.getAttribute('goal-id') || '';
-        try {
-            const resp = await fetch('/api/goals');
-            const arr = await resp.json();
-            if (!Array.isArray(arr)) return;
-            const items = arr
-                .filter(g => g && g.id)
-                .sort((a, b) => {
-                    const sa = a.status === 'active' ? 0 : 1;
-                    const sb = b.status === 'active' ? 0 : 1;
-                    if (sa !== sb) return sa - sb;
-                    return (a.title || '').localeCompare(b.title || '');
-                });
-            const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-            this._goalSel.innerHTML =
-                '<option value="">(ingen)</option>' +
-                items.map(g => {
-                    const icon = g.status === 'achieved' ? '🏆 ' : g.status === 'abandoned' ? '🗑️ ' : '🎯 ';
-                    return `<option value="${esc(g.id)}">${esc(icon + (g.title || ''))}</option>`;
-                }).join('');
-            if (preselect) this._goalSel.value = preselect;
-        } catch (_) { /* leave empty */ }
-    }
+    focus() { const i = this._inputEl(); if (i) i.focus(); }
 
     async _submit() {
-        if (!this._input || !this._btn || !this._err) return;
-        const text = (this._input.value || '').trim();
-        this._err.textContent = '';
-        if (!text) { this._input.focus(); return; }
+        const input = this._inputEl(), btn = this._btnEl(), err = this._errEl();
+        if (!input || !btn || !err) return;
+        const text = (input.value || '').trim();
+        err.textContent = '';
+        if (!text) { input.focus(); return; }
         const svc = this.service;
         if (!svc || typeof svc.create !== 'function') {
-            this._err.textContent = 'Tjeneste ikke koblet til';
+            err.textContent = 'Tjeneste ikke koblet til';
             return;
         }
         const data = { text };
         let goalId = '';
-        if (this.hasAttribute('full') && this._goalSel) goalId = this._goalSel.value || '';
+        if (this.hasAttribute('full')) {
+            const goalSel = this._goalEl();
+            if (goalSel) goalId = goalSel.value || '';
+        }
         if (!goalId) goalId = this.getAttribute('goal-id') || '';
         if (goalId) data.goalId = goalId;
         const week = this.getAttribute('week');
         if (week) data.week = week;
-        this._btn.disabled = true;
+        btn.disabled = true;
         try {
             const result = await svc.create(data);
-            this._input.value = '';
-            this._input.focus();
+            input.value = '';
+            input.focus();
             this.dispatchEvent(new CustomEvent('result:created', {
                 bubbles: true, composed: true,
                 detail: { result },
             }));
         } catch (e) {
-            this._err.textContent = e.message || 'Feil ved lagring';
+            err.textContent = e.message || 'Feil ved lagring';
             this.dispatchEvent(new CustomEvent('result:create-failed', {
                 bubbles: true, composed: true,
                 detail: { error: e.message || String(e) },
             }));
         } finally {
-            this._btn.disabled = false;
+            btn.disabled = false;
         }
     }
 }
