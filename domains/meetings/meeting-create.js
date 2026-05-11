@@ -84,20 +84,25 @@ class MeetingCreate extends WNElement {
         if (Array.isArray(this._typesOverride) && this._typesOverride.length) {
             return this._typesOverride;
         }
+        const normalize = list => (Array.isArray(list) ? list : []).map(t => ({
+            typeId: String(t.typeId || t.key || ''),
+            icon: t.icon || '',
+            name: t.name || t.label || t.typeId || t.key || '',
+        })).filter(t => t.typeId);
         const ctx = this.getAttribute('context') || '';
-        if (!ctx) return [];
-        const svc = this.serviceFor('settings');
-        if (!svc || typeof svc.getMeetingTypes !== 'function') return [];
-        try {
-            const list = await svc.getMeetingTypes(ctx);
-            return (Array.isArray(list) ? list : []).map(t => ({
-                typeId: String(t.typeId || t.key || ''),
-                icon: t.icon || '',
-                name: t.name || t.label || t.typeId || t.key || '',
-            })).filter(t => t.typeId);
-        } catch (_) {
-            return [];
+        if (ctx) {
+            const svc = this.serviceFor('settings');
+            if (svc && typeof svc.getMeetingTypes === 'function') {
+                try { return normalize(await svc.getMeetingTypes(ctx)); }
+                catch (_) {}
+            }
         }
+        // Fall back to the active-context endpoint via meetings_service.listTypes().
+        if (this.service && typeof this.service.listTypes === 'function') {
+            try { return normalize(await this.service.listTypes()); }
+            catch (_) {}
+        }
+        return [];
     }
 
     get types() { return Array.isArray(this._types) ? this._types.slice() : []; }
