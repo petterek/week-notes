@@ -1,44 +1,28 @@
 /**
  * <task-edit-modal>
  *
- * Centered modal that edits an open task's mutable fields:
- *   - text          (single-line input)
- *   - responsible   (person select; defaults to @me)
- *   - dueDate       (optional ISO date)
- *   - note          (markdown textarea)
- *
- * The component is dumb — it does not load or save anything itself.
- * The host opens it with a task object and a callback that receives
- * the result.
+ * Centered modal that wraps <task-create-full> for edit / create flows.
+ * The inner component owns the form, validation and persistence; this
+ * shell just shows/hides it and routes the result back to the caller.
  *
  *   const modal = document.createElement('task-edit-modal');
- *   modal.open(taskObj, (res) => {
- *       if (res.saved) service.update(res.id, res.patch);
- *   });
+ *   modal.open(taskObj, (res) => { if (res.saved) ... });
  *
  * Methods:
- *   - open(task, callback) — sets the task, shows the modal, focuses
- *     the text input. Callback runs once with one of:
- *         { saved: true,  id, patch: { text, responsible, dueDate, note } }
+ *   - open(task, callback) — task with id ⇒ edit mode; without ⇒ create.
+ *     Callback runs once with one of:
+ *         { saved: true,  id, patch }   (patch carries the saved values)
  *         { saved: false, id }
- *   - close() — hides the modal silently (no callback).
+ *   - close() — hides silently (no callback).
  *
- * Keyboard: Escape cancels, Ctrl/Cmd+Enter saves.
+ * Keyboard: Escape cancels, click outside the card cancels.
  *
- * Also exports a page-level singleton + document listener for
- * `task:request-edit` events, mirroring the pattern used by
- * <task-complete-modal> and <task-view>:
- *
- *   el.dispatchEvent(new CustomEvent('task:request-edit', {
- *       bubbles: true, composed: true,
- *       detail: { task, callback: (res) => { ... } },
- *   }));
+ * Page-level singleton + `task:request-edit` document listener mirrors
+ * the previous API so existing callers keep working.
  */
 import { WNElement, html, escapeHtml, unsafeHTML } from './_shared.js';
-import '/components/date-time-picker.js';
-import '/components/person-picker.js';
+import '/components/task-create-full.js';
 import '/components/note-view.js';
-import { attachDateTrigger } from '/components/wn-date-trigger.js';
 
 const STYLES = `
     :host { display: inline-block; font: inherit; }
@@ -71,57 +55,6 @@ const STYLES = `
     }
     .close:hover { color: var(--text-strong); }
 
-    .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
-    .field > label {
-        color: var(--text-muted); font-size: 0.85em; font-weight: 600;
-        text-transform: uppercase; letter-spacing: 0.04em;
-    }
-    input[type="text"], input[type="date"], select, textarea {
-        width: 100%; box-sizing: border-box;
-        padding: 8px 10px;
-        background: var(--surface); color: var(--text-strong);
-        border: 1px solid var(--border); border-radius: 6px;
-        font: inherit; font-size: 0.95em;
-    }
-    textarea { min-height: 110px; resize: vertical; }
-    input:focus, select:focus, textarea:focus {
-        outline: 2px solid var(--accent); outline-offset: 1px;
-    }
-
-    .meta-row { display: flex; gap: 12px; }
-    .meta-row .field { flex: 1; margin-bottom: 0; }
-    .due-trigger {
-        text-align: left;
-        background: var(--surface); color: var(--text-strong);
-        border: 1px solid var(--border); border-radius: 6px;
-        padding: 8px 10px; font: inherit; font-size: 0.95em;
-        cursor: pointer;
-    }
-    .due-trigger:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
-    .due-trigger.empty { color: var(--text-subtle); }
-    .due-row { display: flex; gap: 6px; align-items: stretch; }
-    .due-row .due-trigger { flex: 1; }
-    .due-clear {
-        border: 1px solid var(--border); background: var(--surface-alt);
-        color: var(--text-muted); border-radius: 6px;
-        padding: 0 10px; cursor: pointer; font: inherit;
-    }
-    .due-clear:hover { color: var(--text-strong); }
-
-    .actions {
-        display: flex; justify-content: flex-end; gap: 8px;
-        margin-top: 14px;
-    }
-    button.btn {
-        padding: 8px 14px; border: none; border-radius: 8px;
-        font: inherit; font-weight: 600; cursor: pointer; font-size: 0.95em;
-    }
-    button.cancel { background: var(--surface-alt); color: var(--text); }
-    button.cancel:hover { background: var(--surface-head); }
-    button.save { background: var(--accent); color: var(--text-on-accent); }
-    button.save:hover { filter: brightness(0.95); }
-
-    .hint { color: var(--text-subtle); font-size: 0.78em; margin-top: 6px; }
     .source-ref {
         margin: -4px 0 12px;
         padding: 6px 10px;
@@ -134,6 +67,8 @@ const STYLES = `
     }
     .source-ref a { color: var(--accent); text-decoration: none; }
     .source-ref a:hover { text-decoration: underline; }
+
+    .hint { color: var(--text-subtle); font-size: 0.78em; margin-top: 6px; }
 `;
 
 class TaskEditModal extends WNElement {
@@ -153,7 +88,9 @@ class TaskEditModal extends WNElement {
             sourceRef = `<div class="source-ref">📝 Fra notat: <a href="#" data-act="view-source" data-week="${escapeHtml(w)}" data-file="${escapeHtml(f)}" title="Vis notatet">${escapeHtml(label)}</a> <span>· ${escapeHtml(w)}</span></div>`;
         }
         const title = isCreate ? '➕ Ny oppgave' : '✎ Rediger oppgave';
-        const saveLabel = isCreate ? '💾 Opprett' : '💾 Lagre';
+        const buttonLabel = isCreate ? '💾 Opprett' : '💾 Lagre';
+        const week = (t && t.week) ? ` week="${escapeHtml(t.week)}"` : '';
+        const goalId = (t && t.goalId) ? ` goal-id="${escapeHtml(t.goalId)}"` : '';
         return html`
             <div class="backdrop" data-backdrop>
                 <div class="card" role="dialog" aria-modal="true" aria-labelledby="tem-h">
@@ -162,112 +99,70 @@ class TaskEditModal extends WNElement {
                         <button type="button" class="close" data-act="cancel" title="Lukk (Esc)">✕</button>
                     </div>
                     ${sourceRef ? unsafeHTML(sourceRef) : ''}
-                    <div class="field">
-                        <label>Tekst</label>
-                        <input type="text" data-el="text" />
-                    </div>
-                    <div class="meta-row">
-                        <div class="field">
-                            <label>Ansvarlig</label>
-                            <person-picker data-el="responsible"></person-picker>
-                        </div>
-                        <div class="field">
-                            <label>Mål</label>
-                            <select data-el="goal">
-                                <option value="">(ingen)</option>
-                            </select>
-                        </div>
-                        <div class="field">
-                            <label>Frist</label>
-                            <div class="due-row">
-                                <button type="button" class="due-trigger empty" data-el="due-trigger">Velg tidspunkt…</button>
-                                <button type="button" class="due-clear" data-el="due-clear" title="Fjern frist">✕</button>
-                            </div>
-                            <input type="hidden" data-el="due" />
-                        </div>
-                    </div>
-                    <div class="field">
-                        <label>Notat</label>
-                        <textarea data-el="note" placeholder="Skriv notat her…"></textarea>
-                    </div>
-                    <div class="hint">Ctrl/⌘ + Enter for å lagre, Esc for å avbryte. Markdown og @mentions støttes i notat.</div>
-                    <div class="actions">
-                        <button type="button" class="btn cancel" data-act="cancel">Avbryt</button>
-                        <button type="button" class="btn save"   data-act="save">${saveLabel}</button>
-                    </div>
-                    <input type="hidden" data-el="id" value="${escapeHtml(String(id))}" />
+                    ${unsafeHTML(`<task-create-full
+                        data-el="form"
+                        tasks_service="week-note-services.tasks_service"
+                        people_service="week-note-services.people_service"
+                        button-label="${escapeHtml(buttonLabel)}"
+                        placeholder="Hva skal gjøres?"
+                        ${week}
+                        ${goalId}></task-create-full>`)}
+                    <div class="hint">Esc for å avbryte. Markdown og @mentions støttes i notat.</div>
                 </div>
             </div>
         `;
     }
 
+    afterRender() {
+        if (!this._data) return;
+        const root = this.shadowRoot;
+        if (!root) return;
+        const form = root.querySelector('[data-el="form"]');
+        if (!form) return;
+        const t = (this._data && this._data.task) || {};
+        // Push the task into the inner form. Setting .task triggers
+        // edit mode + prefill (or create mode if no id).
+        if (t && t.id) {
+            form.task = t;
+        } else {
+            // Create mode — clear any prior state on the singleton.
+            form._task = null;
+            if (form._wired) {
+                if (form._input) form._input.value = '';
+                if (form._noteIn) form._noteIn.value = '';
+                if (form._setDue) form._setDue('');
+                if (form._respSel) form._respSel.value = '';
+                if (form._goalSel) form._goalSel.value = '';
+                if (form._apply) form._apply();
+            }
+        }
+        // Focus the text input shortly after the inner form has wired.
+        requestAnimationFrame(() => {
+            try {
+                const txt = form.shadowRoot && form.shadowRoot.querySelector('input.txt');
+                if (txt) {
+                    txt.focus();
+                    try { txt.setSelectionRange(txt.value.length, txt.value.length); } catch {}
+                }
+            } catch {}
+        });
+    }
+
     setData(d) {
         this._data = d || {};
         this.requestRender();
-        this._wire();
     }
 
     open(task, callback) {
-        this.setData({ task: task || {} });
         this._callback = (typeof callback === 'function') ? callback : null;
+        this.setData({ task: task || {} });
         this.setAttribute('open', '');
-        const t = task || {};
-        setTimeout(() => {
-            const root = this.shadowRoot;
-            if (!root) return;
-            const text = root.querySelector('[data-el="text"]');
-            const note = root.querySelector('[data-el="note"]');
-            const due  = root.querySelector('[data-el="due"]');
-            const resp = root.querySelector('[data-el="responsible"]');
-            if (text) text.value = (t.text != null) ? String(t.text) : '';
-            if (note) {
-                note.value = (t.note != null) ? String(t.note) : '';
-                if (!note.__wnDateAttached) attachDateTrigger(note);
-            }
-            if (text && !text.__wnDateAttached) attachDateTrigger(text);
-            const initialDue = (t.dueDate && /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?$/.test(t.dueDate)) ? t.dueDate : '';
-            if (due) due.value = initialDue;
-            this._updateDueTrigger(initialDue);
-            if (resp) resp.value = t.responsible || '';
-            this._loadGoals(t.goalId || '');
-            if (text) {
-                text.focus();
-                try { text.setSelectionRange(text.value.length, text.value.length); } catch {}
-            }
-        }, 0);
     }
 
     close() {
         if (!this.hasAttribute('open')) return;
         this.removeAttribute('open');
         this._callback = null;
-    }
-
-    async _loadGoals(currentId) {
-        const root = this.shadowRoot;
-        if (!root) return;
-        const sel = root.querySelector('[data-el="goal"]');
-        if (!sel) return;
-        try {
-            const resp = await fetch('/api/goals');
-            const arr = await resp.json();
-            if (!Array.isArray(arr)) return;
-            const items = arr
-                .filter(g => g && g.id)
-                .sort((a, b) => {
-                    const sa = a.status === 'active' ? 0 : 1;
-                    const sb = b.status === 'active' ? 0 : 1;
-                    if (sa !== sb) return sa - sb;
-                    return (a.title || '').localeCompare(b.title || '');
-                });
-            const opts = ['<option value="">(ingen)</option>'];
-            for (const g of items) {
-                const icon = g.status === 'achieved' ? '🏆 ' : g.status === 'abandoned' ? '🗑️ ' : '🎯 ';
-                opts.push(`<option value="${escapeHtml(g.id)}">${escapeHtml(icon + (g.title || ''))}</option>`);
-            }
-            sel.innerHTML = opts.join('');
-            if (currentId) sel.value = currentId;
-        } catch {}
     }
 
     _currentId() {
@@ -285,141 +180,8 @@ class TaskEditModal extends WNElement {
 
     _cancel() {
         const id = this._currentId();
-        this._closeDuePicker();
         if (this.hasAttribute('open')) this.removeAttribute('open');
         this._runCallback({ saved: false, id });
-    }
-
-    _save() {
-        const id = this._currentId();
-        const root = this.shadowRoot;
-        if (!root) { this._cancel(); return; }
-        const text = (root.querySelector('[data-el="text"]') || {}).value || '';
-        const note = (root.querySelector('[data-el="note"]') || {}).value || '';
-        const due  = (root.querySelector('[data-el="due"]')  || {}).value || '';
-        const resp = (root.querySelector('[data-el="responsible"]') || {}).value || '';
-        const goal = (root.querySelector('[data-el="goal"]') || {}).value || '';
-        const patch = {
-            text: text.trim(),
-            note: note,
-            responsible: resp,
-            goalId: goal,
-            // Always send dueDate so server can clear it when blank.
-            dueDate: due,
-        };
-        if (!patch.text) {
-            // Don't allow saving an empty task text.
-            const ti = root.querySelector('[data-el="text"]');
-            if (ti) ti.focus();
-            return;
-        }
-        this._closeDuePicker();
-        if (this.hasAttribute('open')) this.removeAttribute('open');
-        this._runCallback({ saved: true, id, patch });
-    }
-
-    connectedCallback() {
-        super.connectedCallback();
-        this._wire();
-        if (this._keyWired) return;
-        this._keyWired = true;
-        this._onKey = (e) => {
-            if (!this.hasAttribute('open')) return;
-            if (e.key === 'Escape') { e.preventDefault(); this._cancel(); }
-            else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); this._save(); }
-        };
-        document.addEventListener('keydown', this._onKey);
-    }
-
-    disconnectedCallback() {
-        document.removeEventListener('keydown', this._onKey);
-    }
-
-    _updateDueTrigger(value) {
-        const root = this.shadowRoot;
-        if (!root) return;
-        const trig = root.querySelector('[data-el="due-trigger"]');
-        if (!trig) return;
-        if (value) {
-            trig.textContent = value;
-            trig.classList.remove('empty');
-        } else {
-            trig.textContent = 'Velg tidspunkt…';
-            trig.classList.add('empty');
-        }
-    }
-
-    _setDue(value) {
-        const root = this.shadowRoot;
-        if (!root) return;
-        const hidden = root.querySelector('[data-el="due"]');
-        if (hidden) hidden.value = value || '';
-        this._updateDueTrigger(value);
-    }
-
-    _openDuePicker() {
-        // Mount the picker as a popup attached to document.body so it
-        // overlays the modal correctly. Mirrors the approach used by
-        // wn-date-trigger.js.
-        this._closeDuePicker();
-        const root = this.shadowRoot;
-        if (!root) return;
-        const trig = root.querySelector('[data-el="due-trigger"]');
-        if (!trig) return;
-
-        const picker = document.createElement('date-time-picker');
-        picker.setAttribute('mode', 'datetime');
-        const current = (root.querySelector('[data-el="due"]') || {}).value || '';
-        if (current) picker.setAttribute('value', current);
-
-        picker.style.cssText = 'position:fixed;z-index:9999;visibility:hidden;left:-9999px;top:0';
-        document.body.appendChild(picker);
-        this._duePicker = picker;
-
-        const place = () => {
-            const rect = trig.getBoundingClientRect();
-            const w = picker.offsetWidth || 252;
-            const h = picker.offsetHeight || 280;
-            let left = rect.left;
-            let top = rect.bottom + 4;
-            if (left + w > window.innerWidth - 8) left = Math.max(8, window.innerWidth - w - 8);
-            if (top + h > window.innerHeight - 8) top = Math.max(8, rect.top - h - 4);
-            picker.style.left = left + 'px';
-            picker.style.top = top + 'px';
-            picker.style.visibility = 'visible';
-        };
-        // Defer placement until the picker has rendered.
-        requestAnimationFrame(place);
-
-        const onSelected = (e) => {
-            const v = (e && e.detail && e.detail.value) || '';
-            this._setDue(v);
-            this._closeDuePicker();
-        };
-        const onCancelled = () => this._closeDuePicker();
-        const onOutside = (e) => {
-            if (!this._duePicker) return;
-            if (e.target === picker || picker.contains(e.target)) return;
-            // Click on the trigger again should toggle, not re-open.
-            this._closeDuePicker();
-        };
-
-        picker.addEventListener('datetime-selected', onSelected);
-        picker.addEventListener('datetime-cancelled', onCancelled);
-        // Use capture so we beat the modal's own click handler.
-        document.addEventListener('mousedown', onOutside, true);
-        this._dueOutsideHandler = onOutside;
-    }
-
-    _closeDuePicker() {
-        if (this._dueOutsideHandler) {
-            document.removeEventListener('mousedown', this._dueOutsideHandler, true);
-            this._dueOutsideHandler = null;
-        }
-        if (this._duePicker && this._duePicker.parentNode) {
-            this._duePicker.parentNode.removeChild(this._duePicker);
-        }
-        this._duePicker = null;
     }
 
     _openSourceNote(week, file) {
@@ -439,6 +201,22 @@ class TaskEditModal extends WNElement {
         else { v.setAttribute('path', `${week}/${encodeURIComponent(file)}`); v.setAttribute('open', ''); }
     }
 
+    connectedCallback() {
+        super.connectedCallback();
+        this._wire();
+        if (this._keyWired) return;
+        this._keyWired = true;
+        this._onKey = (e) => {
+            if (!this.hasAttribute('open')) return;
+            if (e.key === 'Escape') { e.preventDefault(); this._cancel(); }
+        };
+        document.addEventListener('keydown', this._onKey);
+    }
+
+    disconnectedCallback() {
+        if (this._onKey) document.removeEventListener('keydown', this._onKey);
+    }
+
     _wire() {
         if (this._wired) return;
         const root = this.shadowRoot;
@@ -446,19 +224,38 @@ class TaskEditModal extends WNElement {
         this._wired = true;
         root.addEventListener('click', (e) => {
             if (e.target.matches('[data-backdrop]')) { this._cancel(); return; }
-            const trig = e.target.closest('[data-el="due-trigger"]');
-            if (trig) { e.stopPropagation(); this._openDuePicker(); return; }
-            const clear = e.target.closest('[data-el="due-clear"]');
-            if (clear) { e.stopPropagation(); this._setDue(''); return; }
             const a = e.target.closest('[data-act]');
             if (!a) return;
             if (a.dataset.act === 'cancel') this._cancel();
-            if (a.dataset.act === 'save')   this._save();
             if (a.dataset.act === 'view-source') {
                 e.preventDefault();
                 const w = a.dataset.week, f = a.dataset.file;
                 if (w && f) this._openSourceNote(w, f);
             }
+        });
+        // Catch task:created / task:updated dispatched by the inner
+        // <task-create-full>. composed:true bubbles them across the shadow
+        // boundary into our root.
+        root.addEventListener('task:created', (ev) => {
+            if (!this.hasAttribute('open')) return;
+            const detail = (ev && ev.detail) || {};
+            const task = detail.task || {};
+            const id = task.id || null;
+            const patch = {
+                text: task.text || '',
+                note: task.note || '',
+                responsible: task.responsible || '',
+                dueDate: task.dueDate || '',
+                goalId: task.goalId || null,
+            };
+            this.removeAttribute('open');
+            this._runCallback({ saved: true, id, patch });
+        });
+        root.addEventListener('task:updated', (ev) => {
+            if (!this.hasAttribute('open')) return;
+            const detail = (ev && ev.detail) || {};
+            this.removeAttribute('open');
+            this._runCallback({ saved: true, id: detail.id || null, patch: detail.patch || {} });
         });
     }
 }
@@ -467,20 +264,9 @@ if (!customElements.get('task-edit-modal')) customElements.define('task-edit-mod
 
 // Page-level singleton + event handler. Any code that wants to edit a
 // task dispatches a bubbling `task:request-edit` event; the listener
-// here mounts the modal lazily, opens it, optionally calls
-// `service.update(id, patch)` itself, and forwards the result via the
-// supplied callback (if any).
-//
-//   el.dispatchEvent(new CustomEvent('task:request-edit', {
-//       bubbles: true, composed: true,
-//       detail: {
-//           task,                 // required: task object to edit
-//           service,              // optional: TaskService-shaped object;
-//                                 //   if present and saved, listener calls
-//                                 //   service.update(id, patch).
-//           callback: (res) => { ... },  // optional
-//       },
-//   }));
+// here mounts the modal lazily, opens it, and forwards the result via
+// the supplied callback (if any). The inner <task-create-full> handles
+// persistence itself, so we don't call service.update/create here.
 function getTaskEditModal() {
     if (typeof document === 'undefined') return null;
     let m = document.querySelector('body > task-edit-modal[data-singleton="page"]');
@@ -499,38 +285,9 @@ if (typeof document !== 'undefined' && !document._taskEditRequestWired) {
         const task = detail.task;
         if (!task) return;
         const cb = (typeof detail.callback === 'function') ? detail.callback : null;
-        const svc = detail.service || null;
         const m = getTaskEditModal();
         if (!m) { if (cb) cb({ saved: false, id: task.id }); return; }
-        m.open(task, async (res) => {
-            if (res && res.saved && svc) {
-                if (res.id && typeof svc.update === 'function') {
-                    try { await svc.update(res.id, res.patch); }
-                    catch (err) { console.error('task-edit-modal: update failed', err); }
-                    document.dispatchEvent(new CustomEvent('task:updated', {
-                        bubbles: true, detail: { id: res.id, patch: res.patch },
-                    }));
-                } else if (!res.id && typeof svc.create === 'function') {
-                    // Create mode: turn the patch into create-options.
-                    const opts = {};
-                    const p = res.patch || {};
-                    if (p.responsible) opts.responsible = p.responsible;
-                    if (p.dueDate) opts.dueDate = p.dueDate;
-                    if (p.goalId) opts.goalId = p.goalId;
-                    if (p.note) opts.note = p.note;
-                    if (task.week) opts.week = task.week;
-                    let created = null;
-                    try {
-                        const tasks = await svc.create(p.text, opts);
-                        created = Array.isArray(tasks) ? tasks[tasks.length - 1] : null;
-                    } catch (err) { console.error('task-edit-modal: create failed', err); }
-                    document.dispatchEvent(new CustomEvent('task:created', {
-                        bubbles: true, detail: { task: created },
-                    }));
-                }
-            }
-            if (cb) cb(res);
-        });
+        m.open(task, (res) => { if (cb) cb(res); });
     });
 }
 

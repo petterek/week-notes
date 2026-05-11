@@ -48,6 +48,38 @@ const STYLES = `
         color: var(--text-muted); font-size: 0.85em;
         margin: 8px 0 4px; padding-left: 6px;
     }
+
+    :host([page]) { font-size: 1em; }
+    :host([page]) .sec-h {
+        font-size: 1.4em;
+        padding-bottom: 10px;
+        margin: 0 0 14px;
+        border-bottom: 2px solid var(--border-soft);
+    }
+    :host([page]) .row {
+        padding: 8px 12px;
+        margin-bottom: 4px;
+    }
+    :host([page]) .text { font-size: 1em; }
+    :host([page]) .when { font-size: 0.85em; }
+    :host([page]) .wk-h {
+        font-size: 0.95em;
+        margin: 16px 0 6px;
+        padding-left: 0;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+    :host([page]) .wk-group {
+        margin-bottom: 18px;
+        padding: 10px 14px;
+        background: var(--surface);
+        border: 1px solid var(--border-soft);
+        border-radius: 8px;
+    }
+    :host([page]) .wk-group .wk-h {
+        margin-top: 0;
+        color: var(--accent);
+    }
 `;
 
 class TaskCompleted extends WNElement {

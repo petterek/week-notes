@@ -186,6 +186,13 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-05-11 (v4.13 — oppgaver-side redesign)
+- **`/tasks` redesign:** ren kortbasert layout. Sticky `<task-create-full>`-kort øverst (tekst + notat + ansvarlig + mål + frist) erstatter den gamle enlinje-`<task-create>`. Åpne oppgaver i eget kort, fullførte i kollapsbart kort under. Page-mode (`page` attributt) på `<task-open-list>` og `<task-completed>` gir luftigere typografi, kortvisning og ukerubrikker i stedet for sidebar-tetthet.
+- **Inline edit på `/tasks`:** ✎-knappen på en åpen oppgave fyller den sticky create-formen i stedet for å åpne modal. Raden markeres med accent-farge + venstre-stripe, og siden scrollar slik at raden ligger rett under den sticky formen. Bare én rad markert om gangen.
+- **`<task-edit-modal>` bruker `<task-create-full>` internt:** all duplisert form-logikk fjernet. Modalen er nå et tynt skall rundt komponenten — bekrefter ekvivalent oppførsel og deler valideringer/feilmeldinger.
+- **Sortering:** åpne oppgaver vises i `created`-synkende rekkefølge (nyeste først).
+- **`task-create-full.js` lagt til SPA preload-listen** — tidligere ikke registrert, så komponenten upgrade-et ikke når den ble brukt utenfor modaler.
+
 ### 2026-05-11 (v4.12 — afterRender + heldags-møter overalt)
 - **Ny `afterRender(data)` lifecycle hook på `WNElement`:** kalles synkront rett etter `shadowRoot.innerHTML` skrives, med samme `data` som `render()` fikk. Erstatter det rasende `setTimeout(0)`-mønsteret som ble brukt for å fylle child-komponenter med data via imperative APIs (setData, .meta = …) etter at `loadData()` migrasjonen gjorde `super.requestRender()` async. Brukt i `people-page`, `notes-page`, `note-meta-panel`, `week-notes-calendar`, `today-calendar`, `meeting-create`, `meeting-edit`, `results-page` og inner `week-calendar`.
 - **Heldags-møter på kalender + today-calendar:** `<week-calendar>` behandlet kun møter som heldags når møtetypens `allDay`-flagg var satt. Møter uten start/slutt-tid (kun dato) forsvant fra both kalender-siden og today-calendar-widgeten. Ny `_isAllDayItem(it)` aksepterer også datoer uten klokkeslett som heldags og legger dem i heldags-båndet.
