@@ -196,9 +196,15 @@ class TodayCalendar extends WNElement {
             types.forEach(t => { typeMap[t.key] = t; });
             this._typeMap = typeMap;
             const meetings = (data.meetings || []).map(m => meetingToItem(m, typeMap));
-            setTimeout(() => this._applyData(types, meetings), 0);
+            this._lastTypes = types;
+            this._lastItems = meetings;
         }
         return tmpl;
+    }
+
+    afterRender(data) {
+        if (!data || data._loading) return;
+        this._applyData(this._lastTypes || [], this._lastItems || []);
     }
 
     _applyData(types, items) {
