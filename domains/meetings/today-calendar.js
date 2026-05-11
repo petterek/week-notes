@@ -114,8 +114,8 @@ class TodayCalendar extends WNElement {
     css() { return STYLES; }
 
     connectedCallback() {
-        super.connectedCallback();
         this._date = todayStr();
+        super.connectedCallback();
         this._onNewDay = () => {
             const d = todayStr();
             if (d !== this._date) { this._date = d; this.invalidateAwait(); this.requestRender(); }
@@ -161,9 +161,10 @@ class TodayCalendar extends WNElement {
             meetings: async () => {
                 if (!this.service || typeof this.service.list !== 'function') return [];
                 try {
-                    const week = isoWeek(new Date(this._date + 'T00:00:00Z'));
+                    const date = this._date || todayStr();
+                    const week = isoWeek(new Date(date + 'T00:00:00Z'));
                     const list = await this.service.list({ week });
-                    return (list || []).filter(m => m.date === this._date);
+                    return (list || []).filter(m => m.date === date);
                 } catch (_) { return []; }
             },
         };
