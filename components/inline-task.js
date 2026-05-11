@@ -72,7 +72,6 @@ const STYLES = `
 
 let _taskCache = null;
 let _taskCachePromise = null;
-const _instances = new Set();
 
 function loadTaskMap() {
     if (_taskCache) return Promise.resolve(_taskCache);
@@ -82,8 +81,6 @@ function loadTaskMap() {
         if (Array.isArray(arr)) arr.forEach(t => { if (t && t.id) map[t.id] = t; });
         _taskCache = map;
         _taskCachePromise = null;
-        // Re-render any waiting instances so they pick up the resolved text.
-        for (const inst of _instances) inst.requestRender();
         return map;
     }).catch(() => {
         _taskCachePromise = null;
@@ -99,7 +96,6 @@ class InlineTask extends WNElement {
 
     connectedCallback() {
         super.connectedCallback();
-        _instances.add(this);
         if (!this._wired) {
             this._wired = true;
             // Delegate via shadowRoot so re-rendering doesn't re-bind.
@@ -109,21 +105,27 @@ class InlineTask extends WNElement {
                 }
             });
         }
-        if (!_taskCache) loadTaskMap();
     }
 
-    disconnectedCallback() {
-        _instances.delete(this);
+    attributeChangedCallback(name, oldVal, newVal) {
+        if (name === 'task-id' && oldVal !== newVal) this.invalidateAwait('task');
+        super.attributeChangedCallback(name, oldVal, newVal);
     }
 
-    render() {
+    loadData() {
+        const id = this.getAttribute('task-id') || '';
+        return {
+            task: () => id ? loadTaskMap().then(map => map[id] || null) : Promise.resolve(null),
+        };
+    }
+
+    render({ task = null, _loading = false } = {}) {
         const id = this.getAttribute('task-id') || '';
         const attrState = (this.getAttribute('state') || 'open') === 'done' ? 'done' : 'open';
-        const task = (_taskCache && id) ? _taskCache[id] : null;
         const isDeleted = !!(task && task.deleted);
         const state = isDeleted ? 'deleted' : attrState;
         const checked = state === 'done' ? 'checked' : '';
-        const text = task ? (task.text || '') : (id ? '…' : '');
+        const text = task ? (task.text || '') : (_loading && id ? '…' : '');
         const suffix = isDeleted ? ' (slettet)' : '';
         const cb = isDeleted
             ? html`<input type="checkbox" disabled aria-label="Slettet oppgave" />`

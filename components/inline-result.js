@@ -43,7 +43,6 @@ const STYLES = `
 
 let _resultCache = null;
 let _resultPromise = null;
-const _instances = new Set();
 
 function loadResultMap() {
     if (_resultCache) return Promise.resolve(_resultCache);
@@ -53,7 +52,6 @@ function loadResultMap() {
         if (Array.isArray(arr)) arr.forEach(r => { if (r && r.id) map[r.id] = r; });
         _resultCache = map;
         _resultPromise = null;
-        for (const inst of _instances) inst.requestRender();
         return map;
     }).catch(() => {
         _resultPromise = null;
@@ -69,16 +67,22 @@ class InlineResult extends WNElement {
 
     connectedCallback() {
         super.connectedCallback();
-        _instances.add(this);
         if (!this._wired) {
             this._wired = true;
             this.shadowRoot.addEventListener('click', (e) => this._onClick(e));
         }
-        if (!_resultCache) loadResultMap();
     }
 
-    disconnectedCallback() {
-        _instances.delete(this);
+    attributeChangedCallback(name, oldVal, newVal) {
+        if (name === 'result-id' && oldVal !== newVal) this.invalidateAwait('result');
+        super.attributeChangedCallback(name, oldVal, newVal);
+    }
+
+    loadData() {
+        const id = this.getAttribute('result-id') || '';
+        return {
+            result: () => id ? loadResultMap().then(map => map[id] || null) : Promise.resolve(null),
+        };
     }
 
     _onClick(e) {
@@ -96,12 +100,11 @@ class InlineResult extends WNElement {
         }
     }
 
-    render() {
+    render({ result = null, _loading = false } = {}) {
         const id = this.getAttribute('result-id') || '';
-        const r = (_resultCache && id) ? _resultCache[id] : null;
-        if (!_resultCache) return html`<span class="pill busy">…</span>`;
-        if (!r) return html`<span class="pill missing" title="Resultat ikke funnet">[[?${escapeHtml(id)}]]</span>`;
-        return html`<span class="pill" title="Resultat — klikk for å åpne">🏁 ${escapeHtml(r.text || id)}</span>`;
+        if (_loading) return html`<span class="pill busy">…</span>`;
+        if (!result) return html`<span class="pill missing" title="Resultat ikke funnet">[[?${escapeHtml(id)}]]</span>`;
+        return html`<span class="pill" title="Resultat — klikk for å åpne">🏁 ${escapeHtml(result.text || id)}</span>`;
     }
 }
 
