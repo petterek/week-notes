@@ -155,7 +155,7 @@ class WeekNotesCalendar extends WNElement {
         // pushes them into the dumb display <week-calendar> via setItems().
         const svcAttr = this.getAttribute('meetings_service') || '';
         const setAttr = this.getAttribute('settings_service') || '';
-        const ctxAttr = this.getAttribute('context') || '';
+        const ctxAttr = this.getAttribute('context') || this._activeCtx || '';
         return html`
             <div class="page">
                 <div class="toolbar">
@@ -323,8 +323,16 @@ class WeekNotesCalendar extends WNElement {
             const d = await ctxSvc.list();
             const active = (d.contexts || []).find(c => c.id === d.active) || (d.contexts || [])[0];
             this._settings = (active && active.settings) || null;
+            if (active && active.id) this._setActiveContext(active.id);
             this._propagateSettings();
         } catch (_) {}
+    }
+
+    _setActiveContext(id) {
+        if (!id || this._activeCtx === id) return;
+        this._activeCtx = id;
+        const forms = this.shadowRoot.querySelectorAll('meeting-create, meeting-edit');
+        forms.forEach(f => f.setAttribute('context', id));
     }
 
     _propagateSettings() {

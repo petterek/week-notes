@@ -87,35 +87,33 @@ class MeetingEdit extends WNElement {
 
     css() { return STYLES; }
 
-    connectedCallback() {
-        super.connectedCallback();
-        this._loadTypes();
-    }
-
     disconnectedCallback() {
         if (super.disconnectedCallback) super.disconnectedCallback();
         this._closePicker();
     }
 
     attributeChangedCallback(name, oldVal, newVal) {
+        if (name === 'settings_service' || name === 'context') {
+            this.invalidateAwait('types');
+        }
         super.attributeChangedCallback(name, oldVal, newVal);
-        if (name === 'settings_service' || name === 'context') this._loadTypes();
     }
 
-    async _loadTypes() {
+    async _fetchTypes() {
         const ctx = this.getAttribute('context') || '';
-        if (!ctx) return;
+        if (!ctx) return [];
         const svc = this.serviceFor('settings');
-        if (!svc || typeof svc.getMeetingTypes !== 'function') return;
+        if (!svc || typeof svc.getMeetingTypes !== 'function') return [];
         try {
             const list = await svc.getMeetingTypes(ctx);
-            this._types = (Array.isArray(list) ? list : []).map(t => ({
+            return (Array.isArray(list) ? list : []).map(t => ({
                 typeId: String(t.typeId || t.key || ''),
                 icon: t.icon || '',
                 name: t.name || t.label || t.typeId || t.key || '',
             })).filter(t => t.typeId);
-            if (this.isConnected) this.requestRender();
-        } catch (_) {}
+        } catch (_) {
+            return [];
+        }
     }
 
     /**
@@ -129,10 +127,12 @@ class MeetingEdit extends WNElement {
         if (this.isConnected) this.requestRender();
     }
 
-    render() {
+    async render() {
         if (!this.service) return this.renderNoService();
+        const { types = [] } = await this.awaitAll({
+            types: () => this._fetchTypes(),
+        });
         const m = this._meeting || {};
-        const types = this._types || [];
         const presetType = m.type || (types[0] && types[0].typeId) || 'meeting';
         const uid = this._uid || (this._uid = 'me' + Math.random().toString(36).slice(2, 8));
         const id = (k) => `${uid}-${k}`;

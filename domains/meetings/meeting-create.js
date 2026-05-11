@@ -73,31 +73,31 @@ class MeetingCreate extends WNElement {
 
     css() { return STYLES; }
 
-    connectedCallback() {
-        super.connectedCallback();
-        this._loadTypes();
-    }
-
     attributeChangedCallback(name, oldVal, newVal) {
+        if (name === 'settings_service' || name === 'context') {
+            this.invalidateAwait('types');
+        }
         super.attributeChangedCallback(name, oldVal, newVal);
-        if (name === 'settings_service' || name === 'context') this._loadTypes();
     }
 
-    async _loadTypes() {
-        if (Array.isArray(this._typesOverride) && this._typesOverride.length) return;
+    async _fetchTypes() {
+        if (Array.isArray(this._typesOverride) && this._typesOverride.length) {
+            return this._typesOverride;
+        }
         const ctx = this.getAttribute('context') || '';
-        if (!ctx) return;
+        if (!ctx) return [];
         const svc = this.serviceFor('settings');
-        if (!svc || typeof svc.getMeetingTypes !== 'function') return;
+        if (!svc || typeof svc.getMeetingTypes !== 'function') return [];
         try {
             const list = await svc.getMeetingTypes(ctx);
-            this._types = (Array.isArray(list) ? list : []).map(t => ({
+            return (Array.isArray(list) ? list : []).map(t => ({
                 typeId: String(t.typeId || t.key || ''),
                 icon: t.icon || '',
                 name: t.name || t.label || t.typeId || t.key || '',
             })).filter(t => t.typeId);
-            if (this.isConnected) this.requestRender();
-        } catch (_) { /* ignore — render shows fallback option */ }
+        } catch (_) {
+            return [];
+        }
     }
 
     get types() { return Array.isArray(this._types) ? this._types.slice() : []; }
@@ -110,13 +110,15 @@ class MeetingCreate extends WNElement {
             }))
             : [];
         this._typesOverride = arr.length ? arr : null;
-        if (arr.length) this._types = arr;
+        this.invalidateAwait('types');
         if (this.isConnected) this.requestRender();
     }
 
-    render() {
+    async render() {
         if (!this.service) return this.renderNoService();
-        const types = this._types || [];
+        const { types = [] } = await this.awaitAll({
+            types: () => this._fetchTypes(),
+        });
         const presetType = this.getAttribute('type') || (types[0] && types[0].typeId) || 'meeting';
         const presetDate = this.getAttribute('date') || todayIso();
         const presetStart = this.getAttribute('start') || '';

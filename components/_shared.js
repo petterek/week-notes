@@ -186,9 +186,59 @@ export class WNElement extends HTMLElement {
     }
 
     requestRender() {
+        const token = (this._renderToken = (this._renderToken || 0) + 1);
         const r = this.render();
+        if (r && typeof r.then === 'function') {
+            r.then(v => {
+                if (token !== this._renderToken) return;
+                this._applyRender(v);
+            }).catch(() => {});
+            return;
+        }
+        this._applyRender(r);
+    }
+
+    _applyRender(r) {
         if (r == null || r === false) { this.shadowRoot.innerHTML = ''; return; }
         this.shadowRoot.innerHTML = (typeof r === 'object' && r.value != null) ? r.value : String(r);
+    }
+
+    /**
+     * Memoized parallel async loader for use inside async render().
+     *
+     * Pass a map of `{ key: () => Promise }`. Each key's promise is
+     * called at most once per element instance and cached. Returns a
+     * map of resolved values once all promises settle.
+     *
+     * Call `this.invalidateAwait(key)` (or no args to clear all) to
+     * force a refetch on the next render. After invalidating, call
+     * `this.requestRender()`.
+     *
+     * Convention: every render() that depends on async data should
+     * start with `const data = await this.awaitAll({ ... });` so
+     * dependencies are declared in one place at the top of the render.
+     */
+    async awaitAll(map) {
+        const cache = this._awaitCache || (this._awaitCache = {});
+        const keys = Object.keys(map || {});
+        await Promise.all(keys.map(k => {
+            if (!(k in cache)) {
+                try { cache[k] = Promise.resolve(map[k]()); }
+                catch (e) { cache[k] = Promise.reject(e); }
+            }
+            return cache[k].catch(() => undefined);
+        }));
+        const out = {};
+        for (const k of keys) {
+            try { out[k] = await cache[k]; } catch (_) { out[k] = undefined; }
+        }
+        return out;
+    }
+
+    invalidateAwait(key) {
+        if (!this._awaitCache) return;
+        if (key == null) this._awaitCache = {};
+        else delete this._awaitCache[key];
     }
 
     css() { return ''; }

@@ -238,6 +238,19 @@ the next handler.
   `window.location.href = detail.href`.
 - Slotted children stay in light DOM so existing global CSS / JS
   selectors keep working (used by `<app-navbar>` and `<ctx-switcher>`).
+- **Async render + `awaitAll`.** When a component depends on async
+  data (e.g. fetching meeting types, people, goals), make `render()`
+  an `async` function and load every dependency through
+  `this.awaitAll({ key: () => fetchFn() })` at the top of render —
+  always declare async deps inside render itself, not in ad-hoc
+  `_load*()` helpers wired into `connectedCallback`. The helper
+  memoizes each promise per element instance, so re-renders don't
+  re-fetch. Invalidate with `this.invalidateAwait('key')` (or no arg
+  to clear all) before calling `requestRender()` when the underlying
+  inputs change — e.g. an observed attribute like `context` or
+  `settings_service`. `requestRender()` itself is async-aware: it
+  guards against stale writes via a render token, so concurrent
+  `requestRender()` calls always land the latest result.
 
 ### Markdown / mentions
 - `@person` mentions are rendered server-side via `linkMentions(...)`.
