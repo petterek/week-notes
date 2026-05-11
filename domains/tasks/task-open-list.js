@@ -50,8 +50,13 @@ const STYLES = `
             flex: 1 1 auto;
             padding-right: 4px;
         }
-        .sidebar-task { padding: 6px 8px; border-radius: 6px; background: var(--surface); }
+        .sidebar-task { padding: 6px 8px; border-radius: 6px; background: var(--surface); transition: background 0.15s, box-shadow 0.15s; }
         .sidebar-task:hover { background: var(--surface-alt); }
+        .sidebar-task.editing {
+            background: var(--accent-soft);
+            box-shadow: inset 3px 0 0 var(--accent);
+        }
+        .sidebar-task.editing:hover { background: var(--accent-soft); }
         .row { display: flex; align-items: center; gap: 8px; }
         .row-meta {
             display: flex; align-items: center; gap: 8px;
@@ -100,6 +105,46 @@ const STYLES = `
             color: var(--danger, #c53030);
             border-color: var(--danger, #c53030);
             font-weight: 600;
+        }
+
+        :host([page]) {
+            font-size: 1em;
+            max-height: none;
+        }
+        :host([page]) .side-h {
+            font-size: 1.4em;
+            padding-bottom: 10px;
+            margin: 0 0 14px;
+            border-bottom: 2px solid var(--border-soft);
+        }
+        :host([page]) .sidebar-tasks {
+            gap: 8px;
+            overflow: visible;
+            padding-right: 0;
+        }
+        :host([page]) .sidebar-task {
+            padding: 12px 14px;
+            border: 1px solid var(--border-soft);
+            background: var(--surface);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+        }
+        :host([page]) .sidebar-task.editing {
+            background: var(--accent-soft);
+            border-color: var(--accent);
+            box-shadow: inset 3px 0 0 var(--accent);
+        }
+        :host([page]) .sidebar-task.editing:hover { background: var(--accent-soft); }
+        :host([page]) .sidebar-task:hover {
+            border-color: var(--border);
+            background: var(--surface);
+        }
+        :host([page]) .row { gap: 12px; }
+        :host([page]) .row input[type="checkbox"] { width: 18px; height: 18px; }
+        :host([page]) .row-text { font-size: 1.05em; }
+        :host([page]) .row-meta {
+            margin-top: 6px;
+            padding-left: 30px;
+            font-size: 0.95em;
         }
 `;
 
@@ -182,7 +227,9 @@ class TaskOpenList extends WNElement {
         return {
             open: async () => {
                 const tasks = await this.service.list();
-                return (tasks || []).filter(t => !t.done);
+                return (tasks || [])
+                    .filter(t => !t.done)
+                    .sort((a, b) => String(b.created || '').localeCompare(String(a.created || '')));
             },
             people:    () => peopleSvc ? peopleSvc.list() : Promise.resolve([]),
             companies: () => compSvc   ? compSvc.list()   : Promise.resolve([]),
