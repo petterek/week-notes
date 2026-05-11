@@ -127,11 +127,12 @@ class MeetingEdit extends WNElement {
         if (this.isConnected) this.requestRender();
     }
 
-    async render() {
+    loadData() {
+        return { types: () => this._fetchTypes() };
+    }
+
+    render({ types = [] } = {}) {
         if (!this.service) return this.renderNoService();
-        const { types = [] } = await this.awaitAll({
-            types: () => this._fetchTypes(),
-        });
         const m = this._meeting || {};
         const presetType = m.type || (types[0] && types[0].typeId) || 'meeting';
         const uid = this._uid || (this._uid = 'me' + Math.random().toString(36).slice(2, 8));

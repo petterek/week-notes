@@ -114,11 +114,12 @@ class MeetingCreate extends WNElement {
         if (this.isConnected) this.requestRender();
     }
 
-    async render() {
+    loadData() {
+        return { types: () => this._fetchTypes() };
+    }
+
+    render({ types = [] } = {}) {
         if (!this.service) return this.renderNoService();
-        const { types = [] } = await this.awaitAll({
-            types: () => this._fetchTypes(),
-        });
         const presetType = this.getAttribute('type') || (types[0] && types[0].typeId) || 'meeting';
         const presetDate = this.getAttribute('date') || todayIso();
         const presetStart = this.getAttribute('start') || '';

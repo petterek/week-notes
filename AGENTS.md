@@ -238,19 +238,33 @@ the next handler.
   `window.location.href = detail.href`.
 - Slotted children stay in light DOM so existing global CSS / JS
   selectors keep working (used by `<app-navbar>` and `<ctx-switcher>`).
-- **Async render + `awaitAll`.** When a component depends on async
-  data (e.g. fetching meeting types, people, goals), make `render()`
-  an `async` function and load every dependency through
-  `this.awaitAll({ key: () => fetchFn() })` at the top of render —
-  always declare async deps inside render itself, not in ad-hoc
-  `_load*()` helpers wired into `connectedCallback`. The helper
-  memoizes each promise per element instance, so re-renders don't
-  re-fetch. Invalidate with `this.invalidateAwait('key')` (or no arg
-  to clear all) before calling `requestRender()` when the underlying
-  inputs change — e.g. an observed attribute like `context` or
-  `settings_service`. `requestRender()` itself is async-aware: it
-  guards against stale writes via a render token, so concurrent
-  `requestRender()` calls always land the latest result.
+- **Declarative async data via `loadData()`.** When a component
+  depends on async data (e.g. fetching meeting types, people, goals),
+  override `loadData()` on the WNElement subclass and return a map of
+  `{ key: () => Promise }`. The base class awaits them in parallel
+  (memoized per element instance via `awaitAll`) and passes the
+  resolved values into `render(data)`:
+
+  ```js
+  loadData() {
+      return {
+          types: () => this._fetchTypes(),
+          people: () => this._fetchPeople(),
+      };
+  }
+  render({ types = [], people = [] } = {}) { return html`…`; }
+  ```
+
+  Each factory runs once per instance. Invalidate with
+  `this.invalidateAwait('types')` (or no arg to clear all) before
+  calling `requestRender()` when underlying inputs change — e.g. an
+  observed attribute like `context` or `settings_service`. Components
+  with no async deps just omit `loadData()` and `render()` is called
+  synchronously with `{}`. `requestRender()` is async-aware and uses
+  a render token to discard stale results from concurrent calls.
+  `render()` itself may still be async if it needs ad-hoc awaits;
+  prefer declaring deps in `loadData()` so render stays purely
+  declarative.
 
 ### Markdown / mentions
 - `@person` mentions are rendered server-side via `linkMentions(...)`.

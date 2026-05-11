@@ -187,12 +187,25 @@ export class WNElement extends HTMLElement {
 
     requestRender() {
         const token = (this._renderToken = (this._renderToken || 0) + 1);
-        const r = this.render();
-        if (r && typeof r.then === 'function') {
-            r.then(v => {
+        const deps = this.loadData();
+        const hasDeps = deps && typeof deps === 'object' && Object.keys(deps).length > 0;
+        if (hasDeps) {
+            this.awaitAll(deps).then(data => {
                 if (token !== this._renderToken) return;
-                this._applyRender(v);
+                const r = this.render(data);
+                if (r && typeof r.then === 'function') {
+                    r.then(v => { if (token === this._renderToken) this._applyRender(v); })
+                     .catch(() => {});
+                    return;
+                }
+                this._applyRender(r);
             }).catch(() => {});
+            return;
+        }
+        const r = this.render({});
+        if (r && typeof r.then === 'function') {
+            r.then(v => { if (token === this._renderToken) this._applyRender(v); })
+             .catch(() => {});
             return;
         }
         this._applyRender(r);
@@ -204,27 +217,41 @@ export class WNElement extends HTMLElement {
     }
 
     /**
-     * Memoized parallel async loader for use inside async render().
+     * Subclasses override to declare async data dependencies for
+     * render(). Return a map of `{ key: () => Promise }`. The base
+     * class awaits them in parallel (memoized via awaitAll) and
+     * passes the resolved map as the first argument to render().
      *
-     * Pass a map of `{ key: () => Promise }`. Each key's promise is
-     * called at most once per element instance and cached. Returns a
-     * map of resolved values once all promises settle.
+     *     loadData() {
+     *         return {
+     *             types: () => this._fetchTypes(),
+     *             people: () => this._fetchPeople(),
+     *         };
+     *     }
+     *     render({ types, people }) { return html`…`; }
      *
-     * Call `this.invalidateAwait(key)` (or no args to clear all) to
-     * force a refetch on the next render. After invalidating, call
-     * `this.requestRender()`.
-     *
-     * Convention: every render() that depends on async data should
-     * start with `const data = await this.awaitAll({ ... });` so
-     * dependencies are declared in one place at the top of the render.
+     * Call `this.invalidateAwait('types')` (or no arg to clear all)
+     * before `requestRender()` when an underlying input changes.
+     * Default returns null — no async deps, render() is called
+     * synchronously with `{}`.
+     */
+    loadData() { return null; }
+
+    /**
+     * Memoized parallel async loader. Called by requestRender() with
+     * the result of loadData(), but can also be used ad-hoc inside
+     * render() or elsewhere. Each key's factory is invoked at most
+     * once per element instance.
      */
     async awaitAll(map) {
         const cache = this._awaitCache || (this._awaitCache = {});
         const keys = Object.keys(map || {});
         await Promise.all(keys.map(k => {
             if (!(k in cache)) {
-                try { cache[k] = Promise.resolve(map[k]()); }
-                catch (e) { cache[k] = Promise.reject(e); }
+                try {
+                    const v = typeof map[k] === 'function' ? map[k]() : map[k];
+                    cache[k] = Promise.resolve(v);
+                } catch (e) { cache[k] = Promise.reject(e); }
             }
             return cache[k].catch(() => undefined);
         }));
