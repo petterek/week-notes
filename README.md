@@ -186,6 +186,9 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-05-11 (v4.11 — oppsummering: strip ```markdown fence)
+- **Fix:** noen LLM-er wrapper hele svaret i en triple-backtick fence (` ```markdown … ``` `), noe som gjorde at uke-oppsummeringen ble rendret som én stor `<pre><code>`-blokk i modalen. Server-side `summarizeWeek` strippet wrapping-fencen før lagring; klient-side `renderMarkdown` strippet den også slik at allerede lagrede `summarize.md`-filer rendres riktig ved gjenåpning.
+
 ### 2026-05-08 (v4.10 — Ctrl+M møte-popup + møte-referanser i note-meta)
 - **Ctrl+M åpner møte-popup i editor:** tittel, dato/tid via `<date-time-picker>`, varighet (15/30/45/60/90/120 min). OK setter inn `{{m:Tittel @ YYYY-MM-DD HH:MM[ Nm]}}` som tekst på cursor-posisjon. Ingen møte opprettes før notatet lagres. Hjelpe-stripa under editoren oppdatert.
 - **Valgfri varighets-suffiks:** server-parser aksepterer `{{m:Tittel @ YYYY-MM-DD HH:MM 30m}}`. Ved fravær brukes kontekstens default møte-lengde (eller 60 min).
