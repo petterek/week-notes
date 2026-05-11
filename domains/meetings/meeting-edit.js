@@ -185,8 +185,12 @@ class MeetingEdit extends WNElement {
                 </div>
             </form>
         `;
-        setTimeout(() => this._wire(), 0);
         return tmpl;
+    }
+
+    afterRender(data) {
+        if (!data) return;
+        this._wire();
     }
 
     _wire() {

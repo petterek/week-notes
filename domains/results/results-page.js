@@ -378,6 +378,11 @@ class ResultsPage extends WNElement {
         `;
     }
 
+    afterRender(data) {
+        if (!data || data._loading || !Array.isArray(data.results)) return;
+        this._maybeFlashHash();
+    }
+
     render(data = {}) {
         if (!this.service) return this.renderNoService();
         if (data._loading) return html`<div class="rp-loading">Laster…</div>`;
@@ -396,8 +401,6 @@ class ResultsPage extends WNElement {
         });
         const weeks = Object.keys(byWeek).sort((a, b) => b.localeCompare(a));
         const cw = currentYearWeek();
-
-        setTimeout(() => this._maybeFlashHash(), 0);
 
         return html`
             <div class="rp">

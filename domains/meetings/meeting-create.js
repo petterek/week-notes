@@ -168,10 +168,12 @@ class MeetingCreate extends WNElement {
                 </div>
             </form>
         `;
-        // Inject the safe HTML the WNElement way
-        // (template returned; wiring happens after innerHTML set)
-        setTimeout(() => this._wire(), 0);
         return tmpl;
+    }
+
+    afterRender(data) {
+        if (!data) return;
+        this._wire();
     }
 
     _wire() {

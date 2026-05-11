@@ -220,9 +220,14 @@ class WeekNotesCalendar extends WNElement {
             this._items = (meet.list || []).map(m => meetingToItem(m, typeMap));
             this._meetingsById = {};
             (meet.list || []).forEach(m => { if (m && m.id) this._meetingsById[m.id] = m; });
-            setTimeout(() => this._applyData(meet.types || []), 0);
+            this._lastTypes = meet.types || [];
         }
         return tmpl;
+    }
+
+    afterRender(data) {
+        if (!data || data._loading) return;
+        this._applyData(this._lastTypes || []);
     }
 
     _applyData(types) {

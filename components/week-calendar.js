@@ -449,10 +449,11 @@ class WeekCalendar extends WNElement {
             + `<div class="allday-track" data-allday-track style="grid-column: 2 / span ${days.length}; height:${trackHeight}px">${alldayHtml}</div>`;
         const markup = `<div class="grid"><div class="corner"></div>${dayHeads}${alldayRow}<div class="hours">${hourCells.join('')}</div>${dayCols}</div>`;
 
-        // Wire events after render
-        setTimeout(() => this._wireItemEvents(), 0);
-
         return html`${unsafeHTML(markup)}`;
+    }
+
+    afterRender() {
+        this._wireItemEvents();
     }
 
     _layoutItems(days, HS, HE, HP) {
