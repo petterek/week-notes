@@ -126,22 +126,14 @@ class NotesPage extends WNElement {
 
     connectedCallback() {
         super.connectedCallback();
-        this._load();
+        this._wire();
     }
 
-    async _load() {
-        if (!this.service || typeof this.service.listAll !== 'function') {
-            this._error = 'no-service';
-            this.requestRender();
-            return;
-        }
-        try {
-            this._all = await this.service.listAll();
-        } catch (e) {
-            this._error = e.message || String(e);
-        }
-        this.requestRender();
-        this._wire();
+    loadData() {
+        if (!this.service || typeof this.service.listAll !== 'function') return {};
+        return {
+            all: () => this.service.listAll(),
+        };
     }
 
     _wire() {
@@ -203,8 +195,8 @@ class NotesPage extends WNElement {
             const svc = this.serviceFor && this.serviceFor('notes') || this.service;
             const p = svc && svc.remove ? svc.remove(week, file) : Promise.reject(new Error('no service'));
             Promise.resolve(p).then(() => {
-                this._all = (this._all || []).filter(n => !(n.week === week && n.file === file));
-                this._renderResults();
+                this.invalidateAwait();
+                this.requestRender();
             }).catch(err => alert('Kunne ikke slette: ' + (err && err.message || err)));
         }
     }
@@ -237,15 +229,15 @@ class NotesPage extends WNElement {
         return [...set].sort();
     }
 
-    render() {
-        if (!this.service) return this.renderNoService();
-        if (this._error === 'no-service') return this.renderNoService();
-        if (this._error) {
-            return html`<h1 class="np-title">📚 Finn notater</h1><div class="np-error">Kunne ikke laste: ${this._error}</div>`;
-        }
-        if (!this._all) {
+    render(data = {}) {
+        if (!this.service || typeof this.service.listAll !== 'function') return this.renderNoService();
+        if (data._loading) {
             return html`<h1 class="np-title">📚 Finn notater</h1><div class="np-loading">Laster…</div>`;
         }
+        if (!Array.isArray(data.all)) {
+            return html`<h1 class="np-title">📚 Finn notater</h1><div class="np-error">Kunne ikke laste notater</div>`;
+        }
+        this._all = data.all;
 
         const weeks = this._allWeeks();
         const minWeek = weeks[0] || '';

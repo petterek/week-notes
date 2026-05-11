@@ -209,8 +209,7 @@ class GoalsPage extends WNElement {
 
     connectedCallback() {
         super.connectedCallback();
-        this._load();
-        // Auto-expand if URL hash points to a specific goal (e.g. /goals#g-abc)
+        this._wire();
         const m = (location.hash || '').match(/^#g-(.+)$/);
         if (m) this._expanded.add(decodeURIComponent(m[1]));
         if (!this._kbWired) {
@@ -229,43 +228,32 @@ class GoalsPage extends WNElement {
     }
 
     attributeChangedCallback(name, oldVal, newVal) {
+        if (oldVal !== newVal) this.invalidateAwait();
         super.attributeChangedCallback(name, oldVal, newVal);
-        if (this.isConnected && oldVal !== newVal) this._load();
     }
 
-    async _load() {
-        if (!this.service) {
-            this._error = 'no-service';
-            this.requestRender();
-            return;
-        }
+    loadData() {
+        if (!this.service) return {};
         const tasksSvc = this.serviceFor('tasks');
         const resultsSvc = this.serviceFor('results');
-        try {
-            const [goals, tasks, results] = await Promise.all([
-                this.service.list(),
-                tasksSvc ? tasksSvc.list() : Promise.resolve([]),
-                resultsSvc ? resultsSvc.list() : Promise.resolve([]),
-            ]);
-            this._state = {
-                goals: (goals || []).slice().sort((a, b) => (b.created || '').localeCompare(a.created || '')),
-                tasks: tasks || [],
-                results: results || [],
-            };
-            this._error = null;
-        } catch (e) {
-            this._error = e.message || String(e);
-        }
-        this.requestRender();
-        this._wire();
+        return {
+            goals: async () => {
+                const g = await this.service.list();
+                return (g || []).slice().sort((a, b) => (b.created || '').localeCompare(a.created || ''));
+            },
+            tasks:   () => tasksSvc ? tasksSvc.list() : Promise.resolve([]),
+            results: () => resultsSvc ? resultsSvc.list() : Promise.resolve([]),
+        };
     }
+
+    _refresh() { this.invalidateAwait(); this.requestRender(); }
 
     _wire() {
         if (this._wired) return;
         this._wired = true;
         this.shadowRoot.addEventListener('click', (e) => this._onClick(e));
-        this.shadowRoot.addEventListener('task:created', () => this._load());
-        this.shadowRoot.addEventListener('result:created', () => this._load());
+        this.shadowRoot.addEventListener('task:created', () => this._refresh());
+        this.shadowRoot.addEventListener('result:created', () => this._refresh());
     }
 
     _onClick(e) {
@@ -390,7 +378,7 @@ class GoalsPage extends WNElement {
                 });
             }
             this._modal = null;
-            await this._load();
+            this._refresh();
         } catch (e) {
             alert((e && e.message) || 'Feil');
         }
@@ -399,7 +387,7 @@ class GoalsPage extends WNElement {
     async _cycleStatus(id, next) {
         try {
             await this.service.update(id, { status: next });
-            await this._load();
+            this._refresh();
         } catch (e) { alert((e && e.message) || 'Feil'); }
     }
 
@@ -407,7 +395,7 @@ class GoalsPage extends WNElement {
         if (!confirm('Slett dette målet? Koblinger til oppgaver/resultater vil bli fjernet.')) return;
         try {
             await this.service.remove(id);
-            await this._load();
+            this._refresh();
         } catch (e) { alert((e && e.message) || 'Feil'); }
     }
 
@@ -556,12 +544,13 @@ class GoalsPage extends WNElement {
         `;
     }
 
-    render() {
-        if (this._error === 'no-service') return this.renderNoService();
-        if (this._error) return html`<div class="gp-error">Kunne ikke laste mål: ${this._error}</div>`;
-        if (!this._state) return html`<div class="gp-loading">Laster…</div>`;
+    render(data = {}) {
+        if (!this.service) return this.renderNoService();
+        if (data._loading) return html`<div class="gp-loading">Laster…</div>`;
+        if (!Array.isArray(data.goals)) return html`<div class="gp-error">Kunne ikke laste mål</div>`;
 
-        const goals = this._state.goals || [];
+        this._state = { goals: data.goals, tasks: data.tasks || [], results: data.results || [] };
+        const goals = data.goals;
         const byStatus = { active: [], achieved: [], abandoned: [] };
         goals.forEach(g => { (byStatus[g.status] || byStatus.active).push(g); });
 
