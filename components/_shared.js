@@ -190,19 +190,28 @@ export class WNElement extends HTMLElement {
         const deps = this.loadData();
         const hasDeps = deps && typeof deps === 'object' && Object.keys(deps).length > 0;
         if (hasDeps) {
+            const allCached = this._allCached(Object.keys(deps));
+            if (!allCached) {
+                this._applyMaybe(this.render({ _loading: true }), token);
+            }
             this.awaitAll(deps).then(data => {
                 if (token !== this._renderToken) return;
-                const r = this.render(data);
-                if (r && typeof r.then === 'function') {
-                    r.then(v => { if (token === this._renderToken) this._applyRender(v); })
-                     .catch(() => {});
-                    return;
-                }
-                this._applyRender(r);
+                this._applyMaybe(this.render({ ...data, _loading: false }), token);
             }).catch(() => {});
             return;
         }
-        const r = this.render({});
+        this._applyMaybe(this.render({}), token);
+    }
+
+    _allCached(keys) {
+        if (!this._awaitCache) return false;
+        for (const k of keys) {
+            if (!(k in this._awaitCache)) return false;
+        }
+        return true;
+    }
+
+    _applyMaybe(r, token) {
         if (r && typeof r.then === 'function') {
             r.then(v => { if (token === this._renderToken) this._applyRender(v); })
              .catch(() => {});

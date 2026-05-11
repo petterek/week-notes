@@ -21,32 +21,22 @@ class WeekList extends WNElement {
 
     css() { return STYLES; }
 
-    connectedCallback() {
-        super.connectedCallback();
-        if (this.service) this._load();
-    }
-
     attributeChangedCallback(name, oldVal, newVal) {
+        if (oldVal !== newVal) this.invalidateAwait();
         super.attributeChangedCallback(name, oldVal, newVal);
-        if (this.isConnected && this.service && oldVal !== newVal) this._load();
     }
 
-    async _load() {
-        try {
-            const weeks = await this.service.listWeeks();
-            this._state = { weeks: weeks || [] };
-        } catch {
-            this._state = { error: true };
-        }
-        this.requestRender();
+    loadData() {
+        if (!this.service) return null;
+        return { weeks: () => this.service.listWeeks().then(w => w || []) };
     }
 
-    render() {
+    render(data = {}) {
         if (!this.service) return this.renderNoService();
-        if (!this._state) return html`<p class="empty-quiet">Laster uker…</p>`;
-        if (this._state.error) return html`<p class="empty-quiet">Kunne ikke laste uker</p>`;
+        if (data._loading) return html`<p class="empty-quiet">Laster uker…</p>`;
+        const weeks = Array.isArray(data.weeks) ? data.weeks : null;
+        if (!weeks) return html`<p class="empty-quiet">Kunne ikke laste uker</p>`;
 
-        const { weeks } = this._state;
         if (weeks.length === 0) {
             return html`<p class="empty-quiet">Ingen uker funnet.</p>`;
         }

@@ -43,42 +43,40 @@ class WeekResults extends WNElement {
 
     connectedCallback() {
         super.connectedCallback();
-        if (this.service) this._load();
-    }
-
-    attributeChangedCallback(name, oldVal, newVal) {
-        super.attributeChangedCallback(name, oldVal, newVal);
-        if (this.isConnected && this.service && oldVal !== newVal) this._load();
-    }
-
-    async _load() {
-        const week = this.getAttribute('week');
-        const peopleSvc = this.serviceFor('people');
-        const compSvc = this.serviceFor('companies');
-        try {
-            const [results, people, companies] = await Promise.all([
-                this.service.list({ week }),
-                peopleSvc ? peopleSvc.list() : Promise.resolve([]),
-                compSvc ? compSvc.list() : Promise.resolve([]),
-            ]);
-            const filtered = (results || []).filter(r => inWeek(r, week));
-            this._state = { results: filtered, people: people || [], companies: companies || [] };
-        } catch {
-            this._state = { error: true };
-        }
-        this.requestRender();
         if (!this._wired) {
             this._wired = true;
             wireMentionClicks(this.shadowRoot);
         }
     }
 
-    render() {
-        if (!this.service) return this.renderNoService();
-        if (!this._state) return html`<h3 class="sec-h">Resultater</h3><p class="empty-quiet">Laster…</p>`;
-        if (this._state.error) return html`<h3 class="sec-h">Resultater</h3><p class="empty-quiet">Kunne ikke laste</p>`;
+    attributeChangedCallback(name, oldVal, newVal) {
+        if (oldVal !== newVal) this.invalidateAwait();
+        super.attributeChangedCallback(name, oldVal, newVal);
+    }
 
-        const { results, people, companies } = this._state;
+    loadData() {
+        if (!this.service) return null;
+        const week = this.getAttribute('week');
+        const peopleSvc = this.serviceFor('people');
+        const compSvc = this.serviceFor('companies');
+        return {
+            results: async () => {
+                const all = await this.service.list({ week });
+                return (all || []).filter(r => inWeek(r, week));
+            },
+            people:    () => peopleSvc ? peopleSvc.list() : Promise.resolve([]),
+            companies: () => compSvc   ? compSvc.list()   : Promise.resolve([]),
+        };
+    }
+
+    render(data = {}) {
+        if (!this.service) return this.renderNoService();
+        if (data._loading) return html`<h3 class="sec-h">Resultater</h3><p class="empty-quiet">Laster…</p>`;
+        const results = Array.isArray(data.results) ? data.results : null;
+        if (!results) return html`<h3 class="sec-h">Resultater</h3><p class="empty-quiet">Kunne ikke laste</p>`;
+        const people = data.people || [];
+        const companies = data.companies || [];
+
         if (results.length === 0) {
             return html`<h3 class="sec-h">Resultater <span class="c">0</span></h3><p class="empty-quiet">Ingen resultater</p>`;
         }

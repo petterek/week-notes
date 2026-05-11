@@ -56,11 +56,14 @@ class TaskCompleted extends WNElement {
 
     css() { return STYLES; }
 
-    refresh() { if (this.service) this._load(); }
+    refresh() {
+        this.invalidateAwait();
+        if (this.isConnected) this.requestRender();
+    }
 
     connectedCallback() {
         super.connectedCallback();
-        if (this.service) this._load();
+        if (!this._wired) this._wire();
     }
 
     // Notification methods. The host page listens for global task events
@@ -69,63 +72,60 @@ class TaskCompleted extends WNElement {
     taskUncompleted() { this.refresh(); }
 
     attributeChangedCallback(name, oldVal, newVal) {
+        if (oldVal !== newVal) this.invalidateAwait();
         super.attributeChangedCallback(name, oldVal, newVal);
-        if (this.isConnected && this.service && oldVal !== newVal) this._load();
     }
 
-    async _load() {
+    loadData() {
+        if (!this.service) return null;
         const peopleSvc = this.serviceFor('people');
         const compSvc = this.serviceFor('companies');
-        try {
-            const [tasks, people, companies] = await Promise.all([
-                this.service.list(),
-                peopleSvc ? peopleSvc.list() : Promise.resolve([]),
-                compSvc ? compSvc.list() : Promise.resolve([]),
-            ]);
-            this._state = { tasks: tasks || [], people: people || [], companies: companies || [] };
-        } catch {
-            this._state = { error: true };
-        }
-        this.requestRender();
-        if (!this._wired) {
-            this._wired = true;
-            this.shadowRoot.addEventListener('click', (ev) => {
-                const btn = ev.target.closest('button[data-act="undo"]');
-                if (btn) {
-                    ev.stopPropagation();
-                    const id = btn.dataset.taskid;
-                    const text = btn.dataset.tasktext || '';
-                    this.dispatchEvent(new CustomEvent('task-completed:undo', {
-                        bubbles: true, composed: true, cancelable: true,
-                        detail: { id, text },
-                    }));
-                    return;
-                }
-                // Mention clicks are handled by wireMentionClicks; don't open the modal.
-                if (ev.target.closest('a.mention-link')) return;
-                const row = ev.target.closest('.row[data-taskid]');
-                if (!row) return;
-                const id = row.dataset.taskid;
-                const tasks = (this._state && this._state.tasks) || [];
-                const task = tasks.find(t => t.id === id);
-                if (!task) return;
-                this.dispatchEvent(new CustomEvent('task:request-view', {
-                    bubbles: true, composed: true,
-                    detail: { task },
-                }));
-            });
-            wireMentionClicks(this.shadowRoot);
-        }
+        return {
+            tasks:     () => this.service.list().then(t => t || []),
+            people:    () => peopleSvc ? peopleSvc.list() : Promise.resolve([]),
+            companies: () => compSvc   ? compSvc.list()   : Promise.resolve([]),
+        };
     }
 
-    render() {
+    _wire() {
+        if (this._wired) return;
+        this._wired = true;
+        this.shadowRoot.addEventListener('click', (ev) => {
+            const btn = ev.target.closest('button[data-act="undo"]');
+            if (btn) {
+                ev.stopPropagation();
+                const id = btn.dataset.taskid;
+                const text = btn.dataset.tasktext || '';
+                this.dispatchEvent(new CustomEvent('task-completed:undo', {
+                    bubbles: true, composed: true, cancelable: true,
+                    detail: { id, text },
+                }));
+                return;
+            }
+            if (ev.target.closest('a.mention-link')) return;
+            const row = ev.target.closest('.row[data-taskid]');
+            if (!row) return;
+            const id = row.dataset.taskid;
+            const task = (this._lastTasks || []).find(t => t.id === id);
+            if (!task) return;
+            this.dispatchEvent(new CustomEvent('task:request-view', {
+                bubbles: true, composed: true,
+                detail: { task },
+            }));
+        });
+        wireMentionClicks(this.shadowRoot);
+    }
+
+    render(data = {}) {
         if (!this.service) return this.renderNoService();
         const week = this.getAttribute('week') || '';
-        if (!this._state) return html`<h3 class="sec-h">Fullført</h3><p class="empty-quiet">Laster…</p>`;
-        if (this._state.error) return html`<h3 class="sec-h">Fullført</h3><p class="empty-quiet">Kunne ikke laste</p>`;
-
-        const { tasks, people, companies } = this._state;
-        const allDone = (tasks || []).filter(t => t.done);
+        if (data._loading) return html`<h3 class="sec-h">Fullført</h3><p class="empty-quiet">Laster…</p>`;
+        const tasks = Array.isArray(data.tasks) ? data.tasks : null;
+        if (!tasks) return html`<h3 class="sec-h">Fullført</h3><p class="empty-quiet">Kunne ikke laste</p>`;
+        this._lastTasks = tasks;
+        const people = data.people || [];
+        const companies = data.companies || [];
+        const allDone = tasks.filter(t => t.done);
         const done = week ? allDone.filter(t => (t.completedWeek || t.week) === week) : allDone;
         if (done.length === 0) {
             return html`<h3 class="sec-h">Fullført <span class="c">0</span></h3><p class="empty-quiet">Ingen fullførte oppgaver</p>`;
@@ -152,7 +152,6 @@ class TaskCompleted extends WNElement {
             `;
         }
 
-        // No week attribute → show every completed task grouped by week (newest first).
         const byWeek = new Map();
         done.forEach(t => {
             const w = t.completedWeek || t.week || '—';
