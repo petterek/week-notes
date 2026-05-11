@@ -294,6 +294,23 @@ the next handler.
   4. The PUT `/api/contexts/:id/settings` is pass-through — no server
      change needed unless you want validation.
 
+### Active context resolution
+- Two sources, in priority order: `wn_ctx` cookie (per-request) →
+  `data/.active` file (global default).
+- `getActiveContext()` is file-only; safe everywhere but ignores
+  per-request override.
+- **In request handlers prefer `getActiveContextFromReq(req)`** when
+  you need the user's currently-selected context. Falls back to file
+  if cookie is missing or invalid.
+- The cookie is set by:
+  - `POST /api/contexts/switch` (always)
+  - `GET  /api/contexts` (refreshes on every fetch)
+  - SPA page renders (`routes/spa.js`)
+- Use `activeContextCookie(id)` from `lib/core.js` to construct the
+  `Set-Cookie` value (`wn_ctx=…; Path=/; Max-Age=1y; SameSite=Lax; HttpOnly`).
+- Pass an empty id (`activeContextCookie('')`) to clear it.
+
+
 ### Calendar specifics
 - Grid: `HOUR_START=0, HOUR_END=23, HOUR_PX=36`. All 24 hours rendered.
 - Time pickers: hour `<select>` (00-23) + minute `<select>`

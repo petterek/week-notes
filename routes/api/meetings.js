@@ -15,8 +15,9 @@ module.exports = function(deps) {
     return async function(req, res, ctx) {
         const { pathname, url } = ctx;
     if (pathname === '/api/meeting-types' && req.method === 'GET') {
+        const ctx = _core.getActiveContextFromReq(req);
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(loadMeetingTypes()));
+        res.end(JSON.stringify(loadMeetingTypes(ctx)));
         return;
     }
     if (pathname === '/api/meeting-types' && req.method === 'PUT') {
