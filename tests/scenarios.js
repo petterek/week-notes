@@ -112,19 +112,18 @@
 
         {
             id: 'task-add-modal-opens',
-            name: 'task-add-modal opens on + click and shows task-create-full',
+            name: 'task-add-modal + click dispatches task:request-edit (create mode)',
             url: '/debug/task-add-modal',
             run: async function (ctx) {
                 var doc = ctx.doc;
                 var tam = await ctx.waitFor(function () { return doc.querySelector('task-add-modal'); }, { label: 'task-add-modal' });
                 var sr = tam.shadowRoot;
                 var trigger = await ctx.waitFor(function () { return sr.querySelector('button[data-act="add"]'); }, { label: '+ trigger' });
+                var captured = null;
+                doc.addEventListener('task:request-edit', function (ev) { captured = ev.detail; }, { once: true });
                 trigger.click();
-                var modal = sr.querySelector('modal-container');
-                ctx.assert(modal, 'modal-container should be in shadow root');
-                await ctx.waitFor(function () { return modal.hasAttribute('open') || (modal.shadowRoot && modal.shadowRoot.querySelector('.backdrop:not([hidden])')); }, { label: 'modal open' });
-                var tc = modal.querySelector('task-create-full');
-                ctx.assert(tc, 'expected <task-create-full> inside modal');
+                ctx.assert(captured, 'expected task:request-edit to fire');
+                ctx.assert(captured.task && !captured.task.id, 'expected empty task (create mode)');
             },
         },
 

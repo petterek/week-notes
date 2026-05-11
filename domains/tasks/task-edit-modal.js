@@ -144,6 +144,7 @@ class TaskEditModal extends WNElement {
     render() {
         const t = (this._data && this._data.task) || null;
         const id = t ? (t.id || '') : '';
+        const isCreate = !id;
         const noteRef = (t && typeof t.noteRef === 'string' && /^[^/]+\/[^/]+\.md$/.test(t.noteRef)) ? t.noteRef : '';
         let sourceRef = '';
         if (noteRef) {
@@ -151,11 +152,13 @@ class TaskEditModal extends WNElement {
             const label = f.replace(/\.md$/, '');
             sourceRef = `<div class="source-ref">📝 Fra notat: <a href="#" data-act="view-source" data-week="${escapeHtml(w)}" data-file="${escapeHtml(f)}" title="Vis notatet">${escapeHtml(label)}</a> <span>· ${escapeHtml(w)}</span></div>`;
         }
+        const title = isCreate ? '➕ Ny oppgave' : '✎ Rediger oppgave';
+        const saveLabel = isCreate ? '💾 Opprett' : '💾 Lagre';
         return html`
             <div class="backdrop" data-backdrop>
                 <div class="card" role="dialog" aria-modal="true" aria-labelledby="tem-h">
                     <div class="head">
-                        <h3 id="tem-h">✎ Rediger oppgave</h3>
+                        <h3 id="tem-h">${title}</h3>
                         <button type="button" class="close" data-act="cancel" title="Lukk (Esc)">✕</button>
                     </div>
                     ${sourceRef ? unsafeHTML(sourceRef) : ''}
@@ -190,7 +193,7 @@ class TaskEditModal extends WNElement {
                     <div class="hint">Ctrl/⌘ + Enter for å lagre, Esc for å avbryte. Markdown og @mentions støttes i notat.</div>
                     <div class="actions">
                         <button type="button" class="btn cancel" data-act="cancel">Avbryt</button>
-                        <button type="button" class="btn save"   data-act="save">💾 Lagre</button>
+                        <button type="button" class="btn save"   data-act="save">${saveLabel}</button>
                     </div>
                     <input type="hidden" data-el="id" value="${escapeHtml(String(id))}" />
                 </div>
@@ -500,12 +503,31 @@ if (typeof document !== 'undefined' && !document._taskEditRequestWired) {
         const m = getTaskEditModal();
         if (!m) { if (cb) cb({ saved: false, id: task.id }); return; }
         m.open(task, async (res) => {
-            if (res && res.saved && svc && typeof svc.update === 'function') {
-                try { await svc.update(res.id, res.patch); }
-                catch (err) { console.error('task-edit-modal: update failed', err); }
-                document.dispatchEvent(new CustomEvent('task:updated', {
-                    bubbles: true, detail: { id: res.id, patch: res.patch },
-                }));
+            if (res && res.saved && svc) {
+                if (res.id && typeof svc.update === 'function') {
+                    try { await svc.update(res.id, res.patch); }
+                    catch (err) { console.error('task-edit-modal: update failed', err); }
+                    document.dispatchEvent(new CustomEvent('task:updated', {
+                        bubbles: true, detail: { id: res.id, patch: res.patch },
+                    }));
+                } else if (!res.id && typeof svc.create === 'function') {
+                    // Create mode: turn the patch into create-options.
+                    const opts = {};
+                    const p = res.patch || {};
+                    if (p.responsible) opts.responsible = p.responsible;
+                    if (p.dueDate) opts.dueDate = p.dueDate;
+                    if (p.goalId) opts.goalId = p.goalId;
+                    if (p.note) opts.note = p.note;
+                    if (task.week) opts.week = task.week;
+                    let created = null;
+                    try {
+                        const tasks = await svc.create(p.text, opts);
+                        created = Array.isArray(tasks) ? tasks[tasks.length - 1] : null;
+                    } catch (err) { console.error('task-edit-modal: create failed', err); }
+                    document.dispatchEvent(new CustomEvent('task:created', {
+                        bubbles: true, detail: { task: created },
+                    }));
+                }
             }
             if (cb) cb(res);
         });
