@@ -135,8 +135,12 @@ class NoteMetaPanel extends WNElement {
 
     requestRender() {
         super.requestRender();
-        const nmv = this.shadowRoot && this.shadowRoot.querySelector('note-meta-view');
-        if (nmv && this._meta) nmv.meta = this._meta;
+        // Defer past the awaitAll microtask so the freshly rendered
+        // <note-meta-view> exists in the shadow DOM before we poke it.
+        setTimeout(() => {
+            const nmv = this.shadowRoot && this.shadowRoot.querySelector('note-meta-view');
+            if (nmv && this._meta) nmv.meta = this._meta;
+        }, 0);
     }
 
     updated() {

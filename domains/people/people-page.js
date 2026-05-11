@@ -368,10 +368,15 @@ class PeoplePage extends WNElement {
 
     requestRender() {
         super.requestRender();
-        this._wire();
-        this._populateCompanyCards();
-        this._populatePersonCards();
-        this._populatePlaceCards();
+        // super.requestRender() writes the DOM asynchronously (one microtask
+        // later, when awaitAll resolves). Defer wiring + card population
+        // past that microtask so we operate on the freshly rendered nodes.
+        setTimeout(() => {
+            this._wire();
+            this._populateCompanyCards();
+            this._populatePersonCards();
+            this._populatePlaceCards();
+        }, 0);
     }
 
     _populateCompanyCards() {

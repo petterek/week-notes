@@ -290,7 +290,9 @@ class NotesPage extends WNElement {
 
     requestRender() {
         super.requestRender();
-        if (this._all) this._renderResults();
+        // super.requestRender() with loadData() writes the DOM
+        // asynchronously — defer the post-render fill past that microtask.
+        if (this._all) setTimeout(() => this._renderResults(), 0);
     }
 
     _renderResults() {
