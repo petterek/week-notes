@@ -186,9 +186,110 @@ export class WNElement extends HTMLElement {
     }
 
     requestRender() {
-        const r = this.render();
-        if (r == null || r === false) { this.shadowRoot.innerHTML = ''; return; }
-        this.shadowRoot.innerHTML = (typeof r === 'object' && r.value != null) ? r.value : String(r);
+        const token = (this._renderToken = (this._renderToken || 0) + 1);
+        const deps = this.loadData();
+        const hasDeps = deps && typeof deps === 'object' && Object.keys(deps).length > 0;
+        if (hasDeps) {
+            const allCached = this._allCached(Object.keys(deps));
+            if (!allCached) {
+                this._applyMaybe(this.render({ _loading: true }), token, { _loading: true });
+            }
+            this.awaitAll(deps).then(data => {
+                if (token !== this._renderToken) return;
+                const ctx = { ...data, _loading: false };
+                this._applyMaybe(this.render(ctx), token, ctx);
+            }).catch(() => {});
+            return;
+        }
+        this._applyMaybe(this.render({}), token, {});
+    }
+
+    _allCached(keys) {
+        if (!this._awaitCache) return false;
+        for (const k of keys) {
+            if (!(k in this._awaitCache)) return false;
+        }
+        return true;
+    }
+
+    _applyMaybe(r, token, ctx) {
+        if (r && typeof r.then === 'function') {
+            r.then(v => { if (token === this._renderToken) this._applyRender(v, ctx); })
+             .catch(() => {});
+            return;
+        }
+        this._applyRender(r, ctx);
+    }
+
+    _applyRender(r, ctx) {
+        if (r == null || r === false) { this.shadowRoot.innerHTML = ''; }
+        else this.shadowRoot.innerHTML = (typeof r === 'object' && r.value != null) ? r.value : String(r);
+        // Post-render hook: subclasses override afterRender(data) to wire
+        // events or push data into freshly rendered child elements.
+        // Guaranteed to run synchronously after shadowRoot.innerHTML is
+        // written, so query selectors find the new nodes.
+        try { this.afterRender(ctx || {}); } catch (_) {}
+    }
+
+    /**
+     * Lifecycle hook called immediately after the base writes
+     * shadowRoot.innerHTML for a render. Receives the same `data`
+     * argument that was passed to render(). Default is a no-op.
+     * Subclasses override to wire event listeners, populate child
+     * components with imperative APIs (setData, .meta = …), etc.
+     */
+    afterRender(_data) {}
+
+    /**
+     * Subclasses override to declare async data dependencies for
+     * render(). Return a map of `{ key: () => Promise }`. The base
+     * class awaits them in parallel (memoized via awaitAll) and
+     * passes the resolved map as the first argument to render().
+     *
+     *     loadData() {
+     *         return {
+     *             types: () => this._fetchTypes(),
+     *             people: () => this._fetchPeople(),
+     *         };
+     *     }
+     *     render({ types, people }) { return html`…`; }
+     *
+     * Call `this.invalidateAwait('types')` (or no arg to clear all)
+     * before `requestRender()` when an underlying input changes.
+     * Default returns null — no async deps, render() is called
+     * synchronously with `{}`.
+     */
+    loadData() { return null; }
+
+    /**
+     * Memoized parallel async loader. Called by requestRender() with
+     * the result of loadData(), but can also be used ad-hoc inside
+     * render() or elsewhere. Each key's factory is invoked at most
+     * once per element instance.
+     */
+    async awaitAll(map) {
+        const cache = this._awaitCache || (this._awaitCache = {});
+        const keys = Object.keys(map || {});
+        await Promise.all(keys.map(k => {
+            if (!(k in cache)) {
+                try {
+                    const v = typeof map[k] === 'function' ? map[k]() : map[k];
+                    cache[k] = Promise.resolve(v);
+                } catch (e) { cache[k] = Promise.reject(e); }
+            }
+            return cache[k].catch(() => undefined);
+        }));
+        const out = {};
+        for (const k of keys) {
+            try { out[k] = await cache[k]; } catch (_) { out[k] = undefined; }
+        }
+        return out;
+    }
+
+    invalidateAwait(key) {
+        if (!this._awaitCache) return;
+        if (key == null) this._awaitCache = {};
+        else delete this._awaitCache[key];
     }
 
     css() { return ''; }

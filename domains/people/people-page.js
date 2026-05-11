@@ -214,7 +214,6 @@ class PeoplePage extends WNElement {
     connectedCallback() {
         super.connectedCallback();
         this._readHash();
-        this._load();
         this._onHash = () => { this._readHash(); this._applyTab(); this._scrollToHashKey(); };
         window.addEventListener('hashchange', this._onHash);
         this._onKey = (e) => {
@@ -237,10 +236,7 @@ class PeoplePage extends WNElement {
             if (i > 0) params[seg.slice(0, i)] = decodeURIComponent(seg.slice(i + 1));
             else if (seg) params[seg] = true;
         });
-        // Allow legacy `#p-<key>`-style hashes too — interpret them as
-        // tab + key.
         if (params['p-' + (params['p-'] || '')]) {/* noop */}
-        // Direct anchor form: #p-<key> / #c-<key> / #pl-<key>
         const anchorMatch = h.match(/^(p|c|pl)-(.+)$/);
         if (anchorMatch) {
             this._tab = anchorMatch[1] === 'p' ? 'people' : anchorMatch[1] === 'c' ? 'companies' : 'places';
@@ -260,49 +256,23 @@ class PeoplePage extends WNElement {
         }
     }
 
-    async _load() {
+    loadData() {
         const ps = this.serviceFor('people');
         const cs = this.serviceFor('companies');
         const pls = this.serviceFor('places');
+        if (!ps || !cs || !pls) return {};
         const ts = this.serviceFor('tasks');
         const ms = this.serviceFor('meetings');
         const rs = this.serviceFor('results');
-        if (!ps || !cs || !pls) {
-            this._error = 'no-service';
-            this._loading = false;
-            this.requestRender();
-            return;
-        }
-        try {
-            const [people, companies, places, tasks, meetings, results] = await Promise.all([
-                ps.list().catch(() => []),
-                cs.list().catch(() => []),
-                pls.list().catch(() => []),
-                ts ? ts.list().catch(() => []) : [],
-                ms ? ms.list().catch(() => []) : [],
-                rs ? rs.list().catch(() => []) : [],
-            ]);
-            this._people = (people || []).slice().sort((a, b) =>
-                String(a.name || '').localeCompare(String(b.name || ''), 'nb'));
-            this._companies = (companies || []).slice().sort((a, b) =>
-                String(a.name || '').localeCompare(String(b.name || ''), 'nb'));
-            this._places = (places || []).slice().sort((a, b) =>
-                String(a.name || '').localeCompare(String(b.name || ''), 'nb'));
-            this._tasks = tasks || [];
-            this._meetings = meetings || [];
-            this._results = results || [];
-            this._buildIndexes();
-            this._loaded = true;
-            this._loading = false;
-            this._error = null;
-        } catch (e) {
-            this._error = e.message || String(e);
-            this._loading = false;
-        }
-        this.requestRender();
-        this._applyTab();
-        // Defer hash scroll until after the next paint so cards exist.
-        requestAnimationFrame(() => this._scrollToHashKey());
+        const sortName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'nb');
+        return {
+            people:    async () => ((await ps.list().catch(() => [])) || []).slice().sort(sortName),
+            companies: async () => ((await cs.list().catch(() => [])) || []).slice().sort(sortName),
+            places:    async () => ((await pls.list().catch(() => [])) || []).slice().sort(sortName),
+            tasks:     () => ts ? ts.list().catch(() => []) : Promise.resolve([]),
+            meetings:  () => ms ? ms.list().catch(() => []) : Promise.resolve([]),
+            results:   () => rs ? rs.list().catch(() => []) : Promise.resolve([]),
+        };
     }
 
     _buildIndexes() {
@@ -353,16 +323,24 @@ class PeoplePage extends WNElement {
 
     // ---------------- rendering -----------------------------------------
 
-    render() {
+    render(data = {}) {
         if (!this.serviceFor('people') || !this.serviceFor('companies') || !this.serviceFor('places')) {
             return this.renderNoService();
         }
-        if (this._loading) {
+        if (data._loading) {
             return html`<h1 class="pp-title">👥 Personer og steder</h1><div class="pp-loading">Laster…</div>`;
         }
-        if (this._error && this._error !== 'no-service') {
-            return html`<h1 class="pp-title">👥 Personer og steder</h1><div class="pp-error">Kunne ikke laste: ${this._error}</div>`;
+        if (!Array.isArray(data.people)) {
+            return html`<h1 class="pp-title">👥 Personer og steder</h1><div class="pp-error">Kunne ikke laste</div>`;
         }
+        this._people = data.people;
+        this._companies = data.companies || [];
+        this._places = data.places || [];
+        this._tasks = data.tasks || [];
+        this._meetings = data.meetings || [];
+        this._results = data.results || [];
+        this._buildIndexes();
+        this._loaded = true;
 
         const tabs = html`
             <div class="dir-tabs" role="tablist">
@@ -387,12 +365,14 @@ class PeoplePage extends WNElement {
         `;
     }
 
-    requestRender() {
-        super.requestRender();
+    afterRender(data) {
+        if (!data || data._loading || !Array.isArray(data.people)) return;
         this._wire();
         this._populateCompanyCards();
         this._populatePersonCards();
         this._populatePlaceCards();
+        this._applyTab();
+        requestAnimationFrame(() => this._scrollToHashKey());
     }
 
     _populateCompanyCards() {

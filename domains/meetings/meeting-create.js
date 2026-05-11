@@ -73,31 +73,36 @@ class MeetingCreate extends WNElement {
 
     css() { return STYLES; }
 
-    connectedCallback() {
-        super.connectedCallback();
-        this._loadTypes();
-    }
-
     attributeChangedCallback(name, oldVal, newVal) {
+        if (name === 'settings_service' || name === 'context') {
+            this.invalidateAwait('types');
+        }
         super.attributeChangedCallback(name, oldVal, newVal);
-        if (name === 'settings_service' || name === 'context') this._loadTypes();
     }
 
-    async _loadTypes() {
-        if (Array.isArray(this._typesOverride) && this._typesOverride.length) return;
+    async _fetchTypes() {
+        if (Array.isArray(this._typesOverride) && this._typesOverride.length) {
+            return this._typesOverride;
+        }
+        const normalize = list => (Array.isArray(list) ? list : []).map(t => ({
+            typeId: String(t.typeId || t.key || ''),
+            icon: t.icon || '',
+            name: t.name || t.label || t.typeId || t.key || '',
+        })).filter(t => t.typeId);
         const ctx = this.getAttribute('context') || '';
-        if (!ctx) return;
-        const svc = this.serviceFor('settings');
-        if (!svc || typeof svc.getMeetingTypes !== 'function') return;
-        try {
-            const list = await svc.getMeetingTypes(ctx);
-            this._types = (Array.isArray(list) ? list : []).map(t => ({
-                typeId: String(t.typeId || t.key || ''),
-                icon: t.icon || '',
-                name: t.name || t.label || t.typeId || t.key || '',
-            })).filter(t => t.typeId);
-            if (this.isConnected) this.requestRender();
-        } catch (_) { /* ignore — render shows fallback option */ }
+        if (ctx) {
+            const svc = this.serviceFor('settings');
+            if (svc && typeof svc.getMeetingTypes === 'function') {
+                try { return normalize(await svc.getMeetingTypes(ctx)); }
+                catch (_) {}
+            }
+        }
+        // Fall back to the active-context endpoint via meetings_service.listTypes().
+        if (this.service && typeof this.service.listTypes === 'function') {
+            try { return normalize(await this.service.listTypes()); }
+            catch (_) {}
+        }
+        return [];
     }
 
     get types() { return Array.isArray(this._types) ? this._types.slice() : []; }
@@ -110,13 +115,16 @@ class MeetingCreate extends WNElement {
             }))
             : [];
         this._typesOverride = arr.length ? arr : null;
-        if (arr.length) this._types = arr;
+        this.invalidateAwait('types');
         if (this.isConnected) this.requestRender();
     }
 
-    render() {
+    loadData() {
+        return { types: () => this._fetchTypes() };
+    }
+
+    render({ types = [] } = {}) {
         if (!this.service) return this.renderNoService();
-        const types = this._types || [];
         const presetType = this.getAttribute('type') || (types[0] && types[0].typeId) || 'meeting';
         const presetDate = this.getAttribute('date') || todayIso();
         const presetStart = this.getAttribute('start') || '';
@@ -160,10 +168,12 @@ class MeetingCreate extends WNElement {
                 </div>
             </form>
         `;
-        // Inject the safe HTML the WNElement way
-        // (template returned; wiring happens after innerHTML set)
-        setTimeout(() => this._wire(), 0);
         return tmpl;
+    }
+
+    afterRender(data) {
+        if (!data) return;
+        this._wire();
     }
 
     _wire() {

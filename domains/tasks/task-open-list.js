@@ -156,7 +156,7 @@ class TaskOpenList extends WNElement {
 
     connectedCallback() {
         super.connectedCallback();
-        if (this.service) this._load();
+        if (!this._wired) this._wire();
     }
 
     // Notification methods. The host page listens for global task events
@@ -166,136 +166,141 @@ class TaskOpenList extends WNElement {
     taskUncompleted() { this.refresh(); }
 
     attributeChangedCallback(name, oldVal, newVal) {
+        if (oldVal !== newVal) this.invalidateAwait();
         super.attributeChangedCallback(name, oldVal, newVal);
-        if (this.isConnected && this.service && oldVal !== newVal) this._load();
     }
 
-    refresh() { this._load(); }
+    refresh() {
+        this.invalidateAwait();
+        if (this.isConnected) this.requestRender();
+    }
 
-    async _load() {
+    loadData() {
+        if (!this.service) return null;
         const peopleSvc = this.serviceFor('people');
         const compSvc = this.serviceFor('companies');
-        try {
-            const [tasks, people, companies] = await Promise.all([
-                this.service.list(),
-                peopleSvc ? peopleSvc.list() : Promise.resolve([]),
-                compSvc ? compSvc.list() : Promise.resolve([]),
-            ]);
-            const open = (tasks || []).filter(t => !t.done);
-            this._state = { open, people: people || [], companies: companies || [] };
-        } catch {
-            this._state = { error: true };
-        }
-        this.requestRender();
-        if (!this._wired) {
-            this._wired = true;
-            this.shadowRoot.addEventListener('change', (ev) => {
-                const cb = ev.target.closest('input[data-act="toggle"]');
-                if (!cb) return;
-                if (!cb.checked) return;
-                const id = cb.dataset.taskid;
-                const text = cb.dataset.tasktext || '';
-                this.dispatchEvent(new CustomEvent('task:request-complete', {
-                    bubbles: true, composed: true,
-                    detail: {
-                        id, text,
-                        callback: async (res) => {
-                            if (!res || !res.confirmed) {
-                                cb.checked = false;
-                                return;
-                            }
-                            try {
-                                if (this.service && typeof this.service.toggle === 'function') {
-                                    await this.service.toggle(res.id, res.comment || '');
-                                }
-                            } catch (err) {
-                                console.error('task-open-list: toggle failed', err);
-                            }
-                            this.refresh();
-                            this.dispatchEvent(new CustomEvent('task:completed', {
-                                bubbles: true, composed: true,
-                                detail: { id: res.id, comment: res.comment || '' },
-                            }));
-                        },
-                    },
-                }));
-            });
-            this.shadowRoot.addEventListener('click', (ev) => {
-                const noteBtn = ev.target.closest('button[data-act="note"]');
-                if (!noteBtn) return;
-                const id = noteBtn.dataset.taskid;
-                const task = (this._state && this._state.open || []).find(t => String(t.id) === String(id));
-                if (!task) return;
-                const modal = this.shadowRoot.querySelector('task-note-modal');
-                if (!modal || typeof modal.open !== 'function') return;
-                modal.open({ id: task.id, text: task.text, note: task.note || '' }, async (res) => {
-                    if (!res || !res.saved) return;
-                    try {
-                        if (this.service && typeof this.service.update === 'function') {
-                            await this.service.update(res.id, { note: res.note });
-                        }
-                    } catch (err) {
-                        console.error('task-open-list: note update failed', err);
-                    }
-                    this.refresh();
-                });
-            });
-            this.shadowRoot.addEventListener('click', (ev) => {
-                const editBtn = ev.target.closest('button[data-act="edit"]');
-                if (!editBtn) return;
-                const id = editBtn.dataset.taskid;
-                const task = (this._state && this._state.open || []).find(t => String(t.id) === String(id));
-                if (!task) return;
-                this.dispatchEvent(new CustomEvent('task:request-edit', {
-                    bubbles: true, composed: true,
-                    detail: {
-                        task,
-                        service: this.service,
-                        callback: (res) => {
-                            if (res && res.saved) this.refresh();
-                        },
-                    },
-                }));
-            });
-            this.shadowRoot.addEventListener('click', (ev) => {
-                const delBtn = ev.target.closest('button[data-act="delete"]');
-                if (!delBtn) return;
-                const id = delBtn.dataset.taskid;
-                const text = delBtn.dataset.tasktext || '';
-                if (!confirm(`Slette oppgaven «${text}»?`)) return;
-                (async () => {
-                    try {
-                        if (this.service && typeof this.service.remove === 'function') {
-                            await this.service.remove(id);
-                        }
-                    } catch (err) {
-                        console.error('task-open-list: delete failed', err);
-                    }
-                    this.refresh();
-                    this.dispatchEvent(new CustomEvent('task:deleted', {
-                        bubbles: true, composed: true, detail: { id },
-                    }));
-                })();
-            });
-            wireMentionClicks(this.shadowRoot);
-        }
+        return {
+            open: async () => {
+                const tasks = await this.service.list();
+                return (tasks || []).filter(t => !t.done);
+            },
+            people:    () => peopleSvc ? peopleSvc.list() : Promise.resolve([]),
+            companies: () => compSvc   ? compSvc.list()   : Promise.resolve([]),
+        };
     }
 
-    render() {
+    _wire() {
+        if (this._wired) return;
+        this._wired = true;
+        this.shadowRoot.addEventListener('change', (ev) => {
+            const cb = ev.target.closest('input[data-act="toggle"]');
+            if (!cb) return;
+            if (!cb.checked) return;
+            const id = cb.dataset.taskid;
+            const text = cb.dataset.tasktext || '';
+            this.dispatchEvent(new CustomEvent('task:request-complete', {
+                bubbles: true, composed: true,
+                detail: {
+                    id, text,
+                    callback: async (res) => {
+                        if (!res || !res.confirmed) {
+                            cb.checked = false;
+                            return;
+                        }
+                        try {
+                            if (this.service && typeof this.service.toggle === 'function') {
+                                await this.service.toggle(res.id, res.comment || '');
+                            }
+                        } catch (err) {
+                            console.error('task-open-list: toggle failed', err);
+                        }
+                        this.refresh();
+                        this.dispatchEvent(new CustomEvent('task:completed', {
+                            bubbles: true, composed: true,
+                            detail: { id: res.id, comment: res.comment || '' },
+                        }));
+                    },
+                },
+            }));
+        });
+        this.shadowRoot.addEventListener('click', (ev) => {
+            const noteBtn = ev.target.closest('button[data-act="note"]');
+            if (!noteBtn) return;
+            const id = noteBtn.dataset.taskid;
+            const task = this._findOpen(id);
+            if (!task) return;
+            const modal = this.shadowRoot.querySelector('task-note-modal');
+            if (!modal || typeof modal.open !== 'function') return;
+            modal.open({ id: task.id, text: task.text, note: task.note || '' }, async (res) => {
+                if (!res || !res.saved) return;
+                try {
+                    if (this.service && typeof this.service.update === 'function') {
+                        await this.service.update(res.id, { note: res.note });
+                    }
+                } catch (err) {
+                    console.error('task-open-list: note update failed', err);
+                }
+                this.refresh();
+            });
+        });
+        this.shadowRoot.addEventListener('click', (ev) => {
+            const editBtn = ev.target.closest('button[data-act="edit"]');
+            if (!editBtn) return;
+            const id = editBtn.dataset.taskid;
+            const task = this._findOpen(id);
+            if (!task) return;
+            this.dispatchEvent(new CustomEvent('task:request-edit', {
+                bubbles: true, composed: true,
+                detail: {
+                    task,
+                    service: this.service,
+                    callback: (res) => {
+                        if (res && res.saved) this.refresh();
+                    },
+                },
+            }));
+        });
+        this.shadowRoot.addEventListener('click', (ev) => {
+            const delBtn = ev.target.closest('button[data-act="delete"]');
+            if (!delBtn) return;
+            const id = delBtn.dataset.taskid;
+            const text = delBtn.dataset.tasktext || '';
+            if (!confirm(`Slette oppgaven «${text}»?`)) return;
+            (async () => {
+                try {
+                    if (this.service && typeof this.service.remove === 'function') {
+                        await this.service.remove(id);
+                    }
+                } catch (err) {
+                    console.error('task-open-list: delete failed', err);
+                }
+                this.refresh();
+                this.dispatchEvent(new CustomEvent('task:deleted', {
+                    bubbles: true, composed: true, detail: { id },
+                }));
+            })();
+        });
+        wireMentionClicks(this.shadowRoot);
+    }
+
+    _findOpen(id) {
+        return (this._lastOpen || []).find(t => String(t.id) === String(id));
+    }
+
+    render(data = {}) {
         if (!this.service) return this.renderNoService();
         const header = (countLabel) => html`
             <h3 class="side-h">
                 <span class="side-h-title">Åpne oppgaver${countLabel ? ' · ' + countLabel : ''}</span>
             </h3>
         `;
-        // <task-complete-modal> lives at the page level; the document-
-        // level handler for `task:request-complete` opens it. The note
-        // modal is still per-instance because nothing else needs it.
         const modals = html`<task-note-modal></task-note-modal>`;
-        if (!this._state) return html`${header('')}<p class="empty-quiet">Laster…</p>${modals}`;
-        if (this._state.error) return html`${header('')}<p class="empty-quiet">Kunne ikke laste oppgaver</p>${modals}`;
-
-        const { open, people, companies } = this._state;
+        if (data._loading) return html`${header('')}<p class="empty-quiet">Laster…</p>${modals}`;
+        const open = Array.isArray(data.open) ? data.open : null;
+        if (!open) return html`${header('')}<p class="empty-quiet">Kunne ikke laste oppgaver</p>${modals}`;
+        this._lastOpen = open;
+        const people = data.people || [];
+        const companies = data.companies || [];
         if (open.length === 0) {
             return html`${header('0')}<p class="empty-quiet">Ingen åpne oppgaver</p>${modals}`;
         }

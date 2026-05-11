@@ -52,48 +52,46 @@ class ActiveGoals extends WNElement {
 
     connectedCallback() {
         super.connectedCallback();
-        if (this.service) this._load();
+        if (!this._wired) this._wire();
     }
 
     attributeChangedCallback(name, oldVal, newVal) {
+        if (oldVal !== newVal) this.invalidateAwait();
         super.attributeChangedCallback(name, oldVal, newVal);
-        if (this.isConnected && this.service && oldVal !== newVal) this._load();
     }
 
-    async _load() {
+    loadData() {
+        if (!this.service) return null;
         const tasksSvc = this.serviceFor('tasks');
-        try {
-            const [goals, tasks] = await Promise.all([
-                this.service.list(),
-                tasksSvc ? tasksSvc.list() : Promise.resolve([]),
-            ]);
-            this._state = {
-                goals: (goals || []).filter(g => g.status === 'active'),
-                tasks: tasks || [],
-            };
-        } catch {
-            this._state = { error: true };
-        }
-        this.requestRender();
-        if (!this._wired) {
-            this._wired = true;
-            this.shadowRoot.addEventListener('click', (e) => {
-                const path = e.composedPath();
-                const row = path.find(n => n.classList && n.classList.contains('goal'));
-                if (row) {
-                    e.preventDefault();
-                    window.location.href = '/goals#g-' + encodeURIComponent(row.dataset.id);
-                }
-            });
-        }
+        return {
+            goals: async () => {
+                const goals = await this.service.list();
+                return (goals || []).filter(g => g.status === 'active');
+            },
+            tasks: () => tasksSvc ? tasksSvc.list() : Promise.resolve([]),
+        };
     }
 
-    render() {
-        if (!this.service) return this.renderNoService();
-        if (!this._state) return html`<h3 class="sec-h">🎯 Mål</h3><p class="empty-quiet">Laster…</p>`;
-        if (this._state.error) return html`<h3 class="sec-h">🎯 Mål</h3><p class="empty-quiet">Kunne ikke laste</p>`;
+    _wire() {
+        if (this._wired) return;
+        this._wired = true;
+        this.shadowRoot.addEventListener('click', (e) => {
+            const path = e.composedPath();
+            const row = path.find(n => n.classList && n.classList.contains('goal'));
+            if (row) {
+                e.preventDefault();
+                window.location.href = '/goals#g-' + encodeURIComponent(row.dataset.id);
+            }
+        });
+    }
 
-        const { goals, tasks } = this._state;
+    render(data = {}) {
+        if (!this.service) return this.renderNoService();
+        if (data._loading) return html`<h3 class="sec-h">🎯 Mål</h3><p class="empty-quiet">Laster…</p>`;
+        const goals = Array.isArray(data.goals) ? data.goals : null;
+        if (!goals) return html`<h3 class="sec-h">🎯 Mål</h3><p class="empty-quiet">Kunne ikke laste</p>`;
+        const tasks = data.tasks || [];
+
         const today = new Date().toISOString().slice(0, 10);
         if (!goals.length) {
             return html`

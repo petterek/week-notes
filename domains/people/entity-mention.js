@@ -106,7 +106,6 @@ class EntityMention extends WNElement {
     constructor() {
         super();
         this._wired = false;
-        this._resolved = null;
     }
 
     connectedCallback() {
@@ -117,34 +116,29 @@ class EntityMention extends WNElement {
             this.shadowRoot.addEventListener('click',       (e) => this._onClick(e));
             this._wired = true;
         }
-        this._resolveIfNeeded();
     }
 
     attributeChangedCallback(name, oldVal, newVal) {
-        super.attributeChangedCallback();
-        if (oldVal === newVal) return;
-        if (name === 'key' || name === 'kind') {
-            this._resolved = null;
-            if (this.isConnected) this._resolveIfNeeded();
+        if ((name === 'kind' || name === 'key') && oldVal !== newVal) {
+            this.invalidateAwait('entity');
         }
+        super.attributeChangedCallback(name, oldVal, newVal);
     }
 
     css() { return STYLES; }
 
-    render() {
-        return html`<span class="chip" part="chip">${escapeHtml(this._label())}</span>`;
+    loadData() {
+        if (this.getAttribute('label')) return {};
+        const key = this._key();
+        if (!key) return {};
+        const kind = this._kind();
+        return {
+            entity: () => _loadList(kind).then(() => _findEntity(kind, key)),
+        };
     }
 
-    _resolveIfNeeded() {
-        if (this.getAttribute('label')) return;
-        const key = this._key();
-        if (!key) return;
-        const kind = this._kind();
-        _loadList(kind).then(() => {
-            const entity = _findEntity(kind, key);
-            this._resolved = _displayName(kind, entity, key);
-            this.requestRender();
-        });
+    render({ entity = null } = {}) {
+        return html`<span class="chip" part="chip">${escapeHtml(this._label(entity))}</span>`;
     }
 
     _kind() {
@@ -154,10 +148,10 @@ class EntityMention extends WNElement {
 
     _key() { return this.getAttribute('key') || ''; }
 
-    _label() {
+    _label(entity) {
         const explicit = this.getAttribute('label');
         if (explicit) return explicit;
-        if (this._resolved) return this._resolved;
+        if (entity) return _displayName(this._kind(), entity, this._key());
         const slotted = (this.textContent || '').trim();
         if (slotted) return slotted;
         return this._key();

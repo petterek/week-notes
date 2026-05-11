@@ -72,21 +72,20 @@ class NoteMetaPanel extends WNElement {
                 this.requestRender();
             }
         });
-        this._load();
     }
 
     attributeChangedCallback(name, oldV, newV) {
-        super.attributeChangedCallback(name, oldV, newV);
         if (oldV === newV) return;
         if (name === 'tab') {
             this._tab = newV === 'raw' ? 'raw' : 'structured';
-            this.requestRender();
-        } else if (this.isConnected) {
-            this._load();
+            super.attributeChangedCallback(name, oldV, newV);
+        } else {
+            this.invalidateAwait();
+            super.attributeChangedCallback(name, oldV, newV);
         }
     }
 
-    reload() { this._load(); }
+    reload() { this.invalidateAwait(); this.requestRender(); }
 
     _resolve() {
         const path = this.getAttribute('path') || '';
@@ -101,61 +100,40 @@ class NoteMetaPanel extends WNElement {
         return null;
     }
 
-    async _load() {
+    loadData() {
         const parts = this._resolve();
-        if (!parts) {
-            this._meta = null; this._error = null; this._loading = false;
-            this.requestRender();
-            return;
-        }
-        if (!this.service || !this.service.meta) {
-            this._error = 'Ingen notes_service tilkoblet';
-            this._loading = false;
-            this.requestRender();
-            return;
-        }
-        this._loading = true;
-        this._error = null;
-        this.requestRender();
-        const reqId = ++this._reqSeq || (this._reqSeq = 1);
-        try {
-            const meta = await this.service.meta(parts.week, parts.file);
-            if (this._reqSeq !== reqId) return;
-            this._meta = Object.assign({ week: parts.week, file: parts.file }, meta || {});
-            this._loading = false;
-            this.requestRender();
-        } catch (e) {
-            if (this._reqSeq !== reqId) return;
-            this._error = 'Kunne ikke laste meta: ' + (e.message || e);
-            this._loading = false;
-            this.requestRender();
-        }
+        if (!parts) return {};
+        if (!this.service || !this.service.meta) return {};
+        return {
+            meta: async () => {
+                const meta = await this.service.meta(parts.week, parts.file);
+                return Object.assign({ week: parts.week, file: parts.file }, meta || {});
+            },
+        };
     }
 
-    render() {
+    render(data = {}) {
         const tab = this._tab || 'structured';
+        const parts = this._resolve();
+        const noSvc = parts && (!this.service || !this.service.meta);
+        const meta = data.meta;
+        this._meta = meta || null;
         return html`
             <div class="nmp-tabs" role="tablist">
                 <button type="button" class="nmp-tab" role="tab" data-tab="structured" aria-selected="${tab === 'structured' ? 'true' : 'false'}">Strukturert</button>
                 <button type="button" class="nmp-tab" role="tab" data-tab="raw" aria-selected="${tab === 'raw' ? 'true' : 'false'}">Rå JSON</button>
             </div>
-            ${this._error ? html`<div class="nmp-error">${escapeHtml(this._error)}</div>` : ''}
-            ${this._loading ? html`<div class="nmp-loading">Laster…</div>` : ''}
-            ${(!this._error && !this._loading && this._meta) ? (
+            ${noSvc ? html`<div class="nmp-error">Ingen notes_service tilkoblet</div>` : ''}
+            ${(!noSvc && data._loading) ? html`<div class="nmp-loading">Laster…</div>` : ''}
+            ${(!noSvc && !data._loading && meta) ? (
                 tab === 'raw'
-                    ? html`<pre class="nmp-raw">${JSON.stringify(this._meta, null, 2)}</pre>`
+                    ? html`<pre class="nmp-raw">${JSON.stringify(meta, null, 2)}</pre>`
                     : html`<note-meta-view></note-meta-view>`
             ) : ''}
         `;
     }
 
-    requestRender() {
-        super.requestRender();
-        const nmv = this.shadowRoot && this.shadowRoot.querySelector('note-meta-view');
-        if (nmv && this._meta) nmv.meta = this._meta;
-    }
-
-    updated() {
+    afterRender() {
         const nmv = this.shadowRoot && this.shadowRoot.querySelector('note-meta-view');
         if (nmv && this._meta) nmv.meta = this._meta;
     }

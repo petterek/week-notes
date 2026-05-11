@@ -158,7 +158,7 @@ class ResultsPage extends WNElement {
 
     connectedCallback() {
         super.connectedCallback();
-        this._load();
+        this._wire();
         if (!this._kbWired) {
             this._kbWired = true;
             this._onKey = this._onKey.bind(this);
@@ -175,38 +175,23 @@ class ResultsPage extends WNElement {
     }
 
     attributeChangedCallback(name, oldVal, newVal) {
+        if (oldVal !== newVal) this.invalidateAwait();
         super.attributeChangedCallback(name, oldVal, newVal);
-        if (this.isConnected && oldVal !== newVal) this._load();
     }
 
-    async _load() {
-        if (!this.service) {
-            this._error = 'no-service';
-            this.requestRender();
-            return;
-        }
+    loadData() {
+        if (!this.service) return {};
         const peopleSvc = this.serviceFor('people');
         const compSvc = this.serviceFor('companies');
-        try {
-            const [results, people, companies, goalsResp] = await Promise.all([
-                this.service.list(),
-                peopleSvc ? peopleSvc.list() : Promise.resolve([]),
-                compSvc ? compSvc.list() : Promise.resolve([]),
-                fetch('/api/goals').then(r => r.json()).catch(() => []),
-            ]);
-            this._goals = Array.isArray(goalsResp) ? goalsResp : [];
-            this._state = {
-                results: (results || []).slice().sort((a, b) => (b.created || '').localeCompare(a.created || '')),
-                people: people || [],
-                companies: companies || [],
-            };
-            this._error = null;
-        } catch (e) {
-            this._error = e.message || String(e);
-        }
-        this.requestRender();
-        this._wire();
-        this._maybeFlashHash();
+        return {
+            results: async () => {
+                const r = await this.service.list();
+                return (r || []).slice().sort((a, b) => (b.created || '').localeCompare(a.created || ''));
+            },
+            people: () => peopleSvc ? peopleSvc.list() : Promise.resolve([]),
+            companies: () => compSvc ? compSvc.list() : Promise.resolve([]),
+            goals: () => fetch('/api/goals').then(r => r.json()).catch(() => []),
+        };
     }
 
     _wire() {
@@ -294,7 +279,8 @@ class ResultsPage extends WNElement {
                 await this.service.update(this._modal.id, { text, goalId });
             }
             this._modal = null;
-            await this._load();
+            this.invalidateAwait();
+            this.requestRender();
         } catch (e) {
             alert((e && e.message) || 'Feil');
         }
@@ -304,7 +290,8 @@ class ResultsPage extends WNElement {
         if (!confirm('Slett dette resultatet?')) return;
         try {
             await this.service.remove(id);
-            await this._load();
+            this.invalidateAwait();
+            this.requestRender();
         } catch (e) {
             alert((e && e.message) || 'Feil');
         }
@@ -391,12 +378,22 @@ class ResultsPage extends WNElement {
         `;
     }
 
-    render() {
-        if (this._error === 'no-service') return this.renderNoService();
-        if (this._error) return html`<div class="rp-error">Kunne ikke laste resultater: ${this._error}</div>`;
-        if (!this._state) return html`<div class="rp-loading">Laster…</div>`;
+    afterRender(data) {
+        if (!data || data._loading || !Array.isArray(data.results)) return;
+        this._maybeFlashHash();
+    }
 
-        const { results } = this._state;
+    render(data = {}) {
+        if (!this.service) return this.renderNoService();
+        if (data._loading) return html`<div class="rp-loading">Laster…</div>`;
+        if (!Array.isArray(data.results)) return html`<div class="rp-error">Kunne ikke laste resultater</div>`;
+
+        const results = data.results;
+        const people = data.people || [];
+        const companies = data.companies || [];
+        this._goals = Array.isArray(data.goals) ? data.goals : [];
+        this._state = { results, people, companies };
+
         const byWeek = {};
         results.forEach(r => {
             const w = r.week || '';

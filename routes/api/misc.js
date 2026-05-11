@@ -307,6 +307,7 @@ module.exports = function(deps) {
     if (pathname === '/api/save/draft' && req.method === 'GET') {
         try {
             const tmpPath = path.join(dataDir(), '.draft-newnote.md');
+            const metaPath = path.join(dataDir(), '.draft-newnote.meta.json');
             if (!fs.existsSync(tmpPath)) {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ ok: true, exists: false }));
@@ -314,8 +315,14 @@ module.exports = function(deps) {
             }
             const stat = fs.statSync(tmpPath);
             const content = fs.readFileSync(tmpPath, 'utf-8');
+            let meta = null;
+            try {
+                if (fs.existsSync(metaPath)) {
+                    meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+                }
+            } catch (_) {}
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: true, exists: true, content, modified: stat.mtime.toISOString() }));
+            res.end(JSON.stringify({ ok: true, exists: true, content, meta, modified: stat.mtime.toISOString() }));
         } catch (e) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Serverfeil: ' + e.message }));
@@ -326,8 +333,10 @@ module.exports = function(deps) {
     if (pathname === '/api/save/draft' && req.method === 'DELETE') {
         try {
             const tmpPath = path.join(dataDir(), '.draft-newnote.md');
+            const metaPath = path.join(dataDir(), '.draft-newnote.meta.json');
             let removed = false;
             try { if (fs.existsSync(tmpPath)) { fs.unlinkSync(tmpPath); removed = true; } } catch (_) {}
+            try { if (fs.existsSync(metaPath)) fs.unlinkSync(metaPath); } catch (_) {}
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: true, removed }));
         } catch (e) {
@@ -403,7 +412,7 @@ module.exports = function(deps) {
     if (pathname === '/api/save' && req.method === 'POST') {
         try {
             const body = JSON.parse(await readBody(req));
-            const { folder, file: rawFile, content, append, type, presentationStyle, autosave, themes, tags, commit, createNew, title, draft } = body;
+            const { folder, file: rawFile, content, append, type, presentationStyle, autosave, themes, tags, commit, createNew, title, draft, meta } = body;
             let file = rawFile;
 
             // Brand-new note autosave: no filename chosen yet. Write to
@@ -418,6 +427,12 @@ module.exports = function(deps) {
                 try {
                     const tmpPath = path.join(dataDir(), '.draft-newnote.md');
                     fs.writeFileSync(tmpPath, content, 'utf-8');
+                    if (meta && typeof meta === 'object') {
+                        try {
+                            const metaPath = path.join(dataDir(), '.draft-newnote.meta.json');
+                            fs.writeFileSync(metaPath, JSON.stringify(meta), 'utf-8');
+                        } catch (_) {}
+                    }
                     const stat = fs.statSync(tmpPath);
                     res.writeHead(200, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ ok: true, autosave: true, draft: true, modified: stat.mtime.toISOString() }));
@@ -641,11 +656,15 @@ module.exports = function(deps) {
                 if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
             } catch (_) {}
             // If this save promotes a brand-new-note draft to a real file,
-            // discard the draft now.
+            // discard the draft (and its metadata sidecar) now.
             if (draft) {
                 try {
                     const draftPath = path.join(dataDir(), '.draft-newnote.md');
                     if (fs.existsSync(draftPath)) fs.unlinkSync(draftPath);
+                } catch (_) {}
+                try {
+                    const metaPath = path.join(dataDir(), '.draft-newnote.meta.json');
+                    if (fs.existsSync(metaPath)) fs.unlinkSync(metaPath);
                 } catch (_) {}
             }
 

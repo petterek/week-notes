@@ -79,64 +79,59 @@ class UpcomingMeetings extends WNElement {
 
     connectedCallback() {
         super.connectedCallback();
-        if (this.service) this._load();
+        if (!this._wired) this._wire();
     }
 
     attributeChangedCallback(name, oldVal, newVal) {
+        if (oldVal !== newVal) this.invalidateAwait();
         super.attributeChangedCallback(name, oldVal, newVal);
-        if (this.isConnected && this.service && oldVal !== newVal) this._load();
     }
 
-    async _load() {
+    loadData() {
+        if (!this.service) return null;
         const days = parseInt(this.getAttribute('days') || '14', 10) || 14;
         const peopleSvc = this.serviceFor('people');
         const compSvc = this.serviceFor('companies');
-        try {
-            const [meetings, people, companies, types] = await Promise.all([
-                this.service.list({ upcoming: days }),
-                peopleSvc ? peopleSvc.list() : Promise.resolve([]),
-                compSvc ? compSvc.list() : Promise.resolve([]),
-                this.service.listTypes(),
-            ]);
-            this._days = days;
-            this._state = {
-                meetings: meetings || [],
-                people: people || [],
-                companies: companies || [],
-                types: types || [],
-            };
-        } catch {
-            this._state = { error: true };
-        }
-        this.requestRender();
-        if (!this._wired) {
-            this._wired = true;
-            this.shadowRoot.addEventListener('click', (ev) => {
-                if (ev.target.closest('a, button')) return;
-                const card = ev.target.closest('.sidebar-meeting');
-                if (!card) return;
-                const href = card.getAttribute('data-cal-href');
-                if (!href) return;
-                const evt = new CustomEvent('upcoming-meetings:open', {
-                    bubbles: true, composed: true, cancelable: true,
-                    detail: { id: card.dataset.mid, href },
-                });
-                if (this.dispatchEvent(evt)) window.location.href = href;
-            });
-            wireMentionClicks(this.shadowRoot);
-        }
+        return {
+            meetings:  () => this.service.list({ upcoming: days }).then(m => m || []),
+            people:    () => peopleSvc ? peopleSvc.list() : Promise.resolve([]),
+            companies: () => compSvc   ? compSvc.list()   : Promise.resolve([]),
+            types:     () => this.service.listTypes().then(t => t || []),
+        };
     }
 
-    render() {
-        if (!this.service) return this.renderNoService();
-        if (!this._state) return html`<h3 class="side-h">📅 Kommende møter</h3><p class="empty-quiet">Laster…</p>`;
-        if (this._state.error) return html`<h3 class="side-h">📅 Kommende møter</h3><p class="empty-quiet">Kunne ikke laste møter</p>`;
+    _wire() {
+        if (this._wired) return;
+        this._wired = true;
+        this.shadowRoot.addEventListener('click', (ev) => {
+            if (ev.target.closest('a, button')) return;
+            const card = ev.target.closest('.sidebar-meeting');
+            if (!card) return;
+            const href = card.getAttribute('data-cal-href');
+            if (!href) return;
+            const evt = new CustomEvent('upcoming-meetings:open', {
+                bubbles: true, composed: true, cancelable: true,
+                detail: { id: card.dataset.mid, href },
+            });
+            if (this.dispatchEvent(evt)) window.location.href = href;
+        });
+        wireMentionClicks(this.shadowRoot);
+    }
 
-        const { meetings, people, companies, types } = this._state;
+    render(data = {}) {
+        if (!this.service) return this.renderNoService();
+        const days = parseInt(this.getAttribute('days') || '14', 10) || 14;
+        if (data._loading) return html`<h3 class="side-h">📅 Kommende møter</h3><p class="empty-quiet">Laster…</p>`;
+        const meetings = Array.isArray(data.meetings) ? data.meetings : null;
+        if (!meetings) return html`<h3 class="side-h">📅 Kommende møter</h3><p class="empty-quiet">Kunne ikke laste møter</p>`;
+
+        const people = data.people || [];
+        const companies = data.companies || [];
+        const types = data.types || [];
         if (meetings.length === 0) {
             return html`
                 <h3 class="side-h">📅 Kommende møter · 0</h3>
-                <p class="empty-quiet">Ingen møter de neste ${this._days || 14} dagene. ${unsafeHTML('<a href="/calendar">Legg til</a>')}</p>
+                <p class="empty-quiet">Ingen møter de neste ${days} dagene. ${unsafeHTML('<a href="/calendar">Legg til</a>')}</p>
             `;
         }
         const typeMap = {};

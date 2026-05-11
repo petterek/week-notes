@@ -15,7 +15,7 @@ module.exports = function(deps) {
     return async function(req, res, ctx) {
         const { pathname, url } = ctx;
     if (pathname === '/api/contexts' && req.method === 'GET') {
-        const active = getActiveContext();
+        const active = _core.getActiveContextFromReq(req);
         const list = listContexts().map(name => {
             const settings = getContextSettings(name);
             // For the active context, surface the *union* of
@@ -29,7 +29,10 @@ module.exports = function(deps) {
             }
             return { id: name, active: false, settings };
         });
-        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Set-Cookie': _core.activeContextCookie(active),
+        });
         res.end(JSON.stringify({ active, contexts: list }));
         return;
     }
@@ -77,7 +80,10 @@ module.exports = function(deps) {
                 // Fast path: just commit current and flip the .active pointer.
                 // The git pull and the search reindex run in the background.
                 const next = setActiveContext(id, { skipPull: true });
-                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.writeHead(200, {
+                    'Content-Type': 'application/json',
+                    'Set-Cookie': _core.activeContextCookie(next),
+                });
                 res.end(JSON.stringify({ ok: true, active: next }));
                 setImmediate(() => {
                     try { pullContextRemote(next); } catch (e) { console.error('bg pull', e.message); }

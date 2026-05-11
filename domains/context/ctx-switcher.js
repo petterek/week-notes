@@ -92,7 +92,6 @@ class CtxSwitcher extends WNElement {
             this._wired = true;
             this.shadowRoot.addEventListener('click', (e) => this._onClick(e));
         }
-        this._load();
     }
 
     disconnectedCallback() {
@@ -101,28 +100,30 @@ class CtxSwitcher extends WNElement {
         this._docWired = false;
     }
 
-    async _load() {
-        if (!this.service || typeof this.service.list !== 'function') {
-            this._state = { error: 'no-service' };
-            this.requestRender();
-            return;
-        }
-        try {
-            const data = await this.service.list();
-            this._state = normalize(data);
-        } catch (e) {
-            this._state = { error: e.message || String(e) };
-        }
-        this.requestRender();
+    loadData() {
+        return {
+            state: async () => {
+                if (!this.service || typeof this.service.list !== 'function') {
+                    return { error: 'no-service' };
+                }
+                try {
+                    const data = await this.service.list();
+                    return normalize(data);
+                } catch (e) {
+                    return { error: e.message || String(e) };
+                }
+            },
+        };
     }
 
-    render() {
-        const s = this._state;
-        if (!s) {
+    render(data = {}) {
+        if (data._loading || !data.state) {
             return html`<button class="ctx-trigger" type="button" disabled>
                 <span class="ctx-icon">⏳</span><span class="ctx-name">Laster…</span>
             </button>`;
         }
+        const s = data.state;
+        this._lastState = s;
         if (s.error) {
             return html`<button class="ctx-trigger" type="button" disabled title="${s.error}">
                 <span class="ctx-icon">⚠️</span><span class="ctx-name">Ingen kontekst</span>
@@ -183,7 +184,7 @@ class CtxSwitcher extends WNElement {
                     // Apply the new context's theme immediately so the page
                     // doesn't flash the old theme while it reloads.
                     try {
-                        const ctx = (this._state && this._state.contexts || []).find(c => c.id === id);
+                        const ctx = (this._lastState && this._lastState.contexts || []).find(c => c.id === id);
                         const theme = ctx && ctx.settings && ctx.settings.theme;
                         const link = document.getElementById('themeStylesheet');
                         if (link && theme) {

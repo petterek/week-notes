@@ -297,6 +297,15 @@ class WeekCalendar extends WNElement {
         return !!(this._typeAllDayMap && this._typeAllDayMap[typeId]);
     }
 
+    _isAllDayItem(it) {
+        if (!it) return false;
+        if (it.allDay) return true;
+        if (this._isAllDayType(it.type)) return true;
+        // Items whose start has no time component (date-only) are all-day.
+        const s = it.startDate || '';
+        return typeof s === 'string' && s.length > 0 && s.indexOf('T') === -1;
+    }
+
     _select(item) {
         const id = item ? item.id : null;
         if (this._selectedId === id) return;
@@ -449,10 +458,11 @@ class WeekCalendar extends WNElement {
             + `<div class="allday-track" data-allday-track style="grid-column: 2 / span ${days.length}; height:${trackHeight}px">${alldayHtml}</div>`;
         const markup = `<div class="grid"><div class="corner"></div>${dayHeads}${alldayRow}<div class="hours">${hourCells.join('')}</div>${dayCols}</div>`;
 
-        // Wire events after render
-        setTimeout(() => this._wireItemEvents(), 0);
-
         return html`${unsafeHTML(markup)}`;
+    }
+
+    afterRender() {
+        this._wireItemEvents();
     }
 
     _layoutItems(days, HS, HE, HP) {
@@ -462,7 +472,7 @@ class WeekCalendar extends WNElement {
         const items = Array.isArray(this._items) ? this._items : [];
         const totalPx = (HE - HS) * HP;
         items.forEach((it, i) => {
-            if (this._isAllDayType(it.type)) return; // rendered in the all-day band, not in the grid
+            if (this._isAllDayItem(it)) return; // rendered in the all-day band, not in the grid
             const start = parseDateTime(it.startDate);
             let end = parseDateTime(it.endDate);
             if (!start) return;
@@ -532,7 +542,7 @@ class WeekCalendar extends WNElement {
         // Build segments: { idx, item, startCol, endCol, continuesLeft, continuesRight }
         const segs = [];
         items.forEach((it, i) => {
-            if (!this._isAllDayType(it.type)) return;
+            if (!this._isAllDayItem(it)) return;
             const sRaw = String(it.startDate || '').slice(0, 10);
             const eRaw = String(it.endDate || it.startDate || '').slice(0, 10);
             const s = parseDate(sRaw);

@@ -186,6 +186,16 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-05-11 (v4.12 — afterRender + heldags-møter overalt)
+- **Ny `afterRender(data)` lifecycle hook på `WNElement`:** kalles synkront rett etter `shadowRoot.innerHTML` skrives, med samme `data` som `render()` fikk. Erstatter det rasende `setTimeout(0)`-mønsteret som ble brukt for å fylle child-komponenter med data via imperative APIs (setData, .meta = …) etter at `loadData()` migrasjonen gjorde `super.requestRender()` async. Brukt i `people-page`, `notes-page`, `note-meta-panel`, `week-notes-calendar`, `today-calendar`, `meeting-create`, `meeting-edit`, `results-page` og inner `week-calendar`.
+- **Heldags-møter på kalender + today-calendar:** `<week-calendar>` behandlet kun møter som heldags når møtetypens `allDay`-flagg var satt. Møter uten start/slutt-tid (kun dato) forsvant fra both kalender-siden og today-calendar-widgeten. Ny `_isAllDayItem(it)` aksepterer også datoer uten klokkeslett som heldags og legger dem i heldags-båndet.
+- **Today-calendar første-render bug:** `connectedCallback` satte `this._date` etter `super.connectedCallback()`, så første `loadData()` kjørte med `_date === undefined` og spurte `?week=NaN-WNaN` — som returnerte tom liste. Fikset ved å sette dato først og falle tilbake til `todayStr()` i loadern.
+- **`loadData()`-migrasjon utvidet:** alle gjenværende komponenter (sidebar, page-level, form/view, inline-task, inline-result, entity-mention) bruker nå den deklarative `loadData()`-hooken med awaitAll. Nye renderfunksjoner pakket i awaitAll så uavhengige fetches parallelliseres.
+- **Autosave hardening (nye notater):** `_dirtyEpoch`-teller hindrer at edits gjort under in-flight save mistes. Draft-autosave inkluderer nå `meta` (folder, file, tags, type, presentationStyle, pinned) i en `.draft-newnote.meta.json` sidecar, slik at "Gjenopprett kladd" får tilbake hele state. `beforeunload` flusher draft via `navigator.sendBeacon`.
+- **`wn_ctx`-cookie for aktiv kontekst:** kontekstvalg lagres som cookie slik at backend per-request kan lese aktiv kontekst (forberedelse for tab-isolasjon).
+- **Møtetyper-dropdown ved redigering:** `<meeting-edit>` falt tilbake til tomme typer hvis `settings_service` ikke var satt. Bruker nå aktiv kontekst som fallback.
+- **Tasks: opprette fra hjemmesiden bruker `task-edit-modal`:** "Ny oppgave"-knappen og inline create på home åpner nå samme rike modal som redigeringen, slik at tag/person/tema kan settes direkte.
+
 ### 2026-05-11 (v4.11 — oppsummering: strip ```markdown fence)
 - **Fix:** noen LLM-er wrapper hele svaret i en triple-backtick fence (` ```markdown … ``` `), noe som gjorde at uke-oppsummeringen ble rendret som én stor `<pre><code>`-blokk i modalen. Server-side `summarizeWeek` strippet wrapping-fencen før lagring; klient-side `renderMarkdown` strippet den også slik at allerede lagrede `summarize.md`-filer rendres riktig ved gjenåpning.
 

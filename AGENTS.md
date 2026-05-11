@@ -238,6 +238,44 @@ the next handler.
   `window.location.href = detail.href`.
 - Slotted children stay in light DOM so existing global CSS / JS
   selectors keep working (used by `<app-navbar>` and `<ctx-switcher>`).
+- **Declarative async data via `loadData()`.** When a component
+  depends on async data (e.g. fetching meeting types, people, goals),
+  override `loadData()` on the WNElement subclass and return a map of
+  `{ key: () => Promise }`. The base class awaits them in parallel
+  (memoized per element instance via `awaitAll`) and passes the
+  resolved values into `render(data)`:
+
+  ```js
+  loadData() {
+      return {
+          types: () => this._fetchTypes(),
+          people: () => this._fetchPeople(),
+      };
+  }
+  render({ types = [], people = [] } = {}) { return html`…`; }
+  ```
+
+  Each factory runs once per instance. Invalidate with
+  `this.invalidateAwait('types')` (or no arg to clear all) before
+  calling `requestRender()` when underlying inputs change — e.g. an
+  observed attribute like `context` or `settings_service`. Components
+  with no async deps just omit `loadData()` and `render()` is called
+  synchronously with `{}`. `requestRender()` is async-aware and uses
+  a render token to discard stale results from concurrent calls.
+  `render()` itself may still be async if it needs ad-hoc awaits;
+  prefer declaring deps in `loadData()` so render stays purely
+  declarative.
+
+  **Post-render hook: `afterRender(data)`.** Override this on the
+  subclass to wire event listeners or push data into freshly rendered
+  child components via imperative APIs (`card.setData(...)`,
+  `view.meta = …`). The base calls it synchronously after writing
+  `shadowRoot.innerHTML`, with the same `data` object that was passed
+  to `render()` — so query selectors find the new nodes and there's no
+  timing race with `awaitAll`. **Do not** queue post-render DOM work
+  via `setTimeout(0)` from `requestRender()` — `super.requestRender()`
+  is async (waits for `awaitAll`), so the timeout can fire before the
+  DOM write and run against stale/placeholder markup.
 
 ### Markdown / mentions
 - `@person` mentions are rendered server-side via `linkMentions(...)`.
@@ -266,6 +304,31 @@ the next handler.
   3. Extend the form-submit handler to send the new field.
   4. The PUT `/api/contexts/:id/settings` is pass-through — no server
      change needed unless you want validation.
+
+### Active context resolution
+- Two sources, in priority order: `wn_ctx` cookie (per-request) →
+  `data/.active` file (global default).
+- `getActiveContext()` is file-only; safe everywhere but ignores
+  per-request override.
+- **In request handlers prefer `getActiveContextFromReq(req)`** when
+  you need the user's currently-selected context. Falls back to file
+  if cookie is missing or invalid.
+- The cookie is set by:
+  - `POST /api/contexts/switch` (always)
+  - `GET  /api/contexts` (refreshes on every fetch)
+  - SPA page renders (`routes/spa.js`)
+- Use `activeContextCookie(id)` from `lib/core.js` to construct the
+  `Set-Cookie` value (`wn_ctx=…; Path=/; Max-Age=1y; SameSite=Lax; HttpOnly`).
+- Pass an empty id (`activeContextCookie('')`) to clear it.
+- **Latent bug:** `dataDir()` (lib/core.js) still resolves via the
+  file-only `getActiveContext()`, so handlers that touch the filesystem
+  via `dataDir()` ignore the per-request cookie. New endpoints that need
+  per-tab context isolation must compute the path with
+  `path.join(CONTEXTS_DIR, getActiveContextFromReq(req))` instead.
+  Notably this affects `/api/save` (incl. new-note draft autosave),
+  `/api/save/draft`, and `/api/save/autosave` — autosaves still land in
+  the file-active context if the user switched contexts in another tab.
+
 
 ### Calendar specifics
 - Grid: `HOUR_START=0, HOUR_END=23, HOUR_PX=36`. All 24 hours rendered.
@@ -327,7 +390,7 @@ the next handler.
   `scripts/migrate-context.js` should use the `appliesBeforeTag('vN')`
   helper so contexts whose `.week-notes` marker pre-dates the tag get
   migrated; never hard-code arbitrary commit SHAs in `appliesTo`.
-  Current tags: `v1` → `fc809ad`, `v2` → `1d083d8`, `v3` → `c93b3cf`, `v4` → `83bbea3`, `v4.1` → `686d485`, `v4.2` → `080a9a5`, `v4.3` → `4a6c697`, `v4.4` → `3969f59`, `v4.5` → `f17a9e5`, `v4.6` → `b065c1d`, `v4.7` → `afc8c47`, `v4.8` → `fa309a7`, `v4.9` → `7936505`, `v4.10` → `5ed4687`.
+  Current tags: `v1` → `fc809ad`, `v2` → `1d083d8`, `v3` → `c93b3cf`, `v4` → `83bbea3`, `v4.1` → `686d485`, `v4.2` → `080a9a5`, `v4.3` → `4a6c697`, `v4.4` → `3969f59`, `v4.5` → `f17a9e5`, `v4.6` → `b065c1d`, `v4.7` → `afc8c47`, `v4.8` → `fa309a7`, `v4.9` → `7936505`, `v4.10` → `5ed4687`, `v4.11` → `7ace181`.
 
 ---
 

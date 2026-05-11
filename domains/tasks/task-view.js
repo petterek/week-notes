@@ -148,85 +148,61 @@ class TaskView extends WNElement {
     css() { return STYLES; }
 
     set task(t) {
-        this._task = t || null;
-        this._comment = null;
-        this._commentLoading = false;
-        this._loadEntities();
-        this._loadComment();
+        this._taskOverride = t || null;
+        this.invalidateAwait();
+        this.requestRender();
     }
     get task() { return this._task || null; }
 
     connectedCallback() {
         super.connectedCallback();
-        if (this.hasAttribute('taskid') && this.service) this._loadFromService();
-        else { this._loadEntities(); this._loadComment(); }
-    }
-
-    attributeChangedCallback(name, oldVal, newVal) {
-        super.attributeChangedCallback(name, oldVal, newVal);
-        if (!this.isConnected) return;
-        if (name === 'taskid' && this.service && newVal) this._loadFromService();
-    }
-
-    async _loadFromService() {
-        try {
-            const id = this.getAttribute('taskid');
-            const tasks = await this.service.list();
-            this._task = (tasks || []).find(t => t.id === id) || null;
-        } catch {
-            this._task = null;
-            this._error = true;
-        }
-        this._loadEntities();
-        this._loadComment();
-    }
-
-    _loadComment() {
-        const t = this._task;
-        const cf = t && t.commentFile;
-        if (!cf) { this._comment = null; this._commentError = false; return; }
-        const m = String(cf).match(/^([^/]+)\/(.+)$/);
-        if (!m) { this._comment = null; this._commentError = true; return; }
-        const [, week, file] = m;
-        const url = '/api/notes/' + encodeURIComponent(week) + '/' + encodeURIComponent(file) + '/raw';
-        this._commentLoading = true;
-        this._commentError = false;
-        const expected = cf;
-        fetch(url, { headers: { 'Accept': 'text/plain' } })
-            .then(r => r.ok ? r.text() : Promise.reject(new Error('HTTP ' + r.status)))
-            .then(text => {
-                if (!this._task || this._task.commentFile !== expected) return;
-                this._comment = text || '';
-                this._commentLoading = false;
-                this.requestRender();
-            })
-            .catch(() => {
-                if (!this._task || this._task.commentFile !== expected) return;
-                this._comment = null;
-                this._commentError = true;
-                this._commentLoading = false;
-                this.requestRender();
-            });
-    }
-
-    async _loadEntities() {
-        const peopleSvc = this.serviceFor('people');
-        const compSvc = this.serviceFor('companies');
-        try {
-            const [people, companies] = await Promise.all([
-                peopleSvc ? peopleSvc.list() : Promise.resolve([]),
-                compSvc ? compSvc.list() : Promise.resolve([]),
-            ]);
-            this._people = people || [];
-            this._companies = companies || [];
-        } catch {
-            this._people = []; this._companies = [];
-        }
-        this.requestRender();
         if (!this._wired) {
             this._wired = true;
             wireMentionClicks(this.shadowRoot);
         }
+    }
+
+    attributeChangedCallback(name, oldVal, newVal) {
+        if (oldVal !== newVal) this.invalidateAwait();
+        super.attributeChangedCallback(name, oldVal, newVal);
+    }
+
+    loadData() {
+        const peopleSvc = this.serviceFor('people');
+        const compSvc = this.serviceFor('companies');
+        return {
+            bundle: async () => {
+                let task = this._taskOverride || null;
+                if (!task && this.hasAttribute('taskid') && this.service) {
+                    try {
+                        const id = this.getAttribute('taskid');
+                        const tasks = await this.service.list();
+                        task = (tasks || []).find(t => t.id === id) || null;
+                    } catch { task = null; }
+                }
+                const [people, companies] = await Promise.all([
+                    peopleSvc ? peopleSvc.list().catch(() => []) : Promise.resolve([]),
+                    compSvc ? compSvc.list().catch(() => []) : Promise.resolve([]),
+                ]);
+                let comment = null;
+                let commentError = false;
+                if (task && task.commentFile) {
+                    const m = String(task.commentFile).match(/^([^/]+)\/(.+)$/);
+                    if (m) {
+                        const [, week, file] = m;
+                        const url = '/api/notes/' + encodeURIComponent(week) + '/' + encodeURIComponent(file) + '/raw';
+                        try {
+                            const r = await fetch(url, { headers: { 'Accept': 'text/plain' } });
+                            if (!r.ok) throw new Error('HTTP ' + r.status);
+                            comment = await r.text();
+                        } catch { commentError = true; }
+                    } else {
+                        commentError = true;
+                    }
+                }
+                return { task, people, companies, comment, commentError };
+            },
+        };
     }
 
     _personLabel(key) {
@@ -315,9 +291,15 @@ class TaskView extends WNElement {
         `;
     }
 
-    render() {
-        const t = this._task;
-        if (this._error) return html`<div class="wrap"><p class="empty-quiet">Kunne ikke laste oppgave</p></div>`;
+    render(data = {}) {
+        if (data._loading) return html`<div class="wrap"><p class="empty-quiet">Laster…</p></div>`;
+        const b = data.bundle || {};
+        const t = b.task;
+        this._task = t;
+        this._people = b.people || [];
+        this._companies = b.companies || [];
+        this._comment = b.comment;
+        this._commentError = !!b.commentError;
         if (!t) return html`<div class="wrap"><p class="empty-quiet">Ingen oppgave valgt</p></div>`;
 
         const textHtml = unsafeHTML(linkMentions(escapeHtml(t.text || ''), this._people || [], this._companies || []));

@@ -116,16 +116,11 @@ class WeekNotesCalendar extends WNElement {
     connectedCallback() {
         super.connectedCallback();
         this._week = this.getAttribute('week') || this._weekFromUrl() || isoWeekFromDate(new Date());
-        this._applySettings();
         this._onSpa = () => {
             const w = this._weekFromUrl() || isoWeekFromDate(new Date());
-            if (w !== this._week) { this._week = w; this._apply(); }
+            if (w !== this._week) { this._week = w; this._refresh(); }
         };
         document.addEventListener('spa:navigated', this._onSpa);
-        if (!this._wired) {
-            this._wired = true;
-            this._wireNav();
-        }
     }
 
     disconnectedCallback() {
@@ -135,13 +130,13 @@ class WeekNotesCalendar extends WNElement {
     }
 
     attributeChangedCallback(name, oldV, newV) {
-        super.attributeChangedCallback(name, oldV, newV);
         if (oldV === newV) return;
-        if (name === 'settings') this._applySettings();
-        else if (name === 'week') {
+        if (name === 'week') {
             this._week = newV || isoWeekFromDate(new Date());
-            this._apply();
         }
+        if (name !== 'settings') this.invalidateAwait();
+        super.attributeChangedCallback(name, oldV, newV);
+        if (name === 'settings') this._applySettings();
     }
 
     get settings() { return this._settings || null; }
@@ -150,13 +145,41 @@ class WeekNotesCalendar extends WNElement {
         this._propagateSettings();
     }
 
-    render() {
-        // Wrapper component. Loads meetings via `meetings_service` and
-        // pushes them into the dumb display <week-calendar> via setItems().
+    _refresh() { this.invalidateAwait(); this.requestRender(); }
+
+    loadData() {
+        return {
+            settings: async () => {
+                if (this._settings) return this._settings;
+                try {
+                    this._applySettings();
+                    if (this._settings) return this._settings;
+                    const ctxSvc = this.serviceFor('context');
+                    if (!ctxSvc) return null;
+                    const d = await ctxSvc.list();
+                    const active = (d.contexts || []).find(c => c.id === d.active) || (d.contexts || [])[0];
+                    if (active && active.id) this._setActiveContext(active.id);
+                    this._settings = (active && active.settings) || null;
+                    return this._settings;
+                } catch (_) { return null; }
+            },
+            meetings: async () => {
+                if (!this.service || typeof this.service.list !== 'function') return { list: [], types: [] };
+                try {
+                    const typesSvc = this.serviceFor('meeting_types') || this.service;
+                    const list = await this.service.list({ week: this._week });
+                    const types = (typesSvc && typeof typesSvc.listTypes === 'function') ? await typesSvc.listTypes() : [];
+                    return { list: list || [], types: types || [] };
+                } catch (_) { return { list: [], types: [] }; }
+            },
+        };
+    }
+
+    render(data = {}) {
         const svcAttr = this.getAttribute('meetings_service') || '';
         const setAttr = this.getAttribute('settings_service') || '';
-        const ctxAttr = this.getAttribute('context') || '';
-        return html`
+        const ctxAttr = this.getAttribute('context') || this._activeCtx || '';
+        const tmpl = html`
             <div class="page">
                 <div class="toolbar">
                     <h1>📅 Kalender</h1>
@@ -189,6 +212,43 @@ class WeekNotesCalendar extends WNElement {
                 ${html`<week-calendar></week-calendar>`}
             </div>
         `;
+        if (!data._loading) {
+            const meet = data.meetings || { list: [], types: [] };
+            const typeMap = {};
+            (meet.types || []).forEach(t => { typeMap[t.key] = t; });
+            this._typeMap = typeMap;
+            this._items = (meet.list || []).map(m => meetingToItem(m, typeMap));
+            this._meetingsById = {};
+            (meet.list || []).forEach(m => { if (m && m.id) this._meetingsById[m.id] = m; });
+            this._lastTypes = meet.types || [];
+        }
+        return tmpl;
+    }
+
+    afterRender(data) {
+        if (!data || data._loading) return;
+        this._applyData(this._lastTypes || []);
+    }
+
+    _applyData(types) {
+        if (!this._wired) { this._wired = true; this._wireNav(); }
+        const range = this.shadowRoot.querySelector('[data-range]');
+        if (range) range.textContent = this._week + ' · ' + weekLabel(this._week);
+        const cal = this.shadowRoot.querySelector('week-calendar');
+        if (!cal) return;
+        const monday = isoWeekMonday(this._week);
+        if (monday) {
+            const sunday = new Date(monday); sunday.setUTCDate(monday.getUTCDate() + 6);
+            const fmt = d => d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate());
+            cal.setAttribute('start-date', fmt(monday));
+            cal.setAttribute('end-date', fmt(sunday));
+        }
+        this._propagateSettings();
+        const eventTypes = (types || []).map(t => ({
+            typeId: t.key, icon: t.icon || '', name: t.label || t.key, color: t.color || '', allDay: !!(t.allDay || t.fullDay),
+        }));
+        cal.eventTypes = eventTypes;
+        if (typeof cal.setItems === 'function') cal.setItems(this._items || []);
     }
 
     _wireNav() {
@@ -221,7 +281,7 @@ class WeekNotesCalendar extends WNElement {
         });
         this.shadowRoot.addEventListener('meeting-create:created', () => {
             close();
-            this._apply();
+            this._refresh();
         });
         this.shadowRoot.addEventListener('meeting-create:cancel', close);
 
@@ -248,16 +308,13 @@ class WeekNotesCalendar extends WNElement {
         });
         this.shadowRoot.addEventListener('meeting-edit:saved', () => {
             closeEdit();
-            this._apply();
+            this._refresh();
         });
         this.shadowRoot.addEventListener('meeting-edit:deleted', () => {
             closeEdit();
-            this._apply();
+            this._refresh();
         });
         this.shadowRoot.addEventListener('meeting-edit:cancel', closeEdit);
-
-        // Apply initial state after render
-        setTimeout(() => this._apply(), 0);
     }
 
     _openEdit(id) {
@@ -309,22 +366,14 @@ class WeekNotesCalendar extends WNElement {
         } else if (!this._settings) {
             this._settings = null;
         }
-        if (this._settings) {
-            this._propagateSettings();
-        } else {
-            this._loadSettingsFromContext();
-        }
+        if (this._settings) this._propagateSettings();
     }
 
-    async _loadSettingsFromContext() {
-        try {
-            const ctxSvc = this.serviceFor('context');
-            if (!ctxSvc) return;
-            const d = await ctxSvc.list();
-            const active = (d.contexts || []).find(c => c.id === d.active) || (d.contexts || [])[0];
-            this._settings = (active && active.settings) || null;
-            this._propagateSettings();
-        } catch (_) {}
+    _setActiveContext(id) {
+        if (!id || this._activeCtx === id) return;
+        this._activeCtx = id;
+        const forms = this.shadowRoot.querySelectorAll('meeting-create, meeting-edit');
+        forms.forEach(f => f.setAttribute('context', id));
     }
 
     _propagateSettings() {
@@ -345,47 +394,6 @@ class WeekNotesCalendar extends WNElement {
         return m ? m[1] : '';
     }
 
-    async _loadMeetings() {
-        if (!this.service || typeof this.service.list !== 'function') { this._items = []; return; }
-        try {
-            const typesSvc = this.serviceFor('meeting_types') || this.service;
-            const list = await this.service.list({ week: this._week });
-            const types = (typesSvc && typeof typesSvc.listTypes === 'function') ? await typesSvc.listTypes() : [];
-            const typeMap = {};
-            (types || []).forEach(t => { typeMap[t.key] = t; });
-            this._typeMap = typeMap;
-            this._items = (list || []).map(m => meetingToItem(m, typeMap));
-            this._meetingsById = {};
-            (list || []).forEach(m => { if (m && m.id) this._meetingsById[m.id] = m; });
-            // Feed event types into the inner <week-calendar> for the right-click menu
-            // and into <meeting-create> for the type dropdown.
-            const eventTypes = (types || []).map(t => ({
-                typeId: t.key, icon: t.icon || '', name: t.label || t.key, color: t.color || '', allDay: !!(t.allDay || t.fullDay),
-            }));
-            const cal = this.shadowRoot.querySelector('week-calendar');
-            if (cal) cal.eventTypes = eventTypes;
-        } catch (_) {
-            this._items = [];
-        }
-    }
-
-    async _apply() {
-        const range = this.shadowRoot.querySelector('[data-range]');
-        if (range) range.textContent = this._week + ' · ' + weekLabel(this._week);
-        const cal = this.shadowRoot.querySelector('week-calendar');
-        if (cal) {
-            const monday = isoWeekMonday(this._week);
-            if (monday) {
-                const sunday = new Date(monday); sunday.setUTCDate(monday.getUTCDate() + 6);
-                const fmt = d => d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate());
-                cal.setAttribute('start-date', fmt(monday));
-                cal.setAttribute('end-date', fmt(sunday));
-            }
-            await this._loadMeetings();
-            if (typeof cal.setItems === 'function') cal.setItems(this._items || []);
-        }
-    }
-
     _onNav(nav) {
         let target = this._week;
         if (nav === 'prev') target = shiftWeek(this._week, -1);
@@ -393,7 +401,7 @@ class WeekNotesCalendar extends WNElement {
         else if (nav === 'today') target = isoWeekFromDate(new Date());
         if (target === this._week) return;
         this._week = target;
-        this._apply();
+        this._refresh();
         this.dispatchEvent(new CustomEvent('calendar:week-changed', { bubbles: true, detail: { week: target } }));
     }
 }
