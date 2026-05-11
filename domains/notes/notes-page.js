@@ -238,6 +238,8 @@ class NotesPage extends WNElement {
             return html`<h1 class="np-title">📚 Finn notater</h1><div class="np-error">Kunne ikke laste notater</div>`;
         }
         this._all = data.all;
+        // Schedule the list/count fill past the render's innerHTML write.
+        setTimeout(() => this._renderResults(), 0);
 
         const weeks = this._allWeeks();
         const minWeek = weeks[0] || '';
@@ -289,10 +291,10 @@ class NotesPage extends WNElement {
     }
 
     requestRender() {
+        // Post-render fill is queued from inside render() via setTimeout(0)
+        // so it always runs after the base writes shadowRoot.innerHTML —
+        // regardless of how long awaitAll takes.
         super.requestRender();
-        // super.requestRender() with loadData() writes the DOM
-        // asynchronously — defer the post-render fill past that microtask.
-        if (this._all) setTimeout(() => this._renderResults(), 0);
     }
 
     _renderResults() {

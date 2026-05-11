@@ -118,6 +118,14 @@ class NoteMetaPanel extends WNElement {
         const noSvc = parts && (!this.service || !this.service.meta);
         const meta = data.meta;
         this._meta = meta || null;
+        // Push meta into the freshly rendered <note-meta-view> after the
+        // base writes shadowRoot.innerHTML.
+        if (this._meta) {
+            setTimeout(() => {
+                const nmv = this.shadowRoot && this.shadowRoot.querySelector('note-meta-view');
+                if (nmv && this._meta) nmv.meta = this._meta;
+            }, 0);
+        }
         return html`
             <div class="nmp-tabs" role="tablist">
                 <button type="button" class="nmp-tab" role="tab" data-tab="structured" aria-selected="${tab === 'structured' ? 'true' : 'false'}">Strukturert</button>
@@ -134,13 +142,8 @@ class NoteMetaPanel extends WNElement {
     }
 
     requestRender() {
+        // Post-render hook is queued from inside render() via setTimeout(0).
         super.requestRender();
-        // Defer past the awaitAll microtask so the freshly rendered
-        // <note-meta-view> exists in the shadow DOM before we poke it.
-        setTimeout(() => {
-            const nmv = this.shadowRoot && this.shadowRoot.querySelector('note-meta-view');
-            if (nmv && this._meta) nmv.meta = this._meta;
-        }, 0);
     }
 
     updated() {

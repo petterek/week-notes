@@ -341,7 +341,16 @@ class PeoplePage extends WNElement {
         this._results = data.results || [];
         this._buildIndexes();
         this._loaded = true;
-        setTimeout(() => { this._applyTab(); requestAnimationFrame(() => this._scrollToHashKey()); }, 0);
+        // The base class writes shadowRoot.innerHTML synchronously after
+        // render() returns, so queue this just past that write.
+        setTimeout(() => {
+            this._wire();
+            this._populateCompanyCards();
+            this._populatePersonCards();
+            this._populatePlaceCards();
+            this._applyTab();
+            requestAnimationFrame(() => this._scrollToHashKey());
+        }, 0);
 
         const tabs = html`
             <div class="dir-tabs" role="tablist">
@@ -367,16 +376,11 @@ class PeoplePage extends WNElement {
     }
 
     requestRender() {
+        // The post-render wire/populate work is queued from inside render()
+        // via setTimeout(0), guaranteeing it runs after the base class
+        // writes shadowRoot.innerHTML — regardless of how long awaitAll
+        // takes to resolve. Just delegate to base.
         super.requestRender();
-        // super.requestRender() writes the DOM asynchronously (one microtask
-        // later, when awaitAll resolves). Defer wiring + card population
-        // past that microtask so we operate on the freshly rendered nodes.
-        setTimeout(() => {
-            this._wire();
-            this._populateCompanyCards();
-            this._populatePersonCards();
-            this._populatePlaceCards();
-        }, 0);
     }
 
     _populateCompanyCards() {
