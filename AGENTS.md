@@ -309,6 +309,14 @@ the next handler.
 - Use `activeContextCookie(id)` from `lib/core.js` to construct the
   `Set-Cookie` value (`wn_ctx=…; Path=/; Max-Age=1y; SameSite=Lax; HttpOnly`).
 - Pass an empty id (`activeContextCookie('')`) to clear it.
+- **Latent bug:** `dataDir()` (lib/core.js) still resolves via the
+  file-only `getActiveContext()`, so handlers that touch the filesystem
+  via `dataDir()` ignore the per-request cookie. New endpoints that need
+  per-tab context isolation must compute the path with
+  `path.join(CONTEXTS_DIR, getActiveContextFromReq(req))` instead.
+  Notably this affects `/api/save` (incl. new-note draft autosave),
+  `/api/save/draft`, and `/api/save/autosave` — autosaves still land in
+  the file-active context if the user switched contexts in another tab.
 
 
 ### Calendar specifics

@@ -474,11 +474,43 @@ class NoteEditor extends WNElement {
         };
         document.addEventListener('keydown', this._docKeyHandler);
 
+        // Best-effort flush of unsaved edits when the tab is closing.
+        // sendBeacon is a fire-and-forget POST that survives unload.
+        this._beforeUnloadHandler = () => {
+            try {
+                if (!this._dirty) return;
+                if (!('sendBeacon' in navigator)) return;
+                const content = this._contentEl ? this._contentEl.value : '';
+                const tags = (this._tagsEl && Array.isArray(this._tagsEl.tags)) ? this._tagsEl.tags.slice() : [];
+                const type = this._typeEl ? this._typeEl.value : 'note';
+                const presentationStyle = (type === 'presentation' && this._presStyleEl) ? this._presStyleEl.value : '';
+                const pinned = !!(this._pinnedEl && this._pinnedEl.checked);
+                const folder = this._weekSel ? this._weekSel.value.trim() : '';
+                let file = this._fileEl ? this._fileEl.value.trim() : '';
+                let payload;
+                if (!this._editing) {
+                    payload = { autosave: true, draft: true, content, meta: { folder, file, tags, type, presentationStyle, pinned } };
+                } else {
+                    if (!folder || !file) return;
+                    if (!file.endsWith('.md')) file += '.md';
+                    payload = { folder, file, content, tags, type, autosave: true };
+                    if (presentationStyle) payload.presentationStyle = presentationStyle;
+                }
+                const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+                navigator.sendBeacon('/api/save', blob);
+            } catch (_) {}
+        };
+        window.addEventListener('beforeunload', this._beforeUnloadHandler);
+
         setTimeout(() => this._contentEl.focus(), 0);
     }
 
     _markDirty() {
         this._dirty = true;
+        // Bumped on every edit. _saveImpl snapshots this at start; if the
+        // value changes during the in-flight save, we know the user typed
+        // mid-flight and must keep _dirty=true so the next countdown saves.
+        this._dirtyEpoch = (this._dirtyEpoch || 0) + 1;
         if (this._countdownTimer) return;
         this._countdownLeft = 30;
         this._updateAutosaveInfo();
@@ -733,6 +765,10 @@ class NoteEditor extends WNElement {
             document.removeEventListener('keydown', this._docKeyHandler);
             this._docKeyHandler = null;
         }
+        if (this._beforeUnloadHandler) {
+            window.removeEventListener('beforeunload', this._beforeUnloadHandler);
+            this._beforeUnloadHandler = null;
+        }
         if (this._pipWindow) {
             try { this._pipWindow.close(); } catch (_) {}
             this._pipWindow = null;
@@ -824,11 +860,33 @@ class NoteEditor extends WNElement {
                 return;
             }
             const discardDraft = () => fetch('/api/save/draft', { method: 'DELETE' }).catch(() => {});
-            this._showRestorePrompt(data.content, data.modified, current, discardDraft);
+            const applyMeta = () => {
+                const m = data.meta;
+                if (!m || typeof m !== 'object') return;
+                try {
+                    if (m.folder && this._weekSel) {
+                        // The week may not be in the dropdown yet; add a stub.
+                        if (![...this._weekSel.options].some(o => o.value === m.folder)) {
+                            const opt = document.createElement('option');
+                            opt.value = m.folder; opt.textContent = m.folder;
+                            this._weekSel.appendChild(opt);
+                        }
+                        this._weekSel.value = m.folder;
+                    }
+                    if (m.file && this._fileEl) this._fileEl.value = m.file;
+                    if (m.type && this._typeEl) this._typeEl.value = m.type;
+                    if (m.presentationStyle && this._presStyleEl) this._presStyleEl.value = m.presentationStyle;
+                    if (this._pinnedEl) this._pinnedEl.checked = !!m.pinned;
+                    if (Array.isArray(m.tags) && this._tagsEl && 'tags' in this._tagsEl) {
+                        this._tagsEl.tags = m.tags.slice();
+                    }
+                } catch (_) {}
+            };
+            this._showRestorePrompt(data.content, data.modified, current, discardDraft, applyMeta);
         } catch (_) {}
     }
 
-    _showRestorePrompt(autosaveContent, modifiedIso, realText, discardFn) {
+    _showRestorePrompt(autosaveContent, modifiedIso, realText, discardFn, applyMetaFn) {
         const modal = this.shadowRoot.querySelector('.ne-restore-modal');
         const diffEl = this.shadowRoot.querySelector('.ne-restore-diff');
         const meta = this.shadowRoot.querySelector('.ne-restore-meta');
@@ -848,6 +906,7 @@ class NoteEditor extends WNElement {
                 this._renderPreview();
                 this._setStatus('Autolagret innhold gjenopprettet – husk å lagre');
             }
+            try { applyMetaFn && applyMetaFn(); } catch (_) {}
             close();
             cleanup();
         };
@@ -1518,6 +1577,7 @@ class NoteEditor extends WNElement {
     }
 
     async _saveImpl(closeAfter = true, autosave = false) {
+        const epochAtStart = this._dirtyEpoch || 0;
         const folder = this._weekSel.value.trim();
         let file = this._fileEl.value.trim();
         const content = this._contentEl.value;
@@ -1528,18 +1588,23 @@ class NoteEditor extends WNElement {
         const presentationStyle = (type === 'presentation' && this._presStyleEl) ? this._presStyleEl.value : '';
         const pinned = !!(this._pinnedEl && this._pinnedEl.checked);
         // New-note draft autosave: don't pick a filename or week; just stash
-        // the content in the per-context draft slot. The real file is only
-        // materialised on explicit save below.
+        // the content + form metadata in the per-context draft slot. The real
+        // file is only materialised on explicit save below.
         if (autosave && !this._editing) {
             try {
                 const r = await fetch('/api/save', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ autosave: true, draft: true, content }),
+                    body: JSON.stringify({
+                        autosave: true,
+                        draft: true,
+                        content,
+                        meta: { folder, file, tags, type, presentationStyle, pinned },
+                    }),
                 });
                 if (r.ok) {
                     this._lastAutosaveAt = new Date().toISOString();
-                    this._dirty = false;
+                    if ((this._dirtyEpoch || 0) === epochAtStart) this._dirty = false;
                     this._updateAutosaveInfo();
                 }
             } catch (_) {}
@@ -1586,7 +1651,7 @@ class NoteEditor extends WNElement {
             }
             if (autosave) {
                 this._lastAutosaveAt = new Date().toISOString();
-                this._dirty = false;
+                if ((this._dirtyEpoch || 0) === epochAtStart) this._dirty = false;
                 this._updateAutosaveInfo();
                 return;
             }
