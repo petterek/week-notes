@@ -266,6 +266,17 @@ the next handler.
   prefer declaring deps in `loadData()` so render stays purely
   declarative.
 
+  **Post-render hook: `afterRender(data)`.** Override this on the
+  subclass to wire event listeners or push data into freshly rendered
+  child components via imperative APIs (`card.setData(...)`,
+  `view.meta = …`). The base calls it synchronously after writing
+  `shadowRoot.innerHTML`, with the same `data` object that was passed
+  to `render()` — so query selectors find the new nodes and there's no
+  timing race with `awaitAll`. **Do not** queue post-render DOM work
+  via `setTimeout(0)` from `requestRender()` — `super.requestRender()`
+  is async (waits for `awaitAll`), so the timeout can fire before the
+  DOM write and run against stale/placeholder markup.
+
 ### Markdown / mentions
 - `@person` mentions are rendered server-side via `linkMentions(...)`.
 - Person tooltips are wired up by the global script in `<body>`.

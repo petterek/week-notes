@@ -192,15 +192,16 @@ export class WNElement extends HTMLElement {
         if (hasDeps) {
             const allCached = this._allCached(Object.keys(deps));
             if (!allCached) {
-                this._applyMaybe(this.render({ _loading: true }), token);
+                this._applyMaybe(this.render({ _loading: true }), token, { _loading: true });
             }
             this.awaitAll(deps).then(data => {
                 if (token !== this._renderToken) return;
-                this._applyMaybe(this.render({ ...data, _loading: false }), token);
+                const ctx = { ...data, _loading: false };
+                this._applyMaybe(this.render(ctx), token, ctx);
             }).catch(() => {});
             return;
         }
-        this._applyMaybe(this.render({}), token);
+        this._applyMaybe(this.render({}), token, {});
     }
 
     _allCached(keys) {
@@ -211,19 +212,33 @@ export class WNElement extends HTMLElement {
         return true;
     }
 
-    _applyMaybe(r, token) {
+    _applyMaybe(r, token, ctx) {
         if (r && typeof r.then === 'function') {
-            r.then(v => { if (token === this._renderToken) this._applyRender(v); })
+            r.then(v => { if (token === this._renderToken) this._applyRender(v, ctx); })
              .catch(() => {});
             return;
         }
-        this._applyRender(r);
+        this._applyRender(r, ctx);
     }
 
-    _applyRender(r) {
-        if (r == null || r === false) { this.shadowRoot.innerHTML = ''; return; }
-        this.shadowRoot.innerHTML = (typeof r === 'object' && r.value != null) ? r.value : String(r);
+    _applyRender(r, ctx) {
+        if (r == null || r === false) { this.shadowRoot.innerHTML = ''; }
+        else this.shadowRoot.innerHTML = (typeof r === 'object' && r.value != null) ? r.value : String(r);
+        // Post-render hook: subclasses override afterRender(data) to wire
+        // events or push data into freshly rendered child elements.
+        // Guaranteed to run synchronously after shadowRoot.innerHTML is
+        // written, so query selectors find the new nodes.
+        try { this.afterRender(ctx || {}); } catch (_) {}
     }
+
+    /**
+     * Lifecycle hook called immediately after the base writes
+     * shadowRoot.innerHTML for a render. Receives the same `data`
+     * argument that was passed to render(). Default is a no-op.
+     * Subclasses override to wire event listeners, populate child
+     * components with imperative APIs (setData, .meta = …), etc.
+     */
+    afterRender(_data) {}
 
     /**
      * Subclasses override to declare async data dependencies for
