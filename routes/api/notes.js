@@ -209,11 +209,13 @@ module.exports = function(deps) {
         }
         const name = file.replace(/\.md$/, '');
         const snippet = linkMentions(escapeHtml(snippetText || ''));
+        const titleHtml = titleText ? linkMentions(escapeHtml(titleText)) : '';
         const cardTags = Array.isArray(meta.tags) ? meta.tags : (Array.isArray(meta.themes) ? meta.themes : []);
         return {
             ok: true,
             week, file, name,
             title: titleText || '',
+            titleHtml,
             type: meta.type || 'note',
             pinned: !!meta.pinned,
             presentationStyle: meta.presentationStyle || null,

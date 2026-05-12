@@ -186,6 +186,15 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-05-12 (v4.15 — personer/firma/sted patch + delakts på mål + tag-bevaring + editor-layout)
+- **Personer/firma/steder oppdaterer kortet på plass:** etter redigering patcher klienten det aktuelle kortet med den oppdaterte verdien fra serveren i stedet for å laste hele lista på nytt. Sortering, indekser og await-cache holdes konsistente, og hvis et firma endrer navn oppdateres også person-kortene som refererer til det.
+- **Ctrl/Cmd+Enter lagrer i person-/firma-/sted-modalene.**
+- **`/goals`: deltakere på målkortet** — chips med `👥 @navn @navn …` under metadata, basert på `responsible` + `@`-mentions i tilknyttede oppgavers tekst/notat. Lenker til `/people#p-<key>`.
+- **Tag-redigering bevarer `#tagname` i teksten:** både `#tag<space>`-snarveien og `#`-autocomplete legger nå tagen til `<tag-editor>` uten å fjerne den fra textarea-en, så markdown-en speiler fortsatt taggene.
+- **`@mentions` i kort-titler på hjem:** noteoverskrifter som inneholder `@navn` blir lenkifisert (samme behandling som body-en) i kortene på hjem-siden.
+- **Editor-layout: ingen sidescroll** — markdown-editor og forhåndsvisning fyller resterende viewport-høyde og scroller internt. Page selv ruller ikke lenger.
+- **Server-diagnostikk:** `server.js` logger nå tidsstemplet boot-linje, signalmottak (SIGTERM/SIGINT/SIGHUP/SIGQUIT), `beforeExit`/`exit`, samt en hjerteslag-linje hvert 5. minutt. Hjelper å feilsøke "serveren stopper plutselig"-tilfeller uten stack trace.
+
 ### 2026-05-12 (v4.14 — mål-side: oppgavehåndtering inline)
 - **`/goals`: eksplisitt utvid-knapp på målkortene** — ny `▸`-knapp i kort-raden ved siden av status/rediger/slett. Pilen roteres når kortet er åpent. Klikk på tittelen utvider fortsatt også.
 - **Inline oppgavehåndtering på målkortet:** den statiske `☐`/`☑`-markøren i oppgavelisten under et utvidet mål er nå en ekte checkbox. Avkryssing dispatcher `task:request-complete` og åpner den vanlige fullfør-modalen (med kommentar). Avhuking kaller `tasks_service.toggle(id, '')` direkte. Etter endring refreshes kortet slik at progressbar + telling oppdateres umiddelbart.

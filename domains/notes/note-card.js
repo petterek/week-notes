@@ -102,7 +102,9 @@ class NoteCard extends WNElement {
         if (!d) return html`<div class="note-body" style="color:var(--text-subtle)">Laster…</div>`;
 
         const name = d.name || String(d.file).replace(/\.md$/, '');
-        const display = (d.title && String(d.title).trim()) ? d.title : name;
+        const titleText = (d.title && String(d.title).trim()) ? d.title : name;
+        const titleHtml = d.titleHtml ? unsafeHTML(d.titleHtml) : titleText;
+        const display = titleText;
         const typeIcon = TYPE_ICONS[d.type] || '📄';
         const pinIcon = d.pinned ? unsafeHTML('<span title="Festet">📌</span> ') : '';
         const presentBtn = d.type === 'presentation'
@@ -117,7 +119,7 @@ class NoteCard extends WNElement {
 
         return html`
             <div class="note-h">
-                <span>${pinIcon}${typeIcon} ${display}</span>
+                <span>${pinIcon}${typeIcon} ${titleHtml}</span>
                 <span class="note-actions">
                     ${presentBtn}
                     <button type="button" class="note-icon-btn" data-act="edit" title="Rediger ${display}">✏️</button>

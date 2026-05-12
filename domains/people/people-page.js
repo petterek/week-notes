@@ -217,7 +217,13 @@ class PeoplePage extends WNElement {
         this._onHash = () => { this._readHash(); this._applyTab(); this._scrollToHashKey(); };
         window.addEventListener('hashchange', this._onHash);
         this._onKey = (e) => {
-            if (e.key === 'Escape' && this._modal) this._closeModal();
+            if (e.key === 'Escape' && this._modal) { this._closeModal(); return; }
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && this._modal) {
+                e.preventDefault();
+                if (this._modal === 'person')       this._savePerson();
+                else if (this._modal === 'company') this._saveCompany();
+                else if (this._modal === 'place')   this._savePlace();
+            }
         };
         document.addEventListener('keydown', this._onKey);
     }
@@ -939,12 +945,65 @@ class PeoplePage extends WNElement {
         const id = this._modalCtx && this._modalCtx.id;
         const svc = this.serviceFor('people');
         try {
-            if (id) await svc.update(id, data);
-            else    await svc.create(data);
-            await this._reload();
-            this._closeModal();
+            if (id) {
+                const res = await svc.update(id, data);
+                const updated = res && res.person;
+                this._closeModal();
+                if (updated) this._patchPerson(updated);
+                else await this._reload();
+            } else {
+                await svc.create(data);
+                await this._reload();
+                this._closeModal();
+            }
         } catch (e) {
             alert('Feil: ' + (e.message || e));
+        }
+    }
+
+    // Update a single person in the local state + DOM without re-rendering
+    // the whole list. Falls back to _reload() if the card can't be found.
+    _patchPerson(updated) {
+        if (!updated || !updated.id) return;
+        const idx = this._people.findIndex(x => x.id === updated.id);
+        if (idx === -1) { this._reload(); return; }
+        const prevKey = this._personKey(this._people[idx]);
+        this._people[idx] = updated;
+        this._people.sort((a, b) =>
+            String(a.name || '').localeCompare(String(b.name || ''), 'nb'));
+        this._buildIndexes();
+        // Keep the awaitAll cache consistent so a subsequent _reload() (or
+        // attribute change) doesn't snap back to stale data.
+        if (this._awaitCache) {
+            this._awaitCache.people = Promise.resolve(this._people.slice());
+        }
+        const newKey = this._personKey(updated);
+        const cardEl = this.shadowRoot.querySelector(
+            'person-card[data-id="' + (CSS && CSS.escape ? CSS.escape(updated.id) : updated.id) + '"]'
+        );
+        if (cardEl) {
+            if (prevKey !== newKey) cardEl.setAttribute('data-key', newKey);
+            const inSet = (s) => s.has(newKey);
+            const tasks    = this._taskRefs.filter(x => inSet(x.mentions)).map(x => x.t);
+            const meetings = this._meetingRefs.filter(x => inSet(x.mentions)).map(x => x.m);
+            const results  = this._resultRefs.filter(x => inSet(x.mentions)).map(x => x.r);
+            const primaryCompany = updated.primaryCompanyKey ? this._companiesByKey[updated.primaryCompanyKey] || null : null;
+            const extraCompanies = (updated.extraCompanyKeys || []).map(x => this._companiesByKey[x]).filter(Boolean);
+            cardEl.setData({
+                person: updated, primaryCompany, extraCompanies, tasks, meetings, results,
+                people: this._people, companies: this._companies,
+                open: this._expanded.has('p-' + newKey),
+            });
+        } else {
+            // Card not present (filtered out, different tab) — full reload.
+            this._reload();
+            return;
+        }
+        // Update the count badge in the toolbar.
+        const countEl = this.shadowRoot.querySelector('[data-pane="people"] .pp-count');
+        if (countEl) {
+            const visible = this._filterPeople().length;
+            countEl.textContent = visible + ' av ' + this._people.length;
         }
     }
 
@@ -967,11 +1026,59 @@ class PeoplePage extends WNElement {
         const id = this._modalCtx && this._modalCtx.id;
         const svc = this.serviceFor('companies');
         try {
-            if (id) await svc.update(id, data);
-            else    await svc.create(data);
-            await this._reload();
-            this._closeModal();
+            if (id) {
+                const res = await svc.update(id, data);
+                const updated = res && res.company;
+                this._closeModal();
+                if (updated) this._patchCompany(updated);
+                else await this._reload();
+            } else {
+                await svc.create(data);
+                await this._reload();
+                this._closeModal();
+            }
         } catch (e) { alert('Feil: ' + (e.message || e)); }
+    }
+
+    _patchCompany(updated) {
+        if (!updated || !updated.id) return;
+        const idx = this._companies.findIndex(x => x.id === updated.id);
+        if (idx === -1) { this._reload(); return; }
+        this._companies[idx] = updated;
+        this._companies.sort((a, b) =>
+            String(a.name || '').localeCompare(String(b.name || ''), 'nb'));
+        this._buildIndexes();
+        if (this._awaitCache) {
+            this._awaitCache.companies = Promise.resolve(this._companies.slice());
+        }
+        const cardEl = this.shadowRoot.querySelector(
+            'company-card[data-id="' + (CSS && CSS.escape ? CSS.escape(updated.id) : updated.id) + '"]'
+        );
+        if (cardEl) {
+            const k = updated.key;
+            if (cardEl.getAttribute('data-key') !== k) cardEl.setAttribute('data-key', k);
+            const inSet = (s) => s.has(k);
+            const tasks    = this._taskRefs.filter(x => inSet(x.mentions)).map(x => x.t);
+            const meetings = this._meetingRefs.filter(x => inSet(x.mentions)).map(x => x.m);
+            const results  = this._resultRefs.filter(x => inSet(x.mentions)).map(x => x.r);
+            const members  = this._companyMembers.get(k) || [];
+            cardEl.setData({
+                company: updated, members, tasks, meetings, results,
+                people: this._people, companies: this._companies,
+                open: this._expanded.has('c-' + k),
+            });
+            // Primary-company labels on person cards may reference this
+            // company by key — refresh person cards so the new name shows.
+            this._populatePersonCards();
+        } else {
+            this._reload();
+            return;
+        }
+        const countEl = this.shadowRoot.querySelector('[data-pane="companies"] .pp-count');
+        if (countEl) {
+            const visible = this._filterCompanies().length;
+            countEl.textContent = visible + ' av ' + this._companies.length;
+        }
     }
 
     async _deleteCompany() {
@@ -1106,11 +1213,53 @@ class PeoplePage extends WNElement {
         const id = this._modalCtx && this._modalCtx.id;
         const svc = this.serviceFor('places');
         try {
-            if (id) await svc.update(id, data);
-            else    await svc.create(data);
-            await this._reload();
-            this._closeModal();
+            if (id) {
+                const res = await svc.update(id, data);
+                const updated = res && res.place;
+                this._closeModal();
+                if (updated) this._patchPlace(updated);
+                else await this._reload();
+            } else {
+                await svc.create(data);
+                await this._reload();
+                this._closeModal();
+            }
         } catch (e) { alert('Feil: ' + (e.message || e)); }
+    }
+
+    _patchPlace(updated) {
+        if (!updated || !updated.id) return;
+        const idx = this._places.findIndex(x => x.id === updated.id);
+        if (idx === -1) { this._reload(); return; }
+        this._places[idx] = updated;
+        this._places.sort((a, b) =>
+            String(a.name || '').localeCompare(String(b.name || ''), 'nb'));
+        this._buildIndexes();
+        if (this._awaitCache) {
+            this._awaitCache.places = Promise.resolve(this._places.slice());
+        }
+        const cardEl = this.shadowRoot.querySelector(
+            'place-card[data-id="' + (CSS && CSS.escape ? CSS.escape(updated.id) : updated.id) + '"]'
+        );
+        if (cardEl) {
+            const k = updated.key;
+            if (cardEl.getAttribute('data-key') !== k) cardEl.setAttribute('data-key', k);
+            const meetings = this._placeMeetings.get(k) || [];
+            cardEl.setData({
+                place: updated, meetings,
+                people: this._people, companies: this._companies,
+                open: this._expanded.has('pl-' + k),
+            });
+        } else {
+            this._reload();
+            return;
+        }
+        const countEl = this.shadowRoot.querySelector('[data-pane="places"] .pp-count');
+        if (countEl) {
+            const visible = this._filterPlaces().length;
+            const total = this._places.filter(p => !p.deleted).length;
+            countEl.textContent = visible + ' av ' + total;
+        }
     }
 
     async _deletePlace() {
@@ -1163,31 +1312,24 @@ class PeoplePage extends WNElement {
     // ---- Reload after mutation -----------------------------------------
 
     async _reload() {
-        // Refresh the underlying data without re-rendering loading state.
+        // Refresh the underlying data and re-render. Pre-populate the
+        // awaitAll cache with fresh promises so requestRender() picks them
+        // up without flashing the "Laster…" placeholder.
         const ps = this.serviceFor('people');
         const cs = this.serviceFor('companies');
         const pls = this.serviceFor('places');
         const ts = this.serviceFor('tasks');
         const ms = this.serviceFor('meetings');
         const rs = this.serviceFor('results');
-        const [people, companies, places, tasks, meetings, results] = await Promise.all([
-            ps.list().catch(() => this._people),
-            cs.list().catch(() => this._companies),
-            pls.list().catch(() => this._places),
-            ts ? ts.list().catch(() => this._tasks) : this._tasks,
-            ms ? ms.list().catch(() => this._meetings) : this._meetings,
-            rs ? rs.list().catch(() => this._results) : this._results,
-        ]);
-        this._people = (people || []).slice().sort((a, b) =>
-            String(a.name || '').localeCompare(String(b.name || ''), 'nb'));
-        this._companies = (companies || []).slice().sort((a, b) =>
-            String(a.name || '').localeCompare(String(b.name || ''), 'nb'));
-        this._places = (places || []).slice().sort((a, b) =>
-            String(a.name || '').localeCompare(String(b.name || ''), 'nb'));
-        this._tasks = tasks; this._meetings = meetings; this._results = results;
-        this._buildIndexes();
+        const sortName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'nb');
+        const cache = this._awaitCache || (this._awaitCache = {});
+        cache.people    = ps  ? ps.list().then(xs => (xs || []).slice().sort(sortName)).catch(() => this._people || []) : Promise.resolve(this._people || []);
+        cache.companies = cs  ? cs.list().then(xs => (xs || []).slice().sort(sortName)).catch(() => this._companies || []) : Promise.resolve(this._companies || []);
+        cache.places    = pls ? pls.list().then(xs => (xs || []).slice().sort(sortName)).catch(() => this._places || []) : Promise.resolve(this._places || []);
+        cache.tasks     = ts  ? ts.list().catch(() => this._tasks || []) : Promise.resolve(this._tasks || []);
+        cache.meetings  = ms  ? ms.list().catch(() => this._meetings || []) : Promise.resolve(this._meetings || []);
+        cache.results   = rs  ? rs.list().catch(() => this._results || []) : Promise.resolve(this._results || []);
         this.requestRender();
-        this._applyTab();
     }
 }
 
