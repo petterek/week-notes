@@ -131,6 +131,7 @@ const STYLES = `
         display: flex; align-items: baseline; gap: 8px;
     }
     .gp-detail li .mark { width: 1.1em; flex: 0 0 auto; color: var(--text-subtle); }
+    .gp-detail li input.mark { margin: 0; cursor: pointer; align-self: center; }
     .gp-detail li.done .text { color: var(--text-subtle); text-decoration: line-through; }
     .gp-detail li .text { flex: 1; word-break: break-word; }
     .gp-detail li a.wk {
@@ -252,13 +253,53 @@ class GoalsPage extends WNElement {
         if (this._wired) return;
         this._wired = true;
         this.shadowRoot.addEventListener('click', (e) => this._onClick(e));
+        this.shadowRoot.addEventListener('change', (e) => this._onChange(e));
         this.shadowRoot.addEventListener('task:created', () => this._refresh());
+        this.shadowRoot.addEventListener('task:completed', () => this._refresh());
         this.shadowRoot.addEventListener('result:created', () => this._refresh());
+    }
+
+    _onChange(e) {
+        const cb = e.target.closest('input[data-act="toggle"]');
+        if (!cb) return;
+        const id = cb.dataset.taskid;
+        const text = cb.dataset.tasktext || '';
+        const tasksSvc = this.serviceFor('tasks');
+        if (!tasksSvc || typeof tasksSvc.toggle !== 'function') {
+            cb.checked = !cb.checked;
+            return;
+        }
+        if (cb.checked) {
+            this.dispatchEvent(new CustomEvent('task:request-complete', {
+                bubbles: true, composed: true,
+                detail: {
+                    id, text,
+                    callback: async (res) => {
+                        if (!res || !res.confirmed) { cb.checked = false; return; }
+                        try { await tasksSvc.toggle(res.id, res.comment || ''); }
+                        catch (err) { console.error('goals-page: toggle failed', err); }
+                        this._refresh();
+                        this.dispatchEvent(new CustomEvent('task:completed', {
+                            bubbles: true, composed: true,
+                            detail: { id: res.id, comment: res.comment || '' },
+                        }));
+                    },
+                },
+            }));
+        } else {
+            (async () => {
+                try { await tasksSvc.toggle(id, ''); }
+                catch (err) { console.error('goals-page: toggle failed', err); }
+                this._refresh();
+            })();
+        }
     }
 
     _onClick(e) {
         const path = e.composedPath();
         if (path.find(n => n.id === 'gpNewBtn')) { this._openNew(); return; }
+        const expandBtn = path.find(n => n.classList && n.classList.contains('gp-expand'));
+        if (expandBtn) { this._toggleExpanded(expandBtn.dataset.id); return; }
         const editBtn = path.find(n => n.classList && n.classList.contains('gp-edit'));
         if (editBtn) {
             const g = (this._state.goals || []).find(x => x.id === editBtn.dataset.id);
@@ -416,8 +457,11 @@ class GoalsPage extends WNElement {
         return html`
             <article class="${'gp-card' + statusCls + expCls}" id="${'gp-card-' + g.id}">
                 <div class="gp-row">
+                    <button class="gp-act gp-expand" data-id="${g.id}" title="${expanded ? 'Skjul detaljer' : 'Vis detaljer'}">
+                        <span class="gp-chev">▸</span>
+                    </button>
                     <span class="gp-title" data-id="${g.id}" title="Klikk for å vise detaljer">
-                        <span class="gp-chev">▸</span>${STATUS_ICON[g.status] || '🎯'} ${g.title}
+                        ${STATUS_ICON[g.status] || '🎯'} ${g.title}
                     </span>
                     <button class="gp-act gp-status" data-id="${g.id}" data-next="${nextStatus}" title="${statusBtnTitle}">
                         ${g.status === 'active' ? '🏆' : g.status === 'achieved' ? '🗑️' : '↻'}
@@ -456,7 +500,9 @@ class GoalsPage extends WNElement {
                         ? html`<p class="empty">Ingen oppgaver knyttet til dette målet ennå.</p>`
                         : html`<ul>${sortedTasks.map(t => html`
                             <li class="${t.done ? 'done' : ''}">
-                                <span class="mark">${t.done ? '☑' : '☐'}</span>
+                                <input type="checkbox" class="mark" data-act="toggle"
+                                    data-taskid="${t.id}" data-tasktext="${t.text || ''}"
+                                    ${t.done ? unsafeHTML('checked') : ''}>
                                 <span class="text">${t.text || '(uten tekst)'}</span>
                                 ${t.completedWeek
                                     ? html`<a class="wk" href="/${t.completedWeek}/" title="Fullført uke">${t.completedWeek}</a>`

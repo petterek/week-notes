@@ -186,6 +186,10 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-05-12 (v4.14 — mål-side: oppgavehåndtering inline)
+- **`/goals`: eksplisitt utvid-knapp på målkortene** — ny `▸`-knapp i kort-raden ved siden av status/rediger/slett. Pilen roteres når kortet er åpent. Klikk på tittelen utvider fortsatt også.
+- **Inline oppgavehåndtering på målkortet:** den statiske `☐`/`☑`-markøren i oppgavelisten under et utvidet mål er nå en ekte checkbox. Avkryssing dispatcher `task:request-complete` og åpner den vanlige fullfør-modalen (med kommentar). Avhuking kaller `tasks_service.toggle(id, '')` direkte. Etter endring refreshes kortet slik at progressbar + telling oppdateres umiddelbart.
+
 ### 2026-05-11 (v4.13 — oppgaver-side redesign)
 - **`/tasks` redesign:** ren kortbasert layout. Sticky `<task-create-full>`-kort øverst (tekst + notat + ansvarlig + mål + frist) erstatter den gamle enlinje-`<task-create>`. Åpne oppgaver i eget kort, fullførte i kollapsbart kort under. Page-mode (`page` attributt) på `<task-open-list>` og `<task-completed>` gir luftigere typografi, kortvisning og ukerubrikker i stedet for sidebar-tetthet.
 - **Inline edit på `/tasks`:** ✎-knappen på en åpen oppgave fyller den sticky create-formen i stedet for å åpne modal. Raden markeres med accent-farge + venstre-stripe, og siden scrollar slik at raden ligger rett under den sticky formen. Bare én rad markert om gangen.
