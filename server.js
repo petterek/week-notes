@@ -4,12 +4,40 @@ const http = require('http');
 const _core = require('./lib/core');
 const _dates = require('./lib/dates');
 
+// --- lifecycle diagnostics --------------------------------------------------
+// The server has been observed to "stop" without leaving a crash trace. These
+// hooks log timestamped lines for every plausible exit path so we can tell
+// next time whether it was a signal, an exception, an explicit exit, or the
+// event loop draining.
+const _ts = () => new Date().toISOString();
+const _startedAt = Date.now();
+console.log(`[${_ts()}] 🟢 server.js boot (pid=${process.pid}, node=${process.version})`);
+
 process.on('uncaughtException', (e) => {
-    console.error('uncaughtException', e && e.stack || e);
+    console.error(`[${_ts()}] uncaughtException`, e && e.stack || e);
 });
 process.on('unhandledRejection', (e) => {
-    console.error('unhandledRejection', e && e.stack || e);
+    console.error(`[${_ts()}] unhandledRejection`, e && e.stack || e);
 });
+for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP', 'SIGQUIT']) {
+    process.on(sig, () => {
+        const upMs = Date.now() - _startedAt;
+        console.error(`[${_ts()}] 🔴 received ${sig} after ${(upMs / 1000).toFixed(1)}s uptime — exiting`);
+        process.exit(0);
+    });
+}
+process.on('beforeExit', (code) => {
+    console.error(`[${_ts()}] beforeExit code=${code} (event loop drained)`);
+});
+process.on('exit', (code) => {
+    const upMs = Date.now() - _startedAt;
+    console.error(`[${_ts()}] 🔻 exit code=${code} after ${(upMs / 1000).toFixed(1)}s uptime`);
+});
+// Heartbeat so silent gaps in the log are visible.
+setInterval(() => {
+    const m = process.memoryUsage();
+    console.log(`[${_ts()}] ❤️  heartbeat rss=${(m.rss / 1024 / 1024).toFixed(0)}MB heap=${(m.heapUsed / 1024 / 1024).toFixed(0)}/${(m.heapTotal / 1024 / 1024).toFixed(0)}MB`);
+}, 5 * 60 * 1000).unref();
 
 const {
     PORT,

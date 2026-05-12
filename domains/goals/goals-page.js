@@ -76,6 +76,15 @@ const STYLES = `
     }
     .gp-meta .due { color: var(--text-muted-warm, var(--text-muted)); }
     .gp-meta .due.overdue { color: #c53030; font-weight: 600; }
+    .gp-people { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+    .gp-people .gp-person {
+        display: inline-flex; align-items: center; padding: 1px 8px;
+        font-size: 0.92em; line-height: 1.6;
+        background: var(--accent-soft); color: var(--accent-strong);
+        border-radius: 10px; text-decoration: none;
+        border: 1px solid var(--border-soft);
+    }
+    .gp-people .gp-person:hover { background: var(--accent); color: var(--text-on-accent); }
     .gp-progress {
         display: inline-flex; align-items: center; gap: 8px;
     }
@@ -196,7 +205,7 @@ const STYLES = `
 
 class GoalsPage extends WNElement {
     static get domain() { return 'goals'; }
-    static get observedAttributes() { return ['goals_service', 'tasks_service', 'results_service']; }
+    static get observedAttributes() { return ['goals_service', 'tasks_service', 'results_service', 'people_service']; }
 
     constructor() {
         super();
@@ -237,6 +246,7 @@ class GoalsPage extends WNElement {
         if (!this.service) return {};
         const tasksSvc = this.serviceFor('tasks');
         const resultsSvc = this.serviceFor('results');
+        const peopleSvc = this.serviceFor('people');
         return {
             goals: async () => {
                 const g = await this.service.list();
@@ -244,6 +254,7 @@ class GoalsPage extends WNElement {
             },
             tasks:   () => tasksSvc ? tasksSvc.list() : Promise.resolve([]),
             results: () => resultsSvc ? resultsSvc.list() : Promise.resolve([]),
+            people:  () => peopleSvc ? peopleSvc.list() : Promise.resolve([]),
         };
     }
 
@@ -440,6 +451,32 @@ class GoalsPage extends WNElement {
         } catch (e) { alert((e && e.message) || 'Feil'); }
     }
 
+    _participantsFor(tasks) {
+        const people = this._state.people || [];
+        if (!people.length || !tasks.length) return [];
+        const byKey = new Map(people.filter(p => !p.deleted).map(p => [String(p.key || '').toLowerCase(), p]));
+        const seen = new Set();
+        const out = [];
+        const add = (key) => {
+            const k = String(key || '').toLowerCase();
+            if (!k || seen.has(k)) return;
+            const p = byKey.get(k);
+            if (!p) return;
+            seen.add(k);
+            out.push(p);
+        };
+        const re = /(?:^|[\s\n(\[])@([a-zA-ZæøåÆØÅ][a-zA-ZæøåÆØÅ0-9_-]*)/g;
+        for (const t of tasks) {
+            if (t.responsible) add(t.responsible);
+            const blob = String(t.text || '') + '\n' + String(t.note || '');
+            re.lastIndex = 0;
+            let m;
+            while ((m = re.exec(blob))) add(m[1]);
+        }
+        out.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'nb'));
+        return out;
+    }
+
     _renderCard(g) {
         const tasks = (this._state.tasks || []).filter(t => t.goalId === g.id);
         const results = (this._state.results || []).filter(r => r.goalId === g.id);
@@ -478,6 +515,11 @@ class GoalsPage extends WNElement {
                         <span>${tDone}/${tTotal} oppgaver${tTotal ? ' (' + pct + '%)' : ''}</span>
                     </span>
                     ${results.length ? html`<span>📋 ${results.length} resultat${results.length === 1 ? '' : 'er'}</span>` : ''}
+                    ${(() => {
+                        const participants = this._participantsFor(tasks);
+                        if (!participants.length) return '';
+                        return html`<span class="gp-people" title="Deltakere fra oppgavene">👥 ${participants.map(p => html`<a class="gp-person" href="/people#p-${encodeURIComponent(p.key || '')}" title="${p.name || p.key}">@${p.name || p.key}</a>`)}</span>`;
+                    })()}
                 </div>
                 ${expanded ? this._renderDetail(g, tasks, results) : ''}
             </article>
@@ -595,7 +637,7 @@ class GoalsPage extends WNElement {
         if (data._loading) return html`<div class="gp-loading">Laster…</div>`;
         if (!Array.isArray(data.goals)) return html`<div class="gp-error">Kunne ikke laste mål</div>`;
 
-        this._state = { goals: data.goals, tasks: data.tasks || [], results: data.results || [] };
+        this._state = { goals: data.goals, tasks: data.tasks || [], results: data.results || [], people: data.people || [] };
         const goals = data.goals;
         const byStatus = { active: [], achieved: [], abandoned: [] };
         goals.forEach(g => { (byStatus[g.status] || byStatus.active).push(g); });

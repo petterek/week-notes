@@ -30,12 +30,16 @@ import { attachDateTrigger } from '/components/wn-date-trigger.js';
 
 const STYLES = `
     :host {
-        display: block; padding: 16px 20px; box-sizing: border-box;
+        display: flex; flex-direction: column;
+        height: 100%; min-height: 0;
+        padding: 16px 20px; box-sizing: border-box;
         color: var(--text-strong); font: inherit;
+        overflow: hidden;
     }
     .ne-row {
         display: flex; gap: 10px; align-items: center;
         margin-bottom: 12px; flex-wrap: wrap;
+        flex: 0 0 auto;
     }
     label {
         font-size: 0.85em; color: var(--text-muted-warm);
@@ -49,22 +53,25 @@ const STYLES = `
     .ne-split {
         display: grid; grid-template-columns: 1fr 1fr;
         gap: 16px; align-items: stretch;
+        flex: 1 1 auto; min-height: 0;
     }
     .ne-split.detached { grid-template-columns: 1fr; }
     @media (max-width: 900px) { .ne-split { grid-template-columns: 1fr; } }
     textarea {
-        width: 100%; min-height: 50vh; padding: 14px;
+        width: 100%; height: 100%; padding: 14px;
         border: 1px solid var(--border); border-radius: 8px;
         font-family: var(--font-mono);
-        font-size: 0.95em; line-height: 1.5; resize: vertical; outline: none;
+        font-size: 0.95em; line-height: 1.5; resize: none; outline: none;
         box-sizing: border-box;
         background: var(--surface); color: var(--text-strong);
+        overflow: auto;
     }
     textarea:focus { border-color: var(--accent); }
     .ne-shortcuts {
         margin-top: 6px;
         font-size: 0.8em; color: var(--text-subtle);
         line-height: 1.6;
+        flex: 0 0 auto;
     }
     .ne-shortcuts code {
         background: var(--surface-alt, var(--surface));
@@ -74,10 +81,16 @@ const STYLES = `
         font-size: 0.92em;
         color: var(--text-muted);
     }
-    markdown-preview { min-height: 50vh; display: block; }
+    markdown-preview {
+        height: 100%; display: block;
+        overflow: auto;
+        border: 1px solid var(--border); border-radius: 8px;
+        background: var(--surface);
+    }
     .ne-actions {
         display: flex; gap: 10px; justify-content: flex-end;
         margin-top: 12px; align-items: center;
+        flex: 0 0 auto;
     }
     .ne-status {
         color: var(--text-muted);
@@ -114,7 +127,7 @@ const STYLES = `
         background: var(--accent-soft); border-color: var(--accent);
         color: var(--accent);
     }
-    .ne-preview-wrap { position: relative; display: flex; flex-direction: column; min-height: 50vh; }
+    .ne-preview-wrap { position: relative; display: flex; flex-direction: column; min-height: 0; height: 100%; }
     .ne-preview-wrap[hidden] { display: none; }
     .ne-preview-wrap markdown-preview { flex: 1; }
     .ne-preview-detached { display: none; }
@@ -986,8 +999,8 @@ class NoteEditor extends WNElement {
 
     _installTagSpaceCommit() {
         // Pressing space after '#tagName' commits it as a tag in the
-        // tag-editor and strips the marker from the textarea — works
-        // independently of the autocomplete popover.
+        // tag-editor. Leaves the '#tagName ' text intact in the textarea
+        // so it stays visible/searchable in the note body.
         if (!this._contentEl || this._tagSpaceWired) return;
         const ta = this._contentEl;
         ta.addEventListener('keydown', (e) => {
@@ -1001,16 +1014,10 @@ class NoteEditor extends WNElement {
             if (i > 0 && !/\s/.test(text[i - 1])) return;
             const word = text.slice(i + 1, caret);
             if (!word) return;
-            e.preventDefault();
-            const before = text.slice(0, i);
-            const after = text.slice(caret);
-            ta.value = before + after;
-            try { ta.setSelectionRange(i, i); } catch (_) {}
             if (this._tagsEl) {
                 const cur = this._tagsEl.tags || [];
                 if (!cur.includes(word)) this._tagsEl.tags = cur.concat([word]);
             }
-            this._renderPreview();
             this._markDirty();
         });
         this._tagSpaceWired = true;
@@ -1324,12 +1331,15 @@ class NoteEditor extends WNElement {
             limit: 8,
             renderItem: (item, query) => `#${highlightMatch(item.label, query)}`,
             onSelect: (item, ctx) => {
-                // Strip '#tag' from textarea, append to tag-editor.
-                replaceRange(ta, ctx.range.start, ctx.range.end, '');
+                // Add to tag-editor; leave the '#tag' text in place so it
+                // remains visible/searchable in the note body. Move caret
+                // past the marker and insert a trailing space if needed.
                 if (this._tagsEl) {
                     const cur = this._tagsEl.tags || [];
                     if (!cur.includes(item.value)) this._tagsEl.tags = cur.concat([item.value]);
                 }
+                const insertText = '#' + item.value;
+                replaceRange(ta, ctx.range.start, ctx.range.end, insertText + ' ');
                 this._renderPreview();
                 this._markDirty();
             },
