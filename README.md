@@ -186,6 +186,10 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-05-13 (v4.16 — kalender-navigasjon + mention-filter)
+- **Kalender prev/next/i dag fungerer gjentatte ganger:** hendelseslyttere er flyttet til `shadowRoot` med event-delegering, slik at de overlever DOM-utskifting ved `innerHTML`-render.
+- **@mention-autocomplete filtrerer fra starten av navnet** (prefix) i stedet for substring. `@pe` matcher nå "Peter" men ikke "Jasper".
+
 ### 2026-05-12 (v4.15 — personer/firma/sted patch + delakts på mål + tag-bevaring + editor-layout)
 - **Personer/firma/steder oppdaterer kortet på plass:** etter redigering patcher klienten det aktuelle kortet med den oppdaterte verdien fra serveren i stedet for å laste hele lista på nytt. Sortering, indekser og await-cache holdes konsistente, og hvis et firma endrer navn oppdateres også person-kortene som refererer til det.
 - **Ctrl/Cmd+Enter lagrer i person-/firma-/sted-modalene.**

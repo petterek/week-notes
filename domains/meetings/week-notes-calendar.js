@@ -125,8 +125,6 @@ class WeekNotesCalendar extends WNElement {
 
     disconnectedCallback() {
         if (this._onSpa) document.removeEventListener('spa:navigated', this._onSpa);
-        if (this._onEsc) { document.removeEventListener('keydown', this._onEsc); this._onEsc = null; this._escWired = false; }
-        if (this._onEditEsc) { document.removeEventListener('keydown', this._onEditEsc); this._onEditEsc = null; this._editEscWired = false; }
     }
 
     attributeChangedCallback(name, oldV, newV) {
@@ -252,69 +250,82 @@ class WeekNotesCalendar extends WNElement {
     }
 
     _wireNav() {
-        this.shadowRoot.querySelectorAll('.nav button').forEach(btn => {
-            btn.addEventListener('click', () => this._onNav(btn.dataset.nav));
+        const root = this.shadowRoot;
+
+        // Delegated click on shadowRoot — survives innerHTML replacement
+        root.addEventListener('click', (ev) => {
+            const navBtn = ev.target.closest('[data-nav]');
+            if (navBtn) { this._onNav(navBtn.dataset.nav); return; }
+
+            if (ev.target.closest('[data-new]')) { this._openCreate({}); return; }
+
+            if (ev.target.closest('[data-overlay-close]')) {
+                const overlay = root.querySelector('[data-create-panel]');
+                if (overlay) overlay.classList.remove('open');
+                return;
+            }
+            if (ev.target.closest('[data-edit-close]')) {
+                const overlay = root.querySelector('[data-edit-panel]');
+                if (overlay) overlay.classList.remove('open');
+                return;
+            }
+
+            // Click on create-overlay backdrop (outside card)
+            const createPanel = root.querySelector('[data-create-panel]');
+            if (createPanel && createPanel.contains(ev.target) && !ev.target.closest('[data-overlay-card]')) {
+                createPanel.classList.remove('open');
+                return;
+            }
+            // Click on edit-overlay backdrop (outside card)
+            const editPanel = root.querySelector('[data-edit-panel]');
+            if (editPanel && editPanel.contains(ev.target) && !ev.target.closest('[data-edit-card]')) {
+                editPanel.classList.remove('open');
+                return;
+            }
         });
-        const newBtn = this.shadowRoot.querySelector('[data-new]');
-        const overlay = this.shadowRoot.querySelector('[data-create-panel]');
-        const closeBtn = this.shadowRoot.querySelector('[data-overlay-close]');
-        const card = this.shadowRoot.querySelector('[data-overlay-card]');
-        const close = () => { if (overlay) overlay.classList.remove('open'); };
-        if (newBtn) newBtn.addEventListener('click', () => this._openCreate({}));
-        if (closeBtn) closeBtn.addEventListener('click', close);
-        if (overlay) overlay.addEventListener('click', (ev) => {
-            if (card && card.contains(ev.target)) return;
-            close();
+
+        // Escape key for overlays (document-level, wired once)
+        document.addEventListener('keydown', (ev) => {
+            if (ev.key !== 'Escape') return;
+            const createPanel = root.querySelector('[data-create-panel]');
+            if (createPanel && createPanel.classList.contains('open')) { createPanel.classList.remove('open'); return; }
+            const editPanel = root.querySelector('[data-edit-panel]');
+            if (editPanel && editPanel.classList.contains('open')) { editPanel.classList.remove('open'); return; }
         });
-        if (!this._escWired) {
-            this._escWired = true;
-            this._onEsc = (ev) => {
-                if (ev.key === 'Escape' && overlay && overlay.classList.contains('open')) close();
-            };
-            document.addEventListener('keydown', this._onEsc);
-        }
-        this.shadowRoot.addEventListener('datePeriodSelected', (ev) => {
+
+        // Custom events bubble from child components — shadowRoot catches them
+        root.addEventListener('datePeriodSelected', (ev) => {
             const d = ev.detail || {};
-            // type === 'none' → blank meeting (e.g. dblclick); otherwise pre-select the chosen type
             const type = (d.type && d.type !== 'none') ? d.type : '';
             this._openCreate({ date: d.date, time: d.time, type });
         });
-        this.shadowRoot.addEventListener('meeting-create:created', () => {
-            close();
+        root.addEventListener('meeting-create:created', () => {
+            const overlay = root.querySelector('[data-create-panel]');
+            if (overlay) overlay.classList.remove('open');
             this._refresh();
         });
-        this.shadowRoot.addEventListener('meeting-create:cancel', close);
-
-        // Edit overlay wiring
-        const editOverlay = this.shadowRoot.querySelector('[data-edit-panel]');
-        const editCard = this.shadowRoot.querySelector('[data-edit-card]');
-        const editClose = this.shadowRoot.querySelector('[data-edit-close]');
-        const closeEdit = () => { if (editOverlay) editOverlay.classList.remove('open'); };
-        if (editClose) editClose.addEventListener('click', closeEdit);
-        if (editOverlay) editOverlay.addEventListener('click', (ev) => {
-            if (editCard && editCard.contains(ev.target)) return;
-            closeEdit();
+        root.addEventListener('meeting-create:cancel', () => {
+            const overlay = root.querySelector('[data-create-panel]');
+            if (overlay) overlay.classList.remove('open');
         });
-        if (!this._editEscWired) {
-            this._editEscWired = true;
-            this._onEditEsc = (ev) => {
-                if (ev.key === 'Escape' && editOverlay && editOverlay.classList.contains('open')) closeEdit();
-            };
-            document.addEventListener('keydown', this._onEditEsc);
-        }
-        this.shadowRoot.addEventListener('open-item-selected', (ev) => {
+        root.addEventListener('open-item-selected', (ev) => {
             const id = ev.detail && ev.detail.id;
             if (id) this._openEdit(id);
         });
-        this.shadowRoot.addEventListener('meeting-edit:saved', () => {
-            closeEdit();
+        root.addEventListener('meeting-edit:saved', () => {
+            const overlay = root.querySelector('[data-edit-panel]');
+            if (overlay) overlay.classList.remove('open');
             this._refresh();
         });
-        this.shadowRoot.addEventListener('meeting-edit:deleted', () => {
-            closeEdit();
+        root.addEventListener('meeting-edit:deleted', () => {
+            const overlay = root.querySelector('[data-edit-panel]');
+            if (overlay) overlay.classList.remove('open');
             this._refresh();
         });
-        this.shadowRoot.addEventListener('meeting-edit:cancel', closeEdit);
+        root.addEventListener('meeting-edit:cancel', () => {
+            const overlay = root.querySelector('[data-edit-panel]');
+            if (overlay) overlay.classList.remove('open');
+        });
     }
 
     _openEdit(id) {

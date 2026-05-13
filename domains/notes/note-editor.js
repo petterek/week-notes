@@ -1380,7 +1380,7 @@ class NoteEditor extends WNElement {
                 }
                 return out;
             },
-            filter: 'substring',
+            filter: 'starts',
             limit: 10,
             renderItem: (item, query) => {
                 const tag = item.kind === 'company' ? '🏢' : (item.kind === 'me' ? '🙋' : '👤');
