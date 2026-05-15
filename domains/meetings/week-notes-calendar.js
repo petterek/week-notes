@@ -98,6 +98,8 @@ const STYLES = `
     .nav button:hover { background: var(--surface-alt); }
     .new-btn { padding: 3px 12px; border: 1px solid var(--accent); background: var(--accent); color: var(--text-on-accent); border-radius: 5px; cursor: pointer; font: inherit; font-size: 0.9em; }
     .new-btn:hover { background: var(--accent-strong); }
+    .all-ctx-link { display: inline-flex; align-items: center; justify-content: center; padding: 3px 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text-strong); border-radius: 5px; cursor: pointer; font: inherit; font-size: 0.9em; text-decoration: none; }
+    .all-ctx-link:hover { background: var(--surface-alt); }
     .overlay { display: none; position: fixed; inset: 0; background: var(--overlay); z-index: 2000; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; overflow-y: auto; }
     .overlay.open { display: flex; }
     .overlay-card { background: var(--bg); color: var(--text-strong); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 20px 60px var(--shadow); padding: 18px 20px; width: min(520px, 92vw); box-sizing: border-box; font-family: var(--font-family); }
@@ -187,6 +189,7 @@ class WeekNotesCalendar extends WNElement {
                         <button type="button" data-nav="prev" title="Forrige uke">‹</button>
                         <button type="button" data-nav="today">I dag</button>
                         <button type="button" data-nav="next" title="Neste uke">›</button>
+                        <a href="/calendar/all" data-link class="all-ctx-link" title="Vis alle kontekster">🌐</a>
                     </div>
                 </div>
                 <div class="overlay" data-create-panel>
@@ -258,6 +261,17 @@ class WeekNotesCalendar extends WNElement {
             if (navBtn) { this._onNav(navBtn.dataset.nav); return; }
 
             if (ev.target.closest('[data-new]')) { this._openCreate({}); return; }
+
+            const spaLink = ev.target.closest('[data-link]');
+            if (spaLink) {
+                ev.preventDefault();
+                const href = spaLink.getAttribute('href');
+                if (href && window.history) {
+                    window.history.pushState(null, '', href);
+                    window.dispatchEvent(new PopStateEvent('popstate'));
+                }
+                return;
+            }
 
             if (ev.target.closest('[data-overlay-close]')) {
                 const overlay = root.querySelector('[data-create-panel]');

@@ -45,6 +45,11 @@ module.exports = function(deps) {
             res.end(pageHtml('Kalender', ''));
             return;
         }
+        if (pathname === '/calendar/all' || /^\/calendar\/all\/\d{4}-W\d{2}$/.test(pathname)) {
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Set-Cookie': ctxCookie });
+            res.end(pageHtml('Alle kontekster — Kalender', ''));
+            return;
+        }
     }
     };
 };
