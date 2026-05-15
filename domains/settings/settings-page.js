@@ -297,6 +297,7 @@ class SettingsPage extends WNElement {
         this.refresh();
         this._initAppSettings();
         this._initSummarizeSettings();
+        this._initCrossCalSettings();
     }
 
     disconnectedCallback() {
@@ -925,6 +926,51 @@ class SettingsPage extends WNElement {
         openSse();
     }
 
+    async _initCrossCalSettings() {
+        const root = this.shadowRoot;
+        const $ = (k) => root.querySelector(`[data-cc="${k}"]`);
+        const status = $('status');
+        const saveStatus = $('saveStatus');
+        if (!status) return;
+
+        let appSettings = null;
+        const load = async () => {
+            try {
+                const r = await fetch('/api/app-settings');
+                const d = await r.json();
+                appSettings = d.settings;
+                return true;
+            } catch { return false; }
+        };
+        await load();
+
+        const refreshPill = () => {
+            if (!appSettings) return;
+            if (appSettings.crossContextCalendar.enabled) {
+                status.className = 'vs-pill vs-pill-btn vs-pill-ready';
+                status.textContent = 'Aktiv';
+            } else {
+                status.className = 'vs-pill vs-pill-btn vs-pill-disabled';
+                status.textContent = 'Av';
+            }
+        };
+        refreshPill();
+
+        status.addEventListener('click', async () => {
+            if (!appSettings) return;
+            const newEnabled = !appSettings.crossContextCalendar.enabled;
+            saveStatus.textContent = newEnabled ? 'Aktiverer…' : 'Slår av…';
+            try {
+                const body = { crossContextCalendar: { enabled: newEnabled } };
+                const r = await fetch('/api/app-settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                const d = await r.json();
+                saveStatus.textContent = d.ok ? '✓ Lagret' : ('✗ ' + (d.error || 'Feil'));
+                await load(); refreshPill();
+            } catch (e) { saveStatus.textContent = '✗ ' + e.message; }
+            finally { setTimeout(() => { saveStatus.textContent = ''; }, 2500); }
+        });
+    }
+
     render() {
         if (!this.service) return this.renderNoService();
         return html`
@@ -935,6 +981,7 @@ class SettingsPage extends WNElement {
                     <button type="button" class="app-tab" role="tab" data-app-tab="user">👤 Bruker</button>
                     <button type="button" class="app-tab" role="tab" data-app-tab="embeddings">🔍 Søk</button>
                     <button type="button" class="app-tab" role="tab" data-app-tab="summarize">📝 Oppsummer</button>
+                    <button type="button" class="app-tab" role="tab" data-app-tab="crosscal">📅 Kalender</button>
                 </div>
                 <div class="app-tab-panels">
                     <div class="app-tab-panel is-active" data-app-panel="welcome">
@@ -1020,6 +1067,18 @@ class SettingsPage extends WNElement {
                                 </thead>
                                 <tbody data-sm="tbody"><tr><td colspan="6">Laster…</td></tr></tbody>
                             </table>
+                        </div>
+                    </div>
+                    <div class="app-tab-panel" data-app-panel="crosscal">
+                        <div class="app-card">
+                            <div class="app-head">
+                                <strong>📅 Kryss-kontekst kalender</strong>
+                                <button type="button" class="vs-pill vs-pill-disabled vs-pill-btn" data-cc="status" title="Klikk for å slå på/av">Av</button>
+                                <div class="vs-actions">
+                                    <span class="vs-save-status" data-cc="saveStatus"></span>
+                                </div>
+                            </div>
+                            <p class="app-help">Vis møter fra alle kontekster i én samlet kalendervisning. Når aktivert får du en egen side (<code>/calendar/all</code>) og møter fra alle kontekster vises også i dag-kalenderen på hjemmesiden. Møter fra andre kontekster er skrivebeskyttet.</p>
                         </div>
                     </div>
                 </div>
@@ -1154,6 +1213,9 @@ class SettingsPage extends WNElement {
                                 <label>Ikon
                                     <button type="button" data-nc="icon" data-icon-set="context" data-icon-value="📁" class="icon-btn" title="Velg ikon">📁</button>
                                 </label>
+                                <label>Farge
+                                    <input type="color" data-nc="color" value="#4a6fa5" style="width:42px;height:32px;padding:0 2px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;">
+                                </label>
                                 <label>Beskrivelse
                                     <input type="text" data-nc="description" placeholder="Kort beskrivelse">
                                 </label>
@@ -1259,6 +1321,7 @@ class SettingsPage extends WNElement {
             const data = {
                 name: get('name'),
                 icon: get('icon') || '📁',
+                color: get('color') || '#4a6fa5',
                 description: get('description'),
                 remote: get('remote'),
             };
@@ -1347,6 +1410,9 @@ class SettingsPage extends WNElement {
                     <div class="row">
                         <label>Ikon
                             <button type="button" data-f="icon" data-icon-set="context" data-icon-value="${escapeHtml(s.icon || '')}" class="icon-btn" title="Velg ikon">${escapeHtml(s.icon || '·')}</button>
+                        </label>
+                        <label>Farge
+                            <input type="color" data-f="color" value="${escapeHtml(s.color || '#4a6fa5')}" style="width:42px;height:32px;padding:0 2px;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;">
                         </label>
                         <label style="flex:1; min-width:200px">Navn
                             <input type="text" data-f="name" value="${escapeHtml(s.name || '')}">
@@ -1683,6 +1749,7 @@ class SettingsPage extends WNElement {
         const tagsVal = f('availableThemes');
         return {
             icon: f('icon').trim(),
+            color: f('color').trim(),
             name: f('name').trim(),
             description: f('description'),
             remote: (f('remote') || '').trim(),

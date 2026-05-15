@@ -93,11 +93,17 @@ const STYLES = `
     .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 0 2px; }
     .toolbar h1 { font-family: var(--font-heading); font-weight: 400; color: var(--accent); margin: 0; font-size: 1.05em; }
     .range { color: var(--text-muted); font-size: 0.85em; }
+    .filters { display: inline-flex; gap: 4px; padding: 3px; background: var(--surface-alt, #f4ecd6); border: 1px solid var(--border); border-radius: 6px; }
+    .filter-pill { background: transparent; border: 1px solid transparent; padding: 4px 10px; font-size: 0.78em; cursor: pointer; border-radius: 4px; line-height: 1; color: var(--text-muted); font-weight: 500; transition: all 0.12s; white-space: nowrap; font-family: inherit; }
+    .filter-pill.on { background: var(--surface); color: var(--text-strong); border-color: var(--border); box-shadow: 0 1px 2px rgba(60,58,48,0.1); }
+    .filter-pill:hover { color: var(--text); background: var(--surface); }
     .nav { display: flex; gap: 4px; margin-left: auto; }
     .nav button { padding: 3px 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text-strong); border-radius: 5px; cursor: pointer; font: inherit; font-size: 0.9em; }
     .nav button:hover { background: var(--surface-alt); }
     .new-btn { padding: 3px 12px; border: 1px solid var(--accent); background: var(--accent); color: var(--text-on-accent); border-radius: 5px; cursor: pointer; font: inherit; font-size: 0.9em; }
     .new-btn:hover { background: var(--accent-strong); }
+    .all-ctx-link { display: inline-flex; align-items: center; justify-content: center; padding: 3px 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text-strong); border-radius: 5px; cursor: pointer; font: inherit; font-size: 0.9em; text-decoration: none; }
+    .all-ctx-link:hover { background: var(--surface-alt); }
     .overlay { display: none; position: fixed; inset: 0; background: var(--overlay); z-index: 2000; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; overflow-y: auto; }
     .overlay.open { display: flex; }
     .overlay-card { background: var(--bg); color: var(--text-strong); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 20px 60px var(--shadow); padding: 18px 20px; width: min(520px, 92vw); box-sizing: border-box; font-family: var(--font-family); }
@@ -114,8 +120,8 @@ class WeekNotesCalendar extends WNElement {
     css() { return STYLES; }
 
     connectedCallback() {
-        super.connectedCallback();
         this._week = this.getAttribute('week') || this._weekFromUrl() || isoWeekFromDate(new Date());
+        super.connectedCallback();
         this._onSpa = () => {
             const w = this._weekFromUrl() || isoWeekFromDate(new Date());
             if (w !== this._week) { this._week = w; this._refresh(); }
@@ -170,6 +176,18 @@ class WeekNotesCalendar extends WNElement {
                     return { list: list || [], types: types || [] };
                 } catch (_) { return { list: [], types: [] }; }
             },
+            activity: async () => {
+                try {
+                    const monday = isoWeekMonday(this._week);
+                    if (!monday) return [];
+                    const sunday = new Date(monday);
+                    sunday.setUTCDate(monday.getUTCDate() + 6);
+                    const fmt = d => d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate());
+                    const res = await fetch(`/api/calendar-activity?start=${fmt(monday)}&end=${fmt(sunday)}`);
+                    if (!res.ok) return [];
+                    return await res.json();
+                } catch (_) { return []; }
+            },
         };
     }
 
@@ -182,11 +200,19 @@ class WeekNotesCalendar extends WNElement {
                 <div class="toolbar">
                     <h1>📅 Kalender</h1>
                     <span class="range" data-range></span>
+                    <div class="filters" data-filters>
+                        <button type="button" class="filter-pill on" data-kind="all">Alle</button>
+                        <button type="button" class="filter-pill on" data-kind="meeting">📅 Møter</button>
+                        <button type="button" class="filter-pill on" data-kind="task">✅ Oppgaver</button>
+                        <button type="button" class="filter-pill on" data-kind="note">📝 Notater</button>
+                        <button type="button" class="filter-pill on" data-kind="result">🏁 Resultater</button>
+                    </div>
                     <button type="button" class="new-btn" data-new>+ Nytt møte</button>
                     <div class="nav">
                         <button type="button" data-nav="prev" title="Forrige uke">‹</button>
                         <button type="button" data-nav="today">I dag</button>
                         <button type="button" data-nav="next" title="Neste uke">›</button>
+                        <a href="/calendar/all" data-link class="all-ctx-link" title="Vis alle kontekster">🌐</a>
                     </div>
                 </div>
                 <div class="overlay" data-create-panel>
@@ -215,10 +241,21 @@ class WeekNotesCalendar extends WNElement {
             const typeMap = {};
             (meet.types || []).forEach(t => { typeMap[t.key] = t; });
             this._typeMap = typeMap;
-            this._items = (meet.list || []).map(m => meetingToItem(m, typeMap));
+            this._meetingItems = (meet.list || []).map(m => meetingToItem(m, typeMap));
             this._meetingsById = {};
             (meet.list || []).forEach(m => { if (m && m.id) this._meetingsById[m.id] = m; });
             this._lastTypes = meet.types || [];
+            // Map activity to calendar items
+            this._activityItems = (data.activity || []).map(a => ({
+                id: 'act-' + a.id,
+                startDate: a.date + 'T' + (a.time || '00:00'),
+                endDate: a.date + 'T' + addMinutes(a.time || '00:00', 20),
+                heading: a.icon + ' ' + a.title,
+                body: '',
+                type: a.kind,
+                moveable: false,
+            }));
+            this._allItems = [...this._meetingItems, ...this._activityItems];
         }
         return tmpl;
     }
@@ -229,9 +266,11 @@ class WeekNotesCalendar extends WNElement {
     }
 
     _applyData(types) {
-        if (!this._wired) { this._wired = true; this._wireNav(); }
+        if (!this._wired) { this._wired = true; this._wireNav(); this._wireFilters(); }
         const range = this.shadowRoot.querySelector('[data-range]');
         if (range) range.textContent = this._week + ' · ' + weekLabel(this._week);
+        this._updateFilterCounts();
+        this._applyFilters();
         const cal = this.shadowRoot.querySelector('week-calendar');
         if (!cal) return;
         const monday = isoWeekMonday(this._week);
@@ -246,7 +285,7 @@ class WeekNotesCalendar extends WNElement {
             typeId: t.key, icon: t.icon || '', name: t.label || t.key, color: t.color || '', allDay: !!(t.allDay || t.fullDay),
         }));
         cal.eventTypes = eventTypes;
-        if (typeof cal.setItems === 'function') cal.setItems(this._items || []);
+        if (typeof cal.setItems === 'function') cal.setItems(this._filteredItems || this._allItems || []);
     }
 
     _wireNav() {
@@ -258,6 +297,17 @@ class WeekNotesCalendar extends WNElement {
             if (navBtn) { this._onNav(navBtn.dataset.nav); return; }
 
             if (ev.target.closest('[data-new]')) { this._openCreate({}); return; }
+
+            const spaLink = ev.target.closest('[data-link]');
+            if (spaLink) {
+                ev.preventDefault();
+                const href = spaLink.getAttribute('href');
+                if (href && window.history) {
+                    window.history.pushState(null, '', href);
+                    window.dispatchEvent(new PopStateEvent('popstate'));
+                }
+                return;
+            }
 
             if (ev.target.closest('[data-overlay-close]')) {
                 const overlay = root.querySelector('[data-create-panel]');
@@ -325,6 +375,79 @@ class WeekNotesCalendar extends WNElement {
         root.addEventListener('meeting-edit:cancel', () => {
             const overlay = root.querySelector('[data-edit-panel]');
             if (overlay) overlay.classList.remove('open');
+        });
+    }
+
+    _wireFilters() {
+        const KEY = 'calActivityFilter';
+        const KINDS = ['meeting', 'task', 'note', 'result'];
+        try { this._filterState = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (_) { this._filterState = {}; }
+        const root = this.shadowRoot;
+        root.addEventListener('click', (ev) => {
+            const pill = ev.target.closest('.filter-pill');
+            if (!pill) return;
+            const k = pill.dataset.kind;
+            if (k === 'all') {
+                // "Alle" resets all to visible
+                KINDS.forEach(x => { delete this._filterState[x]; });
+            } else {
+                this._filterState[k] = !(this._filterState[k] !== false);
+            }
+            try { localStorage.setItem(KEY, JSON.stringify(this._filterState)); } catch (_) {}
+            this._applyFilters();
+            this._updateFilterPillStates();
+            // Re-set items on the calendar
+            const cal = root.querySelector('week-calendar');
+            if (cal && typeof cal.setItems === 'function') cal.setItems(this._filteredItems || []);
+        });
+    }
+
+    _updateFilterCounts() {
+        const meetings = this._meetingItems || [];
+        const activity = this._activityItems || [];
+        const counts = { meeting: meetings.length, task: 0, note: 0, result: 0 };
+        for (const a of activity) { if (counts[a.type] !== undefined) counts[a.type]++; }
+        const root = this.shadowRoot;
+        if (!root) return;
+        const pills = root.querySelectorAll('.filter-pill');
+        pills.forEach(p => {
+            const k = p.dataset.kind;
+            if (k === 'all') {
+                const total = counts.meeting + counts.task + counts.note + counts.result;
+                p.textContent = 'Alle' + (total ? ' ' + total : '');
+            } else if (k === 'meeting') p.textContent = '📅 Møter' + (counts.meeting ? ' ' + counts.meeting : '');
+            else if (k === 'task') p.textContent = '✅ Oppgaver' + (counts.task ? ' ' + counts.task : '');
+            else if (k === 'note') p.textContent = '📝 Notater' + (counts.note ? ' ' + counts.note : '');
+            else if (k === 'result') p.textContent = '🏁 Resultater' + (counts.result ? ' ' + counts.result : '');
+        });
+        this._updateFilterPillStates();
+    }
+
+    _updateFilterPillStates() {
+        const KINDS = ['meeting', 'task', 'note', 'result'];
+        const st = this._filterState || {};
+        const allOn = KINDS.every(k => st[k] !== false);
+        const root = this.shadowRoot;
+        if (!root) return;
+        root.querySelectorAll('.filter-pill').forEach(p => {
+            const k = p.dataset.kind;
+            if (k === 'all') p.classList.toggle('on', allOn);
+            else p.classList.toggle('on', st[k] !== false);
+        });
+    }
+
+    _applyFilters() {
+        const st = this._filterState || {};
+        const all = this._allItems || [];
+        const MEETING_TYPES = Object.keys(this._typeMap || {});
+        this._filteredItems = all.filter(item => {
+            // Meeting items have type = meetingType key (e.g. "standup", "review")
+            // Activity items have type = "task"/"note"/"result"
+            if (item.type === 'task' || item.type === 'note' || item.type === 'result') {
+                return st[item.type] !== false;
+            }
+            // Otherwise it's a meeting (type is the meeting-type key like "standup")
+            return st.meeting !== false;
         });
     }
 

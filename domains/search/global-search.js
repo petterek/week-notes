@@ -44,12 +44,25 @@ function ensureStyles() {
         global-search .gs-trigger .gs-trigger-kbd { font-family: var(--font-mono); font-size: 0.78em; background: var(--bg); border: 1px solid var(--border-soft); border-radius: 3px; padding: 1px 5px; opacity: 0.85; }
         global-search .page-modal { display: none; position: fixed; inset: 0; background: var(--overlay); z-index: 1000; align-items: center; justify-content: center; }
         global-search .gs-card { background: var(--bg); border: 1px solid var(--border-soft); border-radius: 10px; padding: 18px 20px; width: min(720px, 92vw); max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px var(--shadow); }
-        global-search .gs-input-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+        global-search .gs-input-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
         global-search .gs-mode { display: inline-flex; align-items: center; gap: 4px; font-size: 0.85em; color: var(--text-muted); cursor: pointer; user-select: none; white-space: nowrap; }
         global-search .gs-mode input { margin: 0; }
         global-search .gs-input { flex: 1; font-size: 1.05em; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-strong); outline: none; }
         global-search .gs-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent); }
         global-search .gs-close { background: none; border: none; font-size: 1.3em; cursor: pointer; color: var(--text-muted); }
+        global-search .gs-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+        global-search .gs-filter { display: inline-flex; align-items: center; gap: 3px; font-size: 0.8em; padding: 3px 8px; border-radius: 12px; border: 1px solid var(--border-soft); background: var(--surface); color: var(--text-muted); cursor: pointer; user-select: none; transition: all .15s; }
+        global-search .gs-filter:hover { border-color: var(--accent); color: var(--text); }
+        global-search .gs-filter.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-strong); font-weight: 600; }
+        global-search .gs-filter .gs-f-count { font-weight: 400; opacity: 0.7; }
+        global-search .gs-help-toggle { font-size: 0.8em; color: var(--text-subtle); cursor: pointer; margin-left: auto; user-select: none; }
+        global-search .gs-help-toggle:hover { color: var(--accent); }
+        global-search .gs-help { display: none; background: var(--surface); border: 1px solid var(--border-faint); border-radius: 8px; padding: 12px 16px; margin-bottom: 10px; font-size: 0.82em; color: var(--text-muted); line-height: 1.6; }
+        global-search .gs-help.open { display: block; }
+        global-search .gs-help table { width: 100%; border-collapse: collapse; }
+        global-search .gs-help th { text-align: left; font-weight: 600; color: var(--text); padding: 2px 8px 2px 0; white-space: nowrap; }
+        global-search .gs-help td { padding: 2px 0; }
+        global-search .gs-help code { background: var(--surface-alt); padding: 1px 4px; border-radius: 3px; font-size: 0.95em; }
         global-search .gs-results { overflow-y: auto; flex: 1; padding-right: 4px; }
         global-search .gs-hint { color: var(--text-subtle); font-size: 0.8em; margin-top: 6px; }
         global-search .search-result { padding: 12px 18px; margin: 8px 0; background: var(--surface); border-radius: 8px; border-left: 4px solid var(--accent); cursor: pointer; }
@@ -99,8 +112,27 @@ class GlobalSearch extends WNElement {
                         </label>
                         <button class="gs-close" title="Lukk (Esc)" type="button">✕</button>
                     </div>
+                    <div class="gs-toolbar" id="gsToolbar">
+                        <button type="button" class="gs-filter active" data-gs-type="all">Alle</button>
+                        <button type="button" class="gs-filter" data-gs-type="note">📝 Notater</button>
+                        <button type="button" class="gs-filter" data-gs-type="task">✅ Oppgaver</button>
+                        <button type="button" class="gs-filter" data-gs-type="meeting">📅 Møter</button>
+                        <button type="button" class="gs-filter" data-gs-type="person">👤 Personer</button>
+                        <button type="button" class="gs-filter" data-gs-type="result">🏁 Resultater</button>
+                        <span class="gs-help-toggle" id="gsHelpToggle" title="Søkehjelp">❓ Hjelp</span>
+                    </div>
+                    <div class="gs-help" id="gsHelp">
+                        <table>
+                            <tr><th>Flere ord</th><td>Implisitt <code>AND</code> — alle ord må finnes</td></tr>
+                            <tr><th><code>OR</code></th><td><code>arena OR kelvin</code> — ett av ordene</td></tr>
+                            <tr><th><code>NOT</code> / <code>-</code></th><td><code>migrering NOT arena</code> eller <code>migrering -arena</code></td></tr>
+                            <tr><th><code>NEAR</code></th><td><code>arena NEAR kelvin</code> — innen 5 ord. <code>NEAR/2</code> for avstand 2</td></tr>
+                            <tr><th><code>"frase"</code></th><td><code>"lage sak"</code> — eksakt ordrekkefølge</td></tr>
+                            <tr><th><code>( )</code></th><td><code>(arena OR kelvin) AND migrering</code> — gruppering</td></tr>
+                        </table>
+                    </div>
                     <div id="gsResults" class="gs-results"></div>
-                    <div class="gs-hint">↵ åpne første · Esc lukk</div>
+                    <div class="gs-hint">↵ åpne første · Esc lukk · / eller Ctrl+K åpne</div>
                 </div>
             </div>
         `;
@@ -111,6 +143,29 @@ class GlobalSearch extends WNElement {
         const embedToggle = this.querySelector('#gsEmbed');
         const resultsEl = this.querySelector('#gsResults');
         const closeBtn = this.querySelector('.gs-close');
+        const toolbar = this.querySelector('#gsToolbar');
+        const helpToggle = this.querySelector('#gsHelpToggle');
+        const helpPanel = this.querySelector('#gsHelp');
+
+        // Type filter state
+        let activeFilter = 'all';
+        let lastRawData = [];
+
+        // Help toggle
+        helpToggle.addEventListener('click', () => {
+            helpPanel.classList.toggle('open');
+            try { localStorage.setItem('gs.help', helpPanel.classList.contains('open') ? '1' : '0'); } catch {}
+        });
+        try { if (localStorage.getItem('gs.help') === '1') helpPanel.classList.add('open'); } catch {}
+
+        // Filter buttons
+        toolbar.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-gs-type]');
+            if (!btn) return;
+            activeFilter = btn.dataset.gsType;
+            toolbar.querySelectorAll('.gs-filter').forEach(b => b.classList.toggle('active', b.dataset.gsType === activeFilter));
+            rerenderFiltered();
+        });
 
         try { embedToggle.checked = localStorage.getItem('gs.embed') === '1'; } catch {}
 
@@ -133,9 +188,45 @@ class GlobalSearch extends WNElement {
         let debounceTimer = null;
         let lastQuery = '';
 
+        const updateFilterCounts = (data) => {
+            const counts = {};
+            data.forEach(r => { counts[r.type] = (counts[r.type] || 0) + 1; });
+            toolbar.querySelectorAll('.gs-filter').forEach(btn => {
+                const t = btn.dataset.gsType;
+                const countEl = btn.querySelector('.gs-f-count');
+                if (t === 'all') {
+                    if (countEl) countEl.textContent = data.length ? ` ${data.length}` : '';
+                    else if (data.length) btn.innerHTML = `Alle <span class="gs-f-count">${data.length}</span>`;
+                } else {
+                    const c = counts[t] || 0;
+                    const meta = TYPE_META[t];
+                    btn.innerHTML = `${meta ? meta.icon : ''} ${meta ? meta.label : t}${c ? ` <span class="gs-f-count">${c}</span>` : ''}`;
+                }
+            });
+        };
+
         const render = (data, q) => {
+            lastRawData = data || [];
+            updateFilterCounts(lastRawData);
+            const filtered = activeFilter === 'all' ? lastRawData : lastRawData.filter(r => r.type === activeFilter);
+            renderResults(filtered, q);
+        };
+
+        const rerenderFiltered = () => {
+            const q = input.value.trim();
+            const filtered = activeFilter === 'all' ? lastRawData : lastRawData.filter(r => r.type === activeFilter);
+            renderResults(filtered, q);
+        };
+
+        const renderResults = (data, q) => {
             if (!data || data.length === 0) {
-                resultsEl.innerHTML = `<p style="color:var(--text-muted);font-style:italic">Ingen treff for «${escapeHtml(q)}»</p>`;
+                const totalCount = lastRawData.length;
+                if (activeFilter !== 'all' && totalCount > 0) {
+                    const meta = TYPE_META[activeFilter] || {};
+                    resultsEl.innerHTML = `<p style="color:var(--text-muted);font-style:italic">Ingen ${meta.label || activeFilter} for «${escapeHtml(q)}» (${totalCount} treff i andre typer)</p>`;
+                } else {
+                    resultsEl.innerHTML = `<p style="color:var(--text-muted);font-style:italic">Ingen treff for «${escapeHtml(q)}»</p>`;
+                }
                 return;
             }
             const groups = {};
@@ -189,7 +280,7 @@ class GlobalSearch extends WNElement {
 
         const doSearch = (q) => {
             lastQuery = q;
-            if (!q) { resultsEl.innerHTML = ''; return; }
+            if (!q) { resultsEl.innerHTML = ''; lastRawData = []; updateFilterCounts([]); return; }
             const svc = this.service;
             const useEmbed = !!embedToggle.checked;
             const fn = useEmbed ? svc && svc.embedSearch : svc && svc.search;

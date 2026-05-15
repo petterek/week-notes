@@ -21,6 +21,7 @@ export const MeetingsService = {
         const params = new URLSearchParams();
         if (filter.week) params.set('week', filter.week);
         if (filter.upcoming != null) params.set('upcoming', String(filter.upcoming));
+        if (filter.allContexts) params.set('allContexts', '1');
         const qs = params.toString();
         return req('GET', qs ? `${BASE}?${qs}` : BASE);
     },

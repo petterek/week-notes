@@ -51,6 +51,7 @@ const STYLES = `
     .ctx-item.active { color: var(--accent); font-weight: 600; background: var(--accent-soft); }
     .ctx-item.active:hover { background: var(--accent-soft); filter: brightness(0.96); }
     .ctx-item .ctx-icon { width: 1.2em; text-align: center; }
+    .ctx-color-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
     .ctx-sep { height: 1px; background: var(--border-soft, var(--border)); margin: 4px 0; }
     .ctx-empty { padding: 8px 10px; color: var(--text-muted); font-style: italic; font-size: 0.9em; }
 `;
@@ -69,6 +70,9 @@ function ctxLabel(c) {
 }
 function ctxIcon(c) {
     return (c.settings && c.settings.icon) || c.icon || '📁';
+}
+function ctxColor(c) {
+    return (c.settings && c.settings.color) || '';
 }
 
 class CtxSwitcher extends WNElement {
@@ -143,9 +147,13 @@ class CtxSwitcher extends WNElement {
             </button>`;
 
         const items = s.contexts.length
-            ? s.contexts.map(c => html`<button type="button" class="ctx-item ${c.id === s.active ? 'active' : ''}" data-act="switch" data-id="${c.id}">
-                <span class="ctx-icon">${ctxIcon(c)}</span><span>${ctxLabel(c)}</span>
-            </button>`)
+            ? s.contexts.map(c => {
+                const color = ctxColor(c);
+                const dot = color ? html`<span class="ctx-color-dot" style="background:${color}"></span>` : '';
+                return html`<button type="button" class="ctx-item ${c.id === s.active ? 'active' : ''}" data-act="switch" data-id="${c.id}">
+                    <span class="ctx-icon">${ctxIcon(c)}</span>${dot}<span>${ctxLabel(c)}</span>
+                </button>`;
+            })
             : html`<div class="ctx-empty">Ingen kontekster</div>`;
 
         const commit = s.active

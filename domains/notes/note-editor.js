@@ -465,6 +465,9 @@ class NoteEditor extends WNElement {
         this._contentEl.addEventListener('keydown', saveKeyHandler);
         this._docKeyHandler = (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                // Only handle if the event originated inside this editor
+                const path = (typeof e.composedPath === 'function') ? e.composedPath() : [e.target];
+                if (!path.some(n => n === this || n === this.shadowRoot)) return;
                 e.preventDefault();
                 this.save(true);
                 return;

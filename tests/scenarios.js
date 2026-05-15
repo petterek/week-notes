@@ -528,6 +528,151 @@
                 ctx.assert(ta.value === 'cancel ', 'textarea unchanged after Escape, got ' + ta.value);
             },
         },
+
+        // ---- overdue tasks sort to top with visual indicator ----
+        {
+            id: 'task-open-list-overdue-sort',
+            name: 'task-open-list sorts overdue tasks to top with .overdue class',
+            url: '/debug/task-open-list',
+            run: async function (ctx) {
+                var doc = ctx.doc;
+                var list = await ctx.waitFor(function () { return doc.querySelector('task-open-list'); }, { label: 'task-open-list element' });
+                var rows = await ctx.waitFor(function () {
+                    var sr = list.shadowRoot;
+                    if (!sr) return null;
+                    var n = sr.querySelectorAll('.sidebar-task');
+                    return n.length >= 4 ? n : null;
+                }, { label: 'open task rows (>=4)' });
+
+                // t7 has dueDate in the past → should be first and have .overdue
+                var firstText = rows[0].textContent;
+                ctx.assert(/faktura/i.test(firstText), 'first task should be overdue "faktura" task, got: ' + firstText.trim().slice(0, 60));
+                ctx.assert(rows[0].classList.contains('overdue'), 'first row should have .overdue class');
+
+                // non-overdue rows should NOT have .overdue
+                var nonOverdue = 0;
+                for (var i = 1; i < rows.length; i++) {
+                    if (!rows[i].classList.contains('overdue')) nonOverdue++;
+                }
+                ctx.assert(nonOverdue >= 1, 'at least one non-overdue row should exist');
+            },
+        },
+
+        // ---- today-calendar renders a grid ----
+        {
+            id: 'today-calendar-renders-grid',
+            name: 'today-calendar renders the mini calendar grid',
+            url: '/debug/today-calendar',
+            run: async function (ctx) {
+                var doc = ctx.doc;
+                var tc = await ctx.waitFor(function () { return doc.querySelector('today-calendar'); }, { label: 'today-calendar element' });
+                // Wait for the inner week-calendar to appear and render its grid
+                await ctx.waitFor(function () {
+                    var sr = tc.shadowRoot;
+                    if (!sr) return null;
+                    var wc = sr.querySelector('week-calendar');
+                    if (!wc || !wc.shadowRoot) return null;
+                    return wc.shadowRoot.querySelector('.grid');
+                }, { label: 'week-calendar grid rendered', timeout: 5000 });
+
+                // Verify heading includes today's date text
+                var sr = tc.shadowRoot;
+                var heading = sr.querySelector('h3, .heading, [class*="head"]');
+                ctx.assert(heading, 'today-calendar should have a heading element');
+                var headText = heading.textContent.trim();
+                ctx.assert(headText.length > 0, 'heading should contain text');
+                ctx.assert(/dag|mon|tir|ons|tor|fre|lør|søn/i.test(headText), 'heading should contain a day name, got: ' + headText);
+            },
+        },
+
+        // ---- ctx-switcher shows color dots ----
+        {
+            id: 'ctx-switcher-color-dots',
+            name: 'ctx-switcher renders color dots for contexts with a color',
+            url: '/debug/ctx-switcher',
+            run: async function (ctx) {
+                var doc = ctx.doc;
+                var cs = await ctx.waitFor(function () { return doc.querySelector('ctx-switcher'); }, { label: 'ctx-switcher element' });
+                await ctx.waitFor(function () {
+                    var sr = cs.shadowRoot;
+                    return sr && sr.textContent && sr.textContent.trim().length > 0;
+                }, { label: 'ctx-switcher rendered' });
+
+                // Open the dropdown
+                var sr = cs.shadowRoot;
+                var trigger = sr.querySelector('.ctx-trigger');
+                if (trigger) trigger.click();
+                await ctx.waitFor(function () {
+                    return sr.querySelectorAll('.ctx-item').length >= 3;
+                }, { label: 'context items visible', timeout: 3000 });
+
+                // Check for color dots
+                var dots = sr.querySelectorAll('.ctx-color-dot');
+                ctx.assert(dots.length >= 2, 'expected >=2 color dots in dropdown, got ' + dots.length);
+            },
+        },
+
+        // ---- settings page renders app-level tabs ----
+        {
+            id: 'settings-page-app-tabs',
+            name: 'settings-page renders app-level tabs including Kalender',
+            url: '/debug/settings-page',
+            run: async function (ctx) {
+                var doc = ctx.doc;
+                var sp = await ctx.waitFor(function () { return doc.querySelector('settings-page'); }, { label: 'settings-page element' });
+                // Wait for the component to finish rendering
+                await ctx.waitFor(function () {
+                    var sr = sp.shadowRoot;
+                    if (!sr) return null;
+                    // The settings page should have rendered its tab bar
+                    var tabs = sr.querySelectorAll('.app-tab, [data-app-tab], .tab-btn, button');
+                    return tabs.length >= 3 ? tabs : null;
+                }, { label: 'settings tabs rendered', timeout: 5000 });
+
+                // Find the Kalender tab specifically
+                var sr = sp.shadowRoot;
+                var allText = sr.textContent || '';
+                ctx.assert(/Kalender|📅/i.test(allText), 'settings page should contain Kalender tab text');
+            },
+        },
+
+        // ---- goals-page master/detail layout ----
+        {
+            id: 'goals-page-master-detail',
+            name: 'goals-page renders master list and detail pane',
+            url: '/debug/goals-page',
+            run: async function (ctx) {
+                var doc = ctx.doc;
+                var gp = await ctx.waitFor(function () { return doc.querySelector('goals-page'); }, { label: 'goals-page element' });
+                // Wait for goals to load and render
+                var masterItems = await ctx.waitFor(function () {
+                    var sr = gp.shadowRoot;
+                    if (!sr) return null;
+                    var items = sr.querySelectorAll('.gp-item');
+                    return items.length >= 2 ? items : null;
+                }, { label: 'goal items rendered', timeout: 5000 });
+
+                ctx.assert(masterItems.length >= 2, 'expected >=2 goal items, got ' + masterItems.length);
+
+                // Verify master panel exists
+                var sr = gp.shadowRoot;
+                var master = sr.querySelector('.gp-master');
+                ctx.assert(master, 'master panel (.gp-master) should exist');
+
+                // Verify detail pane exists
+                var detail = sr.querySelector('.gp-detail-pane');
+                ctx.assert(detail, 'detail pane (.gp-detail-pane) should exist');
+
+                // An active goal should be auto-selected — detail should have content
+                await ctx.waitFor(function () {
+                    return detail.textContent.trim().length > 10;
+                }, { label: 'detail pane populated', timeout: 3000 });
+
+                // The detail should show the first active goal's title
+                var detailText = detail.textContent;
+                ctx.assert(/Lansere|plattformen|omsetning/i.test(detailText), 'detail should show a goal title');
+            },
+        },
     ];
 
     if (typeof module !== 'undefined' && module.exports) {

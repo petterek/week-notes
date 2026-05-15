@@ -390,7 +390,7 @@ the next handler.
   `scripts/migrate-context.js` should use the `appliesBeforeTag('vN')`
   helper so contexts whose `.week-notes` marker pre-dates the tag get
   migrated; never hard-code arbitrary commit SHAs in `appliesTo`.
-  Current tags: `v1` → `fc809ad`, `v2` → `1d083d8`, `v3` → `c93b3cf`, `v4` → `83bbea3`, `v4.1` → `686d485`, `v4.2` → `080a9a5`, `v4.3` → `4a6c697`, `v4.4` → `3969f59`, `v4.5` → `f17a9e5`, `v4.6` → `b065c1d`, `v4.7` → `afc8c47`, `v4.8` → `fa309a7`, `v4.9` → `7936505`, `v4.10` → `5ed4687`, `v4.11` → `7ace181`, `v4.12` → `e180949`, `v4.13` → `294a756`, `v4.14` → `05ad649`, `v4.15` → `851ce50`.
+  Current tags: `v1` → `fc809ad`, `v2` → `1d083d8`, `v3` → `c93b3cf`, `v4` → `83bbea3`, `v4.1` → `686d485`, `v4.2` → `080a9a5`, `v4.3` → `4a6c697`, `v4.4` → `3969f59`, `v4.5` → `f17a9e5`, `v4.6` → `b065c1d`, `v4.7` → `afc8c47`, `v4.8` → `fa309a7`, `v4.9` → `7936505`, `v4.10` → `5ed4687`, `v4.11` → `7ace181`, `v4.12` → `e180949`, `v4.13` → `294a756`, `v4.14` → `05ad649`, `v4.15` → `851ce50`, `v4.16` → `f0d0bdb`.
 
 ---
 
@@ -414,8 +414,9 @@ the next handler.
 
 ## Bug fixing workflow
 
-When you find or are told about a bug, **reproduce it under test before
-fixing it**. Concretely:
+**Every bug fix MUST include a regression test.** No exceptions without
+explicit justification. The test proves the bug existed and prevents it
+from returning.
 
 1. Add a failing scenario to `tests/scenarios.js` (or a Playwright spec
    under `tests/playwright/` if it's page-level) that demonstrates the
@@ -424,6 +425,8 @@ fixing it**. Concretely:
 3. Re-run the test and confirm it passes. Run the full suite
    (`npm test`) before considering it done.
 4. Leave the test in place — it's now a regression guard.
+5. The commit message should reference the test (e.g.
+   "fix: X was broken — added regression test").
 
 If a bug genuinely cannot be expressed as a UI/component test (e.g.
 build-time concern, infra), say so explicitly and document why; don't

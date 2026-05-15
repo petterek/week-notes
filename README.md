@@ -186,6 +186,19 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-05-15 (v4.17 — Alt+C opprett-modal + avansert søk + krysskontext-kalender)
+- **Global `Alt+C` opprett-modal:** kommandopalett for hurtigoppretting av notat, oppgave, møte, resultat, mål eller person fra enhver side. Alle handlinger (unntatt notat) åpner inline-modaler uten å navigere vekk.
+- **Multi-term søkemotor:** støtte for AND, OR, NOT, NEAR og eksakte fraser (`"…"`). Ny BM25-basert scoring med proximity boost.
+- **Type-filterpiller i global søk:** filtrer resultater etter note/task/result/goal/person/meeting. Søkehjelp-tekst i modalen.
+- **Kalender type-filterpiller:** vis/skjul oppgaver og resultater i kalendervisningen med egne filter-pills.
+- **Krysskontext-kalender:** se møter fra alle kontekster samlet i kalendervisningen. Krysskontext-møter vises også i sidebar-widgetene på hjemmesiden.
+- **Mål-side master/detail-layout:** listevisning med detaljpanel, tilsvarende folk- og innstillinger-sidene.
+- **Overdue-varsler + noteSnippet strippes for markdown:** oppgaver forfalt etter deadline synliggjøres visuelt, og notekortkort viser ren tekst uten markdown-syntaks.
+- **Kompakt sidebar:** tettere oppgaverader, skjuler tomme møteseksjoner.
+- **Fix: Ctrl+Enter i oppgave-modal navigerer ikke lenger til hjem** på editor-siden (note-editor's document-listener begrenset til egne events).
+- **Fix: BM25-søkeindeks leser entiteter fra per-entitet-mapper** (ikke bare legacy-flatfiler).
+- **8 nye tester** for nylige features (33 totalt).
+
 ### 2026-05-13 (v4.16 — kalender-navigasjon + mention-filter)
 - **Kalender prev/next/i dag fungerer gjentatte ganger:** hendelseslyttere er flyttet til `shadowRoot` med event-delegering, slik at de overlever DOM-utskifting ved `innerHTML`-render.
 - **@mention-autocomplete filtrerer fra starten av navnet** (prefix) i stedet for substring. `@pe` matcher nå "Peter" men ikke "Jasper".

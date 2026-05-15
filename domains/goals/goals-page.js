@@ -24,13 +24,14 @@ const STATUS_ORDER = ['active', 'achieved', 'abandoned'];
 
 const STYLES = `
     :host { display: block; padding: 20px 24px; box-sizing: border-box; color: var(--text-strong); font: inherit; }
-    .gp { max-width: 920px; }
-    .gp-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 8px; flex-wrap: wrap; }
+    body:has(goals-page) { max-width: none; }
+    .gp { display: flex; flex-direction: column; height: calc(100vh - 100px); min-height: 400px; }
+    .gp-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 8px; flex-wrap: wrap; flex: 0 0 auto; }
     .gp-head h1 {
         margin: 0; font-family: var(--font-heading, Georgia, serif);
         font-weight: 400; color: var(--accent);
     }
-    .gp-hint { color: var(--text-subtle); font-size: 0.85em; margin: 0 0 24px; }
+    .gp-hint { color: var(--text-subtle); font-size: 0.85em; margin: 0 0 12px; flex: 0 0 auto; }
 
     .gp-btn-primary {
         background: var(--accent); color: var(--surface, #fff);
@@ -39,43 +40,73 @@ const STYLES = `
     }
     .gp-btn-primary:hover { filter: brightness(0.95); }
 
-    .gp-section { margin-bottom: 32px; }
+    /* --- master/detail layout --- */
+    .gp-body { display: flex; gap: 0; flex: 1 1 auto; min-height: 0; border: 1px solid var(--border-soft); border-radius: 10px; overflow: hidden; }
+    .gp-master {
+        width: 320px; flex: 0 0 320px;
+        border-right: 1px solid var(--border-soft);
+        overflow-y: auto; background: var(--bg);
+    }
+    .gp-detail-pane {
+        flex: 1 1 auto; min-width: 0;
+        overflow-y: auto; padding: 24px 28px;
+        background: var(--surface);
+    }
+
+    /* --- master list --- */
+    .gp-section { margin: 0; }
     .gp-section-h {
-        color: var(--accent); font-size: 0.95em; font-weight: 700;
-        text-transform: uppercase; letter-spacing: 0.05em;
-        margin: 0 0 10px; padding-bottom: 6px;
-        border-bottom: 2px solid var(--border-soft);
+        color: var(--text-muted); font-size: 0.72em; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.06em;
+        margin: 0; padding: 10px 14px 4px;
+        border-bottom: 1px solid var(--border-faint, var(--border-soft));
+        display: flex; align-items: center; gap: 8px;
+        position: sticky; top: 0; background: var(--bg); z-index: 1;
+    }
+    .gp-section-h .c { color: var(--text-subtle); font-size: 0.95em; font-weight: 500; }
+
+    .gp-item {
         display: flex; align-items: center; gap: 10px;
+        padding: 10px 14px; cursor: pointer;
+        border-bottom: 1px solid var(--border-faint, var(--border-soft));
+        transition: background 0.12s;
     }
-    .gp-section-h .c { color: var(--text-subtle); font-size: 0.85em; font-weight: 500; }
+    .gp-item:hover { background: var(--surface-alt); }
+    .gp-item.selected { background: var(--accent-soft); border-left: 3px solid var(--accent); padding-left: 11px; }
+    .gp-item.achieved { opacity: 0.75; }
+    .gp-item.abandoned { opacity: 0.55; }
+    .gp-item-icon { flex: 0 0 auto; font-size: 1.05em; }
+    .gp-item-body { flex: 1; min-width: 0; }
+    .gp-item-title { font-weight: 600; font-size: 0.92em; color: var(--text-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .gp-item-sub { font-size: 0.78em; color: var(--text-subtle); display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+    .gp-item-bar { width: 50px; height: 4px; background: var(--surface-head); border-radius: 2px; overflow: hidden; flex: 0 0 auto; }
+    .gp-item-bar > i { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
 
-    .gp-card {
-        background: var(--surface); border: 1px solid var(--border-soft);
-        border-left: 4px solid var(--accent); border-radius: 8px;
-        padding: 14px 18px; margin-bottom: 10px;
+    /* --- detail pane --- */
+    .gp-dp-empty { color: var(--text-subtle); font-style: italic; padding: 40px 0; text-align: center; }
+    .gp-dp-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+    .gp-dp-title {
+        flex: 1; margin: 0;
+        font-family: var(--font-heading, Georgia, serif);
+        font-weight: 400; font-size: 1.5em; color: var(--accent);
     }
-    .gp-card.achieved { border-left-color: var(--accent-strong, var(--accent)); opacity: 0.92; }
-    .gp-card.abandoned { border-left-color: var(--text-subtle); opacity: 0.7; }
-
-    .gp-row { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 6px; }
-    .gp-title { flex: 1; font-size: 1.05em; font-weight: 600; color: var(--text-strong); }
     .gp-act {
         background: none; border: none; cursor: pointer;
-        font-size: 1em; padding: 2px 6px; border-radius: 4px;
+        font-size: 1em; padding: 4px 8px; border-radius: 4px;
         font-family: inherit; color: var(--text-muted);
     }
     .gp-act:hover { background: var(--surface-head); }
-    .gp-del { color: #c53030; }
+    .gp-del { color: var(--danger, #c53030); }
     .gp-desc {
-        color: var(--text-muted); font-size: 0.92em; line-height: 1.45;
-        white-space: pre-wrap; word-break: break-word; margin: 6px 0 8px;
+        color: var(--text-muted); font-size: 0.95em; line-height: 1.5;
+        white-space: pre-wrap; word-break: break-word; margin: 0 0 16px;
     }
     .gp-meta {
         display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-        font-size: 0.82em; color: var(--text-subtle);
+        font-size: 0.85em; color: var(--text-subtle); margin-bottom: 20px;
     }
     .gp-meta .due { color: var(--text-muted-warm, var(--text-muted)); }
-    .gp-meta .due.overdue { color: #c53030; font-weight: 600; }
+    .gp-meta .due.overdue { color: var(--danger, #c53030); font-weight: 600; }
     .gp-people { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
     .gp-people .gp-person {
         display: inline-flex; align-items: center; padding: 1px 8px;
@@ -98,10 +129,10 @@ const STYLES = `
     }
     .gp-value {
         display: flex; align-items: center; gap: 10px;
-        margin: 6px 0 8px; font-size: 0.92em;
+        margin: 0 0 16px; font-size: 0.95em;
     }
     .gp-value .gp-vbar {
-        flex: 1; max-width: 220px; height: 8px;
+        flex: 1; max-width: 260px; height: 8px;
         background: var(--surface-head); border-radius: 4px; overflow: hidden;
         position: relative;
     }
@@ -117,17 +148,8 @@ const STYLES = `
     .gp-loading, .gp-error { padding: 24px; text-align: center; color: var(--text-muted); font-style: italic; }
     .gp-error { color: var(--danger, #c0392b); }
 
-    .gp-card .gp-title { cursor: pointer; user-select: none; }
-    .gp-chev {
-        display: inline-block; transition: transform 0.15s;
-        margin-right: 4px; color: var(--text-subtle); font-size: 0.85em;
-    }
-    .gp-card.expanded .gp-chev { transform: rotate(90deg); }
-
     .gp-detail {
-        margin-top: 12px; padding-top: 12px;
-        border-top: 1px dashed var(--border-soft);
-        display: flex; flex-direction: column; gap: 14px;
+        display: flex; flex-direction: column; gap: 20px;
     }
     .gp-detail h4 {
         margin: 0 0 6px; font-size: 0.85em; font-weight: 700;
@@ -212,7 +234,7 @@ class GoalsPage extends WNElement {
         this._state = null;
         this._error = null;
         this._modal = null;
-        this._expanded = new Set();
+        this._selectedId = null;
     }
 
     css() { return STYLES; }
@@ -221,7 +243,7 @@ class GoalsPage extends WNElement {
         super.connectedCallback();
         this._wire();
         const m = (location.hash || '').match(/^#g-(.+)$/);
-        if (m) this._expanded.add(decodeURIComponent(m[1]));
+        if (m) this._selectedId = decodeURIComponent(m[1]);
         if (!this._kbWired) {
             this._kbWired = true;
             this._onKey = this._onKey.bind(this);
@@ -309,8 +331,16 @@ class GoalsPage extends WNElement {
     _onClick(e) {
         const path = e.composedPath();
         if (path.find(n => n.id === 'gpNewBtn')) { this._openNew(); return; }
-        const expandBtn = path.find(n => n.classList && n.classList.contains('gp-expand'));
-        if (expandBtn) { this._toggleExpanded(expandBtn.dataset.id); return; }
+        const item = path.find(n => n.classList && n.classList.contains('gp-item'));
+        if (item && item.dataset.id) {
+            // don't select if clicking an action button inside the item
+            if (!path.find(n => n.classList && (n.classList.contains('gp-act') || n.classList.contains('gp-del')))) {
+                this._selectedId = item.dataset.id;
+                history.replaceState(null, '', '#g-' + encodeURIComponent(item.dataset.id));
+                this.requestRender();
+                return;
+            }
+        }
         const editBtn = path.find(n => n.classList && n.classList.contains('gp-edit'));
         if (editBtn) {
             const g = (this._state.goals || []).find(x => x.id === editBtn.dataset.id);
@@ -324,8 +354,6 @@ class GoalsPage extends WNElement {
         }
         const delBtn = path.find(n => n.classList && n.classList.contains('gp-del'));
         if (delBtn) { this._delete(delBtn.dataset.id); return; }
-        const titleEl = path.find(n => n.classList && n.classList.contains('gp-title'));
-        if (titleEl && titleEl.dataset.id) { this._toggleExpanded(titleEl.dataset.id); return; }
         const backdrop = path.find(n => n.classList && n.classList.contains('modal'));
         if (backdrop && e.target === backdrop) { this._closeModal(); return; }
         if (path.find(n => n.classList && n.classList.contains('modal-close'))) { this._closeModal(); return; }
@@ -356,9 +384,9 @@ class GoalsPage extends WNElement {
         `;
     }
 
-    _toggleExpanded(id) {
-        if (this._expanded.has(id)) this._expanded.delete(id);
-        else this._expanded.add(id);
+    _select(id) {
+        this._selectedId = id;
+        history.replaceState(null, '', '#g-' + encodeURIComponent(id));
         this.requestRender();
     }
 
@@ -477,52 +505,66 @@ class GoalsPage extends WNElement {
         return out;
     }
 
-    _renderCard(g) {
+    _renderItem(g) {
+        const tasks = (this._state.tasks || []).filter(t => t.goalId === g.id);
+        const tDone = tasks.filter(t => t.done).length;
+        const tTotal = tasks.length;
+        const pct = tTotal === 0 ? 0 : Math.round((tDone / tTotal) * 100);
+        const selected = this._selectedId === g.id;
+        const statusCls = g.status === 'achieved' ? ' achieved' : g.status === 'abandoned' ? ' abandoned' : '';
+        const selCls = selected ? ' selected' : '';
+        return html`
+            <div class="${'gp-item' + statusCls + selCls}" data-id="${g.id}">
+                <span class="gp-item-icon">${STATUS_ICON[g.status] || '🎯'}</span>
+                <div class="gp-item-body">
+                    <div class="gp-item-title">${g.title}</div>
+                    <div class="gp-item-sub">
+                        ${g.targetDate ? html`<span>📅 ${g.targetDate}</span>` : ''}
+                        <span>${tDone}/${tTotal}</span>
+                        ${tTotal ? html`<span class="gp-item-bar">${unsafeHTML(`<i style="width:${pct}%"></i>`)}</span>` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    _renderDetailPane(g) {
         const tasks = (this._state.tasks || []).filter(t => t.goalId === g.id);
         const results = (this._state.results || []).filter(r => r.goalId === g.id);
         const tDone = tasks.filter(t => t.done).length;
         const tTotal = tasks.length;
         const pct = tTotal === 0 ? 0 : Math.round((tDone / tTotal) * 100);
-        const statusCls = g.status === 'achieved' ? ' achieved' : g.status === 'abandoned' ? ' abandoned' : '';
-        const expanded = this._expanded.has(g.id);
-        const expCls = expanded ? ' expanded' : '';
         const dueOverdue = g.targetDate && g.status === 'active' && g.targetDate < new Date().toISOString().slice(0, 10);
         const nextStatus = g.status === 'active' ? 'achieved' : g.status === 'achieved' ? 'abandoned' : 'active';
         const statusBtnTitle = g.status === 'active' ? 'Marker som oppnådd'
             : g.status === 'achieved' ? 'Marker som forlatt'
             : 'Reaktiver';
+
         return html`
-            <article class="${'gp-card' + statusCls + expCls}" id="${'gp-card-' + g.id}">
-                <div class="gp-row">
-                    <button class="gp-act gp-expand" data-id="${g.id}" title="${expanded ? 'Skjul detaljer' : 'Vis detaljer'}">
-                        <span class="gp-chev">▸</span>
-                    </button>
-                    <span class="gp-title" data-id="${g.id}" title="Klikk for å vise detaljer">
-                        ${STATUS_ICON[g.status] || '🎯'} ${g.title}
-                    </span>
-                    <button class="gp-act gp-status" data-id="${g.id}" data-next="${nextStatus}" title="${statusBtnTitle}">
-                        ${g.status === 'active' ? '🏆' : g.status === 'achieved' ? '🗑️' : '↻'}
-                    </button>
-                    <button class="gp-act gp-edit" data-id="${g.id}" title="Rediger">✏️</button>
-                    <button class="gp-act gp-del" data-id="${g.id}" title="Slett">✕</button>
-                </div>
-                ${g.description ? html`<div class="gp-desc">${g.description}</div>` : ''}
-                ${g.targetValue != null ? html`<div class="gp-value">${this._renderValue(g)}</div>` : ''}
-                <div class="gp-meta">
-                    ${g.targetDate ? unsafeHTML(`<span class="due${dueOverdue ? ' overdue' : ''}">📅 ${escapeHtml(g.targetDate)}</span>`) : ''}
-                    <span class="gp-progress">
-                        <span class="gp-bar"><i style="width:${pct}%"></i></span>
-                        <span>${tDone}/${tTotal} oppgaver${tTotal ? ' (' + pct + '%)' : ''}</span>
-                    </span>
-                    ${results.length ? html`<span>📋 ${results.length} resultat${results.length === 1 ? '' : 'er'}</span>` : ''}
-                    ${(() => {
-                        const participants = this._participantsFor(tasks);
-                        if (!participants.length) return '';
-                        return html`<span class="gp-people" title="Deltakere fra oppgavene">👥 ${participants.map(p => html`<a class="gp-person" href="/people#p-${encodeURIComponent(p.key || '')}" title="${p.name || p.key}">@${p.name || p.key}</a>`)}</span>`;
-                    })()}
-                </div>
-                ${expanded ? this._renderDetail(g, tasks, results) : ''}
-            </article>
+            <div class="gp-dp-head">
+                <h2 class="gp-dp-title">${STATUS_ICON[g.status] || '🎯'} ${g.title}</h2>
+                <button class="gp-act gp-status" data-id="${g.id}" data-next="${nextStatus}" title="${statusBtnTitle}">
+                    ${g.status === 'active' ? '🏆' : g.status === 'achieved' ? '🗑️' : '↻'}
+                </button>
+                <button class="gp-act gp-edit" data-id="${g.id}" title="Rediger">✏️</button>
+                <button class="gp-act gp-del" data-id="${g.id}" title="Slett">✕</button>
+            </div>
+            ${g.description ? html`<div class="gp-desc">${g.description}</div>` : ''}
+            ${g.targetValue != null ? html`<div class="gp-value">${this._renderValue(g)}</div>` : ''}
+            <div class="gp-meta">
+                ${g.targetDate ? unsafeHTML(`<span class="due${dueOverdue ? ' overdue' : ''}">📅 ${escapeHtml(g.targetDate)}</span>`) : ''}
+                <span class="gp-progress">
+                    <span class="gp-bar"><i style="width:${pct}%"></i></span>
+                    <span>${tDone}/${tTotal} oppgaver${tTotal ? ' (' + pct + '%)' : ''}</span>
+                </span>
+                ${results.length ? html`<span>📋 ${results.length} resultat${results.length === 1 ? '' : 'er'}</span>` : ''}
+                ${(() => {
+                    const participants = this._participantsFor(tasks);
+                    if (!participants.length) return '';
+                    return html`<span class="gp-people" title="Deltakere fra oppgavene">👥 ${participants.map(p => html`<a class="gp-person" href="/people#p-${encodeURIComponent(p.key || '')}" title="${p.name || p.key}">@${p.name || p.key}</a>`)}</span>`;
+                })()}
+            </div>
+            ${this._renderDetail(g, tasks, results)}
         `;
     }
 
@@ -642,6 +684,28 @@ class GoalsPage extends WNElement {
         const byStatus = { active: [], achieved: [], abandoned: [] };
         goals.forEach(g => { (byStatus[g.status] || byStatus.active).push(g); });
 
+        // auto-select first active goal if nothing selected
+        if (!this._selectedId || !goals.find(g => g.id === this._selectedId)) {
+            this._selectedId = (byStatus.active[0] || goals[0] || {}).id || null;
+        }
+        const selected = goals.find(g => g.id === this._selectedId);
+
+        const masterList = goals.length === 0
+            ? html`<p class="gp-empty" style="padding:14px;">Ingen mål ennå.</p>`
+            : STATUS_ORDER.map(st => {
+                const items = byStatus[st];
+                if (!items.length) return '';
+                return html`
+                    <section class="gp-section">
+                        <h2 class="gp-section-h">
+                            ${STATUS_ICON[st]} ${STATUS_LABEL[st]}
+                            <span class="c">${items.length}</span>
+                        </h2>
+                        ${items.map(g => this._renderItem(g))}
+                    </section>
+                `;
+            });
+
         return html`
             <div class="gp">
                 <div class="gp-head">
@@ -651,22 +715,14 @@ class GoalsPage extends WNElement {
                 <p class="gp-hint">
                     Langsiktige mål du jobber mot. Knytt oppgaver og resultater til et mål for å se framdrift.
                 </p>
-                ${goals.length === 0
-                    ? html`<p class="gp-empty">Ingen mål ennå. Klikk <strong>➕ Nytt mål</strong> for å legge til.</p>`
-                    : STATUS_ORDER.map(st => {
-                        const items = byStatus[st];
-                        if (!items.length) return '';
-                        return html`
-                            <section class="gp-section">
-                                <h2 class="gp-section-h">
-                                    ${STATUS_ICON[st]} ${STATUS_LABEL[st]}
-                                    <span class="c">${items.length}</span>
-                                </h2>
-                                ${items.map(g => this._renderCard(g))}
-                            </section>
-                        `;
-                    })
-                }
+                <div class="gp-body">
+                    <nav class="gp-master">${masterList}</nav>
+                    <div class="gp-detail-pane">
+                        ${selected
+                            ? this._renderDetailPane(selected)
+                            : html`<p class="gp-dp-empty">Velg et mål fra listen</p>`}
+                    </div>
+                </div>
                 ${this._renderModal()}
             </div>
         `;
