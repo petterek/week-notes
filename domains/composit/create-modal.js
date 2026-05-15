@@ -207,16 +207,19 @@ class CreateModal extends WNElement {
                     go('/tasks');
                 }
                 break;
-            case 'meeting':
-                if (typeof window.openMeetingCreateModal === 'function') {
-                    window.openMeetingCreateModal();
+            case 'meeting': {
+                const mcm = document.querySelector('meeting-create-modal');
+                if (mcm && typeof mcm.open === 'function') {
+                    mcm.open();
                 } else {
                     go('/calendar');
                 }
+            }
                 break;
-            case 'result':
-                go('/results');
+            case 'result': {
+                this._openResultModal();
                 break;
+            }
             case 'goal':
                 go('/goals');
                 break;
@@ -224,6 +227,34 @@ class CreateModal extends WNElement {
                 go('/people');
                 break;
         }
+    }
+
+    _openResultModal() {
+        if (!this._resultModal) {
+            const modal = document.createElement('modal-container');
+            modal.setAttribute('size', 'sm');
+            const titleEl = document.createElement('span');
+            titleEl.setAttribute('slot', 'title');
+            titleEl.textContent = 'Nytt resultat';
+            modal.appendChild(titleEl);
+            const form = document.createElement('result-create');
+            form.setAttribute('full', '');
+            form.setAttribute('autofocus-on-connect', '');
+            form.setAttribute('results_service', 'week-note-services.results_service');
+            modal.appendChild(form);
+            modal.setButtons([]);
+            form.addEventListener('result:created', () => {
+                modal.close('programmatic');
+            });
+            document.body.appendChild(modal);
+            this._resultModal = modal;
+        }
+        this._resultModal.open();
+        setTimeout(() => {
+            const form = this._resultModal.querySelector('result-create');
+            const input = form?.shadowRoot?.querySelector('input');
+            if (input) input.focus();
+        }, 30);
     }
 }
 
