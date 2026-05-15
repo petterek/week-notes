@@ -55,13 +55,14 @@ const STYLES = `
         @keyframes overdue-pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
         .empty-quiet { color: var(--text-subtle); font-style: italic; margin: 0; }
         .sidebar-tasks {
-            display: flex; flex-direction: column; gap: 6px;
+            display: flex; flex-direction: column; gap: 2px;
             overflow-y: auto;
             min-height: 0;
             flex: 1 1 auto;
             padding-right: 4px;
         }
-        .sidebar-task { padding: 6px 8px; border-radius: 6px; background: var(--surface); transition: background 0.15s, box-shadow 0.15s; border-left: 3px solid transparent; }
+        .sidebar-task { padding: 4px 8px; border-radius: 6px; background: var(--surface); transition: background 0.15s, box-shadow 0.15s; border-left: 3px solid transparent; }
+        :host(:not([page])) .row-note-body { display: none; }
         .sidebar-task:hover { background: var(--surface-alt); }
         .sidebar-task.overdue { border-left-color: var(--danger, #c53030); }
         .sidebar-task.editing {

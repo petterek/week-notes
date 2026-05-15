@@ -129,10 +129,7 @@ class UpcomingMeetings extends WNElement {
         const companies = data.companies || [];
         const types = data.types || [];
         if (meetings.length === 0) {
-            return html`
-                <h3 class="side-h">📅 Kommende møter · 0</h3>
-                <p class="empty-quiet">Ingen møter de neste ${days} dagene. ${unsafeHTML('<a href="/calendar">Legg til</a>')}</p>
-            `;
+            return html``;
         }
         const typeMap = {};
         types.forEach(t => { typeMap[t.key] = t; });
