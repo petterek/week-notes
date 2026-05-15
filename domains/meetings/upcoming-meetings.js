@@ -48,6 +48,7 @@ const STYLES = `
     .mtg-when { color: var(--text-subtle); font-size: 0.85em; }
     .mtg-when strong { color: var(--text-strong); }
     .mtg-title { font-weight: 500; color: var(--text-strong); }
+    .mtg-ctx { font-weight: 400; font-size: 0.85em; color: var(--text-muted); }
     .mtg-title a { color: var(--accent); text-decoration: none; }
     .mtg-meta { color: var(--text-subtle); font-size: 0.85em; margin-top: 2px; }
     .mtg-meta a { color: var(--accent); text-decoration: none; }
@@ -93,7 +94,15 @@ class UpcomingMeetings extends WNElement {
         const peopleSvc = this.serviceFor('people');
         const compSvc = this.serviceFor('companies');
         return {
-            meetings:  () => this.service.list({ upcoming: days }).then(m => m || []),
+            meetings:  async () => {
+                let allCtx = false;
+                try {
+                    const r = await fetch('/api/app-settings');
+                    const d = await r.json();
+                    allCtx = d.settings && d.settings.crossContextCalendar && d.settings.crossContextCalendar.enabled;
+                } catch {}
+                return this.service.list({ upcoming: days, allContexts: allCtx || undefined }).then(m => m || []);
+            },
             people:    () => peopleSvc ? peopleSvc.list() : Promise.resolve([]),
             companies: () => compSvc   ? compSvc.list()   : Promise.resolve([]),
             types:     () => this.service.listTypes().then(t => t || []),
@@ -146,12 +155,15 @@ class UpcomingMeetings extends WNElement {
             const typeHtml = t && t.icon
                 ? `<span class="mtg-type-icon" title="${escapeHtml(t.label || '')}">${t.icon}</span> `
                 : '';
+            const ctxBadge = m._ctx && !m._ctxActive
+                ? `<span class="mtg-ctx" title="${escapeHtml(m._ctxName || m._ctx)}">${escapeHtml(m._ctxIcon || '📁')} ${escapeHtml(m._ctxName || m._ctx)}</span> `
+                : '';
             const calHref = `/calendar/${escapeHtml(isoWeek(new Date(m.date + 'T00:00:00Z')))}#m-${encodeURIComponent(m.id)}`;
             return `
                 <div class="sidebar-meeting" data-mid="${escapeHtml(m.id)}" data-cal-href="${calHref}" title="Åpne i kalender">
                     <a class="sidebar-mtg-note" href="/meeting-note/${encodeURIComponent(m.id)}" title="Åpne møtenotat">📝</a>
                     <div class="mtg-when"><strong>${escapeHtml(dayLabel(m.date))}</strong> · ${time}</div>
-                    <div class="mtg-title">${typeHtml}${linkMentions(escapeHtml(m.title), people, companies)}</div>
+                    <div class="mtg-title">${ctxBadge}${typeHtml}${linkMentions(escapeHtml(m.title), people, companies)}</div>
                     ${att || loc ? `<div class="mtg-meta">${att}${att && loc ? ' · ' : ''}${loc}</div>` : ''}
                 </div>
             `;

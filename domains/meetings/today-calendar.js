@@ -46,16 +46,18 @@ function todayLabel() {
 function meetingToItem(m, typeMap) {
     const t = (typeMap && typeMap[m.type]) || null;
     const icon = (t && t.icon) ? t.icon + ' ' : '';
+    const ctxPrefix = (m._ctx && !m._ctxActive) ? (m._ctxIcon || '📁') + ' ' : '';
     const start = m.start ? `${m.date}T${m.start}` : m.date;
     const end   = m.end   ? `${m.date}T${m.end}`   : start;
     const bodyParts = [];
+    if (m._ctx && !m._ctxActive && m._ctxName) bodyParts.push(m._ctxName);
     if (m.attendees && m.attendees.length) bodyParts.push(m.attendees.map(a => '@' + a).join(' '));
     if (m.location) bodyParts.push('📍 ' + m.location);
     return {
         id: m.id,
         startDate: start,
         endDate: end,
-        heading: icon + (m.title || ''),
+        heading: ctxPrefix + icon + (m.title || ''),
         body: bodyParts.join(' · '),
         type: m.type || 'meeting',
         moveable: false,
@@ -163,7 +165,13 @@ class TodayCalendar extends WNElement {
                 try {
                     const date = this._date || todayStr();
                     const week = isoWeek(new Date(date + 'T00:00:00Z'));
-                    const list = await this.service.list({ week });
+                    let allCtx = false;
+                    try {
+                        const r = await fetch('/api/app-settings');
+                        const d = await r.json();
+                        allCtx = d.settings && d.settings.crossContextCalendar && d.settings.crossContextCalendar.enabled;
+                    } catch {}
+                    const list = await this.service.list({ week, allContexts: allCtx || undefined });
                     return (list || []).filter(m => m.date === date);
                 } catch (_) { return []; }
             },
