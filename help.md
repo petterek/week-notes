@@ -21,6 +21,7 @@ Bytt kontekst via velgeren øverst i navigasjonen. Administrer kontekster på `/
 
 | Tast | Side |
 |------|------|
+| `Alt+C` | ➕ Opprett ny (notat, oppgave, møte, resultat, mål, person) |
 | `Alt+H` | 🏠 Hjem |
 | `Alt+O` | ☑️ Oppgaver |
 | `Alt+K` | 📅 Kalender |
