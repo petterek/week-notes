@@ -414,8 +414,9 @@ the next handler.
 
 ## Bug fixing workflow
 
-When you find or are told about a bug, **reproduce it under test before
-fixing it**. Concretely:
+**Every bug fix MUST include a regression test.** No exceptions without
+explicit justification. The test proves the bug existed and prevents it
+from returning.
 
 1. Add a failing scenario to `tests/scenarios.js` (or a Playwright spec
    under `tests/playwright/` if it's page-level) that demonstrates the
@@ -424,6 +425,8 @@ fixing it**. Concretely:
 3. Re-run the test and confirm it passes. Run the full suite
    (`npm test`) before considering it done.
 4. Leave the test in place — it's now a regression guard.
+5. The commit message should reference the test (e.g.
+   "fix: X was broken — added regression test").
 
 If a bug genuinely cannot be expressed as a UI/component test (e.g.
 build-time concern, infra), say so explicitly and document why; don't
