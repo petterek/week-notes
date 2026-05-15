@@ -203,15 +203,9 @@ class CreateModal extends WNElement {
                     this._fallbackNav('/tasks');
                 }
                 break;
-            case 'meeting': {
-                const mcm = document.querySelector('meeting-create-modal');
-                if (mcm && typeof mcm.open === 'function') {
-                    mcm.open();
-                } else {
-                    this._fallbackNav('/calendar');
-                }
+            case 'meeting':
+                this._openMeetingModal();
                 break;
-            }
             case 'result':
                 this._openResultModal();
                 break;
@@ -227,6 +221,23 @@ class CreateModal extends WNElement {
     _fallbackNav(path) {
         if (window.spaNavigate && window.spaNavigate(path)) return;
         window.location.href = path;
+    }
+
+    _openMeetingModal() {
+        // Reuse existing element if on the page, otherwise create one
+        let mcm = document.querySelector('meeting-create-modal');
+        if (!mcm) {
+            if (!this._meetingModal) {
+                mcm = document.createElement('meeting-create-modal');
+                mcm.setAttribute('meetings_service', 'week-note-services.meetings_service');
+                mcm.setAttribute('settings_service', 'week-note-services.settings_service');
+                document.body.appendChild(mcm);
+                this._meetingModal = mcm;
+            } else {
+                mcm = this._meetingModal;
+            }
+        }
+        mcm.open();
     }
 
     _openResultModal() {
