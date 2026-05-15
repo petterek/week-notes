@@ -449,14 +449,354 @@ function extractSnippet(content, q, pad = 60) {
     return (start > 0 ? '…' : '') + content.slice(start, end) + (end < content.length ? '…' : '');
 }
 
+// Extract snippet highlighting the best window for multiple terms.
+function extractSnippetMulti(content, terms, pad = 60) {
+    if (!content || !terms.length) return extractSnippet(content, terms[0] || '', pad);
+    const lower = content.toLowerCase();
+    // Find first occurrence of each term
+    let bestIdx = -1;
+    for (const t of terms) {
+        const i = lower.indexOf(t.toLowerCase());
+        if (i !== -1 && (bestIdx === -1 || i < bestIdx)) bestIdx = i;
+    }
+    if (bestIdx === -1) return content.slice(0, pad * 2);
+    const start = Math.max(0, bestIdx - pad);
+    const end = Math.min(content.length, bestIdx + (terms[0] || '').length + pad);
+    return (start > 0 ? '…' : '') + content.slice(start, end) + (end < content.length ? '…' : '');
+}
+
+// =========================================================================
+// Query parser: supports AND, OR, NOT, NEAR/N, "quoted phrases"
+//
+// Grammar (precedence low → high):
+//   expr      = or_expr
+//   or_expr   = and_expr ( OR and_expr )*
+//   and_expr  = near_expr ( AND? near_expr )*
+//   near_expr = unary ( NEAR(/N)? unary )?
+//   unary     = NOT unary | atom
+//   atom      = "phrase" | ( expr ) | TERM
+//
+// Default operator between bare terms is AND.
+// NEAR defaults to distance 5.
+// =========================================================================
+
+const OP_AND  = 'AND';
+const OP_OR   = 'OR';
+const OP_NOT  = 'NOT';
+const OP_NEAR = 'NEAR';
+const OP_TERM = 'TERM';
+const OP_PHRASE = 'PHRASE';
+
+function parseQuery(raw) {
+    const input = String(raw || '').trim();
+    if (!input) return null;
+    const tokens = lexQuery(input);
+    if (!tokens.length) return null;
+    let pos = 0;
+    const peek = () => tokens[pos] || null;
+    const advance = () => tokens[pos++];
+
+    function parseExpr() { return parseOr(); }
+
+    function parseOr() {
+        let left = parseAnd();
+        while (peek() && peek().type === 'OP' && peek().value === 'OR') {
+            advance(); // consume OR
+            const right = parseAnd();
+            left = { op: OP_OR, left, right };
+        }
+        return left;
+    }
+
+    function parseAnd() {
+        let left = parseNear();
+        while (peek()) {
+            const t = peek();
+            // Explicit AND
+            if (t.type === 'OP' && t.value === 'AND') {
+                advance();
+                const right = parseNear();
+                left = { op: OP_AND, left, right };
+                continue;
+            }
+            // Implicit AND: next token is a term, phrase, NOT, or open-paren
+            if (t.type === 'TERM' || t.type === 'PHRASE' || t.type === 'LPAREN' ||
+                (t.type === 'OP' && t.value === 'NOT')) {
+                const right = parseNear();
+                left = { op: OP_AND, left, right };
+                continue;
+            }
+            break;
+        }
+        return left;
+    }
+
+    function parseNear() {
+        let left = parseUnary();
+        if (peek() && peek().type === 'OP' && peek().value.startsWith('NEAR')) {
+            const nearTok = advance();
+            const dist = nearTok.dist != null ? nearTok.dist : 5;
+            const right = parseUnary();
+            return { op: OP_NEAR, left, right, dist };
+        }
+        return left;
+    }
+
+    function parseUnary() {
+        const t = peek();
+        if (t && t.type === 'OP' && t.value === 'NOT') {
+            advance();
+            const operand = parseUnary();
+            return { op: OP_NOT, operand };
+        }
+        // Handle - prefix (inline NOT)
+        if (t && t.type === 'TERM' && t.value.startsWith('-') && t.value.length > 1) {
+            advance();
+            return { op: OP_NOT, operand: { op: OP_TERM, value: t.value.slice(1).toLowerCase() } };
+        }
+        return parseAtom();
+    }
+
+    function parseAtom() {
+        const t = peek();
+        if (!t) return { op: OP_TERM, value: '' };
+        if (t.type === 'PHRASE') {
+            advance();
+            return { op: OP_PHRASE, tokens: tokenize(t.value), raw: t.value };
+        }
+        if (t.type === 'LPAREN') {
+            advance(); // (
+            const inner = parseExpr();
+            if (peek() && peek().type === 'RPAREN') advance(); // )
+            return inner;
+        }
+        if (t.type === 'TERM') {
+            advance();
+            return { op: OP_TERM, value: t.value.toLowerCase() };
+        }
+        // Skip unexpected tokens
+        advance();
+        return parseAtom();
+    }
+
+    const ast = parseExpr();
+    return ast;
+}
+
+// Lexer: split query into typed tokens
+function lexQuery(input) {
+    const tokens = [];
+    let i = 0;
+    while (i < input.length) {
+        // Skip whitespace
+        if (/\s/.test(input[i])) { i++; continue; }
+        // Parentheses
+        if (input[i] === '(') { tokens.push({ type: 'LPAREN' }); i++; continue; }
+        if (input[i] === ')') { tokens.push({ type: 'RPAREN' }); i++; continue; }
+        // Quoted phrase
+        if (input[i] === '"') {
+            const end = input.indexOf('"', i + 1);
+            const val = end === -1 ? input.slice(i + 1) : input.slice(i + 1, end);
+            tokens.push({ type: 'PHRASE', value: val });
+            i = end === -1 ? input.length : end + 1;
+            continue;
+        }
+        // Word
+        const wordMatch = input.slice(i).match(/^[^\s()\"]+/);
+        if (wordMatch) {
+            const w = wordMatch[0];
+            const wUpper = w.toUpperCase();
+            if (wUpper === 'AND') {
+                tokens.push({ type: 'OP', value: 'AND' });
+            } else if (wUpper === 'OR') {
+                tokens.push({ type: 'OP', value: 'OR' });
+            } else if (wUpper === 'NOT') {
+                tokens.push({ type: 'OP', value: 'NOT' });
+            } else if (wUpper === 'NEAR' || /^NEAR\/\d+$/i.test(w)) {
+                const distMatch = w.match(/\/(\d+)$/);
+                tokens.push({ type: 'OP', value: 'NEAR', dist: distMatch ? parseInt(distMatch[1], 10) : 5 });
+            } else {
+                tokens.push({ type: 'TERM', value: w });
+            }
+            i += w.length;
+            continue;
+        }
+        i++;
+    }
+    return tokens;
+}
+
+// Evaluate an AST node against the inverted index.
+// Returns a Set<docIdx> of matching document indices.
+function evalQuery(node) {
+    if (!node) return new Set();
+    switch (node.op) {
+        case OP_TERM: {
+            const t = node.value;
+            if (!t) return new Set();
+            // Exact token lookup
+            const exact = invertedIndex.get(t);
+            if (exact && exact.size > 0) return new Set(exact);
+            // Prefix/substring fallback for partial matches
+            const matches = new Set();
+            for (const [tok, set] of invertedIndex) {
+                if (tok.includes(t)) {
+                    for (const idx of set) matches.add(idx);
+                }
+            }
+            return matches;
+        }
+        case OP_PHRASE: {
+            if (!node.tokens || !node.tokens.length) return new Set();
+            // Start with docs containing all tokens (AND)
+            const sets = node.tokens.map(t => invertedIndex.get(t));
+            if (!sets.every(Boolean)) return new Set();
+            // Intersect
+            const sorted = sets.map((s, i) => ({ s, i }));
+            sorted.sort((a, b) => a.s.size - b.s.size);
+            const candidates = new Set();
+            for (const idx of sorted[0].s) {
+                if (sorted.every(x => x.s.has(idx))) candidates.add(idx);
+            }
+            // Filter: tokens must appear consecutively in searchText
+            const result = new Set();
+            for (const idx of candidates) {
+                const docTokens = tokenize(docs[idx].searchText);
+                if (hasConsecutive(docTokens, node.tokens)) result.add(idx);
+            }
+            return result;
+        }
+        case OP_AND: {
+            const left = evalQuery(node.left);
+            const right = evalQuery(node.right);
+            const result = new Set();
+            const smaller = left.size <= right.size ? left : right;
+            const larger = left.size <= right.size ? right : left;
+            for (const idx of smaller) {
+                if (larger.has(idx)) result.add(idx);
+            }
+            return result;
+        }
+        case OP_OR: {
+            const left = evalQuery(node.left);
+            const right = evalQuery(node.right);
+            const result = new Set(left);
+            for (const idx of right) result.add(idx);
+            return result;
+        }
+        case OP_NOT: {
+            const excluded = evalQuery(node.operand);
+            const result = new Set();
+            for (let i = 0; i < docs.length; i++) {
+                if (!excluded.has(i)) result.add(i);
+            }
+            return result;
+        }
+        case OP_NEAR: {
+            const left = evalQuery(node.left);
+            const right = evalQuery(node.right);
+            // Intersect first
+            const candidates = new Set();
+            const smaller = left.size <= right.size ? left : right;
+            const larger = left.size <= right.size ? right : left;
+            for (const idx of smaller) {
+                if (larger.has(idx)) candidates.add(idx);
+            }
+            // Filter by proximity
+            const leftTerms = collectTerms(node.left);
+            const rightTerms = collectTerms(node.right);
+            const dist = node.dist || 5;
+            const result = new Set();
+            for (const idx of candidates) {
+                const docTokens = tokenize(docs[idx].searchText);
+                if (hasNear(docTokens, leftTerms, rightTerms, dist)) result.add(idx);
+            }
+            return result;
+        }
+        default:
+            return new Set();
+    }
+}
+
+// Collect leaf term values from an AST subtree
+function collectTerms(node) {
+    if (!node) return [];
+    if (node.op === OP_TERM) return [node.value];
+    if (node.op === OP_PHRASE) return node.tokens || [];
+    const out = [];
+    if (node.left) out.push(...collectTerms(node.left));
+    if (node.right) out.push(...collectTerms(node.right));
+    if (node.operand) out.push(...collectTerms(node.operand));
+    return out;
+}
+
+// Check if tokens appear consecutively in docTokens
+function hasConsecutive(docTokens, phraseTokens) {
+    if (!phraseTokens.length) return true;
+    outer: for (let i = 0; i <= docTokens.length - phraseTokens.length; i++) {
+        for (let j = 0; j < phraseTokens.length; j++) {
+            if (docTokens[i + j] !== phraseTokens[j]) continue outer;
+        }
+        return true;
+    }
+    return false;
+}
+
+// Check if any term from leftTerms appears within `dist` tokens of any
+// term from rightTerms in docTokens
+function hasNear(docTokens, leftTerms, rightTerms, dist) {
+    const leftPositions = [];
+    const rightPositions = [];
+    for (let i = 0; i < docTokens.length; i++) {
+        if (leftTerms.includes(docTokens[i])) leftPositions.push(i);
+        if (rightTerms.includes(docTokens[i])) rightPositions.push(i);
+    }
+    for (const lp of leftPositions) {
+        for (const rp of rightPositions) {
+            if (Math.abs(lp - rp) <= dist) return true;
+        }
+    }
+    return false;
+}
+
+// Detect if query uses operators (otherwise use legacy simple mode)
+function hasOperators(raw) {
+    // Check for explicit operators, quoted phrases, parens, or -prefix
+    return /\b(AND|OR|NOT|NEAR)\b/i.test(raw) ||
+           raw.includes('"') ||
+           raw.includes('(') ||
+           /(?:^|\s)-\S/.test(raw);
+}
+
 function runQuery(q) {
     const raw = String(q || '').trim();
     if (!raw) return [];
-    const qLower = raw.toLowerCase();
 
-    // Use the inverted index when the query splits into clean tokens that
-    // all exist in the index (AND semantics). Otherwise fall back to a
-    // full scan so partial-token / substring queries still work.
+    // If query uses operators, use the full parser
+    if (hasOperators(raw)) {
+        const ast = parseQuery(raw);
+        if (!ast) return [];
+        const matchSet = evalQuery(ast);
+        const terms = collectTerms(ast);
+        const out = [];
+        for (const i of matchSet) {
+            const d = docs[i];
+            out.push({
+                type: d.type,
+                identifier: d.identifier,
+                title: d.title,
+                subtitle: d.subtitle,
+                href: d.href,
+                snippet: terms.length
+                    ? extractSnippetMulti(d.body || d.searchText, terms)
+                    : ''
+            });
+        }
+        return out;
+    }
+
+    // Legacy simple mode: tokenize → AND via inverted index → full scan fallback
+    const qLower = raw.toLowerCase();
     const tokens = tokenize(raw);
     let candidates;
     if (tokens.length > 0) {
