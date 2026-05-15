@@ -191,20 +191,16 @@ class CreateModal extends WNElement {
 
     _execute(action) {
         this.close();
-        const go = (path) => {
-            if (window.spaNavigate && window.spaNavigate(path)) return;
-            window.location.href = path;
-        };
 
         switch (action) {
             case 'note':
-                go('/editor');
+                this._fallbackNav('/editor');
                 break;
             case 'task':
                 if (typeof window.openTaskEditModal === 'function') {
                     window.openTaskEditModal(null);
                 } else {
-                    go('/tasks');
+                    this._fallbackNav('/tasks');
                 }
                 break;
             case 'meeting': {
@@ -212,21 +208,25 @@ class CreateModal extends WNElement {
                 if (mcm && typeof mcm.open === 'function') {
                     mcm.open();
                 } else {
-                    go('/calendar');
+                    this._fallbackNav('/calendar');
                 }
-            }
                 break;
-            case 'result': {
+            }
+            case 'result':
                 this._openResultModal();
                 break;
-            }
             case 'goal':
-                go('/goals');
+                this._openGoalModal();
                 break;
             case 'person':
-                go('/people');
+                this._openPersonModal();
                 break;
         }
+    }
+
+    _fallbackNav(path) {
+        if (window.spaNavigate && window.spaNavigate(path)) return;
+        window.location.href = path;
     }
 
     _openResultModal() {
@@ -255,6 +255,114 @@ class CreateModal extends WNElement {
             const input = form?.shadowRoot?.querySelector('input');
             if (input) input.focus();
         }, 30);
+    }
+
+    _openGoalModal() {
+        if (!this._goalModal) {
+            const modal = document.createElement('modal-container');
+            modal.setAttribute('size', 'sm');
+            const titleEl = document.createElement('span');
+            titleEl.setAttribute('slot', 'title');
+            titleEl.textContent = 'Nytt mål';
+            const body = document.createElement('div');
+            body.innerHTML = `
+                <div style="padding:8px 0;display:flex;flex-direction:column;gap:10px;">
+                    <div>
+                        <label style="display:block;font-size:0.85em;color:var(--text-muted);margin-bottom:4px;">Tittel</label>
+                        <input type="text" name="title" placeholder="Hva vil du oppnå?"
+                            style="width:100%;font:inherit;font-size:1em;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);">
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:0.85em;color:var(--text-muted);margin-bottom:4px;">Beskrivelse (valgfritt)</label>
+                        <textarea name="description" rows="2" placeholder="Kort beskrivelse…"
+                            style="width:100%;font:inherit;font-size:0.95em;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);resize:vertical;"></textarea>
+                    </div>
+                </div>
+            `;
+            modal.appendChild(titleEl);
+            modal.appendChild(body);
+            modal.setButtons([
+                { label: 'Opprett', action: async () => {
+                    const input = body.querySelector('input[name=title]');
+                    const title = (input.value || '').trim();
+                    if (!title) { input.focus(); return; }
+                    const desc = (body.querySelector('textarea[name=description]').value || '').trim();
+                    try {
+                        await fetch('/api/goals', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ title, description: desc }),
+                        });
+                        modal.close('programmatic');
+                    } catch (err) {
+                        console.error('Goal create failed', err);
+                    }
+                }, variant: 'primary' },
+                { label: 'Avbryt', action: (m) => m.close('button'), variant: 'ghost' },
+            ]);
+            document.body.appendChild(modal);
+            this._goalModal = modal;
+        }
+        const input = this._goalModal.querySelector('input[name=title]');
+        const desc = this._goalModal.querySelector('textarea[name=description]');
+        if (input) input.value = '';
+        if (desc) desc.value = '';
+        this._goalModal.open();
+        setTimeout(() => { if (input) input.focus(); }, 30);
+    }
+
+    _openPersonModal() {
+        if (!this._personModal) {
+            const modal = document.createElement('modal-container');
+            modal.setAttribute('size', 'sm');
+            const titleEl = document.createElement('span');
+            titleEl.setAttribute('slot', 'title');
+            titleEl.textContent = 'Ny person';
+            const body = document.createElement('div');
+            body.innerHTML = `
+                <div style="padding:8px 0;display:flex;flex-direction:column;gap:10px;">
+                    <div>
+                        <label style="display:block;font-size:0.85em;color:var(--text-muted);margin-bottom:4px;">Navn</label>
+                        <input type="text" name="name" placeholder="Fornavn Etternavn"
+                            style="width:100%;font:inherit;font-size:1em;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);">
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:0.85em;color:var(--text-muted);margin-bottom:4px;">E-post (valgfritt)</label>
+                        <input type="email" name="email" placeholder="epost@eksempel.no"
+                            style="width:100%;font:inherit;font-size:1em;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);">
+                    </div>
+                </div>
+            `;
+            modal.appendChild(titleEl);
+            modal.appendChild(body);
+            modal.setButtons([
+                { label: 'Opprett', action: async () => {
+                    const input = body.querySelector('input[name=name]');
+                    const name = (input.value || '').trim();
+                    if (!name) { input.focus(); return; }
+                    const email = (body.querySelector('input[name=email]').value || '').trim();
+                    try {
+                        await fetch('/api/people', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ name, email: email || undefined }),
+                        });
+                        modal.close('programmatic');
+                    } catch (err) {
+                        console.error('Person create failed', err);
+                    }
+                }, variant: 'primary' },
+                { label: 'Avbryt', action: (m) => m.close('button'), variant: 'ghost' },
+            ]);
+            document.body.appendChild(modal);
+            this._personModal = modal;
+        }
+        const input = this._personModal.querySelector('input[name=name]');
+        const email = this._personModal.querySelector('input[name=email]');
+        if (input) input.value = '';
+        if (email) email.value = '';
+        this._personModal.open();
+        setTimeout(() => { if (input) input.focus(); }, 30);
     }
 }
 
