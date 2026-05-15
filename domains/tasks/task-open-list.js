@@ -42,6 +42,17 @@ const STYLES = `
             font-size: 1.05em;
         }
         .side-h-title { display: flex; align-items: baseline; gap: 6px; }
+        .overdue-badge {
+            display: inline-flex; align-items: center; gap: 3px;
+            font-size: 0.78em; font-weight: 600;
+            padding: 2px 8px; border-radius: 10px;
+            background: var(--danger-soft, rgba(197, 48, 48, 0.12));
+            color: var(--danger, #c53030);
+            border: 1px solid var(--danger, #c53030);
+            white-space: nowrap;
+            animation: overdue-pulse 2s ease-in-out 1;
+        }
+        @keyframes overdue-pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
         .empty-quiet { color: var(--text-subtle); font-style: italic; margin: 0; }
         .sidebar-tasks {
             display: flex; flex-direction: column; gap: 6px;
@@ -50,8 +61,9 @@ const STYLES = `
             flex: 1 1 auto;
             padding-right: 4px;
         }
-        .sidebar-task { padding: 6px 8px; border-radius: 6px; background: var(--surface); transition: background 0.15s, box-shadow 0.15s; }
+        .sidebar-task { padding: 6px 8px; border-radius: 6px; background: var(--surface); transition: background 0.15s, box-shadow 0.15s; border-left: 3px solid transparent; }
         .sidebar-task:hover { background: var(--surface-alt); }
+        .sidebar-task.overdue { border-left-color: var(--danger, #c53030); }
         .sidebar-task.editing {
             background: var(--accent-soft);
             box-shadow: inset 3px 0 0 var(--accent);
@@ -175,7 +187,7 @@ function renderTask(t, people, companies) {
             ? unsafeHTML(`<span class="due-pill${overdue ? ' overdue' : ''}" title="Frist${overdue ? ' (forfalt)' : ''}">📅 ${escapeHtml(due)}</span>`)
             : '';
         return html`
-            <div class="sidebar-task" data-taskid="${id}">
+            <div class="sidebar-task${overdue ? ' overdue' : ''}" data-taskid="${id}">
                 <div class="row">
                     <input type="checkbox" data-taskid="${id}" data-tasktext="${t.text || ''}" data-act="toggle" />
                     <span class="row-text">${textHtml}</span>
@@ -336,24 +348,31 @@ class TaskOpenList extends WNElement {
 
     render(data = {}) {
         if (!this.service) return this.renderNoService();
-        const header = (countLabel) => html`
+        const header = (countLabel, overdueCount) => html`
             <h3 class="side-h">
                 <span class="side-h-title">Åpne oppgaver${countLabel ? ' · ' + countLabel : ''}</span>
+                ${overdueCount > 0 ? unsafeHTML(`<span class="overdue-badge">⚠️ ${overdueCount} forfalt</span>`) : ''}
             </h3>
         `;
         const modals = html`<task-note-modal></task-note-modal>`;
-        if (data._loading) return html`${header('')}<p class="empty-quiet">Laster…</p>${modals}`;
+        if (data._loading) return html`${header('', 0)}<p class="empty-quiet">Laster…</p>${modals}`;
         const open = Array.isArray(data.open) ? data.open : null;
-        if (!open) return html`${header('')}<p class="empty-quiet">Kunne ikke laste oppgaver</p>${modals}`;
+        if (!open) return html`${header('', 0)}<p class="empty-quiet">Kunne ikke laste oppgaver</p>${modals}`;
         this._lastOpen = open;
         const people = data.people || [];
         const companies = data.companies || [];
         if (open.length === 0) {
-            return html`${header('0')}<p class="empty-quiet">Ingen åpne oppgaver</p>${modals}`;
+            return html`${header('0', 0)}<p class="empty-quiet">Ingen åpne oppgaver</p>${modals}`;
         }
-        const rows = open.map(t => renderTask(t, people, companies));
+        const overdueCount = open.filter(t => isOverdue(t.dueDate, t.done)).length;
+        const sorted = [...open].sort((a, b) => {
+            const ao = isOverdue(a.dueDate, a.done) ? 0 : 1;
+            const bo = isOverdue(b.dueDate, b.done) ? 0 : 1;
+            return ao - bo;
+        });
+        const rows = sorted.map(t => renderTask(t, people, companies));
         return html`
-            ${header(String(open.length))}
+            ${header(String(open.length), overdueCount)}
             <div class="sidebar-tasks">${rows}</div>
             ${modals}
         `;
