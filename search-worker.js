@@ -24,7 +24,7 @@ let rebuildTimer = null;
 
 // Bump when the cache shape changes (e.g. doc fields added, tokenization
 // rules changed). Mismatched cache files are silently rebuilt.
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 
 function cachePathFor(contextDir) {
     return path.join(contextDir, '.cache', 'search-index.json');
@@ -48,6 +48,25 @@ function addToIndex(idx, text) {
 
 function readJson(p) {
     try { return JSON.parse(fs.readFileSync(p, 'utf-8')); } catch { return null; }
+}
+
+// Read a per-entity directory (one JSON per item), falling back to legacy
+// flat file. Mirrors loadCollection() in lib/core.js.
+function readCollection(contextDir, name) {
+    const dir = path.join(contextDir, name);
+    let entries;
+    try { entries = fs.readdirSync(dir); } catch { entries = null; }
+    if (entries) {
+        const items = [];
+        for (const f of entries) {
+            if (!f.endsWith('.json')) continue;
+            try { items.push(JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8'))); } catch {}
+        }
+        return items;
+    }
+    // Fallback: legacy single-file
+    const arr = readJson(path.join(contextDir, name + '.json'));
+    return Array.isArray(arr) ? arr : [];
 }
 
 // Pull "relations" out of a markdown note: @mentions (people/companies),
@@ -115,6 +134,22 @@ function computeSignature(contextDir) {
             parts.push(`${j}:${st.size}:${st.mtimeMs}`);
         } catch {
             parts.push(`${j}:absent`);
+        }
+    }
+    // Per-entity directories (new storage format)
+    for (const dirName of ['tasks', 'meetings', 'people', 'results']) {
+        const dir = path.join(contextDir, dirName);
+        let dirEntries;
+        try { dirEntries = fs.readdirSync(dir); } catch { dirEntries = null; }
+        if (dirEntries) {
+            dirEntries.sort();
+            for (const f of dirEntries) {
+                if (!f.endsWith('.json')) continue;
+                try {
+                    const st = fs.statSync(path.join(dir, f));
+                    parts.push(`${dirName}/${f}:${st.size}:${st.mtimeMs}`);
+                } catch {}
+            }
         }
     }
     return crypto.createHash('sha1').update(parts.join('|')).digest('hex');
@@ -255,7 +290,7 @@ function buildIndexUncached(contextDir) {
     }
 
     // ---- Tasks ----
-    const tasks = readJson(path.join(contextDir, 'tasks.json'));
+    const tasks = readCollection(contextDir, 'tasks');
     if (Array.isArray(tasks)) {
         for (const t of tasks) {
             const blob = [t.text, t.comment, t.notes].filter(Boolean).join('\n');
@@ -274,7 +309,7 @@ function buildIndexUncached(contextDir) {
     }
 
     // ---- Meetings ----
-    const meetings = readJson(path.join(contextDir, 'meetings.json'));
+    const meetings = readCollection(contextDir, 'meetings');
     if (Array.isArray(meetings)) {
         for (const m of meetings) {
             const att = (m.attendees || []).join(' ');
@@ -296,7 +331,7 @@ function buildIndexUncached(contextDir) {
     }
 
     // ---- People (skip tombstones) ----
-    const people = readJson(path.join(contextDir, 'people.json'));
+    const people = readCollection(contextDir, 'people');
     if (Array.isArray(people)) {
         for (const p of people) {
             if (p.deleted) continue;
@@ -317,7 +352,7 @@ function buildIndexUncached(contextDir) {
     }
 
     // ---- Results ----
-    const results = readJson(path.join(contextDir, 'results.json'));
+    const results = readCollection(contextDir, 'results');
     if (Array.isArray(results)) {
         for (const r of results) {
             if (!r.text) continue;
