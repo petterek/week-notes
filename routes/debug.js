@@ -1509,6 +1509,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             ['Meetings',  ['meeting-create', 'meeting-create-modal', 'upcoming-meetings', 'today-calendar', 'week-notes-calendar']],
             ['People',    ['company-card', 'entity-callout', 'entity-mention', 'people-page', 'person-card', 'person-picker', 'place-card']],
             ['Results',   ['results-page', 'week-results']],
+            ['Goals',     ['goals-page']],
             ['Settings',  ['settings-page']],
             ['Composit',  ['week-list', 'week-section']],
         ];
@@ -2849,6 +2850,14 @@ modal.open();</pre>
                     <p><strong>Events.</strong> No bespoke events &mdash; navigation/reload happens through the context service.</p>`,
                 rawHtml: `<settings-page settings_service="MockSettingsService" context_service="MockContextService"></settings-page>`,
             },
+            'goals-page': {
+                desc: `<p><strong>&lt;goals-page&gt;</strong> is the master/detail goals view. A left panel (320px) lists goals grouped by status (active / achieved / abandoned), and the right pane shows full details of the selected goal including description, progress, linked tasks and results.</p>
+                    <p><strong>Domains:</strong> <code>goals</code> (primary), plus optional <code>tasks</code> and <code>results</code> for cross-references.</p>
+                    <p><strong>Master panel.</strong> Goal items show icon + title + progress bar (if targetValue set). Click an item to select it; hash navigation preserved (<code>#g-&lt;id&gt;</code>).</p>
+                    <p><strong>Detail pane.</strong> Shows title, status, description, target date, progress, linked tasks/results. Inline editing with save/cancel.</p>
+                    <p><strong>Events.</strong> No bespoke events — mutations go through the goals service.</p>`,
+                rawHtml: `<goals-page goals_service="MockGoalsService" tasks_service="MockTaskService" results_service="MockResultsService"></goals-page>`,
+            },
             'people-page': {
                 desc: `<p><strong>&lt;people-page&gt;</strong> is the SPA replacement for <code>/people</code>: a tabbed master-list of <strong>Personer</strong>, <strong>Selskaper</strong>, and <strong>Steder</strong>, with cross-references back to tasks, meetings and results.</p>
                     <p><strong>Domains:</strong></p>
@@ -3023,6 +3032,8 @@ modal.open();</pre>
 <script type="module" src="/components/tag-editor.js"></script>
 <script type="module" src="/components/people-page.js"></script>
 <script type="module" src="/components/results-page.js"></script>
+<script type="module" src="/components/goals-page.js"></script>
+<script type="module" src="/components/active-goals.js"></script>
     <style>
         body { font-family: var(--font-family, -apple-system, sans-serif); font-size: var(--font-size, 16px); margin: 0; line-height: 1.6; color: var(--text-strong); background: var(--bg); }
         .dbg-page { display: grid; grid-template-columns: 220px 1fr; min-height: 100vh; }

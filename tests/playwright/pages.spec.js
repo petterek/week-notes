@@ -8,6 +8,9 @@ const PAGES = [
     { path: '/people',   title: /Personer|People/ },
     { path: '/calendar', title: /Kalender/ },
     { path: '/settings', title: /Innstillinger|Settings/ },
+    { path: '/goals',    title: /Mål|Goals/ },
+    { path: '/results',  title: /Resultater|Results/ },
+    { path: '/calendar/all', title: /Kalender|Calendar/ },
     { path: '/debug/help-modal', title: /./ },
 ];
 

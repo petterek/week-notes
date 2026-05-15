@@ -101,6 +101,7 @@
         { id: 't4', text: 'Oppdatere @acmeas-avtalen', done: true, created: now(), completed: now(), week: lastWeek, completedWeek: lastWeek, order: 3 },
         { id: 't5', text: 'Rydde i innboks', done: true, created: now(), completed: now(), week: twoWeeksAgo, completedWeek: twoWeeksAgo, order: 4 },
         { id: 't6', text: 'Lese gjennom designforslag', done: false, created: now(), week: thisWeek, order: 5 },
+        { id: 't7', text: 'Sende faktura til @globex', done: false, created: now(), week: lastWeek, order: 6, dueDate: dayOffset(-3) },
     ];
 
     window.MockTaskService = {
@@ -380,9 +381,12 @@
 
     // ---------- Context ----------
     const contexts = [
-        { id: 'demo', name: 'Demo-arbeidsplass', icon: '🧪', description: 'Mock-kontekst for debug-siden', active: true },
-        { id: 'work',  name: 'Jobb',                 icon: '💼', description: 'Hovedarbeidsplass', active: false },
-        { id: 'home',  name: 'Hjemme',               icon: '🏠', description: 'Personlige notater', active: false },
+        { id: 'demo', name: 'Demo-arbeidsplass', icon: '🧪', description: 'Mock-kontekst for debug-siden', active: true, color: '#4a90e2',
+          settings: { name: 'Demo-arbeidsplass', icon: '🧪', description: 'Mock-kontekst for debug-siden', color: '#4a90e2' } },
+        { id: 'work',  name: 'Jobb',  icon: '💼', description: 'Hovedarbeidsplass', active: false, color: '#e74c3c',
+          settings: { name: 'Jobb', icon: '💼', description: 'Hovedarbeidsplass', color: '#e74c3c' } },
+        { id: 'home',  name: 'Hjemme', icon: '🏠', description: 'Personlige notater', active: false, color: '#2ecc71',
+          settings: { name: 'Hjemme', icon: '🏠', description: 'Personlige notater', color: '#2ecc71' } },
     ];
     const disconnected = [{ id: 'old-project', name: 'Gammelt prosjekt', remote: 'git@example.com:me/old.git' }];
 
@@ -413,6 +417,7 @@
             settingsByCtx[id] = {
                 name: (contexts.find(c => c.id === id) || {}).name || id,
                 icon: (contexts.find(c => c.id === id) || {}).icon || '📁',
+                color: (contexts.find(c => c.id === id) || {}).color || '',
                 description: (contexts.find(c => c.id === id) || {}).description || '',
                 theme: 'paper',
                 defaultMeetingMinutes: 60,
