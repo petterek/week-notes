@@ -75,6 +75,21 @@ module.exports = function(deps) {
         return;
     }
 
+    // Calendar activity: tasks, notes, results in a date range
+    if (pathname === '/api/calendar-activity' && req.method === 'GET') {
+        const start = url.searchParams.get('start');
+        const end = url.searchParams.get('end');
+        if (!start || !end) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'start and end required' }));
+            return;
+        }
+        const items = getCalendarActivity(start, end);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(items));
+        return;
+    }
+
     // Per-machine identity: which person in the people register represents
     // the active user on THIS machine, per context. Stored in data/user.json
     // (outside any context's git repo), so multiple users sharing a context

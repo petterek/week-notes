@@ -1415,6 +1415,8 @@ document.addEventListener('keydown', function(e) {
         const placesByKey = {};
         loadPlaces().filter(p => !p.deleted).forEach(p => { placesByKey[p.key] = p; });
         const activity = getCalendarActivity(days[0].iso, days[6].iso);
+        const calCounts = { meeting: meetings.length, task: 0, note: 0, result: 0 };
+        for (const a of activity) { if (calCounts[a.kind] !== undefined) calCounts[a.kind]++; }
         const prevWeek = shiftIsoWeek(week, -1);
         const nextWeek = shiftIsoWeek(week, 1);
         const HOUR_START = 0, HOUR_END = 23, HOUR_PX = 36;
@@ -1522,10 +1524,12 @@ document.addEventListener('keydown', function(e) {
                 <h1 style="margin:0">📅 Kalender · Uke ${week.split('-W')[1]}</h1>
                 <span style="color:var(--text-subtle)">${escapeHtml(dateRange)}</span>
                 <div style="margin-left:auto;display:flex;gap:6px;align-items:center">
-                    <div class="cal-filters" title="Vis/skjul aktivitet">
-                        <button type="button" class="cal-chip" data-kind="task" title="Oppgaver">✅</button>
-                        <button type="button" class="cal-chip" data-kind="note" title="Notater">📝</button>
-                        <button type="button" class="cal-chip" data-kind="result" title="Resultater">🏁</button>
+                    <div class="cal-filters" title="Vis/skjul">
+                        <button type="button" class="cal-filter" data-kind="all">Alle</button>
+                        <button type="button" class="cal-filter" data-kind="meeting">📅 Møter${calCounts.meeting ? ' ' + calCounts.meeting : ''}</button>
+                        <button type="button" class="cal-filter" data-kind="task">✅ Oppgaver${calCounts.task ? ' ' + calCounts.task : ''}</button>
+                        <button type="button" class="cal-filter" data-kind="note">📝 Notater${calCounts.note ? ' ' + calCounts.note : ''}</button>
+                        <button type="button" class="cal-filter" data-kind="result">🏁 Resultater${calCounts.result ? ' ' + calCounts.result : ''}</button>
                     </div>
                     <button type="button" class="cal-nav-btn cal-add-btn" onclick="newMeeting()" title="Nytt møte">+ Nytt møte</button>
                     <button type="button" class="cal-nav-btn" onclick="openTypesModal()" title="Rediger møtetyper">✏️ Typer</button>
@@ -1646,11 +1650,11 @@ document.addEventListener('keydown', function(e) {
                 .cal-grid.hide-task .cal-activity.act-task { display:none; }
                 .cal-grid.hide-note .cal-activity.act-note { display:none; }
                 .cal-grid.hide-result .cal-activity.act-result { display:none; }
-                .cal-filters { display:inline-flex; gap:2px; padding:2px; background:#f4ecd6; border:1px solid var(--border); border-radius:5px; margin-right:4px; }
-                .cal-chip { background:transparent; border:none; padding:3px 7px; font-size:0.95em; cursor:pointer; border-radius:3px; line-height:1; opacity:0.35; filter:grayscale(0.6); transition:all 0.12s; }
-                .cal-chip.on { opacity:1; filter:none; background:var(--surface); box-shadow:0 1px 2px rgba(60,58,48,0.12); }
-                .cal-chip:hover { opacity:0.85; }
-                .cal-chip.on:hover { opacity:1; }
+                .cal-grid.hide-meeting .mtg { display:none; }
+                .cal-filters { display:inline-flex; gap:4px; padding:3px; background:var(--surface-alt, #f4ecd6); border:1px solid var(--border); border-radius:6px; margin-right:4px; }
+                .cal-filter { background:transparent; border:1px solid transparent; padding:4px 10px; font-size:0.78em; cursor:pointer; border-radius:4px; line-height:1; color:var(--text-muted); font-weight:500; transition:all 0.12s; white-space:nowrap; }
+                .cal-filter.on { background:var(--surface); color:var(--text-strong); border-color:var(--border); box-shadow:0 1px 2px rgba(60,58,48,0.1); }
+                .cal-filter:hover { color:var(--text); background:var(--surface); }
                 .now-line { position:absolute; left:0; right:0; height:0; border-top:2px solid #e53e3e; z-index:3; pointer-events:none; }
                 .now-line::before { content:''; position:absolute; left:-4px; top:-5px; width:8px; height:8px; background:#e53e3e; border-radius:50%; box-shadow:0 0 0 2px var(--surface); }
                 .mtg { cursor:move; user-select:none; }
@@ -1958,25 +1962,37 @@ document.addEventListener('keydown', function(e) {
                     }
                     updateNowLine();
                     setInterval(updateNowLine, 60000);
-                    // Activity filter chips
+                    // Activity + meeting filter pills
                     (function(){
                         const grid = document.querySelector('.cal-grid');
                         const KEY = 'calActivityFilter';
+                        const KINDS = ['meeting','task','note','result'];
                         let st;
                         try { st = JSON.parse(localStorage.getItem(KEY)) || {}; } catch(_) { st = {}; }
                         const apply = () => {
-                            ['task','note','result'].forEach(k => {
+                            const allOn = KINDS.every(k => st[k] !== false);
+                            KINDS.forEach(k => {
                                 const on = st[k] !== false;
                                 grid.classList.toggle('hide-' + k, !on);
-                                const chip = document.querySelector('.cal-chip[data-kind="' + k + '"]');
-                                if (chip) chip.classList.toggle('on', on);
+                                const btn = document.querySelector('.cal-filter[data-kind="' + k + '"]');
+                                if (btn) btn.classList.toggle('on', on);
                             });
+                            const allBtn = document.querySelector('.cal-filter[data-kind="all"]');
+                            if (allBtn) allBtn.classList.toggle('on', allOn);
                         };
                         apply();
-                        document.querySelectorAll('.cal-chip').forEach(chip => {
-                            chip.addEventListener('click', () => {
-                                const k = chip.getAttribute('data-kind');
-                                st[k] = !(st[k] !== false); // toggle (default true)
+                        document.querySelectorAll('.cal-filter').forEach(btn => {
+                            btn.addEventListener('click', () => {
+                                const k = btn.getAttribute('data-kind');
+                                if (k === 'all') {
+                                    const allOn = KINDS.every(x => st[x] !== false);
+                                    KINDS.forEach(x => { st[x] = allOn ? false : true; });
+                                    if (allOn) { /* turned all off — actually turn all on (toggle) */ KINDS.forEach(x => { st[x] = true; }); st._allOff = true; }
+                                    // Simple: "Alle" always enables all
+                                    KINDS.forEach(x => { delete st[x]; });
+                                } else {
+                                    st[k] = !(st[k] !== false);
+                                }
                                 localStorage.setItem(KEY, JSON.stringify(st));
                                 apply();
                             });
