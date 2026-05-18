@@ -358,7 +358,7 @@
                         identifier: p.key || '',
                         title: display,
                         subtitle: p.title || p.email || '@' + (p.key || ''),
-                        href: '/people#' + encodeURIComponent(p.key || ''),
+                        href: '/people#p-' + encodeURIComponent(p.key || ''),
                         snippet: p.notes || ''
                     });
                 }

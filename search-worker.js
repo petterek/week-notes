@@ -343,7 +343,7 @@ function buildIndexUncached(contextDir) {
                 identifier: p.key || '',
                 title: display,
                 subtitle: p.title || p.email || ('@' + (p.key || '')),
-                href: '/people#' + encodeURIComponent(p.key || ''),
+                href: '/people#p-' + encodeURIComponent(p.key || ''),
                 searchText: blob,
                 body: blob
             });

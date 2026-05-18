@@ -246,11 +246,21 @@ class PeoplePage extends WNElement {
         const anchorMatch = h.match(/^(p|c|pl)-(.+)$/);
         if (anchorMatch) {
             this._tab = anchorMatch[1] === 'p' ? 'people' : anchorMatch[1] === 'c' ? 'companies' : 'places';
-            this._hashKey = anchorMatch[2];
+            this._hashKey = decodeURIComponent(anchorMatch[2]);
         } else {
             const t = params.tab;
             if (t === 'people' || t === 'companies' || t === 'places') this._tab = t;
             this._hashKey = params.key || null;
+            // Fallback: bare #key (no prefix, no params) → treat as person key
+            if (!this._hashKey && !t && h && !h.includes('=')) {
+                this._tab = 'people';
+                this._hashKey = decodeURIComponent(h);
+            }
+        }
+        // Pre-expand the target card so it's open on first render
+        if (this._hashKey) {
+            const prefix = this._tab === 'people' ? 'p-' : this._tab === 'companies' ? 'c-' : 'pl-';
+            this._expanded.add(prefix + this._hashKey);
         }
     }
 
@@ -879,17 +889,25 @@ class PeoplePage extends WNElement {
         if (!this._hashKey) return;
         const prefix = this._tab === 'people' ? 'p-' : this._tab === 'companies' ? 'c-' : 'pl-';
         this._expanded.add(prefix + this._hashKey);
-        this.requestRender();
-        this._applyTab();
-        requestAnimationFrame(() => {
-            const tag = this._tab === 'people' ? 'person-card' : this._tab === 'companies' ? 'company-card' : 'place-card';
-            const el = this.shadowRoot.querySelector(`${tag}[data-key="${this._hashKey}"]`);
-            if (el) {
-                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                el.classList.add('hl');
-                setTimeout(() => el.classList.remove('hl'), 1500);
-            }
-        });
+        const tag = this._tab === 'people' ? 'person-card' : this._tab === 'companies' ? 'company-card' : 'place-card';
+        const el = this.shadowRoot.querySelector(`${tag}[data-key="${this._hashKey}"]`);
+        if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.add('hl');
+            setTimeout(() => el.classList.remove('hl'), 1500);
+        } else {
+            // Card not rendered yet — trigger re-render and try again
+            this.requestRender();
+            this._applyTab();
+            requestAnimationFrame(() => {
+                const retry = this.shadowRoot.querySelector(`${tag}[data-key="${this._hashKey}"]`);
+                if (retry) {
+                    retry.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    retry.classList.add('hl');
+                    setTimeout(() => retry.classList.remove('hl'), 1500);
+                }
+            });
+        }
     }
 
     // ---------------- modal lifecycle -----------------------------------
