@@ -10,7 +10,7 @@
  * so once persisted the source is plain text. Until then, the
  * preview shows the user how the marker will appear.
  */
-import { WNElement, html, escapeHtml } from './_shared.js';
+import { WNElement, html, escapeHtml, unsafeHTML } from './_shared.js';
 
 const STYLES = `
     :host {
@@ -47,7 +47,12 @@ class InlineAction extends WNElement {
     render() {
         const kind = (this.getAttribute('kind') || '').toLowerCase() === 'result' ? 'result' : 'task';
         const label = this.getAttribute('label') || this.textContent || '';
-        return html`<span class="pill ${kind}" title="${kind === 'task' ? 'Ny oppgave ved lagring' : 'Nytt resultat ved lagring'}">${escapeHtml(label)}</span>`;
+        // Expand @mentions within the label into <entity-mention> elements
+        const rendered = escapeHtml(label).replace(
+            /(^|[\s(])@([a-zA-ZæøåÆØÅ][a-zA-ZæøåÆØÅ0-9_-]*)/g,
+            (_m, pre, name) => `${pre}<entity-mention kind="person" key="${name.toLowerCase()}" label="${name}"></entity-mention>`
+        );
+        return html`<span class="pill ${kind}" title="${kind === 'task' ? 'Ny oppgave ved lagring' : 'Nytt resultat ved lagring'}">${unsafeHTML(rendered)}</span>`;
     }
 }
 

@@ -148,7 +148,7 @@ class UpcomingMeetings extends WNElement {
                 ? escapeHtml(m.start) + (m.end ? `–${escapeHtml(m.end)}` : '')
                 : 'Hele dagen';
             const att = (m.attendees || [])
-                .map(a => `<a class="mention-link" data-person-key="${escapeHtml(a)}" href="/people#${escapeHtml(a)}">@${escapeHtml(a)}</a>`)
+                .map(a => `<a class="mention-link" data-person-key="${escapeHtml(a)}" href="/people#p-${escapeHtml(a)}">@${escapeHtml(a)}</a>`)
                 .join(' ');
             const loc = m.location ? `<span class="mtg-loc">📍 ${escapeHtml(m.location)}</span>` : '';
             const t = typeMap[m.type];

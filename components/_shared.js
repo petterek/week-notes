@@ -51,26 +51,33 @@ export function linkMentions(s, people, companies) {
         if (!t) return '';
         return `<inline-action kind="result" label="${escapeHtml(t)}"></inline-action>`;
     });
-    return out.replace(/(^|[\s\n(\[>])@([a-zA-ZæøåÆØÅ][a-zA-ZæøåÆØÅ0-9_-]*)/g, (_m, pre, name) => {
-        let lc = name.toLowerCase();
-        let display = name;
-        if (lc === 'me') {
-            const mapped = (typeof window !== 'undefined' && window.mePersonKey) || '';
-            if (!mapped) {
-                return `${pre}<entity-mention kind="person" key="" label="@me"></entity-mention>`;
+    // Expand @mentions only in text content (not inside HTML tags/attributes).
+    const mentionRe = /(^|[\s\n(\[>])@([a-zA-ZæøåÆØÅ][a-zA-ZæøåÆØÅ0-9_-]*)/g;
+    const parts = out.split(/(<[^>]*>)/);
+    for (let i = 0; i < parts.length; i++) {
+        if (i % 2 === 1) continue; // skip HTML tags
+        parts[i] = parts[i].replace(mentionRe, (_m, pre, name) => {
+            let lc = name.toLowerCase();
+            let display = name;
+            if (lc === 'me') {
+                const mapped = (typeof window !== 'undefined' && window.mePersonKey) || '';
+                if (!mapped) {
+                    return `${pre}<entity-mention kind="person" key="" label="@me"></entity-mention>`;
+                }
+                lc = mapped;
+                display = mapped;
             }
-            lc = mapped;
-            display = mapped;
-        }
-        const c = companies.find(x => x.key === lc);
-        if (c) {
-            return `${pre}<entity-mention kind="company" key="${escapeHtml(c.key)}" label="${escapeHtml(c.name || display)}"></entity-mention>`;
-        }
-        const p = people.find(x => x.name === display || x.key === lc);
-        const finalDisplay = p ? (p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : p.name) : display;
-        const key = p ? (p.key || (p.name || '').toLowerCase()) : lc;
-        return `${pre}<entity-mention kind="person" key="${escapeHtml(key)}" label="${escapeHtml(finalDisplay)}"></entity-mention>`;
-    });
+            const c = companies.find(x => x.key === lc);
+            if (c) {
+                return `${pre}<entity-mention kind="company" key="${escapeHtml(c.key)}" label="${escapeHtml(c.name || display)}"></entity-mention>`;
+            }
+            const p = people.find(x => x.name === display || x.key === lc);
+            const finalDisplay = p ? (p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : p.name) : display;
+            const key = p ? (p.key || (p.name || '').toLowerCase()) : lc;
+            return `${pre}<entity-mention kind="person" key="${escapeHtml(key)}" label="${escapeHtml(finalDisplay)}"></entity-mention>`;
+        });
+    }
+    return parts.join('');
 }
 
 export function wireMentionClicks(host) {

@@ -1501,7 +1501,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
 
     if (pathname === '/debug' || pathname.startsWith('/debug/')) {
         const COMPONENT_GROUPS = [
-            ['Shared',    ['help-modal', 'icon-picker', 'json-table', 'modal-container', 'nav-button', 'nav-meta', 'time-picker', 'date-time-picker', 'week-calendar', 'week-pill']],
+            ['Shared',    ['help-modal', 'icon-picker', 'json-table', 'modal-container', 'nav-button', 'nav-meta', 'time-picker', 'date-time-picker', 'pick-date-time-span', 'week-calendar', 'week-pill']],
             ['Context',   ['ctx-switcher']],
             ['Search',    ['global-search']],
             ['Notes',     ['markdown-preview', 'note-card', 'note-editor', 'note-meta-view', 'note-meta-panel', 'note-view']],
@@ -2529,6 +2529,22 @@ modal.open();</pre>
                     { name: 'value', type: 'text', default: '' },
                 ],
             },
+            'pick-date-time-span': {
+                desc: `<p><strong>&lt;pick-date-time-span&gt;</strong> is a compact start/end datetime selector with two trigger buttons (&ldquo;Fra&rdquo; and &ldquo;Til&rdquo;). Each shows a formatted date+time (e.g. &ldquo;tir 19.5. 08:25&rdquo;) and opens a <code>&lt;date-time-picker mode="datetime"&gt;</code> popup when clicked.</p>
+                    <p><strong>Min constraint:</strong> the Til picker always has its <code>min</code> set to the Fra value, so you cannot pick an end before the start. If Fra moves past Til, Til is auto-pushed forward.</p>
+                    <p><strong>Attributes:</strong></p>
+                    <ul>
+                        <li><code>start</code> — initial start value (<code>YYYY-MM-DD HH:MM</code>)</li>
+                        <li><code>end</code> — initial end value (<code>YYYY-MM-DD HH:MM</code>)</li>
+                    </ul>
+                    <p><strong>JS API:</strong> <code>el.start</code>, <code>el.end</code> getter/setter (format <code>YYYY-MM-DD HH:MM</code>).</p>
+                    <p><strong>Events:</strong> <code>timespan-changed</code> with detail <code>{ start, end }</code> when either value changes.</p>`,
+                tag: 'pick-date-time-span',
+                attrs: [
+                    { name: 'start', type: 'text', default: '' },
+                    { name: 'end', type: 'text', default: '' },
+                ],
+            },
             'time-picker': {
                 desc: `<p><strong>&lt;time-picker&gt;</strong> is a custom time-of-day input. It renders an hour <code>&lt;select&gt;</code> (00-23) and a minute <code>&lt;select&gt;</code> snapped to a configurable <code>step</code> (default 5 minutes), giving consistent UI across browsers — Chrome's native <code>&lt;input type=&quot;time&quot;&gt;</code> ignores <code>step</code> for the spinner.</p>
                     <p><strong>Form-associated.</strong> When inside a <code>&lt;form&gt;</code>, the current value is reported as a form value under the <code>name</code> attribute, so <code>FormData</code> picks it up automatically. <code>required</code> is honored via <code>ElementInternals.setValidity</code>; <code>checkValidity()</code> / <code>reportValidity()</code> are exposed on the element.</p>
@@ -3029,6 +3045,8 @@ modal.open();</pre>
 <script type="module" src="/components/inline-result.js"></script>
 <script type="module" src="/components/icon-picker.js"></script>
 <script type="module" src="/components/date-time-picker.js"></script>
+<script type="module" src="/components/time-picker.js"></script>
+<script type="module" src="/components/pick-date-time-span.js"></script>
 <script type="module" src="/components/tag-editor.js"></script>
 <script type="module" src="/components/people-page.js"></script>
 <script type="module" src="/components/results-page.js"></script>

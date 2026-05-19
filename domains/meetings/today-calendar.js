@@ -48,7 +48,8 @@ function meetingToItem(m, typeMap) {
     const icon = (t && t.icon) ? t.icon + ' ' : '';
     const ctxPrefix = (m._ctx && !m._ctxActive) ? (m._ctxIcon || '📁') + ' ' : '';
     const start = m.start ? `${m.date}T${m.start}` : m.date;
-    const end   = m.end   ? `${m.date}T${m.end}`   : start;
+    const endDateStr = m.endDate || m.date;
+    const end   = m.end   ? `${endDateStr}T${m.end}`   : start;
     const bodyParts = [];
     if (m._ctx && !m._ctxActive && m._ctxName) bodyParts.push(m._ctxName);
     if (m.attendees && m.attendees.length) bodyParts.push(m.attendees.map(a => '@' + a).join(' '));

@@ -84,7 +84,19 @@ module.exports = function(deps) {
 
         if (sp.get('week')) {
             const w = sp.get('week');
-            meetings = meetings.filter(m => dateToIsoWeek(new Date(m.date + 'T00:00:00Z')) === w);
+            const wMon = isoWeekMonday(w);
+            if (wMon) {
+                const monStr = wMon.toISOString().slice(0, 10);
+                const sun = new Date(wMon);
+                sun.setUTCDate(wMon.getUTCDate() + 6);
+                const sunStr = sun.toISOString().slice(0, 10);
+                meetings = meetings.filter(m => {
+                    const mEnd = m.endDate || m.date;
+                    return m.date <= sunStr && mEnd >= monStr;
+                });
+            } else {
+                meetings = meetings.filter(m => dateToIsoWeek(new Date(m.date + 'T00:00:00Z')) === w);
+            }
         }
         if (sp.get('upcoming')) {
             const days = parseInt(sp.get('upcoming'), 10) || 7;
@@ -107,6 +119,16 @@ module.exports = function(deps) {
             res.end(JSON.stringify({ ok: false, error: 'date and title required' }));
             return;
         }
+        if (data.start && data.end) {
+            // Compare full datetimes for multi-day meetings
+            const startDt = (data.date || '') + ' ' + data.start;
+            const endDt = (data.endDate || data.date || '') + ' ' + data.end;
+            if (endDt <= startDt) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: 'Sluttid må være etter starttid' }));
+                return;
+            }
+        }
         const meetings = loadMeetings();
         const validTypes = loadMeetingTypes().map(t => t.key);
         const m = {
@@ -122,6 +144,7 @@ module.exports = function(deps) {
             notes: (data.notes || '').trim(),
             created: new Date().toISOString()
         };
+        if (data.endDate && data.endDate !== data.date) m.endDate = data.endDate;
         meetings.push(m);
         saveMeetings(meetings);
         try { syncMentions(m.title, m.notes, (m.attendees || []).map(a => '@' + a).join(' ')); } catch {}
@@ -150,9 +173,27 @@ module.exports = function(deps) {
         }
         const data = JSON.parse(await readBody(req) || '{}');
         const m = meetings[idx];
+        // Validate end > start (compare full datetimes for multi-day support)
+        const effDate = data.date !== undefined ? data.date : m.date;
+        const effStart = data.start !== undefined ? data.start : m.start;
+        const effEnd = data.end !== undefined ? data.end : m.end;
+        const effEndDate = data.endDate !== undefined ? data.endDate : (m.endDate || effDate);
+        if (effStart && effEnd) {
+            const startDt = (effDate || '') + ' ' + effStart;
+            const endDt = (effEndDate || effDate || '') + ' ' + effEnd;
+            if (endDt <= startDt) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: 'Sluttid må være etter starttid' }));
+                return;
+            }
+        }
         if (data.date !== undefined) m.date = data.date;
         if (data.start !== undefined) m.start = data.start;
         if (data.end !== undefined) m.end = data.end;
+        if (data.endDate !== undefined) {
+            if (data.endDate && data.endDate !== m.date) m.endDate = data.endDate;
+            else delete m.endDate;
+        }
         if (data.title !== undefined) m.title = String(data.title).trim();
         if (data.type !== undefined && loadMeetingTypes().some(t => t.key === data.type)) m.type = data.type;
         if (data.attendees !== undefined) m.attendees = Array.isArray(data.attendees) ? data.attendees : extractMentions(data.attendees || '');

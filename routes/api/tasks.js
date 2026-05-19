@@ -70,13 +70,19 @@ module.exports = function(deps) {
             week: body.week || getCurrentYearWeek(),
         };
         if (meKey) task.author = meKey;
-        // Responsible defaults to author (@me); body may override with a
-        // different person key. Empty string explicitly clears it.
+        // Responsible: explicit body value wins. Otherwise extract the first
+        // @mention from the task text (skipping @me). Falls back to @me.
         if (typeof body.responsible === 'string') {
             const r = body.responsible.trim();
             if (r) task.responsible = r;
-        } else if (meKey) {
-            task.responsible = meKey;
+        } else {
+            const mentions = extractMentions(body.text || '');
+            const otherMention = mentions.find(m => m.toLowerCase() !== meKey.toLowerCase());
+            if (otherMention) {
+                task.responsible = otherMention.toLowerCase();
+            } else if (meKey) {
+                task.responsible = meKey;
+            }
         }
         if (typeof body.dueDate === 'string' && /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?$/.test(body.dueDate.trim())) {
             task.dueDate = body.dueDate.trim();

@@ -56,7 +56,8 @@ function defaultColor(idx) { return DEFAULT_COLORS[idx % DEFAULT_COLORS.length];
 function meetingToItem(m) {
     const icon = m._ctxIcon ? m._ctxIcon + ' ' : '';
     const start = m.start ? `${m.date}T${m.start}` : m.date;
-    const end   = m.end   ? `${m.date}T${m.end}`   : start;
+    const endDateStr = m.endDate || m.date;
+    const end   = m.end   ? `${endDateStr}T${m.end}`   : start;
     const bodyParts = [];
     if (m.attendees && m.attendees.length) bodyParts.push(m.attendees.map(a => '@' + a).join(' '));
     if (m.location) bodyParts.push('📍 ' + m.location);
