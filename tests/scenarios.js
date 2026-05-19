@@ -285,6 +285,7 @@
             run: async function (ctx) {
                 var doc = ctx.doc;
                 var tp = await ctx.waitFor(function () { return doc.querySelector('time-picker'); }, { label: 'time-picker' });
+                await ctx.waitFor(function () { return tp.shadowRoot && tp.shadowRoot.querySelector('select'); }, { label: 'time-picker upgraded' });
                 tp.setAttribute('step', '15');
                 tp.value = '08:23';
                 ctx.assert(tp.value === '08:15' || tp.value === '08:30', 'expected snap to 15-min, got ' + tp.value);

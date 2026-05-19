@@ -3045,6 +3045,7 @@ modal.open();</pre>
 <script type="module" src="/components/inline-result.js"></script>
 <script type="module" src="/components/icon-picker.js"></script>
 <script type="module" src="/components/date-time-picker.js"></script>
+<script type="module" src="/components/time-picker.js"></script>
 <script type="module" src="/components/pick-date-time-span.js"></script>
 <script type="module" src="/components/tag-editor.js"></script>
 <script type="module" src="/components/people-page.js"></script>
