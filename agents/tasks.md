@@ -6,10 +6,14 @@ Per-week task list with comments, drag-reorder, merge, completion log.
 
 - File: `data/<ctx>/tasks.json`
 - Shape (array): `{ id, text, week, done, completedWeek?, comment?,
-  due?, order?, notes? }`
+  due?, dueDate?, order?, notes?, responsible?, participants?, goalId?, author? }`
 - `completedWeek` is set on the toggle that marks `done=true`. It
   preserves which week the task was closed in (different from the
   week it was created in).
+- `participants` is an array of person keys. Auto-populated from all
+  `@mentions` in the text on create; can also be set/modified manually
+  via the API (`PUT /api/tasks/:id` with `participants: [...]`).
+  Set to `null` to clear.
 
 ## Routes
 

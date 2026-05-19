@@ -90,6 +90,13 @@ module.exports = function(deps) {
         if (typeof body.goalId === 'string' && body.goalId.trim()) {
             task.goalId = body.goalId.trim();
         }
+        // Participants: explicit array wins, otherwise auto-extract all @mentions
+        if (Array.isArray(body.participants)) {
+            task.participants = [...new Set(body.participants.map(p => p.trim().toLowerCase()).filter(Boolean))];
+        } else {
+            const mentions = extractMentions(body.text || '').map(m => m.toLowerCase());
+            if (mentions.length) task.participants = [...new Set(mentions)];
+        }
         tasks.push(task);
         saveTasks(tasks);
         syncMentions(body.text);
@@ -124,6 +131,14 @@ module.exports = function(deps) {
                 delete task.goalId;
             } else if (typeof body.goalId === 'string' && body.goalId.trim()) {
                 task.goalId = body.goalId.trim();
+            }
+            // Participants: explicit array sets/replaces; null clears
+            if (Array.isArray(body.participants)) {
+                const ps = [...new Set(body.participants.map(p => p.trim().toLowerCase()).filter(Boolean))];
+                if (ps.length) task.participants = ps;
+                else delete task.participants;
+            } else if (body.participants === null) {
+                delete task.participants;
             }
             saveTasks(tasks);
         }
