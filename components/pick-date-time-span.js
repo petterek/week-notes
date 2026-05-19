@@ -208,7 +208,9 @@ class PickDateTimeSpan extends WNElement {
                     this._end = addMinutesToDt(this._start, 60);
                 }
                 this._emit();
-                this._closePicker();
+                // Auto-open end picker after selecting start
+                this._openPicker = 'end';
+                this.requestRender();
             } else if (this._openPicker === 'end') {
                 if (val <= this._start) {
                     this._showError('Sluttid må være etter starttid');
