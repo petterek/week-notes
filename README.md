@@ -186,6 +186,17 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-05-19 (v4.18 — flerdagsmøter + tidsaligert heldagsbar + pick-date-time-span)
+- **`<pick-date-time-span>` komponent:** kompakt start/slutt-datovelger med «Fra»/«Til»-knapper og koblet `<date-time-picker>`. Brukes nå i både opprett- og redigeringsmodalen for møter.
+- **Flerdagsmøter:** møter som varer over flere dager lagres med `endDate` og vises i heldagsbaren. Synlige i alle uker de overlapper (ikke bare startuken).
+- **Heldagsbar tidsaligering:** venstre/høyre-kant av heldagsbarer følger møtets start-/sluttid innenfor dagens kolonnebredde.
+- **`<date-time-picker>` min-attributt:** dager før `min` disables visuelt; i koblet modus overtar min-dato som valgt dato.
+- **@mention → oppgaveansvarlig:** første `@mention` i en ny oppgaves tekst settes automatisk som ansvarlig.
+- **Fix: `/people#name` hash-lenker** åpner riktig personkort.
+- **Fix: `@mentions` i `[[result]]`-forhåndsvisning** bryter ikke lenger rendering.
+- **Fix: time-picker-rounds-to-step test** — manglende script-tag på debug-siden.
+- **37/37 tester grønne.**
+
 ### 2026-05-15 (v4.17 — Alt+C opprett-modal + avansert søk + krysskontext-kalender)
 - **Global `Alt+C` opprett-modal:** kommandopalett for hurtigoppretting av notat, oppgave, møte, resultat, mål eller person fra enhver side. Alle handlinger (unntatt notat) åpner inline-modaler uten å navigere vekk.
 - **Multi-term søkemotor:** støtte for AND, OR, NOT, NEAR og eksakte fraser (`"…"`). Ny BM25-basert scoring med proximity boost.
