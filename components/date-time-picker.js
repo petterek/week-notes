@@ -95,7 +95,14 @@ class DateTimePicker extends WNElement {
 
     _initFromAttrs() {
         const mode = this.getAttribute('mode') === 'datetime' ? 'datetime' : 'date';
-        const parsed = parse(this.getAttribute('value'), mode) || this._defaultNow(mode);
+        const valAttr = this.getAttribute('value');
+        let parsed = parse(valAttr, mode);
+        // If no value given but min is set, select the min date
+        if (!parsed && !valAttr) {
+            const minParsed = parse(this.getAttribute('min'), mode);
+            if (minParsed) parsed = minParsed;
+        }
+        if (!parsed) parsed = this._defaultNow(mode);
         this._selected = parsed;
         this._cursor = { y: parsed.y, mo: parsed.mo };
     }
