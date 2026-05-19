@@ -303,7 +303,12 @@ class WeekCalendar extends WNElement {
         if (this._isAllDayType(it.type)) return true;
         // Items whose start has no time component (date-only) are all-day.
         const s = it.startDate || '';
-        return typeof s === 'string' && s.length > 0 && s.indexOf('T') === -1;
+        if (typeof s === 'string' && s.length > 0 && s.indexOf('T') === -1) return true;
+        // Multi-day items (different start and end dates) go in the all-day bar.
+        const sDate = String(it.startDate || '').slice(0, 10);
+        const eDate = String(it.endDate || '').slice(0, 10);
+        if (sDate && eDate && eDate !== sDate) return true;
+        return false;
     }
 
     _select(item) {

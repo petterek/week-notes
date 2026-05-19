@@ -72,7 +72,8 @@ function meetingToItem(m, typeMap) {
     const t = (typeMap && typeMap[m.type]) || null;
     const icon = (t && t.icon) ? t.icon + ' ' : '';
     const start = m.start ? `${m.date}T${m.start}` : m.date;
-    const end   = m.end   ? `${m.date}T${m.end}`   : start;
+    const endDateStr = m.endDate || m.date;
+    const end   = m.end   ? `${endDateStr}T${m.end}`   : start;
     const bodyParts = [];
     if (m.attendees && m.attendees.length) bodyParts.push(m.attendees.map(a => '@' + a).join(' '));
     if (m.location) bodyParts.push('📍 ' + m.location);

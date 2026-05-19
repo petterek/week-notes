@@ -107,10 +107,15 @@ module.exports = function(deps) {
             res.end(JSON.stringify({ ok: false, error: 'date and title required' }));
             return;
         }
-        if (data.start && data.end && data.end <= data.start) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: false, error: 'Sluttid må være etter starttid' }));
-            return;
+        if (data.start && data.end) {
+            // Compare full datetimes for multi-day meetings
+            const startDt = (data.date || '') + ' ' + data.start;
+            const endDt = (data.endDate || data.date || '') + ' ' + data.end;
+            if (endDt <= startDt) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: 'Sluttid må være etter starttid' }));
+                return;
+            }
         }
         const meetings = loadMeetings();
         const validTypes = loadMeetingTypes().map(t => t.key);
@@ -127,6 +132,7 @@ module.exports = function(deps) {
             notes: (data.notes || '').trim(),
             created: new Date().toISOString()
         };
+        if (data.endDate && data.endDate !== data.date) m.endDate = data.endDate;
         meetings.push(m);
         saveMeetings(meetings);
         try { syncMentions(m.title, m.notes, (m.attendees || []).map(a => '@' + a).join(' ')); } catch {}
@@ -155,17 +161,27 @@ module.exports = function(deps) {
         }
         const data = JSON.parse(await readBody(req) || '{}');
         const m = meetings[idx];
-        // Validate end > start (use incoming values or fall back to existing)
+        // Validate end > start (compare full datetimes for multi-day support)
+        const effDate = data.date !== undefined ? data.date : m.date;
         const effStart = data.start !== undefined ? data.start : m.start;
         const effEnd = data.end !== undefined ? data.end : m.end;
-        if (effStart && effEnd && effEnd <= effStart) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: false, error: 'Sluttid må være etter starttid' }));
-            return;
+        const effEndDate = data.endDate !== undefined ? data.endDate : (m.endDate || effDate);
+        if (effStart && effEnd) {
+            const startDt = (effDate || '') + ' ' + effStart;
+            const endDt = (effEndDate || effDate || '') + ' ' + effEnd;
+            if (endDt <= startDt) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: 'Sluttid må være etter starttid' }));
+                return;
+            }
         }
         if (data.date !== undefined) m.date = data.date;
         if (data.start !== undefined) m.start = data.start;
         if (data.end !== undefined) m.end = data.end;
+        if (data.endDate !== undefined) {
+            if (data.endDate && data.endDate !== m.date) m.endDate = data.endDate;
+            else delete m.endDate;
+        }
         if (data.title !== undefined) m.title = String(data.title).trim();
         if (data.type !== undefined && loadMeetingTypes().some(t => t.key === data.type)) m.type = data.type;
         if (data.attendees !== undefined) m.attendees = Array.isArray(data.attendees) ? data.attendees : extractMentions(data.attendees || '');

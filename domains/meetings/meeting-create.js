@@ -233,6 +233,10 @@ class MeetingCreate extends WNElement {
             location: (fd.get('location') || '').toString().trim(),
             notes: (fd.get('notes') || '').toString(),
         };
+        // Multi-day meeting: include endDate when it differs from start date
+        if (endParts.date && endParts.date !== startParts.date) {
+            data.endDate = endParts.date;
+        }
         if (!data.title) { this._showError('Tittel er påkrevd'); return; }
         if (!data.date)  { this._showError('Dato er påkrevd'); return; }
         if (startVal && endVal && endVal <= startVal) {
