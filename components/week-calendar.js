@@ -422,7 +422,7 @@ class WeekCalendar extends WNElement {
         }).join('');
         const wh = this._workHours;
         const itemsByDay = this._layoutItems(days, HS, HE, HP);
-        const { html: alldayHtml, lanes: alldayLanes } = this._layoutAllDayItems(days);
+        const { html: alldayHtml, lanes: alldayLanes } = this._layoutAllDayItems(days, HS, HE);
         const trackHeight = Math.max(16, alldayLanes * 16 + 6);
         const dayCols = days.map(d => {
             const lines = [];
@@ -533,7 +533,7 @@ class WeekCalendar extends WNElement {
         return out;
     }
 
-    _layoutAllDayItems(days) {
+    _layoutAllDayItems(days, HS, HE) {
         const items = Array.isArray(this._items) ? this._items : [];
         if (!days.length) return { html: '', lanes: 0 };
         const dayCount = days.length;
@@ -544,7 +544,16 @@ class WeekCalendar extends WNElement {
         const firstDate = parseDate(firstIso);
         const lastDate = parseDate(lastIso);
 
-        // Build segments: { idx, item, startCol, endCol, continuesLeft, continuesRight }
+        // Build segments: { idx, item, startCol, endCol, continuesLeft, continuesRight, startFrac, endFrac }
+        // startFrac/endFrac: fraction (0..1) within the start/end column for sub-day alignment
+        const hourRange = (HE - HS) * 60; // total visible minutes
+        function timeFrac(dateStr) {
+            if (!dateStr || dateStr.indexOf('T') === -1) return null;
+            const tp = dateStr.slice(dateStr.indexOf('T') + 1);
+            const parts = tp.split(':');
+            const mins = (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
+            return Math.max(0, Math.min(1, (mins - HS * 60) / hourRange));
+        }
         const segs = [];
         items.forEach((it, i) => {
             if (!this._isAllDayItem(it)) return;
@@ -560,11 +569,24 @@ class WeekCalendar extends WNElement {
             const startCol = dayIdx[fmtDate(segStart)];
             const endCol = dayIdx[fmtDate(segEnd)];
             if (startCol == null || endCol == null) return;
+            const continuesLeft = s < firstDate;
+            const continuesRight = e > lastDate;
+            // Sub-day fractions: align bar edges with start/end time of day
+            let startFrac = 0;
+            let endFrac = 1;
+            if (!continuesLeft) {
+                const f = timeFrac(it.startDate);
+                if (f != null) startFrac = f;
+            }
+            if (!continuesRight) {
+                const f = timeFrac(it.endDate);
+                if (f != null) endFrac = f;
+            }
             segs.push({
                 i, it,
                 startCol, endCol,
-                continuesLeft: s < firstDate,
-                continuesRight: e > lastDate,
+                continuesLeft, continuesRight,
+                startFrac, endFrac,
             });
         });
         if (!segs.length) return { html: '', lanes: 0 };
@@ -581,9 +603,11 @@ class WeekCalendar extends WNElement {
         });
 
         const laneH = 16; // px per lane (bar 14px + 2px gap)
+        const colW = 100 / dayCount;
         const parts = segs.map(seg => {
-            const leftPct = (seg.startCol / dayCount) * 100;
-            const widthPct = ((seg.endCol - seg.startCol + 1) / dayCount) * 100;
+            const leftPct = (seg.startCol + seg.startFrac) * colW;
+            const rightPct = (seg.endCol + seg.endFrac) * colW;
+            const widthPct = rightPct - leftPct;
             const top = 3 + seg.lane * laneH;
             const cls = ['allday-bar'];
             if (seg.continuesLeft) cls.push('continues-left');

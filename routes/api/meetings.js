@@ -84,7 +84,19 @@ module.exports = function(deps) {
 
         if (sp.get('week')) {
             const w = sp.get('week');
-            meetings = meetings.filter(m => dateToIsoWeek(new Date(m.date + 'T00:00:00Z')) === w);
+            const wMon = isoWeekMonday(w);
+            if (wMon) {
+                const monStr = wMon.toISOString().slice(0, 10);
+                const sun = new Date(wMon);
+                sun.setUTCDate(wMon.getUTCDate() + 6);
+                const sunStr = sun.toISOString().slice(0, 10);
+                meetings = meetings.filter(m => {
+                    const mEnd = m.endDate || m.date;
+                    return m.date <= sunStr && mEnd >= monStr;
+                });
+            } else {
+                meetings = meetings.filter(m => dateToIsoWeek(new Date(m.date + 'T00:00:00Z')) === w);
+            }
         }
         if (sp.get('upcoming')) {
             const days = parseInt(sp.get('upcoming'), 10) || 7;
