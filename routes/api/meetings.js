@@ -107,6 +107,11 @@ module.exports = function(deps) {
             res.end(JSON.stringify({ ok: false, error: 'date and title required' }));
             return;
         }
+        if (data.start && data.end && data.end <= data.start) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Sluttid må være etter starttid' }));
+            return;
+        }
         const meetings = loadMeetings();
         const validTypes = loadMeetingTypes().map(t => t.key);
         const m = {
@@ -150,6 +155,14 @@ module.exports = function(deps) {
         }
         const data = JSON.parse(await readBody(req) || '{}');
         const m = meetings[idx];
+        // Validate end > start (use incoming values or fall back to existing)
+        const effStart = data.start !== undefined ? data.start : m.start;
+        const effEnd = data.end !== undefined ? data.end : m.end;
+        if (effStart && effEnd && effEnd <= effStart) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Sluttid må være etter starttid' }));
+            return;
+        }
         if (data.date !== undefined) m.date = data.date;
         if (data.start !== undefined) m.start = data.start;
         if (data.end !== undefined) m.end = data.end;

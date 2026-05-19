@@ -673,6 +673,110 @@
                 ctx.assert(/Lansere|plattformen|omsetning/i.test(detailText), 'detail should show a goal title');
             },
         },
+
+        // ---- pick-date-time-span renders and selects ----
+        {
+            id: 'pick-date-time-span-renders',
+            name: 'pick-date-time-span renders triggers and supports selection',
+            url: '/debug/pick-date-time-span',
+            run: async function (ctx) {
+                var doc = ctx.doc;
+                var span = await ctx.waitFor(function () { return doc.querySelector('pick-date-time-span'); }, { label: 'pick-date-time-span element' });
+
+                // Set start/end programmatically
+                span.start = '2026-05-20 09:00';
+                span.end = '2026-05-20 10:00';
+
+                // Wait for re-render showing the formatted values
+                var sr = span.shadowRoot;
+                await ctx.waitFor(function () {
+                    var startBtn = sr.querySelector('[data-trigger="start"]');
+                    return startBtn && /20\.5/.test(startBtn.textContent);
+                }, { label: 'start trigger shows date', timeout: 3000 });
+
+                var startBtn = sr.querySelector('[data-trigger="start"]');
+                var endBtn = sr.querySelector('[data-trigger="end"]');
+                ctx.assert(startBtn, 'start trigger should exist');
+                ctx.assert(endBtn, 'end trigger should exist');
+                ctx.assert(/09:00/.test(startBtn.textContent), 'start trigger should show 09:00, got: ' + startBtn.textContent);
+                ctx.assert(/10:00/.test(endBtn.textContent), 'end trigger should show 10:00, got: ' + endBtn.textContent);
+
+                // Setting start past end should push end forward
+                span.start = '2026-05-20 11:00';
+                await ctx.waitFor(function () {
+                    return span.end > '2026-05-20 11:00';
+                }, { label: 'end pushed forward', timeout: 2000 });
+                ctx.assert(span.end >= '2026-05-20 12:00', 'end should be pushed to at least 12:00, got: ' + span.end);
+            },
+        },
+
+        // ---- date-time-picker min attribute disables days ----
+        {
+            id: 'date-time-picker-min-disables-days',
+            name: 'date-time-picker min attribute disables earlier days',
+            url: '/debug/date-time-picker',
+            run: async function (ctx) {
+                var doc = ctx.doc;
+                var picker = await ctx.waitFor(function () { return doc.querySelector('date-time-picker'); }, { label: 'date-time-picker element' });
+
+                // Set to a known date and add min
+                picker.value = '2026-05-20';
+                picker.setAttribute('min', '2026-05-15');
+
+                // Wait for render
+                await ctx.sleep(200);
+
+                var sr = picker.shadowRoot;
+                var days = sr.querySelectorAll('.day:not(.is-out)');
+                var disabledDays = sr.querySelectorAll('.day:not(.is-out).is-disabled');
+                var enabledDays = sr.querySelectorAll('.day:not(.is-out):not(.is-disabled)');
+
+                // Days 1-14 should be disabled (before min of 15th)
+                ctx.assert(disabledDays.length >= 14, 'expected >=14 disabled days (1-14), got ' + disabledDays.length);
+                ctx.assert(enabledDays.length >= 16, 'expected >=16 enabled days (15-31), got ' + enabledDays.length);
+
+                // Day 14 should be disabled
+                var day14 = Array.from(days).find(function (d) { return d.textContent.trim() === '14'; });
+                ctx.assert(day14 && day14.classList.contains('is-disabled'), 'day 14 should be disabled');
+
+                // Day 15 should NOT be disabled
+                var day15 = Array.from(days).find(function (d) { return d.textContent.trim() === '15'; });
+                ctx.assert(day15 && !day15.classList.contains('is-disabled'), 'day 15 should not be disabled');
+            },
+        },
+
+        // ---- meeting create end > start server validation ----
+        {
+            id: 'meeting-create-end-before-start-rejected',
+            name: 'meeting-create rejects end time before start time',
+            url: '/debug/meeting-create',
+            run: async function (ctx) {
+                var doc = ctx.doc;
+                var mc = await ctx.waitFor(function () { return doc.querySelector('meeting-create'); }, { label: 'meeting-create element' });
+                var sr = mc.shadowRoot;
+
+                // Wait for the form to render
+                await ctx.waitFor(function () {
+                    return sr.querySelector('pick-date-time-span');
+                }, { label: 'form rendered', timeout: 5000 });
+
+                // The pick-date-time-span should be present
+                var span = sr.querySelector('pick-date-time-span');
+                ctx.assert(span, 'pick-date-time-span should be in meeting-create form');
+
+                // Verify start/end are populated and end > start by default
+                await ctx.sleep(200);
+                ctx.assert(span.start, 'start should be set by default');
+                ctx.assert(span.end, 'end should be set by default');
+                ctx.assert(span.end > span.start, 'default end should be after start, got start=' + span.start + ' end=' + span.end);
+
+                // Setting start past current end should auto-push end
+                var origEnd = span.end;
+                span.start = '2026-12-31 23:00';
+                await ctx.sleep(100);
+                ctx.assert(span.end > '2026-12-31 23:00', 'end should be pushed past new start, got ' + span.end);
+            },
+        },
     ];
 
     if (typeof module !== 'undefined' && module.exports) {

@@ -1,5 +1,6 @@
 /**
- * <date-time-picker mode="date|datetime" value="YYYY-MM-DD[ HH:MM]">
+ * <date-time-picker mode="date|datetime" value="YYYY-MM-DD[ HH:MM]"
+ *                   min="YYYY-MM-DD[ HH:MM]" links-min-to="#endPicker">
  *
  * Custom calendar popup styled to match week-notes. Shows a month grid
  * (Mon-first ISO weekdays, Norwegian short labels) with prev/next
@@ -7,13 +8,19 @@
  * it also renders an hour/minute select row.
  *
  * Attributes (observed):
- *   mode    "date" (default) | "datetime"
- *   value   initial value. "YYYY-MM-DD" for date, "YYYY-MM-DD HH:MM" for
- *           datetime. Empty/unset → today / now.
+ *   mode          "date" (default) | "datetime"
+ *   value         initial value. "YYYY-MM-DD" for date, "YYYY-MM-DD HH:MM" for
+ *                 datetime. Empty/unset → today / now.
+ *   min           minimum selectable date(time). Days before this are disabled.
+ *                 In datetime mode, hours/minutes are constrained on the min day.
+ *   links-min-to  CSS selector of another <date-time-picker>. This picker's
+ *                 current value is pushed as `min` on the target whenever the
+ *                 selection changes — useful for start→end picker pairing.
  *
  * JS API:
- *   el.value   → current selected value (or "" if none)
+ *   el.value         → current selected value (or "" if none)
  *   el.value = "2026-05-03"
+ *   el.linkedPicker  → get/set direct element reference for the linked target
  *
  * Events (bubbling, composed):
  *   datetime-selected  detail: { value }   — user clicked OK
@@ -77,7 +84,7 @@ function daysInMonth(y, m) {
 }
 
 class DateTimePicker extends WNElement {
-    static get observedAttributes() { return ['mode', 'value']; }
+    static get observedAttributes() { return ['mode', 'value', 'min', 'links-min-to']; }
 
     constructor() {
         super();
@@ -102,6 +109,59 @@ class DateTimePicker extends WNElement {
             h: mode === 'datetime' ? n.getHours() : 0,
             mi: mode === 'datetime' ? Math.round(n.getMinutes() / 5) * 5 % 60 : 0,
         };
+    }
+
+    /** Parse the `min` attribute. Returns { y, mo, d, h, mi } or null. */
+    _getMin() {
+        const raw = this.getAttribute('min');
+        if (!raw) return null;
+        // Accept both "YYYY-MM-DD" and "YYYY-MM-DD HH:MM"
+        return parse(raw, 'datetime') || parse(raw, 'date');
+    }
+
+    /** Returns true if { y, mo, d } is strictly before the min date (day-level). */
+    _isDayBeforeMin(y, mo, d) {
+        const min = this._getMin();
+        if (!min) return false;
+        const dateVal = y * 10000 + mo * 100 + d;
+        const minVal = min.y * 10000 + min.mo * 100 + min.d;
+        return dateVal < minVal;
+    }
+
+    /** Returns true if a full datetime { y, mo, d, h, mi } is before min. */
+    _isBeforeMin(parts) {
+        const min = this._getMin();
+        if (!min || !parts) return false;
+        const a = `${parts.y}-${pad(parts.mo)}-${pad(parts.d)} ${pad(parts.h)}:${pad(parts.mi)}`;
+        const b = `${min.y}-${pad(min.mo)}-${pad(min.d)} ${pad(min.h || 0)}:${pad(min.mi || 0)}`;
+        return a < b;
+    }
+
+    /**
+     * Link this picker to another so that this picker's current value
+     * becomes the `min` of the target. Use either the `links-min-to`
+     * attribute (CSS selector) or set `.linkedPicker` directly.
+     */
+    get linkedPicker() { return this._linkedPicker || null; }
+    set linkedPicker(el) { this._linkedPicker = el instanceof HTMLElement ? el : null; }
+
+    /** Resolve the linked target element. */
+    _getLinkedTarget() {
+        if (this._linkedPicker) return this._linkedPicker;
+        const sel = this.getAttribute('links-min-to');
+        if (!sel) return null;
+        // Search in the same root (shadow or document).
+        const root = this.getRootNode() || document;
+        return root.querySelector(sel);
+    }
+
+    /** Push current selected value as `min` on the linked target picker. */
+    _pushMin() {
+        const target = this._getLinkedTarget();
+        if (!target || typeof target.setAttribute !== 'function') return;
+        const val = format(this._selected, this._mode());
+        if (val) target.setAttribute('min', val);
+        else target.removeAttribute('min');
     }
 
     attributeChangedCallback(name, _o, _n) {
@@ -226,6 +286,7 @@ class DateTimePicker extends WNElement {
         if (parts) {
             this._selected = parts;
             this._cursor = { y: parts.y, mo: parts.mo };
+            this._pushMin();
             this.requestRender();
         }
     }
@@ -291,6 +352,10 @@ class DateTimePicker extends WNElement {
             background: var(--accent, #ed8936);
             color: var(--surface, #fff);
             border-color: var(--accent, #ed8936);
+        }
+        .day.is-disabled {
+            opacity: 0.3; cursor: not-allowed;
+            pointer-events: none;
         }
         .day:focus { outline: none; box-shadow: 0 0 0 2px var(--accent-soft, rgba(237, 137, 54, 0.35)); }
         .time {
@@ -364,17 +429,24 @@ class DateTimePicker extends WNElement {
         const cellHtml = cells.map(c => {
             const isToday = c.y === todayParts.y && c.mo === todayParts.mo && c.d === todayParts.d;
             const isSelected = sel && c.y === sel.y && c.mo === sel.mo && c.d === sel.d;
+            const isDisabled = this._isDayBeforeMin(c.y, c.mo, c.d);
             const cls = ['day'];
             if (c.out) cls.push('is-out');
             if (isToday) cls.push('is-today');
             if (isSelected) cls.push('is-selected');
-            return `<button type="button" class="${cls.join(' ')}" data-y="${c.y}" data-m="${c.mo}" data-d="${c.d}" tabindex="${isSelected ? 0 : -1}">${c.d}</button>`;
+            if (isDisabled) cls.push('is-disabled');
+            return `<button type="button" class="${cls.join(' ')}" data-y="${c.y}" data-m="${c.mo}" data-d="${c.d}" tabindex="${isSelected ? 0 : -1}" ${isDisabled ? 'disabled' : ''}>${c.d}</button>`;
         }).join('');
 
+        const min = this._getMin();
+        const onMinDay = min && sel && sel.y === min.y && sel.mo === min.mo && sel.d === min.d;
+        const minH = onMinDay ? (min.h || 0) : 0;
+        const minMi = (onMinDay && sel && sel.h === minH) ? (min.mi || 0) : 0;
+
         const hourOpts = Array.from({ length: 24 }, (_, h) =>
-            `<option value="${h}"${sel && sel.h === h ? ' selected' : ''}>${pad(h)}</option>`).join('');
+            `<option value="${h}"${sel && sel.h === h ? ' selected' : ''} ${h < minH ? 'disabled' : ''}>${pad(h)}</option>`).join('');
         const minOpts = Array.from({ length: 12 }, (_, i) => i * 5).map(m =>
-            `<option value="${m}"${sel && sel.mi === m ? ' selected' : ''}>${pad(m)}</option>`).join('');
+            `<option value="${m}"${sel && sel.mi === m ? ' selected' : ''} ${m < minMi ? 'disabled' : ''}>${pad(m)}</option>`).join('');
 
         const timeRow = mode === 'datetime' ? `
             <div class="time">
@@ -432,6 +504,7 @@ class DateTimePicker extends WNElement {
                     && (now - last.t) < 400) {
                     this._lastDayClick = null;
                     this._selected = { ...this._selected, y, mo, d };
+                    this._pushMin();
                     const value = format(this._selected, 'date');
                     this.dispatchEvent(new CustomEvent('datetime-selected', {
                         detail: { value }, bubbles: true, composed: true,
@@ -440,6 +513,7 @@ class DateTimePicker extends WNElement {
                 }
                 this._selected = { ...this._selected, y, mo, d };
                 this._cursor = { y, mo };
+                this._pushMin();
                 this.requestRender();
                 this._focusSelectedDay();
                 return;
@@ -450,6 +524,7 @@ class DateTimePicker extends WNElement {
             if (!(t instanceof HTMLSelectElement)) return;
             if (t.classList.contains('hour')) this._selected = { ...this._selected, h: +t.value };
             else if (t.classList.contains('minute')) this._selected = { ...this._selected, mi: +t.value };
+            this._pushMin();
         });
         sr.addEventListener('keydown', (e) => {
             const t = e.target;
@@ -512,22 +587,26 @@ class DateTimePicker extends WNElement {
     _shiftDay(delta) {
         const d = new Date(Date.UTC(this._selected.y, this._selected.mo - 1, this._selected.d));
         d.setUTCDate(d.getUTCDate() + delta);
-        this._selected = {
-            ...this._selected,
-            y: d.getUTCFullYear(), mo: d.getUTCMonth() + 1, d: d.getUTCDate(),
-        };
+        const y = d.getUTCFullYear(), mo = d.getUTCMonth() + 1, day = d.getUTCDate();
+        if (this._isDayBeforeMin(y, mo, day)) return;
+        this._selected = { ...this._selected, y, mo, d: day };
         this._cursor = { y: this._selected.y, mo: this._selected.mo };
+        this._pushMin();
         this.requestRender();
     }
 
     _goToday() {
         const today = this._defaultNow(this._mode());
+        if (this._isDayBeforeMin(today.y, today.mo, today.d)) return;
         this._selected = today;
         this._cursor = { y: today.y, mo: today.mo };
+        this._pushMin();
         this.requestRender();
     }
 
     _commit() {
+        if (this._isBeforeMin(this._selected)) return;
+        this._pushMin();
         const value = format(this._selected, this._mode());
         this.dispatchEvent(new CustomEvent('datetime-selected', {
             detail: { value }, bubbles: true, composed: true,

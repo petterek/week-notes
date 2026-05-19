@@ -22,7 +22,7 @@
  *   meeting-create:error    detail: { error }      — on submit failure
  */
 import { WNElement, html, escapeHtml } from './_shared.js';
-import './time-picker.js';
+import '/components/pick-date-time-span.js';
 
 const STYLES = `
     :host { display: block; color: var(--text-strong); font: inherit; }
@@ -63,6 +63,22 @@ function todayIso() {
     const d = new Date();
     const pad = n => String(n).padStart(2, '0');
     return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+}
+
+function nowRounded5() {
+    const d = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const m = Math.ceil(d.getMinutes() / 5) * 5;
+    const h = m >= 60 ? d.getHours() + 1 : d.getHours();
+    return pad(h % 24) + ':' + pad(m % 60);
+}
+
+function addMinutes(time, mins) {
+    if (!time) return '';
+    const [h, m] = time.split(':').map(Number);
+    const total = h * 60 + m + mins;
+    const pad = n => String(n).padStart(2, '0');
+    return pad(Math.floor(total / 60) % 24) + ':' + pad(total % 60);
 }
 
 class MeetingCreate extends WNElement {
@@ -127,8 +143,10 @@ class MeetingCreate extends WNElement {
         if (!this.service) return this.renderNoService();
         const presetType = this.getAttribute('type') || (types[0] && types[0].typeId) || 'meeting';
         const presetDate = this.getAttribute('date') || todayIso();
-        const presetStart = this.getAttribute('start') || '';
-        const presetEnd = this.getAttribute('end') || '';
+        const presetStart = this.getAttribute('start') || nowRounded5();
+        const presetEnd = this.getAttribute('end') || addMinutes(presetStart, 60);
+        const spanStart = `${presetDate} ${presetStart}`;
+        const spanEnd = `${presetDate} ${presetEnd}`;
         const uid = this._uid || (this._uid = 'mc' + Math.random().toString(36).slice(2, 8));
         const id = (k) => `${uid}-${k}`;
 
@@ -137,22 +155,14 @@ class MeetingCreate extends WNElement {
                 <label for="${id('title')}">Tittel
                     <input type="text" id="${id('title')}" name="title" required placeholder="Hva handler møtet om?" autofocus>
                 </label>
-                <div class="row">
-                    <label for="${id('type')}">Type
-                        <select id="${id('type')}" name="type">
-                            ${types.length
-                                ? types.map(t => html`<option value="${t.typeId}" ${t.typeId === presetType ? 'selected' : ''}>${(t.icon || '') + ' ' + t.name}</option>`)
-                                : html`<option value="meeting">Møte</option>`}
-                        </select>
-                    </label>
-                    <label for="${id('date')}">Dato
-                        <input type="date" id="${id('date')}" name="date" required value="${escapeHtml(presetDate)}">
-                    </label>
-                </div>
-                <div class="row">
-                    <label for="${id('start')}">Fra<time-picker id="${id('start')}" name="start" step="5" value="${escapeHtml(presetStart)}"></time-picker></label>
-                    <label for="${id('end')}">Til<time-picker id="${id('end')}" name="end" step="5" value="${escapeHtml(presetEnd)}"></time-picker></label>
-                </div>
+                <label for="${id('type')}">Type
+                    <select id="${id('type')}" name="type">
+                        ${types.length
+                            ? types.map(t => html`<option value="${t.typeId}" ${t.typeId === presetType ? 'selected' : ''}>${(t.icon || '') + ' ' + t.name}</option>`)
+                            : html`<option value="meeting">Møte</option>`}
+                    </select>
+                </label>
+                <pick-date-time-span data-span start="${escapeHtml(spanStart)}" end="${escapeHtml(spanEnd)}"></pick-date-time-span>
                 <label for="${id('attendees')}">Deltakere <span class="hint">(kommaseparert eller @navn)</span>
                     <input type="text" id="${id('attendees')}" name="attendees" placeholder="@kari, @ola">
                 </label>
@@ -195,6 +205,19 @@ class MeetingCreate extends WNElement {
 
     async _submit(form) {
         this._showError('');
+        const sr = this.shadowRoot;
+        const span = sr && sr.querySelector('[data-span]');
+        const startVal = span ? span.start : '';
+        const endVal = span ? span.end : '';
+
+        // Parse "YYYY-MM-DD HH:MM" into date + time
+        const parseDt = (v) => {
+            const m = (v || '').match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})$/);
+            return m ? { date: m[1], time: m[2] } : { date: '', time: '' };
+        };
+        const startParts = parseDt(startVal);
+        const endParts = parseDt(endVal);
+
         const fd = new FormData(form);
         const attRaw = (fd.get('attendees') || '').toString().trim();
         const attendees = attRaw
@@ -203,15 +226,19 @@ class MeetingCreate extends WNElement {
         const data = {
             title: (fd.get('title') || '').toString().trim(),
             type: (fd.get('type') || 'meeting').toString(),
-            date: (fd.get('date') || '').toString(),
-            start: (fd.get('start') || '').toString(),
-            end: (fd.get('end') || '').toString(),
+            date: startParts.date,
+            start: startParts.time,
+            end: endParts.time,
             attendees,
             location: (fd.get('location') || '').toString().trim(),
             notes: (fd.get('notes') || '').toString(),
         };
         if (!data.title) { this._showError('Tittel er påkrevd'); return; }
         if (!data.date)  { this._showError('Dato er påkrevd'); return; }
+        if (startVal && endVal && endVal <= startVal) {
+            this._showError('Sluttid må være etter starttid');
+            return;
+        }
 
         const submitBtn = form.querySelector('[data-submit]');
         if (submitBtn) submitBtn.disabled = true;
@@ -222,9 +249,14 @@ class MeetingCreate extends WNElement {
                 bubbles: true, composed: true, detail: { meeting },
             }));
             form.reset();
-            // Restore presets that should persist after reset.
-            const dateInput = form.querySelector('[name=date]');
-            if (dateInput) dateInput.value = this.getAttribute('date') || todayIso();
+            // Restore picker presets after reset.
+            if (span) {
+                const presetDate = this.getAttribute('date') || todayIso();
+                const presetStart = this.getAttribute('start') || nowRounded5();
+                const presetEnd = this.getAttribute('end') || addMinutes(presetStart, 60);
+                span.start = `${presetDate} ${presetStart}`;
+                span.end = `${presetDate} ${presetEnd}`;
+            }
         } catch (e) {
             const msg = (e && e.message) || 'Kunne ikke lagre møte';
             this._showError(msg);
