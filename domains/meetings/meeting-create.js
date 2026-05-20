@@ -23,6 +23,7 @@
  */
 import { WNElement, html, escapeHtml } from './_shared.js';
 import '/components/pick-date-time-span.js';
+import '/components/person-multi-picker.js';
 
 const STYLES = `
     :host { display: block; color: var(--text-strong); font: inherit; }
@@ -163,8 +164,8 @@ class MeetingCreate extends WNElement {
                     </select>
                 </label>
                 <pick-date-time-span data-span start="${escapeHtml(spanStart)}" end="${escapeHtml(spanEnd)}"></pick-date-time-span>
-                <label for="${id('attendees')}">Deltakere <span class="hint">(kommaseparert eller @navn)</span>
-                    <input type="text" id="${id('attendees')}" name="attendees" placeholder="@kari, @ola">
+                <label>Deltakere
+                    <person-multi-picker data-el="attendees"></person-multi-picker>
                 </label>
                 <label for="${id('location')}">Sted <span class="hint">(fritekst)</span>
                     <input type="text" id="${id('location')}" name="location" placeholder="Møterom, Teams, …">
@@ -219,10 +220,8 @@ class MeetingCreate extends WNElement {
         const endParts = parseDt(endVal);
 
         const fd = new FormData(form);
-        const attRaw = (fd.get('attendees') || '').toString().trim();
-        const attendees = attRaw
-            ? attRaw.split(/[,\s]+/).map(s => s.replace(/^@/, '').trim()).filter(Boolean)
-            : [];
+        const attPicker = root.querySelector('[data-el="attendees"]');
+        const attendees = attPicker ? attPicker.value : [];
         const data = {
             title: (fd.get('title') || '').toString().trim(),
             type: (fd.get('type') || 'meeting').toString(),

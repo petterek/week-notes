@@ -18,6 +18,7 @@
  */
 import { WNElement, html, escapeHtml } from './_shared.js';
 import '/components/date-time-picker.js';
+import '/components/person-multi-picker.js';
 
 const STYLES = `
     :host { display: block; color: var(--text-strong); font: inherit; }
@@ -147,7 +148,7 @@ class MeetingEdit extends WNElement {
         const startCls = this._startDt ? 'dt-trigger' : 'dt-trigger empty';
         const endCls   = this._endDt   ? 'dt-trigger' : 'dt-trigger empty';
 
-        const attRaw = Array.isArray(m.attendees) ? m.attendees.map(a => '@' + a).join(', ') : '';
+        const attInitial = Array.isArray(m.attendees) ? m.attendees.join(',') : '';
 
         const tmpl = html`
             <form data-form>
@@ -169,8 +170,8 @@ class MeetingEdit extends WNElement {
                         <button type="button" class="${endCls}" data-dt-trigger="end">${escapeHtml(endLabel)}</button>
                     </label>
                 </div>
-                <label for="${id('attendees')}">Deltakere <span class="hint">(kommaseparert eller @navn)</span>
-                    <input type="text" id="${id('attendees')}" name="attendees" value="${escapeHtml(attRaw)}" placeholder="@kari, @ola">
+                <label>Deltakere
+                    <person-multi-picker data-el="attendees" value="${escapeHtml(attInitial)}"></person-multi-picker>
                 </label>
                 <label for="${id('location')}">Sted <span class="hint">(fritekst)</span>
                     <input type="text" id="${id('location')}" name="location" value="${escapeHtml(m.location || '')}" placeholder="Møterom, Teams, …">
@@ -309,10 +310,8 @@ class MeetingEdit extends WNElement {
         const startParts = parseDateTime(this._startDt);
         const endParts   = parseDateTime(this._endDt);
         if (!startParts.date) { this._showError('Velg starttid'); return; }
-        const attRaw = (fd.get('attendees') || '').toString().trim();
-        const attendees = attRaw
-            ? attRaw.split(/[,\s]+/).map(s => s.replace(/^@/, '').trim()).filter(Boolean)
-            : [];
+        const attPicker = this.shadowRoot.querySelector('[data-el="attendees"]');
+        const attendees = attPicker ? attPicker.value : [];
         const data = {
             title: (fd.get('title') || '').toString().trim(),
             type: (fd.get('type') || 'meeting').toString(),
