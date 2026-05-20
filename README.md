@@ -186,6 +186,13 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-05-20 (v4.19 — person-multi-picker + oppgavedeltakere + dead code cleanup)
+- **`<person-multi-picker>` komponent:** ny gjenbrukbar multi-select med autocomplete, chips, tastaturnavigering (↑/↓/Enter/Backspace). Erstatter frie tekstfelt for deltakere.
+- **Oppgavedeltakere:** ny `participants`-feltstøtte i oppgave-API (POST/PUT). `<task-create-full>` har nå en «Deltakere»-rad med autocomplete-velger.
+- **Møtedeltakere:** alle møteskjemaer (create, edit, /calendar-modal) bruker nå `<person-multi-picker>` i stedet for kommaseparert tekstfelt.
+- **Dead code fjernet (~2700 linjer):** server-rendret `/calendar`, `/results`, `/settings`, `/people`, `/tasks` — alle erstattet av SPA + web components. `routes/tasks-page.js` slettet.
+- **37/37 tester grønne.**
+
 ### 2026-05-19 (v4.18 — flerdagsmøter + tidsaligert heldagsbar + pick-date-time-span)
 - **`<pick-date-time-span>` komponent:** kompakt start/slutt-datovelger med «Fra»/«Til»-knapper og koblet `<date-time-picker>`. Brukes nå i både opprett- og redigeringsmodalen for møter.
 - **Flerdagsmøter:** møter som varer over flere dager lagres med `endDate` og vises i heldagsbaren. Synlige i alle uker de overlapper (ikke bare startuken).

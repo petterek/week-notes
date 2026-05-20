@@ -62,7 +62,6 @@ const handlers = [
     require('./routes/pages')(deps),
     require('./routes/api/misc')(deps),
     require('./routes/note-render')(deps),
-    require('./routes/tasks-page')(deps),
     require('./routes/api/tasks')(deps),
     require('./routes/api/results')(deps),
     require('./routes/api/goals')(deps),

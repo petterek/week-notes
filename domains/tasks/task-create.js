@@ -63,6 +63,17 @@ const CSS = `
         color: var(--text-muted); font-size: 0.9em;
     }
     :host([full]) .actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .participants-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .participants-row .lbl { color: var(--text-muted); font-size: 0.9em; white-space: nowrap; }
+    .pill {
+        display: inline-flex; align-items: center; gap: 3px;
+        padding: 3px 10px; border-radius: 12px; font-size: 0.82em;
+        border: 1px solid var(--border-soft); background: var(--surface-alt);
+        color: var(--text-muted); cursor: pointer; user-select: none;
+        transition: all 0.12s;
+    }
+    .pill:hover { border-color: var(--accent); color: var(--text); }
+    .pill.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-strong); font-weight: 500; }
 `;
 
 class TaskCreate extends WNElement {
@@ -77,6 +88,8 @@ class TaskCreate extends WNElement {
         sr.addEventListener('click', (e) => {
             const t = e.composedPath().find(n => n && n.dataset && n.dataset.el === 'submit');
             if (t) this._submit();
+            const pill = e.composedPath().find(n => n && n.dataset && n.dataset.el === 'participant');
+            if (pill) pill.classList.toggle('on');
         });
         sr.addEventListener('keydown', (e) => {
             const t = e.composedPath().find(n => n && n.dataset && n.dataset.el === 'text');
@@ -139,6 +152,10 @@ class TaskCreate extends WNElement {
                 const sel = p.isMe ? ' selected' : '';
                 return `<option value="${escapeAttr(p.key)}"${sel}>${escapeText(label)}</option>`;
             }).join('');
+            const peoplePills = (data.people || []).map(p => {
+                const label = p.isMe ? `${p.name} (meg)` : p.name;
+                return `<span class="pill" data-el="participant" data-key="${escapeAttr(p.key)}">${escapeText(label)}</span>`;
+            }).join('');
             const goalOpts = (data.goals || []).map(g => {
                 const icon = g.status === 'achieved' ? '🏆 ' : g.status === 'abandoned' ? '🗑️ ' : '🎯 ';
                 const sel = g.id === preselectGoal ? ' selected' : '';
@@ -167,6 +184,10 @@ class TaskCreate extends WNElement {
                             <input class="date" type="date" data-el="due" />
                         </label>
                     </div>
+                    <div class="participants-row">
+                        <span class="lbl">Deltakere:</span>
+                        ${unsafeHTML(peoplePills)}
+                    </div>
                     <div class="actions">
                         <button class="btn" type="button" data-el="submit">${btnLabel}</button>
                     </div>
@@ -189,6 +210,11 @@ class TaskCreate extends WNElement {
     _respEl()   { return this.shadowRoot && this.shadowRoot.querySelector('[data-el="responsible"]'); }
     _goalEl()   { return this.shadowRoot && this.shadowRoot.querySelector('[data-el="goal"]'); }
     _dueEl()    { return this.shadowRoot && this.shadowRoot.querySelector('[data-el="due"]'); }
+    _selectedParticipants() {
+        if (!this.shadowRoot) return [];
+        return [...this.shadowRoot.querySelectorAll('[data-el="participant"].on')]
+            .map(el => el.dataset.key).filter(Boolean);
+    }
 
     get value() { const i = this._inputEl(); return i ? i.value : ''; }
     set value(v) { const i = this._inputEl(); if (i) i.value = v == null ? '' : String(v); }
@@ -214,6 +240,8 @@ class TaskCreate extends WNElement {
             if (respSel) opts.responsible = respSel.value || '';
             if (dueIn && dueIn.value) opts.dueDate = dueIn.value;
             if (goalSel && goalSel.value) opts.goalId = goalSel.value;
+            const participants = this._selectedParticipants();
+            if (participants.length) opts.participants = participants;
         }
         if (!opts.goalId) {
             const goalId = this.getAttribute('goal-id');
