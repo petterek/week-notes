@@ -1563,7 +1563,7 @@ document.addEventListener('keydown', function(e) {
                             <span class="mtg-time-arrow">→</span>
                             <label>Til<span class="time-pick"><select id="mtgEndH" class="t-h"></select><span class="t-sep">:</span><select id="mtgEndM" class="t-m"></select></span></label>
                         </div>
-                        <label>Deltakere <span class="mtg-hint">(kommaseparert eller @navn)</span><input type="text" id="mtgAttendees" placeholder="@kari, @ola"></label>
+                        <label>Deltakere<person-multi-picker id="mtgAttendees"></person-multi-picker></label>
                         <label>Sted (fritekst)<input type="text" id="mtgLocation" placeholder="Møterom, Teams, …"></label>
                         <label>Knytt til registrert sted<select id="mtgPlaceKey"><option value="">— ingen —</option></select></label>
                         <label>Notater<textarea id="mtgNotes" rows="6" placeholder="Agenda, lenker, …"></textarea></label>
@@ -1714,6 +1714,7 @@ document.addEventListener('keydown', function(e) {
                 .icon-grid .ig-grp-label { grid-column: 1 / -1; font-size:0.72em; font-weight:600; color:var(--text-muted-warm); text-transform:uppercase; letter-spacing:0.08em; padding:6px 2px 2px; border-bottom:1px solid var(--border-faint); }
                 .icon-grid .ig-grp-label:first-child { padding-top:0; }
             </style>
+            <script type="module" src="/components/person-multi-picker.js"></script>
             <script>
                 (function(){
                     const HOUR_PX = ${HOUR_PX}, HOUR_START = ${HOUR_START}, HOUR_END = ${HOUR_END};
@@ -1775,7 +1776,7 @@ document.addEventListener('keydown', function(e) {
                             $('mtgDate').value = meeting.date || '';
                             setTime('mtgStart', meeting.start || '');
                             setTime('mtgEnd', meeting.end || '');
-                            $('mtgAttendees').value = (meeting.attendees || []).map(a => '@' + a).join(', ');
+                            $('mtgAttendees').value = meeting.attendees || [];
                             $('mtgLocation').value = meeting.location || '';
                             if ($('mtgPlaceKey')) $('mtgPlaceKey').value = meeting.placeKey || '';
                             $('mtgNotes').value = meeting.notes || '';
@@ -1788,6 +1789,7 @@ document.addEventListener('keydown', function(e) {
                             $('mtgDate').value = prefillDate || '';
                             setTime('mtgStart', prefillStart || '');
                             setTime('mtgEnd', prefillStart ? addMinutesToTime(prefillStart, minsForType(initialType)) : '');
+                            $('mtgAttendees').value = [];
                             $('mtgDelete').style.display = 'none';
                         }
                         modal.classList.add('open');
@@ -2001,8 +2003,7 @@ document.addEventListener('keydown', function(e) {
                     $('mtgForm').addEventListener('submit', e => {
                         e.preventDefault();
                         const id = $('mtgId').value;
-                        const attendeesRaw = $('mtgAttendees').value || '';
-                        const attendees = attendeesRaw.split(/[,\\s]+/).map(s => s.replace(/^@/, '').toLowerCase()).filter(Boolean);
+                        const attendees = $('mtgAttendees').value || [];
                         const data = {
                             title: $('mtgTitle').value.trim(),
                             type: $('mtgType').value,
@@ -2042,7 +2043,7 @@ document.addEventListener('keydown', function(e) {
             <script src="/mention-autocomplete.js"></script>
             <script>
                 (function(){
-                    ['mtgTitle','mtgAttendees','mtgNotes'].forEach(id => {
+                    ['mtgTitle','mtgNotes'].forEach(id => {
                         const el = document.getElementById(id);
                         if (el) initMentionAutocomplete(el);
                     });
