@@ -3037,6 +3037,7 @@ modal.open();</pre>
     <script type="module" src="/components/company-card.js"></script>
     <script type="module" src="/components/person-card.js"></script>
     <script type="module" src="/components/person-picker.js"></script>
+    <script type="module" src="/components/person-multi-picker.js"></script>
     <script type="module" src="/components/place-card.js"></script>
     <script type="module" src="/components/entity-callout.js"></script>
 <script type="module" src="/components/entity-mention.js"></script>

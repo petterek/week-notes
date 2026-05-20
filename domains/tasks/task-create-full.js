@@ -45,6 +45,7 @@
 import { WNElement, html } from './_shared.js';
 import '/components/date-time-picker.js';
 import '/components/person-picker.js';
+import '/components/person-multi-picker.js';
 
 const CSS = `
     :host { display: block; box-sizing: border-box; }
@@ -190,6 +191,10 @@ class TaskCreateFull extends WNElement {
                         </span>
                         <input type="hidden" data-el="due" />
                     </span>
+                    <span class="lbl">Deltakere</span>
+                    <span class="field">
+                        <person-multi-picker data-el="participants"></person-multi-picker>
+                    </span>
                 </div>
                 <div class="actions">
                     <button class="btn" type="button" data-el="submit"></button>
@@ -210,11 +215,16 @@ class TaskCreateFull extends WNElement {
         this._dueIn   = root.querySelector('[data-el="due"]');
         this._dueTrig = root.querySelector('[data-el="due-trigger"]');
         this._dueClr  = root.querySelector('[data-el="due-clear"]');
-        // Forward people_service attr to the <person-picker>.
+        this._partPicker = root.querySelector('[data-el="participants"]');
+        // Forward people_service attr to the pickers.
         if (this._respSel) {
             const ps = this.getAttribute('people_service');
             if (ps) this._respSel.setAttribute('people_service', ps);
             if (this._isEdit()) this._respSel.removeAttribute('default-me');
+        }
+        if (this._partPicker) {
+            const ps = this.getAttribute('people_service');
+            if (ps) this._partPicker.setAttribute('people_service', ps);
         }
     }
 
@@ -261,6 +271,9 @@ class TaskCreateFull extends WNElement {
         if (this._goalSel) {
             this._pendingGoal = t.goalId || '';
             if (this._goalsLoaded) this._goalSel.value = this._pendingGoal;
+        }
+        if (t.participants && this._partPicker) {
+            this._partPicker.value = t.participants;
         }
         this._apply();
     }
@@ -368,6 +381,10 @@ class TaskCreateFull extends WNElement {
         } catch (_) { /* leave default */ }
     }
 
+    _getSelectedParticipants() {
+        return this._partPicker ? this._partPicker.value : [];
+    }
+
     async _submit() {
         if (!this._input || !this._btn || !this._err) return;
         const text = (this._input.value || '').trim();
@@ -392,11 +409,13 @@ class TaskCreateFull extends WNElement {
                     throw new Error('update ikke støttet av tjenesten');
                 }
                 const id = this._task.id;
+                const participants = this._getSelectedParticipants();
                 const patch = {
                     text, note,
                     responsible,
                     dueDate,                       // empty string → server clears
                     goalId: goalId || null,        // explicit clear
+                    participants: participants.length ? participants : null,
                 };
                 await svc.update(id, patch);
                 // Update local snapshot so subsequent submits see latest values.
@@ -404,6 +423,7 @@ class TaskCreateFull extends WNElement {
                     text, note, responsible,
                     dueDate: dueDate || undefined,
                     goalId: goalId || undefined,
+                    participants: participants.length ? participants : undefined,
                 });
                 this.dispatchEvent(new CustomEvent('task:updated', {
                     bubbles: true, composed: true,
@@ -420,6 +440,8 @@ class TaskCreateFull extends WNElement {
                     if (attr) opts.goalId = attr;
                 }
                 if (note) opts.note = note;
+                const participants = this._getSelectedParticipants();
+                if (participants.length) opts.participants = participants;
                 const week = this.getAttribute('week');
                 if (week) opts.week = week;
                 const tasks = await svc.create(text, opts);
