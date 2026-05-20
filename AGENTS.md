@@ -43,8 +43,7 @@ Stack:
 │   ├── spa.js           # /, /tasks /people /results /notes /settings SPA stubs, /calendar stub
 │   ├── debug-static.js  # /debug/_mock-services.js, /services/*.js, /services/_shared/*
 │   ├── debug.js         # /debug + helper functions (renderServicesDebug, renderDataShapesDebug, …)
-│   ├── pages.js         # /results /themes /settings /meeting-note/:id /calendar /people /editor /present
-│   ├── tasks-page.js    # /tasks (server-rendered HTML — kept until SPA port lands)
+│   ├── pages.js         # /themes /meeting-note/:id /editor /present (remaining server-rendered pages)
 │   ├── note-render.js   # catch-all GET /:week/:file.md (renders markdown)
 │   ├── assets-late.js   # /components/*.js, /style.css, /mention-autocomplete.js
 │   └── api/
@@ -390,7 +389,7 @@ the next handler.
   `scripts/migrate-context.js` should use the `appliesBeforeTag('vN')`
   helper so contexts whose `.week-notes` marker pre-dates the tag get
   migrated; never hard-code arbitrary commit SHAs in `appliesTo`.
-  Current tags: `v1` → `fc809ad`, `v2` → `1d083d8`, `v3` → `c93b3cf`, `v4` → `83bbea3`, `v4.1` → `686d485`, `v4.2` → `080a9a5`, `v4.3` → `4a6c697`, `v4.4` → `3969f59`, `v4.5` → `f17a9e5`, `v4.6` → `b065c1d`, `v4.7` → `afc8c47`, `v4.8` → `fa309a7`, `v4.9` → `7936505`, `v4.10` → `5ed4687`, `v4.11` → `7ace181`, `v4.12` → `e180949`, `v4.13` → `294a756`, `v4.14` → `05ad649`, `v4.15` → `851ce50`, `v4.16` → `f0d0bdb`, `v4.17` → `985e1f3`, `v4.18` → `f8b723e`.
+  Current tags: `v1` → `fc809ad`, `v2` → `1d083d8`, `v3` → `c93b3cf`, `v4` → `83bbea3`, `v4.1` → `686d485`, `v4.2` → `080a9a5`, `v4.3` → `4a6c697`, `v4.4` → `3969f59`, `v4.5` → `f17a9e5`, `v4.6` → `b065c1d`, `v4.7` → `afc8c47`, `v4.8` → `fa309a7`, `v4.9` → `7936505`, `v4.10` → `5ed4687`, `v4.11` → `7ace181`, `v4.12` → `e180949`, `v4.13` → `294a756`, `v4.14` → `05ad649`, `v4.15` → `851ce50`, `v4.16` → `f0d0bdb`, `v4.17` → `985e1f3`, `v4.18` → `f8b723e`, `v4.19` → TBD.
 
 ---
 
