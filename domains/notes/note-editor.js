@@ -1001,12 +1001,13 @@ class NoteEditor extends WNElement {
     }
 
     _installTagSpaceCommit() {
-        // Pressing space after '#tagName' commits it as a tag in the
+        // Pressing Ctrl+Space after '#tagName' commits it as a tag in the
         // tag-editor and removes only the '#' from the textarea.
+        // Spaces typed while inside a #tag are replaced with underscores.
         if (!this._contentEl || this._tagSpaceWired) return;
         const ta = this._contentEl;
         ta.addEventListener('keydown', (e) => {
-            if (e.key !== ' ' || e.ctrlKey || e.metaKey || e.altKey) return;
+            if (e.key !== ' ') return;
             const caret = ta.selectionStart;
             if (caret !== ta.selectionEnd) return;
             const text = ta.value;
@@ -1016,15 +1017,26 @@ class NoteEditor extends WNElement {
             if (i > 0 && !/\s/.test(text[i - 1])) return;
             const word = text.slice(i + 1, caret);
             if (!word) return;
-            if (this._tagsEl) {
-                const cur = this._tagsEl.tags || [];
-                if (!cur.includes(word)) this._tagsEl.tags = cur.concat([word]);
+
+            if (e.ctrlKey && !e.metaKey && !e.altKey) {
+                // Ctrl+Space: commit tag
+                e.preventDefault();
+                if (this._tagsEl) {
+                    const cur = this._tagsEl.tags || [];
+                    if (!cur.includes(word)) this._tagsEl.tags = cur.concat([word]);
+                }
+                // Remove only the '#' character, keep the word
+                ta.value = text.slice(0, i) + text.slice(i + 1);
+                ta.selectionStart = ta.selectionEnd = caret - 1;
+                ta.dispatchEvent(new Event('input', { bubbles: true }));
+                this._markDirty();
+            } else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+                // Plain space inside #tag: replace with underscore
+                e.preventDefault();
+                ta.value = text.slice(0, caret) + '_' + text.slice(caret);
+                ta.selectionStart = ta.selectionEnd = caret + 1;
+                ta.dispatchEvent(new Event('input', { bubbles: true }));
             }
-            // Remove only the '#' character, keep the word
-            ta.value = text.slice(0, i) + text.slice(i + 1);
-            ta.selectionStart = ta.selectionEnd = caret - 1;
-            ta.dispatchEvent(new Event('input', { bubbles: true }));
-            this._markDirty();
         });
         this._tagSpaceWired = true;
     }
