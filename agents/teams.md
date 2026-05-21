@@ -123,7 +123,7 @@ the 4th argument to the client-side `linkMentions()` for live preview.
 | `domains/people/person-multi-picker.js` | Member selection component |
 | `domains/notes/note-editor.js` | Autocomplete integration |
 | `domains/_shared/wn-autocomplete.js` | Filter logic (starts/substring match on value too) |
-| `lib/core.js` | `loadTeams()`, `loadAllTeams()`, `saveTeams()`, `linkMentions()` |
+| `lib/core.js` | `loadTeams()`, `loadAllTeams()`, `saveTeams()`, `linkMentions()`, `computeNoteReferences()` |
 | `components/_shared.js` | Client-side `linkMentions()` (accepts teams as 4th arg) |
 | `pages/team.html` | SPA fragment for /team/:key route |
 
@@ -146,3 +146,8 @@ the 4th argument to the client-side `linkMentions()` for live preview.
   non-deleted teams (used by API GET, mentions); `loadAllTeams()`
   returns everything including tombstones (used by mutations that need
   to write back the full array).
+- **Note references** — `computeNoteReferences()` resolves `@teamkey`
+  to `refs.teams[]` (not people). Resolution order matches
+  `linkMentions`: companies → teams → people → places.
+  `syncMentions()` also skips team keys so no spurious person stubs
+  are created.
