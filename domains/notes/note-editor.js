@@ -1002,8 +1002,7 @@ class NoteEditor extends WNElement {
 
     _installTagSpaceCommit() {
         // Pressing space after '#tagName' commits it as a tag in the
-        // tag-editor. Leaves the '#tagName ' text intact in the textarea
-        // so it stays visible/searchable in the note body.
+        // tag-editor and removes the '#tagName' from the textarea.
         if (!this._contentEl || this._tagSpaceWired) return;
         const ta = this._contentEl;
         ta.addEventListener('keydown', (e) => {
@@ -1017,10 +1016,15 @@ class NoteEditor extends WNElement {
             if (i > 0 && !/\s/.test(text[i - 1])) return;
             const word = text.slice(i + 1, caret);
             if (!word) return;
+            e.preventDefault();
             if (this._tagsEl) {
                 const cur = this._tagsEl.tags || [];
                 if (!cur.includes(word)) this._tagsEl.tags = cur.concat([word]);
             }
+            // Remove the #tag text from the textarea
+            ta.value = text.slice(0, i) + text.slice(caret);
+            ta.selectionStart = ta.selectionEnd = i;
+            ta.dispatchEvent(new Event('input', { bubbles: true }));
             this._markDirty();
         });
         this._tagSpaceWired = true;
@@ -1341,15 +1345,13 @@ class NoteEditor extends WNElement {
             renderItem: (item, query) => `#${highlightMatch(item.label, query)}` +
                 (item.hint ? `<span style="opacity:0.55;font-size:0.85em;margin-left:6px">${item.hint}</span>` : ''),
             onSelect: (item, ctx) => {
-                // Add to tag-editor; leave the '#tag' text in place so it
-                // remains visible/searchable in the note body. Move caret
-                // past the marker and insert a trailing space if needed.
+                // Add to tag-editor and remove the '#tag' text from the
+                // textarea (it lives in the tag chips, not the note body).
                 if (this._tagsEl) {
                     const cur = this._tagsEl.tags || [];
                     if (!cur.includes(item.value)) this._tagsEl.tags = cur.concat([item.value]);
                 }
-                const insertText = '#' + item.value;
-                replaceRange(ta, ctx.range.start, ctx.range.end, insertText + ' ');
+                replaceRange(ta, ctx.range.start, ctx.range.end, '');
                 this._renderPreview();
                 this._markDirty();
             },
