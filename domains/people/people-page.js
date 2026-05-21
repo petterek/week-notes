@@ -580,6 +580,16 @@ class PeoplePage extends WNElement {
         });
     }
 
+    _filterTeams() {
+        const q = (this._filters.team || '').trim().toLowerCase();
+        return this._teams.filter(t => {
+            if (!q) return true;
+            return (t.name || '').toLowerCase().includes(q) ||
+                   (t.key || '').includes(q) ||
+                   (t.members || []).some(m => m.includes(q));
+        });
+    }
+
     // Render mention-style links inside escaped HTML using loaded data.
     _link(rawText) {
         return unsafeStringMentions(rawText, this._people, this._companies);
@@ -941,20 +951,50 @@ class PeoplePage extends WNElement {
     }
 
     _refreshPane(which) {
-        // Re-render only the pane to keep input focus where possible.
-        // Easier: full re-render but preserve focus selector.
-        const active = this.shadowRoot.activeElement;
-        const sel = active && active.dataset && active.dataset.input;
-        const pos = active ? active.selectionStart : null;
-        this.requestRender();
-        if (sel) {
-            const next = this.shadowRoot.querySelector(`[data-input="${sel}"]`);
-            if (next) {
-                next.focus();
-                if (pos != null && next.setSelectionRange) {
-                    try { next.setSelectionRange(pos, pos); } catch {}
-                }
+        // Surgical update: only replace the card list + count, leave inputs untouched.
+        const root = this.shadowRoot;
+        if (!root || !this._loaded) return;
+
+        if (which === 'people') {
+            const filtered = this._filterPeople();
+            const list = root.querySelector('[data-list="people"]');
+            if (list) {
+                list.innerHTML = filtered.map(p => `<person-card data-key="${this._personKey(p)}" data-id="${p.id || ''}"></person-card>`).join('');
+                this._populatePersonCards();
             }
+            const count = root.querySelector('.pp-count');
+            if (count) count.textContent = `${filtered.length} av ${this._people.length}`;
+            return;
+        }
+        if (which === 'companies') {
+            const filtered = this._filterCompanies();
+            const list = root.querySelector('[data-list="companies"]');
+            if (list) {
+                list.innerHTML = filtered.map(c => `<company-card data-key="${c.key}" data-id="${c.id || ''}"></company-card>`).join('');
+                this._populateCompanyCards();
+            }
+            const count = root.querySelector('[data-pane="companies"] .pp-count');
+            if (count) count.textContent = `${filtered.length} av ${this._companies.length}`;
+            return;
+        }
+        if (which === 'places') {
+            const filtered = this._filterPlaces();
+            const list = root.querySelector('[data-list="places"]');
+            if (list) {
+                list.innerHTML = filtered.map(p => `<place-card data-key="${p.key}" data-id="${p.id || ''}"></place-card>`).join('');
+                this._populatePlaceCards();
+            }
+            const count = root.querySelector('[data-pane="places"] .pp-count');
+            if (count) count.textContent = `${filtered.length} av ${this._places.length}`;
+            return;
+        }
+        if (which === 'teams') {
+            const list = root.querySelector('[data-list="teams"]');
+            if (list) {
+                const filtered = this._filterTeams();
+                list.innerHTML = filtered.map(t => this._renderTeamCard(t)).join('');
+            }
+            return;
         }
     }
 
