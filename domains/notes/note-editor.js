@@ -1001,13 +1001,13 @@ class NoteEditor extends WNElement {
     }
 
     _installTagSpaceCommit() {
-        // Pressing Ctrl+Space after '#tagName' commits it as a tag in the
-        // tag-editor and removes only the '#' from the textarea.
         // Spaces typed while inside a #tag are replaced with underscores.
+        // Double-space (second space after an underscore) commits the tag:
+        // removes '#', replaces underscores with spaces in the editor text.
         if (!this._contentEl || this._tagSpaceWired) return;
         const ta = this._contentEl;
         ta.addEventListener('keydown', (e) => {
-            if (e.key !== ' ') return;
+            if (e.key !== ' ' || e.ctrlKey || e.metaKey || e.altKey) return;
             const caret = ta.selectionStart;
             if (caret !== ta.selectionEnd) return;
             const text = ta.value;
@@ -1018,22 +1018,21 @@ class NoteEditor extends WNElement {
             const word = text.slice(i + 1, caret);
             if (!word) return;
 
-            if (e.ctrlKey && !e.metaKey && !e.altKey) {
-                // Ctrl+Space: commit tag
-                e.preventDefault();
-                if (this._tagsEl) {
+            e.preventDefault();
+            if (word.endsWith('_')) {
+                // Double-space: commit tag (strip trailing underscore first)
+                const tag = word.slice(0, -1);
+                if (this._tagsEl && tag) {
                     const cur = this._tagsEl.tags || [];
-                    if (!cur.includes(word)) this._tagsEl.tags = cur.concat([word]);
+                    if (!cur.includes(tag)) this._tagsEl.tags = cur.concat([tag]);
                 }
-                // Remove the '#' and replace underscores with spaces in the text
-                const readable = word.replace(/_/g, ' ');
-                ta.value = text.slice(0, i) + readable + text.slice(caret);
-                ta.selectionStart = ta.selectionEnd = i + readable.length;
+                const readable = tag.replace(/_/g, ' ');
+                ta.value = text.slice(0, i) + readable + ' ' + text.slice(caret);
+                ta.selectionStart = ta.selectionEnd = i + readable.length + 1;
                 ta.dispatchEvent(new Event('input', { bubbles: true }));
                 this._markDirty();
-            } else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-                // Plain space inside #tag: replace with underscore
-                e.preventDefault();
+            } else {
+                // First space inside #tag: replace with underscore
                 ta.value = text.slice(0, caret) + '_' + text.slice(caret);
                 ta.selectionStart = ta.selectionEnd = caret + 1;
                 ta.dispatchEvent(new Event('input', { bubbles: true }));
