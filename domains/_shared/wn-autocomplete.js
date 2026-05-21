@@ -81,11 +81,19 @@ export function highlightMatch(text, query) {
 const FILTERS = {
     starts: (items, query) => {
         const q = query.toLowerCase();
-        return items.filter(it => String(it.label || it.value || '').toLowerCase().startsWith(q));
+        return items.filter(it => {
+            const label = String(it.label || '').toLowerCase();
+            const value = String(it.value || '').toLowerCase();
+            return label.startsWith(q) || value.startsWith(q);
+        });
     },
     substring: (items, query) => {
         const q = query.toLowerCase();
-        return items.filter(it => String(it.label || it.value || '').toLowerCase().includes(q));
+        return items.filter(it => {
+            const label = String(it.label || '').toLowerCase();
+            const value = String(it.value || '').toLowerCase();
+            return label.includes(q) || value.includes(q);
+        });
     },
     words: (items, query) => {
         const words = query.toLowerCase().split(/\s+/).filter(Boolean);

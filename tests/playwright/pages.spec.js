@@ -47,3 +47,25 @@ test('inline-action renders @mentions in label as entity-mention chips', async (
     });
     expect(hasMention, 'inline-action should render @TestPerson as <entity-mention>').toBe(true);
 });
+
+// Regression: /api/teams/:key/status returns team relations.
+test('team status API returns team data', async ({ request }) => {
+    // First get a team key from the teams list
+    const teamsResp = await request.get('/api/teams');
+    expect(teamsResp.ok()).toBe(true);
+    const teams = await teamsResp.json();
+    if (teams.length === 0) {
+        test.skip();
+        return;
+    }
+    const key = teams[0].key;
+    const statusResp = await request.get(`/api/teams/${encodeURIComponent(key)}/status`);
+    expect(statusResp.ok(), `/api/teams/${key}/status should return 200`).toBe(true);
+    const data = await statusResp.json();
+    expect(data.team).toBeTruthy();
+    expect(data.team.key).toBe(key);
+    expect(Array.isArray(data.memberDetails)).toBe(true);
+    expect(Array.isArray(data.notesMentioning)).toBe(true);
+    expect(Array.isArray(data.meetings)).toBe(true);
+    expect(Array.isArray(data.tasks)).toBe(true);
+});

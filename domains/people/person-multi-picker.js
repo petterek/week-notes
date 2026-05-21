@@ -253,7 +253,7 @@ class PersonMultiPicker extends WNElement {
         let filtered = this._people.filter(p => !selectedSet.has(p.key));
         if (q) {
             filtered = filtered.filter(p =>
-                p.name.toLowerCase().includes(q) || p.key.toLowerCase().includes(q)
+                p.name.toLowerCase().startsWith(q) || p.key.toLowerCase().startsWith(q)
             );
         }
         return filtered;

@@ -74,6 +74,10 @@ Stack:
 │   ├── help.md
 │   ├── tests.md
 │   ├── themes.md
+│   ├── tags.md
+│   ├── teams.md
+│   ├── meetings.md
+│   ├── settings.md
 │   └── search-and-summarize.md
 ├── help.md            # in-app help, served at /help.md and rendered in a modal
 ├── run.sh             # start helper (checks if already running)
@@ -276,6 +280,17 @@ the next handler.
   is async (waits for `awaitAll`), so the timeout can fire before the
   DOM write and run against stale/placeholder markup.
 
+### Person selection
+- **Always use `<person-multi-picker>`** when selecting one or more
+  people (attendees, participants, team members, etc). Never use
+  checkbox lists or plain text inputs for person selection.
+- Lives in `domains/people/person-multi-picker.js`, served as
+  `/components/person-multi-picker.js`.
+- Import it: `import '/components/person-multi-picker.js';`
+- Usage: `<person-multi-picker value="alice,bob" placeholder="…">`
+- Read selection: `picker.value` → `string[]` of keys.
+- Emits `change` event with `{ value: string[] }`.
+
 ### Markdown / mentions
 - `@person` mentions are rendered server-side via `linkMentions(...)`.
 - Person tooltips are wired up by the global script in `<body>`.
@@ -389,7 +404,7 @@ the next handler.
   `scripts/migrate-context.js` should use the `appliesBeforeTag('vN')`
   helper so contexts whose `.week-notes` marker pre-dates the tag get
   migrated; never hard-code arbitrary commit SHAs in `appliesTo`.
-  Current tags: `v1` → `fc809ad`, `v2` → `1d083d8`, `v3` → `c93b3cf`, `v4` → `83bbea3`, `v4.1` → `686d485`, `v4.2` → `080a9a5`, `v4.3` → `4a6c697`, `v4.4` → `3969f59`, `v4.5` → `f17a9e5`, `v4.6` → `b065c1d`, `v4.7` → `afc8c47`, `v4.8` → `fa309a7`, `v4.9` → `7936505`, `v4.10` → `5ed4687`, `v4.11` → `7ace181`, `v4.12` → `e180949`, `v4.13` → `294a756`, `v4.14` → `05ad649`, `v4.15` → `851ce50`, `v4.16` → `f0d0bdb`, `v4.17` → `985e1f3`, `v4.18` → `f8b723e`, `v4.19` → TBD.
+  Current tags: `v1` → `fc809ad`, `v2` → `1d083d8`, `v3` → `c93b3cf`, `v4` → `83bbea3`, `v4.1` → `686d485`, `v4.2` → `080a9a5`, `v4.3` → `4a6c697`, `v4.4` → `3969f59`, `v4.5` → `f17a9e5`, `v4.6` → `b065c1d`, `v4.7` → `afc8c47`, `v4.8` → `fa309a7`, `v4.9` → `7936505`, `v4.10` → `5ed4687`, `v4.11` → `7ace181`, `v4.12` → `e180949`, `v4.13` → `294a756`, `v4.14` → `05ad649`, `v4.15` → `851ce50`, `v4.16` → `f0d0bdb`, `v4.17` → `985e1f3`, `v4.18` → `f8b723e`, `v4.19` → `649aedf`.
 
 ---
 

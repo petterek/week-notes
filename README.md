@@ -186,6 +186,17 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-05-21 (v4.20 — teams + team status page + tag-autocomplete + filter-fix)
+- **Teams feature:** nytt team-konsept med CRUD API, `@team`-mentions i notatredigereren, teamfane på `/people`, og person-multi-picker for medlemsvalg.
+- **Team status-side (`/team/:key`):** viser alle relasjoner for et team — medlemmer, notater som nevner teamet, møter med medlemmer, og åpne/fullførte oppgaver.
+- **`@team` i note-referanser:** `computeNoteReferences()` registrerer nå team-mentions som `refs.teams[]` i stedet for å falle gjennom til person.
+- **Tag-autocomplete i editor:** `#tag`-system med autocomplete, dobbelspace for å bekrefte, understreking→mellomrom-konvertering.
+- **Person-multi-picker:** filtrerer nå fra starten av navn/nøkkel (ikke substring).
+- **Fix: filter-input på `/people`** mister ikke lenger fokus etter ett tegn (kirurgisk DOM-oppdatering i stedet for full re-render).
+- **Fix: modal overflow** klipper ikke lenger person-multi-picker-dropdown.
+- **Dokumentasjon:** nye agent-filer for teams, meetings, settings, tags.
+- **41/41 tester grønne.**
+
 ### 2026-05-20 (v4.19 — person-multi-picker + oppgavedeltakere + dead code cleanup)
 - **`<person-multi-picker>` komponent:** ny gjenbrukbar multi-select med autocomplete, chips, tastaturnavigering (↑/↓/Enter/Backspace). Erstatter frie tekstfelt for deltakere.
 - **Oppgavedeltakere:** ny `participants`-feltstøtte i oppgave-API (POST/PUT). `<task-create-full>` har nå en «Deltakere»-rad med autocomplete-velger.

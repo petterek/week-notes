@@ -54,8 +54,10 @@ module.exports = function(deps) {
         res.end(`
 function initMentionAutocomplete(el) {
     let people = [];
+    let teams = [];
     let dropdown = null;
     fetch('/api/people').then(r => r.json()).then(p => { people = (p || []).filter(x => !x.inactive); });
+    fetch('/api/teams').then(r => r.json()).then(t => { teams = (t || []); }).catch(() => {});
 
     function getMentionQuery() {
         const val = el.value, pos = el.selectionStart;
@@ -70,14 +72,16 @@ function initMentionAutocomplete(el) {
 
     function showDropdown(query) {
         closeDropdown();
-        const matches = people.filter(p => p.key.startsWith(query));
+        const personMatches = people.filter(p => p.key.startsWith(query)).map(p => ({ name: p.name || p.key, key: p.key, kind: 'person' }));
+        const teamMatches = teams.filter(t => t.key.startsWith(query)).map(t => ({ name: t.name || t.key, key: t.key, kind: 'team' }));
+        const matches = [...personMatches, ...teamMatches];
         if (matches.length === 0) return;
         dropdown = document.createElement('div');
         dropdown.style.cssText = 'position:fixed;background:white;border:1px solid var(--border-soft);border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,0.15);z-index:9999;min-width:180px;overflow:hidden;font-family:inherit';
         matches.forEach((p, i) => {
             const item = document.createElement('div');
-            item.textContent = '@' + p.name;
-            item.dataset.name = p.name;
+            item.textContent = (p.kind === 'team' ? '👥 @' : '@') + p.key;
+            item.dataset.name = p.key;
             item.dataset.idx = i;
             item.style.cssText = 'padding:8px 14px;cursor:pointer;font-size:0.9em;color:#2d3748';
             item.addEventListener('mouseenter', () => setActive(i));

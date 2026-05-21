@@ -72,14 +72,15 @@ module.exports = function(deps) {
         if (meKey) task.author = meKey;
         // Responsible: explicit body value wins. Otherwise extract the first
         // @mention from the task text (skipping @me). Falls back to @me.
+        // Mentions: first = responsible, rest = participants
+        const allMentions = extractMentions(body.text || '').map(m => m.toLowerCase());
         if (typeof body.responsible === 'string') {
             const r = body.responsible.trim();
             if (r) task.responsible = r;
         } else {
-            const mentions = extractMentions(body.text || '');
-            const otherMention = mentions.find(m => m.toLowerCase() !== meKey.toLowerCase());
-            if (otherMention) {
-                task.responsible = otherMention.toLowerCase();
+            const firstOther = allMentions.find(m => m !== meKey.toLowerCase());
+            if (firstOther) {
+                task.responsible = firstOther;
             } else if (meKey) {
                 task.responsible = meKey;
             }
@@ -90,12 +91,13 @@ module.exports = function(deps) {
         if (typeof body.goalId === 'string' && body.goalId.trim()) {
             task.goalId = body.goalId.trim();
         }
-        // Participants: explicit array wins, otherwise auto-extract all @mentions
+        // Participants: explicit array wins, otherwise remaining @mentions (after responsible)
         if (Array.isArray(body.participants)) {
             task.participants = [...new Set(body.participants.map(p => p.trim().toLowerCase()).filter(Boolean))];
-        } else {
-            const mentions = extractMentions(body.text || '').map(m => m.toLowerCase());
-            if (mentions.length) task.participants = [...new Set(mentions)];
+        } else if (allMentions.length > 1) {
+            const responsible = task.responsible || '';
+            const rest = allMentions.filter(m => m !== responsible);
+            if (rest.length) task.participants = [...new Set(rest)];
         }
         tasks.push(task);
         saveTasks(tasks);

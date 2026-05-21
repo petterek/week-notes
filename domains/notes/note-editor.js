@@ -634,7 +634,7 @@ class NoteEditor extends WNElement {
         // companies are loaded lazily; until they arrive, unknown @names
         // still render as raw text.
         if (!this._linkDataLoaded && !this._linkDataLoading) this._loadLinkData();
-        out = linkMentions(out, this._people || [], this._companies || []);
+        out = linkMentions(out, this._people || [], this._companies || [], this._teams || []);
         return out;
     }
 
@@ -643,9 +643,11 @@ class NoteEditor extends WNElement {
         Promise.all([
             fetch('/api/people').then(r => r.json()).catch(() => []),
             fetch('/api/companies').then(r => r.json()).catch(() => []),
-        ]).then(([pp, cc]) => {
+            fetch('/api/teams').then(r => r.json()).catch(() => []),
+        ]).then(([pp, cc, tt]) => {
             this._people = (Array.isArray(pp) ? pp : []).filter(p => !p.inactive);
             this._companies = (Array.isArray(cc) ? cc : []).filter(c => !c.deleted);
+            this._teams = (Array.isArray(tt) ? tt : []).filter(t => !t.deleted);
             this._linkDataLoaded = true;
             this._linkDataLoading = false;
             this._renderPreview();
@@ -1001,9 +1003,9 @@ class NoteEditor extends WNElement {
     }
 
     _installTagSpaceCommit() {
-        // Pressing space after '#tagName' commits it as a tag in the
-        // tag-editor. Leaves the '#tagName ' text intact in the textarea
-        // so it stays visible/searchable in the note body.
+        // Spaces typed while inside a #tag are replaced with underscores.
+        // Double-space (second space after an underscore) commits the tag:
+        // removes '#', replaces underscores with spaces in the editor text.
         if (!this._contentEl || this._tagSpaceWired) return;
         const ta = this._contentEl;
         ta.addEventListener('keydown', (e) => {
@@ -1017,11 +1019,26 @@ class NoteEditor extends WNElement {
             if (i > 0 && !/\s/.test(text[i - 1])) return;
             const word = text.slice(i + 1, caret);
             if (!word) return;
-            if (this._tagsEl) {
-                const cur = this._tagsEl.tags || [];
-                if (!cur.includes(word)) this._tagsEl.tags = cur.concat([word]);
+
+            e.preventDefault();
+            if (word.endsWith('_')) {
+                // Double-space: commit tag (strip trailing underscore first)
+                const tag = word.slice(0, -1);
+                if (this._tagsEl && tag) {
+                    const cur = this._tagsEl.tags || [];
+                    if (!cur.includes(tag)) this._tagsEl.tags = cur.concat([tag]);
+                }
+                const readable = tag.replace(/_/g, ' ');
+                ta.value = text.slice(0, i) + readable + ' ' + text.slice(caret);
+                ta.selectionStart = ta.selectionEnd = i + readable.length + 1;
+                ta.dispatchEvent(new Event('input', { bubbles: true }));
+                this._markDirty();
+            } else {
+                // First space inside #tag: replace with underscore
+                ta.value = text.slice(0, caret) + '_' + text.slice(caret);
+                ta.selectionStart = ta.selectionEnd = caret + 1;
+                ta.dispatchEvent(new Event('input', { bubbles: true }));
             }
-            this._markDirty();
         });
         this._tagSpaceWired = true;
     }
@@ -1194,6 +1211,7 @@ class NoteEditor extends WNElement {
         let openTasks = null;
         let people = null;
         let companies = null;
+        let teams = null;
         let results = null;
         const ensureOpenTasks = async () => {
             if (openTasks) return openTasks;
@@ -1218,6 +1236,14 @@ class NoteEditor extends WNElement {
                 companies = (await r.json() || []).filter(c => !c.deleted);
             } catch (_) { companies = []; }
             return companies;
+        };
+        const ensureTeams = async () => {
+            if (teams) return teams;
+            try {
+                const r = await fetch('/api/teams');
+                teams = (await r.json() || []).filter(t => !t.deleted);
+            } catch (_) { teams = []; }
+            return teams;
         };
         const ensureResults = async () => {
             if (results) return results;
@@ -1323,26 +1349,31 @@ class NoteEditor extends WNElement {
                 if (!frag && !(opts && opts.force)) return null;
                 return { query: frag, start: i, end: caret };
             },
-            fetchItems: async () => {
+            fetchItems: async (query) => {
                 const list = this._availableThemes || [];
                 const existing = (this._tagsEl && this._tagsEl.tags) ? this._tagsEl.tags : [];
-                return list
+                const items = list
                     .filter(t => !existing.includes(t))
                     .map(t => ({ value: t, label: t }));
+                // Always offer to create the typed tag if it doesn't already exist
+                const q = (query || '').toLowerCase();
+                if (q && !existing.includes(q) && !list.includes(q)) {
+                    items.push({ value: q, label: q, hint: 'ny' });
+                }
+                return items;
             },
             filter: 'starts',
             limit: 8,
-            renderItem: (item, query) => `#${highlightMatch(item.label, query)}`,
+            renderItem: (item, query) => `#${highlightMatch(item.label, query)}` +
+                (item.hint ? `<span style="opacity:0.55;font-size:0.85em;margin-left:6px">${item.hint}</span>` : ''),
             onSelect: (item, ctx) => {
-                // Add to tag-editor; leave the '#tag' text in place so it
-                // remains visible/searchable in the note body. Move caret
-                // past the marker and insert a trailing space if needed.
+                // Add to tag-editor; remove '#' and replace _ with spaces
                 if (this._tagsEl) {
                     const cur = this._tagsEl.tags || [];
                     if (!cur.includes(item.value)) this._tagsEl.tags = cur.concat([item.value]);
                 }
-                const insertText = '#' + item.value;
-                replaceRange(ta, ctx.range.start, ctx.range.end, insertText + ' ');
+                const readable = item.value.replace(/_/g, ' ');
+                replaceRange(ta, ctx.range.start, ctx.range.end, readable + ' ');
                 this._renderPreview();
                 this._markDirty();
             },
@@ -1362,7 +1393,7 @@ class NoteEditor extends WNElement {
                 return { query: frag, start: i, end: caret };
             },
             fetchItems: async () => {
-                const [pp, cc] = await Promise.all([ensurePeople(), ensureCompanies()]);
+                const [pp, cc, tt] = await Promise.all([ensurePeople(), ensureCompanies(), ensureTeams()]);
                 const out = [];
                 const meKey = (typeof window !== 'undefined' && window.mePersonKey) || '';
                 if (meKey) {
@@ -1373,6 +1404,9 @@ class NoteEditor extends WNElement {
                     out.push({ value: 'me', label: disp, hint: 'meg', kind: 'me' });
                 } else {
                     out.push({ value: 'me', label: 'meg', hint: 'sett i Innstillinger', kind: 'me' });
+                }
+                for (const t of tt) {
+                    out.push({ value: t.key || (t.name || '').toLowerCase(), label: t.name || t.key, hint: 'team', kind: 'team' });
                 }
                 for (const c of cc) {
                     out.push({ value: c.key || (c.name || '').toLowerCase(), label: c.name || c.key, hint: 'firma', kind: 'company' });
@@ -1386,7 +1420,7 @@ class NoteEditor extends WNElement {
             filter: 'starts',
             limit: 10,
             renderItem: (item, query) => {
-                const tag = item.kind === 'company' ? '🏢' : (item.kind === 'me' ? '🙋' : '👤');
+                const tag = item.kind === 'team' ? '👥' : item.kind === 'company' ? '🏢' : (item.kind === 'me' ? '🙋' : '👤');
                 return `${tag} ${highlightMatch(item.label, query)}` +
                     (item.hint ? `<span style="opacity:0.55;font-size:0.85em"> · ${item.hint}</span>` : '');
             },

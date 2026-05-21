@@ -68,6 +68,7 @@ const handlers = [
     require('./routes/api/people')(deps),
     require('./routes/api/companies')(deps),
     require('./routes/api/places')(deps),
+    require('./routes/api/teams')(deps),
     require('./routes/api/meetings')(deps),
     require('./routes/api/themes')(deps),
     require('./routes/api/contexts')(deps),

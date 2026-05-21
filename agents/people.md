@@ -104,6 +104,11 @@ People POST accepts `primaryCompanyKey` and `primaryCompanyKey`+`extraCompanyKey
 
 ## Conventions / gotchas
 
+- **Focus preservation on filter**: `_refreshPane()` stores the
+  focused input selector and cursor position in `_pendingFocus`, then
+  calls `requestRender()`. Since `requestRender()` is async (awaits
+  `loadData` deps), focus is restored in `afterRender()` — never
+  synchronously after `requestRender()`.
 - Modals are template-literal HTML at the bottom of the `/people` page.
   The injected `<script>` block contains a global `const ALL_COMPANIES`
   used by both the new-person modal and the edit-person modal to
