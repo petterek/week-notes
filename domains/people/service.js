@@ -2,9 +2,10 @@
  * PeopleService — wraps /api/people endpoints.
  * CompaniesService — wraps /api/companies endpoints.
  * PlacesService — wraps /api/places endpoints.
+ * TeamsService — wraps /api/teams endpoints.
  *
- * All three live here because the "people" domain covers people, the
- * companies they belong to, and the places where meetings happen.
+ * All four live here because the "people" domain covers people, the
+ * companies they belong to, the places where meetings happen, and teams.
  *
  * GET    /api/people              → PeopleService.list()
  * POST   /api/people    {…}       → PeopleService.create(person)
@@ -20,10 +21,16 @@
  * POST   /api/places    {…}       → PlacesService.create(place)
  * PUT    /api/places/:id {…}      → PlacesService.update(id, patch)
  * DELETE /api/places/:id          → PlacesService.remove(id)
+ *
+ * GET    /api/teams              → TeamsService.list()
+ * POST   /api/teams    {…}       → TeamsService.create(team)
+ * PUT    /api/teams/:id {…}      → TeamsService.update(id, patch)
+ * DELETE /api/teams/:id          → TeamsService.remove(id)
  */
 const PEOPLE = '/api/people';
 const COMPANIES = '/api/companies';
 const PLACES = '/api/places';
+const TEAMS = '/api/teams';
 
 import { apiRequest as req } from '/services/_shared/http.js';
 
@@ -53,6 +60,7 @@ function makeCachedList(path) {
 const _peopleList    = makeCachedList(PEOPLE);
 const _companiesList = makeCachedList(COMPANIES);
 const _placesList    = makeCachedList(PLACES);
+const _teamsList     = makeCachedList(TEAMS);
 
 export const PeopleService = {
     list:   _peopleList,
@@ -73,4 +81,11 @@ export const PlacesService = {
     create: async (place)      => { const r = await req('POST',   PLACES, place);                                _placesList.invalidate(); return r; },
     update: async (id, patch)  => { const r = await req('PUT',    `${PLACES}/${encodeURIComponent(id)}`, patch); _placesList.invalidate(); return r; },
     remove: async (id)         => { const r = await req('DELETE', `${PLACES}/${encodeURIComponent(id)}`);        _placesList.invalidate(); return r; },
+};
+
+export const TeamsService = {
+    list:   _teamsList,
+    create: async (team)       => { const r = await req('POST',   TEAMS, team);                                _teamsList.invalidate(); _peopleList.invalidate(); return r; },
+    update: async (id, patch)  => { const r = await req('PUT',    `${TEAMS}/${encodeURIComponent(id)}`, patch); _teamsList.invalidate(); _peopleList.invalidate(); return r; },
+    remove: async (id)         => { const r = await req('DELETE', `${TEAMS}/${encodeURIComponent(id)}`);        _teamsList.invalidate(); _peopleList.invalidate(); return r; },
 };

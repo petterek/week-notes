@@ -29,8 +29,9 @@ export function escapeHtml(s) {
  * escaped HTML into <a class="mention-link"> anchors. Returns a raw
  * HTML string — wrap with unsafeHTML() when interpolating into html``.
  */
-export function linkMentions(s, people, companies) {
+export function linkMentions(s, people, companies, teams) {
     if (!s) return s;
+    teams = teams || [];
     let out = s.replace(/\{\{m:([!?])([^{}\s]+)\}\}/g, (_m, kind, id) => {
         const cls = kind === '!' ? 'inline-meeting done' : 'inline-meeting';
         return `<a class="${cls}" href="/calendar#m-${escapeHtml(id)}" title="Vis i kalender">🤝 Møte</a>`;
@@ -70,6 +71,10 @@ export function linkMentions(s, people, companies) {
             const c = companies.find(x => x.key === lc);
             if (c) {
                 return `${pre}<entity-mention kind="company" key="${escapeHtml(c.key)}" label="${escapeHtml(c.name || display)}"></entity-mention>`;
+            }
+            const team = teams.find(x => x.key === lc);
+            if (team) {
+                return `${pre}<entity-mention kind="team" key="${escapeHtml(team.key)}" label="${escapeHtml(team.name || display)}"></entity-mention>`;
             }
             const p = people.find(x => x.name === display || x.key === lc);
             const finalDisplay = p ? (p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : p.name) : display;

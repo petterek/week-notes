@@ -161,6 +161,32 @@ const STYLES = `
     .pp-loading, .pp-error { padding: 24px; text-align: center; color: var(--text-muted); font-style: italic; }
     .pp-error { color: var(--danger, #c0392b); }
     .pp-hint { font-size: 0.8em; color: var(--text-subtle); margin-top: -6px; }
+
+    /* Team cards */
+    .team-list { display: flex; flex-direction: column; gap: 8px; }
+    .team-card { background: var(--surface); border-radius: 8px; border: 1px solid var(--border-soft); overflow: hidden; }
+    .team-header { padding: 8px 14px; background: var(--surface-head); display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+    .team-chev { font-size: 0.7em; color: var(--text-subtle); display: inline-block; width: 10px; }
+    .team-name { flex: 1; color: var(--accent); }
+    .team-key { font-size: 0.8em; color: var(--text-subtle); }
+    .team-member-count { font-size: 0.8em; color: var(--text-muted); background: var(--surface-alt); padding: 1px 8px; border-radius: 10px; }
+    .team-details { padding: 12px 18px; border-top: 1px solid var(--border-soft); }
+    .team-members { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+    .team-members strong { font-size: 0.85em; color: var(--text-muted); margin-right: 4px; }
+    .team-member-chip { font-size: 0.85em; padding: 2px 10px; background: var(--surface-alt); color: var(--text); border-radius: 12px; }
+    .team-notes { font-size: 0.85em; color: var(--text-muted); font-style: italic; padding: 6px 0; white-space: pre-wrap; }
+    .team-actions { display: flex; gap: 8px; margin-top: 8px; }
+    .team-actions .btn-ghost { padding: 6px 12px; font-size: 0.85em; border: 1px solid var(--border); background: var(--surface); border-radius: 6px; cursor: pointer; color: var(--text-muted); font: inherit; }
+    .team-actions .btn-ghost:hover { background: var(--surface-head); border-color: var(--accent); }
+    .team-actions .btn-ghost.danger { color: #c53030; }
+    .team-actions .btn-ghost.danger:hover { border-color: #c53030; }
+    .team-members-field { border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin: 0; }
+    .team-members-field legend { font-size: 0.85em; font-weight: 600; color: var(--text-muted); padding: 0 6px; }
+    .team-members-list { max-height: 200px; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+    .team-member-check { display: flex; align-items: center; gap: 6px; font-size: 0.9em; cursor: pointer; padding: 3px 4px; font-weight: normal; }
+    .team-member-check:hover { background: var(--surface-head); border-radius: 4px; }
+    .team-member-check input { width: auto; margin: 0; }
+    .muted { color: var(--text-subtle); font-style: italic; }
 `;
 
 const MENTION_RE = /(^|[\s\n([>])@([a-zA-ZæøåÆØÅ][a-zA-ZæøåÆØÅ0-9_-]*)/g;
@@ -175,7 +201,7 @@ function extractMentions(text) {
 
 class PeoplePage extends WNElement {
     static get observedAttributes() {
-        return ['people_service', 'companies_service', 'places_service',
+        return ['people_service', 'companies_service', 'places_service', 'teams_service',
                 'tasks_service', 'meetings_service', 'results_service'];
     }
 
@@ -187,6 +213,7 @@ class PeoplePage extends WNElement {
         this._people = [];
         this._companies = [];
         this._places = [];
+        this._teams = [];
         this._tasks = [];
         this._meetings = [];
         this._results = [];
@@ -197,7 +224,7 @@ class PeoplePage extends WNElement {
         this._placeMeetings = new Map();
         this._companiesByKey = {};
         this._tab = 'people';
-        this._filters = { people: '', company: '', place: '' };
+        this._filters = { people: '', company: '', place: '', team: '' };
         this._sort = 'name-asc';
         this._showInactive = false;
         this._expanded = new Set();   // ids/keys of open cards
@@ -223,6 +250,7 @@ class PeoplePage extends WNElement {
                 if (this._modal === 'person')       this._savePerson();
                 else if (this._modal === 'company') this._saveCompany();
                 else if (this._modal === 'place')   this._savePlace();
+                else if (this._modal === 'team')    this._saveTeam();
             }
         };
         document.addEventListener('keydown', this._onKey);
@@ -243,13 +271,13 @@ class PeoplePage extends WNElement {
             else if (seg) params[seg] = true;
         });
         if (params['p-' + (params['p-'] || '')]) {/* noop */}
-        const anchorMatch = h.match(/^(p|c|pl)-(.+)$/);
+        const anchorMatch = h.match(/^(p|c|pl|t)-(.+)$/);
         if (anchorMatch) {
-            this._tab = anchorMatch[1] === 'p' ? 'people' : anchorMatch[1] === 'c' ? 'companies' : 'places';
+            this._tab = anchorMatch[1] === 'p' ? 'people' : anchorMatch[1] === 'c' ? 'companies' : anchorMatch[1] === 't' ? 'teams' : 'places';
             this._hashKey = decodeURIComponent(anchorMatch[2]);
         } else {
             const t = params.tab;
-            if (t === 'people' || t === 'companies' || t === 'places') this._tab = t;
+            if (t === 'people' || t === 'companies' || t === 'places' || t === 'teams') this._tab = t;
             this._hashKey = params.key || null;
             // Fallback: bare #key (no prefix, no params) → treat as person key
             if (!this._hashKey && !t && h && !h.includes('=')) {
@@ -259,7 +287,7 @@ class PeoplePage extends WNElement {
         }
         // Pre-expand the target card so it's open on first render
         if (this._hashKey) {
-            const prefix = this._tab === 'people' ? 'p-' : this._tab === 'companies' ? 'c-' : 'pl-';
+            const prefix = this._tab === 'people' ? 'p-' : this._tab === 'companies' ? 'c-' : this._tab === 'teams' ? 't-' : 'pl-';
             this._expanded.add(prefix + this._hashKey);
         }
     }
@@ -280,11 +308,13 @@ class PeoplePage extends WNElement {
         const ts = this.serviceFor('tasks');
         const ms = this.serviceFor('meetings');
         const rs = this.serviceFor('results');
+        const tms = this.serviceFor('teams');
         const sortName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'nb');
         return {
             people:    async () => ((await ps.list().catch(() => [])) || []).slice().sort(sortName),
             companies: async () => ((await cs.list().catch(() => [])) || []).slice().sort(sortName),
             places:    async () => ((await pls.list().catch(() => [])) || []).slice().sort(sortName),
+            teams:     async () => tms ? ((await tms.list().catch(() => [])) || []).slice().sort(sortName) : [],
             tasks:     () => ts ? ts.list().catch(() => []) : Promise.resolve([]),
             meetings:  () => ms ? ms.list().catch(() => []) : Promise.resolve([]),
             results:   () => rs ? rs.list().catch(() => []) : Promise.resolve([]),
@@ -352,6 +382,7 @@ class PeoplePage extends WNElement {
         this._people = data.people;
         this._companies = data.companies || [];
         this._places = data.places || [];
+        this._teams = data.teams || [];
         this._tasks = data.tasks || [];
         this._meetings = data.meetings || [];
         this._results = data.results || [];
@@ -362,6 +393,7 @@ class PeoplePage extends WNElement {
             <div class="dir-tabs" role="tablist">
                 <button class="dir-tab ${this._tab === 'people' ? 'active' : ''}" data-tab="people" role="tab">👤 Personer <span class="dir-tab-c">${this._people.length}</span></button>
                 <button class="dir-tab ${this._tab === 'companies' ? 'active' : ''}" data-tab="companies" role="tab">🏢 Selskaper <span class="dir-tab-c">${this._companies.length}</span></button>
+                <button class="dir-tab ${this._tab === 'teams' ? 'active' : ''}" data-tab="teams" role="tab">👥 Team <span class="dir-tab-c">${this._teams.length}</span></button>
                 <button class="dir-tab ${this._tab === 'places' ? 'active' : ''}" data-tab="places" role="tab">📍 Steder <span class="dir-tab-c">${this._places.length}</span></button>
             </div>`;
 
@@ -376,6 +408,9 @@ class PeoplePage extends WNElement {
             </section>
             <section class="dir-pane ${this._tab === 'places' ? 'active' : ''}" data-pane="places">
                 ${this._renderPlacesPane()}
+            </section>
+            <section class="dir-pane ${this._tab === 'teams' ? 'active' : ''}" data-pane="teams">
+                ${this._renderTeamsPane()}
             </section>
             ${this._renderModals()}
         `;
@@ -679,6 +714,58 @@ class PeoplePage extends WNElement {
         return html`<place-card data-key="${k}" data-id="${p.id || ''}"></place-card>`;
     }
 
+    _renderTeamsPane() {
+        const q = this._filters.team.toLowerCase();
+        const filtered = this._teams.filter(t => {
+            if (!q) return true;
+            return (t.name || '').toLowerCase().includes(q) ||
+                   (t.key || '').includes(q) ||
+                   (t.members || []).some(m => m.includes(q));
+        });
+        const total = this._teams.length;
+        return html`
+            <div class="pp-toolbar">
+                <input type="text" placeholder="🔍 Filter på teamnavn..." data-input="team" value="${this._filters.team}" />
+                <span class="pp-count">${filtered.length} av ${total}</span>
+                <button class="btn-primary" data-act="new-team">➕ Nytt team</button>
+            </div>
+            ${total === 0
+                ? html`<p class="empty-quiet">Ingen team opprettet ennå.</p>`
+                : html`<div data-list="teams" class="team-list">${filtered.map(t => this._renderTeamCard(t))}</div>`}
+        `;
+    }
+
+    _renderTeamCard(t) {
+        const memberNames = (t.members || []).map(k => {
+            const p = this._people.find(x => x.key === k);
+            return p ? (p.firstName || p.name || k) : k;
+        });
+        const open = this._expanded.has('t-' + t.key);
+        return html`
+            <div class="team-card ${open ? 'open' : ''}" data-team-key="${t.key}" id="t-${t.key}">
+                <div class="team-header" data-act="toggle-team" data-key="${t.key}">
+                    <span class="team-chev">${open ? '▾' : '▸'}</span>
+                    <strong class="team-name">👥 ${escapeHtml(t.name)}</strong>
+                    <span class="team-key">@${escapeHtml(t.key)}</span>
+                    <span class="team-member-count">${(t.members || []).length} medl.</span>
+                </div>
+                ${open ? html`
+                    <div class="team-details">
+                        <div class="team-members">
+                            <strong>Medlemmer:</strong>
+                            ${memberNames.length ? memberNames.map(n => html`<span class="team-member-chip">${escapeHtml(n)}</span>`) : html`<em class="muted">Ingen</em>`}
+                        </div>
+                        ${t.notes ? html`<div class="team-notes">${escapeHtml(t.notes)}</div>` : ''}
+                        <div class="team-actions">
+                            <button class="btn-ghost" data-act="edit-team" data-id="${t.id}">✏️ Rediger</button>
+                            <button class="btn-ghost danger" data-act="delete-team" data-id="${t.id}">🗑 Slett</button>
+                        </div>
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    }
+
     _renderModals() {
         const m = this._modal;
         return html`
@@ -687,6 +774,9 @@ class PeoplePage extends WNElement {
             </div>
             <div class="pp-modal ${m === 'company' ? 'open' : ''}" data-modal-bg="company">
                 ${m === 'company' ? this._renderCompanyForm() : ''}
+            </div>
+            <div class="pp-modal ${m === 'team' ? 'open' : ''}" data-modal-bg="team">
+                ${m === 'team' ? this._renderTeamForm() : ''}
             </div>
         `;
         // Place modal lives in the light DOM (see _openPlaceModal).
@@ -814,6 +904,17 @@ class PeoplePage extends WNElement {
         if (a === 'delete-company'){ this._deleteCompany(); return; }
         if (a === 'new-place')    { this._openPlaceModal(null); return; }
         if (a === 'edit-place')   { const p = this._places.find(x => x.id === act.dataset.id); this._openPlaceModal(p); return; }
+        if (a === 'new-team')     { this._openTeamModal(null); return; }
+        if (a === 'edit-team')    { const t = this._teams.find(x => x.id === act.dataset.id); this._openTeamModal(t); return; }
+        if (a === 'save-team')    { this._saveTeam(); return; }
+        if (a === 'delete-team')  { this._deleteTeam(act.dataset.id); return; }
+        if (a === 'toggle-team')  {
+            const key = act.dataset.key;
+            const id = 't-' + key;
+            if (this._expanded.has(id)) this._expanded.delete(id); else this._expanded.add(id);
+            this.requestRender();
+            return;
+        }
         if (a === 'close-modal')  { this._closeModal(); return; }
         if (a === 'goto-company') { this._gotoTabKey('companies', act.dataset.key); return; }
         if (a === 'goto-person')  { this._gotoTabKey('people', act.dataset.key); return; }
@@ -825,6 +926,7 @@ class PeoplePage extends WNElement {
         if (t.dataset.input === 'people')   { this._filters.people = t.value; this._refreshPane('people'); return; }
         if (t.dataset.input === 'company')  { this._filters.company = t.value; this._refreshPane('companies'); return; }
         if (t.dataset.input === 'place')    { this._filters.place = t.value; this._refreshPane('places'); return; }
+        if (t.dataset.input === 'team')     { this._filters.team = t.value; this._refreshPane('teams'); return; }
         if (t.dataset.input === 'sort')     { this._sort = t.value; this._refreshPane('people'); return; }
         if (t.dataset.input === 'show-inactive') { this._showInactive = !!t.checked; this._refreshPane('people'); return; }
         // Person form: refresh extras list when primary company changes.
@@ -1110,6 +1212,85 @@ class PeoplePage extends WNElement {
         } catch (e) { alert('Feil: ' + (e.message || e)); }
     }
 
+    // ---- Team modal -----------------------------------------------------
+
+    _openTeamModal(t) {
+        this._modalCtx = t ? { ...t, members: [...(t.members || [])] } : { members: [] };
+        this._modal = 'team';
+        this.requestRender();
+        setTimeout(() => {
+            const el = this.shadowRoot.querySelector('[data-f="name"]');
+            if (el) el.focus();
+        }, 30);
+    }
+
+    _renderTeamForm() {
+        const t = this._modalCtx || {};
+        const isEdit = !!t.id;
+        const members = t.members || [];
+        const memberChecks = this._people.filter(p => !p.inactive && !p.deleted).map(p => {
+            const k = p.key;
+            const checked = members.includes(k);
+            const label = p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : (p.name || k);
+            return html`<label class="team-member-check"><input type="checkbox" data-member-key="${k}" ${checked ? 'checked' : ''} /> ${escapeHtml(label)}</label>`;
+        });
+        return html`
+            <div class="pp-modal-card" data-modal-card>
+                <div class="pp-modal-head">
+                    <h3>${isEdit ? '✏️ Rediger team' : '➕ Nytt team'}</h3>
+                    <button class="pp-modal-x" data-act="close-modal" title="Lukk (Esc)">✕</button>
+                </div>
+                <div class="pp-form">
+                    <label>Teamnavn *<input type="text" data-f="name" value="${t.name || ''}" placeholder="Backend-teamet" /></label>
+                    <label>Notat<textarea rows="2" data-f="notes">${t.notes || ''}</textarea></label>
+                    <fieldset class="team-members-field">
+                        <legend>Medlemmer</legend>
+                        <div class="team-members-list">${memberChecks.length ? memberChecks : html`<em class="muted">Ingen personer opprettet.</em>`}</div>
+                    </fieldset>
+                </div>
+                <div class="pp-actions">
+                    ${isEdit ? html`<button class="pp-btn danger" data-act="delete-team" data-id="${t.id}">🗑️ Slett</button>` : ''}
+                    <button class="pp-btn" data-act="close-modal">Avbryt</button>
+                    <button class="pp-btn primary" data-act="save-team">💾 Lagre</button>
+                </div>
+            </div>`;
+    }
+
+    async _saveTeam() {
+        const card = this.shadowRoot.querySelector('[data-modal-card]');
+        if (!card) return;
+        const nameInput = card.querySelector('[data-f="name"]');
+        const notesInput = card.querySelector('[data-f="notes"]');
+        const name = (nameInput ? nameInput.value : '').trim();
+        if (!name) { alert('Teamnavn er påkrevd'); return; }
+        const notes = (notesInput ? notesInput.value : '').trim();
+        const members = Array.from(card.querySelectorAll('[data-member-key]:checked')).map(el => el.dataset.memberKey);
+        const data = { name, notes: notes || undefined, members };
+        const id = this._modalCtx && this._modalCtx.id;
+        const svc = this.serviceFor('teams');
+        if (!svc) { alert('teams_service not available'); return; }
+        try {
+            if (id) {
+                await svc.update(id, data);
+            } else {
+                await svc.create(data);
+            }
+            await this._reload();
+            this._closeModal();
+        } catch (e) { alert('Feil: ' + (e.message || e)); }
+    }
+
+    async _deleteTeam(id) {
+        id = id || (this._modalCtx && this._modalCtx.id);
+        if (!id) return;
+        if (!confirm('Slette dette teamet?')) return;
+        try {
+            await this.serviceFor('teams').remove(id);
+            await this._reload();
+            this._closeModal();
+        } catch (e) { alert('Feil: ' + (e.message || e)); }
+    }
+
     // ---- Place modal (light DOM) ---------------------------------------
 
     async _openPlaceModal(p) {
@@ -1336,6 +1517,7 @@ class PeoplePage extends WNElement {
         const ps = this.serviceFor('people');
         const cs = this.serviceFor('companies');
         const pls = this.serviceFor('places');
+        const tms = this.serviceFor('teams');
         const ts = this.serviceFor('tasks');
         const ms = this.serviceFor('meetings');
         const rs = this.serviceFor('results');
@@ -1344,6 +1526,7 @@ class PeoplePage extends WNElement {
         cache.people    = ps  ? ps.list().then(xs => (xs || []).slice().sort(sortName)).catch(() => this._people || []) : Promise.resolve(this._people || []);
         cache.companies = cs  ? cs.list().then(xs => (xs || []).slice().sort(sortName)).catch(() => this._companies || []) : Promise.resolve(this._companies || []);
         cache.places    = pls ? pls.list().then(xs => (xs || []).slice().sort(sortName)).catch(() => this._places || []) : Promise.resolve(this._places || []);
+        cache.teams     = tms ? tms.list().then(xs => (xs || []).slice().sort(sortName)).catch(() => this._teams || []) : Promise.resolve(this._teams || []);
         cache.tasks     = ts  ? ts.list().catch(() => this._tasks || []) : Promise.resolve(this._tasks || []);
         cache.meetings  = ms  ? ms.list().catch(() => this._meetings || []) : Promise.resolve(this._meetings || []);
         cache.results   = rs  ? rs.list().catch(() => this._results || []) : Promise.resolve(this._results || []);

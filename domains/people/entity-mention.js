@@ -1,8 +1,8 @@
 /**
  * <entity-mention>
  *
- * Reusable inline chip that represents a reference to a person, company
- * or place. Given a `key`, it auto-resolves the entity from the global
+ * Reusable inline chip that represents a reference to a person, company,
+ * place or team. Given a `key`, it auto-resolves the entity from the global
  * services and shows a friendly display name (e.g. "FirstName LastName"
  * for a person). It still emits hover / select events so the global
  * callout and SPA navigation hooks pick them up.
@@ -10,9 +10,10 @@
  *   <entity-mention kind="person"  key="anna-berg"></entity-mention>
  *   <entity-mention kind="company" key="acmeas"></entity-mention>
  *   <entity-mention kind="place"   key="oslo"></entity-mention>
+ *   <entity-mention kind="team"    key="backend"></entity-mention>
  *
  * Attributes:
- *   - kind   — 'person' | 'company' | 'place' (default 'person')
+ *   - kind   — 'person' | 'company' | 'place' | 'team' (default 'person')
  *   - key    — entity key. Required.
  *   - label  — optional display text. If set, lookup is skipped and the
  *              attribute value is rendered verbatim. Useful when a
@@ -23,9 +24,9 @@
  * (debug). Lookups are cached for the lifetime of the page.
  *
  * Events (cancelable, bubbling, composed):
- *   - 'hover-person'  | 'hover-company'  | 'hover-place'
+ *   - 'hover-person'  | 'hover-company'  | 'hover-place'  | 'hover-team'
  *       detail: { key, entering, x, y }
- *   - 'select-person' | 'select-company' | 'select-place'
+ *   - 'select-person' | 'select-company' | 'select-place' | 'select-team'
  *       detail: { key }
  */
 import { WNElement, html, escapeHtml } from '../../components/_shared.js';
@@ -41,21 +42,22 @@ const STYLES = `
     .chip { color: inherit; }
     .chip:hover { text-decoration: underline; }
     :host([kind="place"]) .chip::before { content: '📍 '; }
+    :host([kind="team"]) .chip::before { content: '👥 '; }
 `;
 
-const VALID_KINDS = new Set(['person', 'company', 'place']);
+const VALID_KINDS = new Set(['person', 'company', 'place', 'team']);
 
 // ----- Shared, page-wide entity cache. All chips share one Promise per
 // kind so we never load the same list twice. -----
-const _cache = { person: null, company: null, place: null };
-const _loading = { person: null, company: null, place: null };
+const _cache = { person: null, company: null, place: null, team: null };
+const _loading = { person: null, company: null, place: null, team: null };
 
 function _serviceFor(kind) {
     const ns = (typeof window !== 'undefined' && window['week-note-services']) || {};
-    const map = { person: 'people_service', company: 'companies_service', place: 'places_service' };
+    const map = { person: 'people_service', company: 'companies_service', place: 'places_service', team: 'teams_service' };
     if (ns[map[kind]]) return ns[map[kind]];
     const mocks = (typeof window !== 'undefined' && window.MockServices) || {};
-    const mockMap = { person: 'people', company: 'companies', place: 'places' };
+    const mockMap = { person: 'people', company: 'companies', place: 'places', team: 'teams' };
     return mocks[mockMap[kind]] || null;
 }
 
