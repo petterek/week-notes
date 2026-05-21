@@ -50,6 +50,13 @@ module.exports = function(deps) {
             res.end(pageHtml('Alle kontekster — Kalender', ''));
             return;
         }
+        // Team status page: /team/:key
+        const teamMatch = pathname.match(/^\/team\/([^/]+)$/);
+        if (teamMatch) {
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Set-Cookie': ctxCookie });
+            res.end(pageHtml('Team', ''));
+            return;
+        }
     }
     };
 };

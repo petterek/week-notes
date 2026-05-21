@@ -28,9 +28,11 @@ dedicated tab.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/api/teams` | List all live (non-deleted) teams |
+| GET | `/api/teams/:key/status` | Aggregated team relations (members, notes, meetings, tasks) |
 | POST | `/api/teams` | Create a team |
 | PUT | `/api/teams/:id` | Update name, members, notes |
 | DELETE | `/api/teams/:id` | Soft-delete (tombstone + clear members) |
+| GET | `/team/:key` | SPA page — team status view |
 
 Route module: `routes/api/teams.js`
 
@@ -54,7 +56,21 @@ Teams appear as a tab on `/people` (alongside Personer, Selskaper,
 Steder). The tab renders a card list of live teams showing:
 - Team name + member count
 - Member avatars/names
-- Edit / delete actions
+- Edit / delete / **📊 Status** link actions
+
+### Team status page (`/team/:key`)
+
+A dedicated page showing all relations for a team:
+- **Members** — cards linking to each member on the people page
+- **Notes** — notes mentioning `@teamkey` (searched via `searchMdFiles`)
+- **Meetings** — meetings where any team member is in `attendees`
+- **Tasks** — open tasks where `responsible` or `participants` includes
+  a team member; completed tasks shown in a collapsible section
+
+The page reads the team key from the URL path, fetches
+`/api/teams/:key/status`, and renders entirely client-side.
+
+Relevant code: `domains/people/team-status-page.js`
 
 ### Create / Edit modal
 
@@ -101,13 +117,15 @@ the 4th argument to the client-side `linkMentions()` for live preview.
 
 | File | What |
 | --- | --- |
-| `routes/api/teams.js` | CRUD API + `_syncPeopleTeams` helper |
+| `routes/api/teams.js` | CRUD API + status endpoint + `_syncPeopleTeams` helper |
 | `domains/people/people-page.js` | UI: teams tab, create/edit modal |
+| `domains/people/team-status-page.js` | Team status page (members, notes, meetings, tasks) |
 | `domains/people/person-multi-picker.js` | Member selection component |
 | `domains/notes/note-editor.js` | Autocomplete integration |
 | `domains/_shared/wn-autocomplete.js` | Filter logic (starts/substring match on value too) |
 | `lib/core.js` | `loadTeams()`, `loadAllTeams()`, `saveTeams()`, `linkMentions()` |
 | `components/_shared.js` | Client-side `linkMentions()` (accepts teams as 4th arg) |
+| `pages/team.html` | SPA fragment for /team/:key route |
 
 ---
 

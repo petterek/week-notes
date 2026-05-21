@@ -1,7 +1,7 @@
 'use strict';
 module.exports = function(deps) {
     const _core = deps.core;
-    const { escapeHtml, loadTeams, loadAllTeams, saveTeams, loadPeople, loadAllPeople, loadCompanies, savePeople, readBody } = _core;
+    const { escapeHtml, loadTeams, loadAllTeams, saveTeams, loadPeople, loadAllPeople, loadCompanies, savePeople, readBody, loadTasks, loadMeetings, searchMdFiles } = _core;
     return async function(req, res, ctx) {
         const { pathname } = ctx;
 
@@ -51,6 +51,49 @@ module.exports = function(deps) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: false, error: e.message }));
         }
+        return;
+    }
+
+    // GET /api/teams/:key/status — team relations (members, notes, meetings, tasks)
+    const statusMatch = pathname.match(/^\/api\/teams\/([^/]+)\/status$/);
+    if (statusMatch && req.method === 'GET') {
+        const key = decodeURIComponent(statusMatch[1]).toLowerCase();
+        const teams = loadTeams();
+        const team = teams.find(t => t.key === key);
+        if (!team) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'not found' })); return; }
+
+        const people = loadPeople();
+        const memberSet = new Set(team.members || []);
+
+        // 1. Member details
+        const memberDetails = people.filter(p => memberSet.has(p.key));
+
+        // 2. Notes mentioning @teamkey
+        const notesMentioning = searchMdFiles('@' + team.key).map(r => ({
+            week: r.week,
+            file: r.file,
+            title: r.file.replace(/\.md$/, ''),
+            href: '/' + r.week + '/' + encodeURIComponent(r.file),
+            snippet: r.snippet
+        }));
+
+        // 3. Meetings where any team member is an attendee
+        const allMeetings = loadMeetings();
+        const meetings = allMeetings.filter(m => {
+            const att = (m.attendees || []).map(a => a.toLowerCase());
+            return att.some(a => memberSet.has(a));
+        }).sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 50);
+
+        // 4. Tasks where responsible or participant is a team member
+        const allTasks = loadTasks();
+        const tasks = allTasks.filter(t => {
+            if (t.responsible && memberSet.has(t.responsible.toLowerCase())) return true;
+            if (Array.isArray(t.participants) && t.participants.some(p => memberSet.has(p.toLowerCase()))) return true;
+            return false;
+        });
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ team, memberDetails, notesMentioning, meetings, tasks }));
         return;
     }
 

@@ -762,6 +762,7 @@ class PeoplePage extends WNElement {
                         </div>
                         ${t.notes ? html`<div class="team-notes">${escapeHtml(t.notes)}</div>` : ''}
                         <div class="team-actions">
+                            <a class="btn-ghost" href="/team/${encodeURIComponent(t.key)}">📊 Status</a>
                             <button class="btn-ghost" data-act="edit-team" data-id="${t.id}">✏️ Rediger</button>
                             <button class="btn-ghost danger" data-act="delete-team" data-id="${t.id}">🗑 Slett</button>
                         </div>
