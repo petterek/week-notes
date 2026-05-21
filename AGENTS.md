@@ -276,6 +276,17 @@ the next handler.
   is async (waits for `awaitAll`), so the timeout can fire before the
   DOM write and run against stale/placeholder markup.
 
+### Person selection
+- **Always use `<person-multi-picker>`** when selecting one or more
+  people (attendees, participants, team members, etc). Never use
+  checkbox lists or plain text inputs for person selection.
+- Lives in `domains/people/person-multi-picker.js`, served as
+  `/components/person-multi-picker.js`.
+- Import it: `import '/components/person-multi-picker.js';`
+- Usage: `<person-multi-picker value="alice,bob" placeholder="…">`
+- Read selection: `picker.value` → `string[]` of keys.
+- Emits `change` event with `{ value: string[] }`.
+
 ### Markdown / mentions
 - `@person` mentions are rendered server-side via `linkMentions(...)`.
 - Person tooltips are wired up by the global script in `<body>`.

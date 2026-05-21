@@ -37,6 +37,7 @@ import { WNElement, html, escapeHtml, linkMentions, unsafeHTML } from './_shared
 import './company-card.js';
 import './person-card.js';
 import './place-card.js';
+import './person-multi-picker.js';
 
 const LEAFLET_CSS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
 const LEAFLET_JS  = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
@@ -180,12 +181,6 @@ const STYLES = `
     .team-actions .btn-ghost:hover { background: var(--surface-head); border-color: var(--accent); }
     .team-actions .btn-ghost.danger { color: #c53030; }
     .team-actions .btn-ghost.danger:hover { border-color: #c53030; }
-    .team-members-field { border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin: 0; }
-    .team-members-field legend { font-size: 0.85em; font-weight: 600; color: var(--text-muted); padding: 0 6px; }
-    .team-members-list { max-height: 200px; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 4px 12px; }
-    .team-member-check { display: flex; align-items: center; gap: 6px; font-size: 0.9em; cursor: pointer; padding: 3px 4px; font-weight: normal; }
-    .team-member-check:hover { background: var(--surface-head); border-radius: 4px; }
-    .team-member-check input { width: auto; margin: 0; }
     .muted { color: var(--text-subtle); font-style: italic; }
 `;
 
@@ -1228,12 +1223,7 @@ class PeoplePage extends WNElement {
         const t = this._modalCtx || {};
         const isEdit = !!t.id;
         const members = t.members || [];
-        const memberChecks = this._people.filter(p => !p.inactive && !p.deleted).map(p => {
-            const k = p.key;
-            const checked = members.includes(k);
-            const label = p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : (p.name || k);
-            return html`<label class="team-member-check"><input type="checkbox" data-member-key="${k}" ${checked ? 'checked' : ''} /> ${escapeHtml(label)}</label>`;
-        });
+        const memberValue = members.join(',');
         return html`
             <div class="pp-modal-card" data-modal-card>
                 <div class="pp-modal-head">
@@ -1243,10 +1233,9 @@ class PeoplePage extends WNElement {
                 <div class="pp-form">
                     <label>Teamnavn *<input type="text" data-f="name" value="${t.name || ''}" placeholder="Backend-teamet" /></label>
                     <label>Notat<textarea rows="2" data-f="notes">${t.notes || ''}</textarea></label>
-                    <fieldset class="team-members-field">
-                        <legend>Medlemmer</legend>
-                        <div class="team-members-list">${memberChecks.length ? memberChecks : html`<em class="muted">Ingen personer opprettet.</em>`}</div>
-                    </fieldset>
+                    <label>Medlemmer
+                        <person-multi-picker data-el="members" value="${escapeHtml(memberValue)}" placeholder="Legg til medlem…"></person-multi-picker>
+                    </label>
                 </div>
                 <div class="pp-actions">
                     ${isEdit ? html`<button class="pp-btn danger" data-act="delete-team" data-id="${t.id}">🗑️ Slett</button>` : ''}
@@ -1264,7 +1253,8 @@ class PeoplePage extends WNElement {
         const name = (nameInput ? nameInput.value : '').trim();
         if (!name) { alert('Teamnavn er påkrevd'); return; }
         const notes = (notesInput ? notesInput.value : '').trim();
-        const members = Array.from(card.querySelectorAll('[data-member-key]:checked')).map(el => el.dataset.memberKey);
+        const memberPicker = card.querySelector('[data-el="members"]');
+        const members = memberPicker ? memberPicker.value : [];
         const data = { name, notes: notes || undefined, members };
         const id = this._modalCtx && this._modalCtx.id;
         const svc = this.serviceFor('teams');
