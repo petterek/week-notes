@@ -1025,9 +1025,10 @@ class NoteEditor extends WNElement {
                     const cur = this._tagsEl.tags || [];
                     if (!cur.includes(word)) this._tagsEl.tags = cur.concat([word]);
                 }
-                // Remove only the '#' character, keep the word
-                ta.value = text.slice(0, i) + text.slice(i + 1);
-                ta.selectionStart = ta.selectionEnd = caret - 1;
+                // Remove the '#' and replace underscores with spaces in the text
+                const readable = word.replace(/_/g, ' ');
+                ta.value = text.slice(0, i) + readable + text.slice(caret);
+                ta.selectionStart = ta.selectionEnd = i + readable.length;
                 ta.dispatchEvent(new Event('input', { bubbles: true }));
                 this._markDirty();
             } else if (!e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -1356,13 +1357,13 @@ class NoteEditor extends WNElement {
             renderItem: (item, query) => `#${highlightMatch(item.label, query)}` +
                 (item.hint ? `<span style="opacity:0.55;font-size:0.85em;margin-left:6px">${item.hint}</span>` : ''),
             onSelect: (item, ctx) => {
-                // Add to tag-editor; remove only the '#' prefix, keep the
-                // tag word in the note body.
+                // Add to tag-editor; remove '#' and replace _ with spaces
                 if (this._tagsEl) {
                     const cur = this._tagsEl.tags || [];
                     if (!cur.includes(item.value)) this._tagsEl.tags = cur.concat([item.value]);
                 }
-                replaceRange(ta, ctx.range.start, ctx.range.start + 1, '');
+                const readable = item.value.replace(/_/g, ' ');
+                replaceRange(ta, ctx.range.start, ctx.range.end, readable + ' ');
                 this._renderPreview();
                 this._markDirty();
             },
