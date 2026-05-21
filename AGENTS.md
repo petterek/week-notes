@@ -74,6 +74,7 @@ Stack:
 │   ├── help.md
 │   ├── tests.md
 │   ├── themes.md
+│   ├── tags.md
 │   ├── teams.md
 │   ├── meetings.md
 │   ├── settings.md
