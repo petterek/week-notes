@@ -44,7 +44,7 @@ input { flex: 1; min-width: 100px; border: none; outline: none; background: tran
 `;
 
 function normalize(t) {
-    return String(t || '').trim().toLowerCase();
+    return String(t || '').trim().toLowerCase().replace(/^#/, '');
 }
 function parseCsv(s) {
     return String(s || '')

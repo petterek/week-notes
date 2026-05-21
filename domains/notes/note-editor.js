@@ -1323,16 +1323,23 @@ class NoteEditor extends WNElement {
                 if (!frag && !(opts && opts.force)) return null;
                 return { query: frag, start: i, end: caret };
             },
-            fetchItems: async () => {
+            fetchItems: async (query) => {
                 const list = this._availableThemes || [];
                 const existing = (this._tagsEl && this._tagsEl.tags) ? this._tagsEl.tags : [];
-                return list
+                const items = list
                     .filter(t => !existing.includes(t))
                     .map(t => ({ value: t, label: t }));
+                // Always offer to create the typed tag if it doesn't already exist
+                const q = (query || '').toLowerCase();
+                if (q && !existing.includes(q) && !list.includes(q)) {
+                    items.push({ value: q, label: q, hint: 'ny' });
+                }
+                return items;
             },
             filter: 'starts',
             limit: 8,
-            renderItem: (item, query) => `#${highlightMatch(item.label, query)}`,
+            renderItem: (item, query) => `#${highlightMatch(item.label, query)}` +
+                (item.hint ? `<span style="opacity:0.55;font-size:0.85em;margin-left:6px">${item.hint}</span>` : ''),
             onSelect: (item, ctx) => {
                 // Add to tag-editor; leave the '#tag' text in place so it
                 // remains visible/searchable in the note body. Move caret
