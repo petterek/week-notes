@@ -1002,7 +1002,7 @@ class NoteEditor extends WNElement {
 
     _installTagSpaceCommit() {
         // Pressing space after '#tagName' commits it as a tag in the
-        // tag-editor and removes the '#tagName' from the textarea.
+        // tag-editor and removes only the '#' from the textarea.
         if (!this._contentEl || this._tagSpaceWired) return;
         const ta = this._contentEl;
         ta.addEventListener('keydown', (e) => {
@@ -1016,14 +1016,13 @@ class NoteEditor extends WNElement {
             if (i > 0 && !/\s/.test(text[i - 1])) return;
             const word = text.slice(i + 1, caret);
             if (!word) return;
-            e.preventDefault();
             if (this._tagsEl) {
                 const cur = this._tagsEl.tags || [];
                 if (!cur.includes(word)) this._tagsEl.tags = cur.concat([word]);
             }
-            // Remove the #tag text from the textarea
-            ta.value = text.slice(0, i) + text.slice(caret);
-            ta.selectionStart = ta.selectionEnd = i;
+            // Remove only the '#' character, keep the word
+            ta.value = text.slice(0, i) + text.slice(i + 1);
+            ta.selectionStart = ta.selectionEnd = caret - 1;
             ta.dispatchEvent(new Event('input', { bubbles: true }));
             this._markDirty();
         });
@@ -1345,13 +1344,13 @@ class NoteEditor extends WNElement {
             renderItem: (item, query) => `#${highlightMatch(item.label, query)}` +
                 (item.hint ? `<span style="opacity:0.55;font-size:0.85em;margin-left:6px">${item.hint}</span>` : ''),
             onSelect: (item, ctx) => {
-                // Add to tag-editor and remove the '#tag' text from the
-                // textarea (it lives in the tag chips, not the note body).
+                // Add to tag-editor; remove only the '#' prefix, keep the
+                // tag word in the note body.
                 if (this._tagsEl) {
                     const cur = this._tagsEl.tags || [];
                     if (!cur.includes(item.value)) this._tagsEl.tags = cur.concat([item.value]);
                 }
-                replaceRange(ta, ctx.range.start, ctx.range.end, '');
+                replaceRange(ta, ctx.range.start, ctx.range.start + 1, '');
                 this._renderPreview();
                 this._markDirty();
             },
