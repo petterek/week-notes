@@ -138,7 +138,7 @@ const STYLES = `
     /* Modals (rendered inside shadow DOM) */
     .pp-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 9000; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; }
     .pp-modal.open { display: flex; }
-    .pp-modal-card { background: var(--bg, white); color: var(--text-strong); border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,0.25); padding: 22px; max-width: 540px; width: 100%; max-height: 90vh; overflow: auto; box-sizing: border-box; }
+    .pp-modal-card { background: var(--bg, white); color: var(--text-strong); border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,0.25); padding: 22px; max-width: 540px; width: 100%; max-height: 90vh; overflow: visible; box-sizing: border-box; }
     .pp-modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 10px; }
     .pp-modal-head h3 { margin: 0; font-family: var(--font-heading, Georgia, serif); color: var(--accent); font-weight: 400; }
     .pp-modal-x { background: none; border: none; font-size: 1.3em; cursor: pointer; color: var(--text-subtle); }
