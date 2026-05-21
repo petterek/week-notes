@@ -778,6 +778,107 @@
                 ctx.assert(span.end > '2026-12-31 23:00', 'end should be pushed past new start, got ' + span.end);
             },
         },
+
+        {
+            id: 'note-editor-mention-autocomplete',
+            name: 'note-editor @mention autocomplete opens and selects',
+            url: '/debug/note-editor',
+            run: async function (ctx) {
+                var doc = ctx.doc;
+                var editor = await ctx.waitFor(function () { return doc.querySelector('note-editor'); }, { label: 'note-editor' });
+                var sr = editor.shadowRoot;
+                await ctx.waitFor(function () { return editor._acAttached; }, { label: 'autocomplete attached', timeout: 5000 });
+
+                var ta = sr.querySelector('.ne-content');
+                ctx.assert(ta, 'textarea found');
+
+                // Type @ali and check popup
+                ta.focus();
+                ta.value = '@ali';
+                ta.selectionStart = ta.selectionEnd = 4;
+                ta.dispatchEvent(new Event('input', { bubbles: true }));
+
+                var pop = await ctx.waitFor(function () {
+                    var p = sr.querySelector('[role="listbox"]');
+                    return p && !p.hidden && p.children.length > 0 ? p : null;
+                }, { label: 'mention dropdown visible', timeout: 2000 });
+
+                ctx.assert(pop.textContent.indexOf('alice') >= 0 || pop.textContent.indexOf('ali') >= 0,
+                    'dropdown should show matching person, got: ' + pop.textContent.slice(0, 80));
+
+                // Select with Enter
+                ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+                await ctx.sleep(100);
+
+                ctx.assert(ta.value.indexOf('@alice') >= 0 || ta.value.indexOf('@ali') >= 0,
+                    'textarea should contain @mention after selection, got: ' + ta.value);
+            },
+        },
+
+        {
+            id: 'note-editor-tag-autocomplete',
+            name: 'note-editor #tag autocomplete shows new tag option',
+            url: '/debug/note-editor',
+            run: async function (ctx) {
+                var doc = ctx.doc;
+                var editor = await ctx.waitFor(function () { return doc.querySelector('note-editor'); }, { label: 'note-editor' });
+                var sr = editor.shadowRoot;
+                await ctx.waitFor(function () { return editor._acAttached; }, { label: 'autocomplete attached', timeout: 5000 });
+
+                var ta = sr.querySelector('.ne-content');
+                ctx.assert(ta, 'textarea found');
+
+                // Type #newtag — should show "ny" (new) option
+                ta.focus();
+                ta.value = '#newtag';
+                ta.selectionStart = ta.selectionEnd = 7;
+                ta.dispatchEvent(new Event('input', { bubbles: true }));
+
+                var pop = await ctx.waitFor(function () {
+                    var p = sr.querySelector('[role="listbox"]');
+                    return p && !p.hidden && p.children.length > 0 ? p : null;
+                }, { label: 'tag dropdown visible', timeout: 2000 });
+
+                ctx.assert(pop.textContent.indexOf('newtag') >= 0,
+                    'dropdown should show typed tag, got: ' + pop.textContent.slice(0, 80));
+                ctx.assert(pop.textContent.indexOf('ny') >= 0,
+                    'dropdown should show "ny" hint for new tag');
+            },
+        },
+
+        {
+            id: 'note-editor-tag-space-underscore',
+            name: 'note-editor space inside #tag inserts underscore',
+            url: '/debug/note-editor',
+            run: async function (ctx) {
+                var doc = ctx.doc;
+                var editor = await ctx.waitFor(function () { return doc.querySelector('note-editor'); }, { label: 'note-editor' });
+                var sr = editor.shadowRoot;
+                await ctx.waitFor(function () { return editor._tagSpaceWired; }, { label: 'tag-space wired', timeout: 5000 });
+
+                var ta = sr.querySelector('.ne-content');
+                ctx.assert(ta, 'textarea found');
+
+                // Close any autocomplete first
+                ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+                await ctx.sleep(50);
+
+                // Set up #hello and press space
+                ta.value = '#hello';
+                ta.selectionStart = ta.selectionEnd = 6;
+                ta.dispatchEvent(new Event('input', { bubbles: true }));
+                await ctx.sleep(50);
+
+                // Close autocomplete popup so space goes to tag handler
+                ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+                await ctx.sleep(50);
+
+                ta.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+                await ctx.sleep(50);
+
+                ctx.assert(ta.value === '#hello_', 'space should become underscore, got: ' + JSON.stringify(ta.value));
+            },
+        },
     ];
 
     if (typeof module !== 'undefined' && module.exports) {

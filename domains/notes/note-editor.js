@@ -634,7 +634,7 @@ class NoteEditor extends WNElement {
         // companies are loaded lazily; until they arrive, unknown @names
         // still render as raw text.
         if (!this._linkDataLoaded && !this._linkDataLoading) this._loadLinkData();
-        out = linkMentions(out, this._people || [], this._companies || []);
+        out = linkMentions(out, this._people || [], this._companies || [], this._teams || []);
         return out;
     }
 
@@ -643,9 +643,11 @@ class NoteEditor extends WNElement {
         Promise.all([
             fetch('/api/people').then(r => r.json()).catch(() => []),
             fetch('/api/companies').then(r => r.json()).catch(() => []),
-        ]).then(([pp, cc]) => {
+            fetch('/api/teams').then(r => r.json()).catch(() => []),
+        ]).then(([pp, cc, tt]) => {
             this._people = (Array.isArray(pp) ? pp : []).filter(p => !p.inactive);
             this._companies = (Array.isArray(cc) ? cc : []).filter(c => !c.deleted);
+            this._teams = (Array.isArray(tt) ? tt : []).filter(t => !t.deleted);
             this._linkDataLoaded = true;
             this._linkDataLoading = false;
             this._renderPreview();
@@ -1209,6 +1211,7 @@ class NoteEditor extends WNElement {
         let openTasks = null;
         let people = null;
         let companies = null;
+        let teams = null;
         let results = null;
         const ensureOpenTasks = async () => {
             if (openTasks) return openTasks;
@@ -1233,6 +1236,14 @@ class NoteEditor extends WNElement {
                 companies = (await r.json() || []).filter(c => !c.deleted);
             } catch (_) { companies = []; }
             return companies;
+        };
+        const ensureTeams = async () => {
+            if (teams) return teams;
+            try {
+                const r = await fetch('/api/teams');
+                teams = (await r.json() || []).filter(t => !t.deleted);
+            } catch (_) { teams = []; }
+            return teams;
         };
         const ensureResults = async () => {
             if (results) return results;
@@ -1382,7 +1393,7 @@ class NoteEditor extends WNElement {
                 return { query: frag, start: i, end: caret };
             },
             fetchItems: async () => {
-                const [pp, cc] = await Promise.all([ensurePeople(), ensureCompanies()]);
+                const [pp, cc, tt] = await Promise.all([ensurePeople(), ensureCompanies(), ensureTeams()]);
                 const out = [];
                 const meKey = (typeof window !== 'undefined' && window.mePersonKey) || '';
                 if (meKey) {
@@ -1393,6 +1404,9 @@ class NoteEditor extends WNElement {
                     out.push({ value: 'me', label: disp, hint: 'meg', kind: 'me' });
                 } else {
                     out.push({ value: 'me', label: 'meg', hint: 'sett i Innstillinger', kind: 'me' });
+                }
+                for (const t of tt) {
+                    out.push({ value: t.key || (t.name || '').toLowerCase(), label: t.name || t.key, hint: 'team', kind: 'team' });
                 }
                 for (const c of cc) {
                     out.push({ value: c.key || (c.name || '').toLowerCase(), label: c.name || c.key, hint: 'firma', kind: 'company' });
@@ -1406,7 +1420,7 @@ class NoteEditor extends WNElement {
             filter: 'starts',
             limit: 10,
             renderItem: (item, query) => {
-                const tag = item.kind === 'company' ? '🏢' : (item.kind === 'me' ? '🙋' : '👤');
+                const tag = item.kind === 'team' ? '👥' : item.kind === 'company' ? '🏢' : (item.kind === 'me' ? '🙋' : '👤');
                 return `${tag} ${highlightMatch(item.label, query)}` +
                     (item.hint ? `<span style="opacity:0.55;font-size:0.85em"> · ${item.hint}</span>` : '');
             },
