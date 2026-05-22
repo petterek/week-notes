@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="nb">
+<head>
+<meta charset="utf-8">
+<title>ER-diagram — Week Notes</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: system-ui, sans-serif;
+    background: #f7f7f8;
+    color: #1a1a2e;
+    padding: 24px;
+}
+h1 { font-size: 1.4em; margin-bottom: 16px; color: #2a4365; }
+.layout { display: flex; gap: 24px; height: calc(100vh - 100px); }
+.editor-pane { flex: 0 0 42%; display: flex; flex-direction: column; }
+.preview-pane { flex: 1; overflow: auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; }
+textarea {
+    flex: 1; width: 100%; resize: none;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.82em;
+    padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px;
+    background: #fff; color: #1a1a2e; line-height: 1.5;
+}
+textarea:focus { outline: 2px solid #2a4365; border-color: transparent; }
+.toolbar { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+button {
+    padding: 6px 14px; border: 1px solid #cbd5e0; border-radius: 6px;
+    background: #fff; cursor: pointer; font-size: 0.88em;
+}
+button:hover { background: #edf2f7; }
+button.primary { background: #2a4365; color: #fff; border-color: #2a4365; }
+button.primary:hover { background: #1a365d; }
+.status { font-size: 0.8em; color: #718096; margin-left: auto; }
+.preview-pane img { max-width: 100%; height: auto; }
+.preview-pane .error { color: #c53030; padding: 12px; }
+</style>
+</head>
+<body>
+<h1>📐 ER-diagram — Datamodell</h1>
+<div class="layout">
+    <div class="editor-pane">
+        <div class="toolbar">
+            <button class="primary" id="renderBtn">▶ Render</button>
+            <button id="resetBtn">↺ Tilbakestill</button>
+            <span class="status" id="status"></span>
+        </div>
+        <textarea id="src" spellcheck="false"></textarea>
+    </div>
+    <div class="preview-pane" id="preview">
+        <p style="color:#718096">Trykk «Render» for å vise diagrammet.</p>
+    </div>
+</div>
+<script>
+const DEFAULT_SRC = `@startuml
+!theme plain
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+skinparam classFontSize 12
+skinparam classFontName "JetBrains Mono"
+hide circle
+
+entity "Task" as task {
+  * id : string
+  --
+  text : string
+  done : boolean
+  week : string
+  created : string (ISO)
+  dueDate? : string
+  note? : string
+  commentFile? : string
+  responsible? : string <<FK person>>
+  author? : string <<FK person>>
+  completedBy? : string <<FK person>>
+  completedAt? : string
+  completedWeek? : string
+  goalId? : string <<FK goal>>
+  participants? : string[]
+  noteRefs? : string[]
+  deleted? : boolean
+}
+
+entity "Result" as result {
+  * id : string
+  --
+  text : string
+  week : string
+  people : string[] <<FK person>>
+  created : string (ISO)
+  sentiment? : "good" | "bad"
+  goalId? : string <<FK goal>>
+  taskId? : string <<FK task>>
+  taskText? : string
+}
+
+entity "Person" as person {
+  * id : string
+  * key : string
+  --
+  name : string
+  firstName? : string
+  lastName? : string
+  title? : string
+  email? : string
+  phone? : string
+  notes? : string
+  inactive? : boolean
+  primaryCompanyKey? : string <<FK company>>
+  extraCompanyKeys? : string[]
+  teams? : string[]
+  created : string
+  deleted? : boolean
+}
+
+entity "Company" as company {
+  * id : string
+  * key : string
+  --
+  name : string
+  orgnr? : string
+  url? : string
+  address? : string
+  notes? : string
+  created : string
+  inactive? : boolean
+  deleted? : boolean
+}
+
+entity "Meeting" as meeting {
+  * id : string
+  --
+  title : string
+  date : string
+  start : string (HH:MM)
+  end : string (HH:MM)
+  endDate? : string
+  type : string <<FK meeting_type>>
+  attendees? : string[] <<FK person>>
+  location? : string
+  placeKey? : string <<FK place>>
+  notes? : string
+  created : string
+  updated? : string
+}
+
+entity "MeetingType" as meeting_type {
+  * key : string
+  --
+  icon : string
+  label : string
+  mins : number
+}
+
+entity "Goal" as goal {
+  * id : string
+  --
+  title : string
+  description? : string
+  status : "active" | "achieved" | "abandoned"
+  created : string
+  updated? : string
+  targetDate? : string
+  targetValue? : number
+  currentValue? : number
+  unit? : string
+  achievedAt? : string
+}
+
+entity "Place" as place {
+  * id : string
+  * key : string
+  --
+  name : string
+  address? : string
+  lat? : number
+  lng? : number
+  notes? : string
+  created : string
+  deleted? : boolean
+}
+
+entity "Team" as team {
+  * id : string
+  * key : string
+  --
+  name : string
+  members : string[] <<FK person>>
+  notes? : string
+  created : string
+  deleted? : boolean
+}
+
+entity "Note" as note {
+  * path : string (week/file.md)
+  --
+  content : markdown
+  type? : "note" | "meeting" | "task" | "presentation"
+  title? : string
+  pinned? : boolean
+  themes? : string[]
+  created? : string
+  modified? : string
+  createdBy? : string <<FK person>>
+  presentationStyle? : string
+}
+
+entity "Context" as context {
+  * id : string (dir name)
+  --
+  name? : string
+  icon? : string
+  theme? : string
+  remote? : string
+  defaultMeetingMinutes? : number
+  upcomingMeetingsDays? : number
+  visibleStartHour? : number
+  visibleEndHour? : number
+  workHours? : array[7]
+}
+
+' --- Relationships ---
+task }o--o| goal : goalId
+task }o--o| person : responsible
+task }o--o| person : author
+task }o--o| person : completedBy
+
+result }o--o| goal : goalId
+result }o--o| task : taskId
+result }o--o{ person : people
+
+meeting }o--|| meeting_type : type
+meeting }o--o| place : placeKey
+meeting }o--o{ person : attendees
+
+person }o--o| company : primaryCompanyKey
+person }o--o{ team : teams
+
+team }o--o{ person : members
+
+note }o--o| person : createdBy
+
+@enduml`;
+
+const textarea = document.getElementById('src');
+const preview = document.getElementById('preview');
+const status = document.getElementById('status');
+const renderBtn = document.getElementById('renderBtn');
+const resetBtn = document.getElementById('resetBtn');
+
+// Load from localStorage or default
+textarea.value = localStorage.getItem('wn_erd_src') || DEFAULT_SRC;
+
+function encodePlantUml(text) {
+    // PlantUML uses deflate + custom base64
+    const data = new TextEncoder().encode(text);
+    const cs = new CompressionStream('deflate');
+    const writer = cs.writable.getWriter();
+    writer.write(data);
+    writer.close();
+    return new Response(cs.readable).arrayBuffer().then(buf => {
+        const bytes = new Uint8Array(buf);
+        return encode64(bytes);
+    });
+}
+
+function encode6bit(b) {
+    if (b < 10) return String.fromCharCode(48 + b);
+    b -= 10;
+    if (b < 26) return String.fromCharCode(65 + b);
+    b -= 26;
+    if (b < 26) return String.fromCharCode(97 + b);
+    b -= 26;
+    if (b === 0) return '-';
+    if (b === 1) return '_';
+    return '?';
+}
+
+function append3bytes(b1, b2, b3) {
+    const c1 = b1 >> 2;
+    const c2 = ((b1 & 0x3) << 4) | (b2 >> 4);
+    const c3 = ((b2 & 0xF) << 2) | (b3 >> 6);
+    const c4 = b3 & 0x3F;
+    return encode6bit(c1 & 0x3F) + encode6bit(c2 & 0x3F) + encode6bit(c3 & 0x3F) + encode6bit(c4 & 0x3F);
+}
+
+function encode64(data) {
+    let r = '';
+    for (let i = 0; i < data.length; i += 3) {
+        if (i + 2 === data.length) {
+            r += append3bytes(data[i], data[i + 1], 0);
+        } else if (i + 1 === data.length) {
+            r += append3bytes(data[i], 0, 0);
+        } else {
+            r += append3bytes(data[i], data[i + 1], data[i + 2]);
+        }
+    }
+    return r;
+}
+
+async function render() {
+    const src = textarea.value.trim();
+    if (!src) { preview.innerHTML = '<p class="error">Tom kilde</p>'; return; }
+    localStorage.setItem('wn_erd_src', src);
+    status.textContent = 'Rendrer…';
+    try {
+        const encoded = await encodePlantUml(src);
+        const url = 'https://www.plantuml.com/plantuml/svg/~1' + encoded;
+        preview.innerHTML = `<img src="${url}" alt="ER diagram" />`;
+        status.textContent = 'OK ✓';
+    } catch (e) {
+        preview.innerHTML = `<p class="error">Feil: ${e.message}</p>`;
+        status.textContent = 'Feil';
+    }
+}
+
+renderBtn.addEventListener('click', render);
+resetBtn.addEventListener('click', () => {
+    textarea.value = DEFAULT_SRC;
+    localStorage.removeItem('wn_erd_src');
+    render();
+});
+
+// Auto-render on load
+render();
+
+// Ctrl+Enter to render
+textarea.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); render(); }
+});
+</script>
+</body>
+</html>
