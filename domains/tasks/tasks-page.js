@@ -160,6 +160,7 @@ const STYLES = `
     .badge-overdue { background: var(--danger-soft, rgba(197,48,48,0.12)); color: var(--danger, #c53030); }
     .badge-done { background: rgba(39, 103, 73, 0.1); color: #276749; }
     .people-cell { font-size: 0.82em; color: var(--text-muted); }
+    .goal-cell { font-size: 0.82em; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
     .actions-cell { display: flex; gap: 2px; }
     .actions-cell button {
         border: none; background: transparent; cursor: pointer;
@@ -474,7 +475,8 @@ class TasksPage extends WNElement {
             return this._sort.dir === 'asc' ? '↑' : '↓';
         };
 
-        const rows = visible.map(t => this._renderRow(t, people, companies));
+        const goals = this._lastGoals || [];
+        const rows = visible.map(t => this._renderRow(t, people, companies, goals));
 
         return html`
             <div class="tp">
@@ -505,8 +507,10 @@ class TasksPage extends WNElement {
                                     <th data-col="title">Oppgave <span class="arrow">${arrow('title')}</span></th>
                                     <th data-col="week" style="width:70px">Uke <span class="arrow">${arrow('week')}</span></th>
                                     <th data-col="due" style="width:90px">Frist <span class="arrow">${arrow('due')}</span></th>
-                                    <th style="width:140px">Deltakere</th>
-                                    <th data-col="status" style="width:90px">Status</th>
+                                    <th data-col="responsible" style="width:110px">Ansvarlig</th>
+                                    <th style="width:130px">Deltakere</th>
+                                    <th style="width:130px">Mål</th>
+                                    <th data-col="status" style="width:80px">Status</th>
                                     <th style="width:90px"></th>
                                 </tr>
                             </thead>
@@ -521,13 +525,34 @@ class TasksPage extends WNElement {
         `;
     }
 
-    _renderRow(t, people, companies) {
+    _renderRow(t, people, companies, goals) {
         const id = t.id || '';
         const overdue = isOverdue(t.dueDate, t.done);
         const textHtml = unsafeHTML(linkMentions(escapeHtml(t.text || ''), people, companies));
         const week = weekLabel(t.week);
         const due = t.dueDate ? fmtDate(t.dueDate) : '—';
-        const ppl = this._taskPeople(t, people);
+
+        // Responsible
+        let respName = '—';
+        if (t.responsible) {
+            const rp = people.find(pp => pp.key === t.responsible);
+            respName = rp ? (rp.name || rp.key) : t.responsible;
+        }
+
+        // Participants (excluding responsible)
+        const parts = (t.participants || []).filter(k => k !== t.responsible);
+        const partsStr = parts.map(k => {
+            const p = people.find(pp => pp.key === k);
+            return p ? (p.name || p.key) : k;
+        }).join(', ');
+
+        // Goal
+        let goalName = '—';
+        if (t.goalId) {
+            const g = goals.find(gg => gg.id === t.goalId);
+            goalName = g ? (g.title || g.text || t.goalId) : t.goalId;
+        }
+
         const status = t.done
             ? html`<span class="badge badge-done">Fullført</span>`
             : (overdue
@@ -535,7 +560,7 @@ class TasksPage extends WNElement {
                 : html`<span class="badge badge-open">Åpen</span>`);
         const hasNote = !!(t.note && t.note.trim());
         const noteCls = hasNote ? '' : ' style="opacity:0.4"';
-        const filterText = [t.text || '', t.note || '', ppl, t.responsible || ''].join(' ');
+        const filterText = [t.text || '', t.note || '', respName, partsStr, goalName, t.responsible || ''].join(' ');
 
         return html`
             <tr class="${t.done ? 'task-done' : ''}" data-taskid="${id}" data-filtertext="${escapeHtml(filterText)}">
@@ -543,7 +568,9 @@ class TasksPage extends WNElement {
                 <td class="task-title" data-act="view" data-taskid="${id}">${textHtml}</td>
                 <td>${week}</td>
                 <td class="${overdue ? 'overdue' : ''}">${overdue ? '⚠️ ' : ''}${due}</td>
-                <td class="people-cell">${ppl || '—'}</td>
+                <td class="people-cell">${respName}</td>
+                <td class="people-cell">${partsStr || '—'}</td>
+                <td class="goal-cell">${goalName}</td>
                 <td>${status}</td>
                 <td class="actions-cell">
                     <button type="button" data-act="note" data-taskid="${id}" title="${hasNote ? 'Rediger notat' : 'Legg til notat'}"${unsafeHTML(noteCls)}>📓</button>
@@ -552,22 +579,6 @@ class TasksPage extends WNElement {
                 </td>
             </tr>
         `;
-    }
-
-    _taskPeople(t, people) {
-        const names = [];
-        if (t.responsible) {
-            const p = people.find(pp => pp.key === t.responsible);
-            names.push(p ? (p.name || p.key) : t.responsible);
-        }
-        if (Array.isArray(t.participants)) {
-            for (const k of t.participants) {
-                if (k === t.responsible) continue;
-                const p = people.find(pp => pp.key === k);
-                names.push(p ? (p.name || p.key) : k);
-            }
-        }
-        return names.join(', ');
     }
 
     _sortTasks(tasks) {
