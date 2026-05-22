@@ -17,6 +17,7 @@ import { WNElement, html, unsafeHTML, escapeHtml, linkMentions, wireMentionClick
 import './task-complete-modal.js';
 import './task-note-modal.js';
 import './task-edit-modal.js';
+import './task-view-modal.js';
 
 function isOverdue(due, done) {
     if (done || !due) return false;
@@ -140,8 +141,9 @@ const STYLES = `
     .tp-table tr:hover td { background: var(--accent-soft, rgba(42,67,101,0.04)); }
     .tp-table .task-title {
         font-weight: 500; color: var(--text-strong);
-        word-break: break-word;
+        word-break: break-word; cursor: pointer;
     }
+    .tp-table .task-title:hover { color: var(--accent); }
     .tp-table .task-title a { color: var(--accent); text-decoration: none; }
     .tp-table .task-title a:hover { text-decoration: underline; }
     .tp-table .task-done .task-title {
@@ -221,10 +223,12 @@ class TasksPage extends WNElement {
         if (!this.service) return null;
         const peopleSvc = this.serviceFor('people');
         const compSvc = this.serviceFor('companies');
+        const goalsSvc = this.serviceFor('goals');
         return {
             tasks:     () => this.service.list(),
             people:    () => peopleSvc ? peopleSvc.list() : Promise.resolve([]),
             companies: () => compSvc   ? compSvc.list()   : Promise.resolve([]),
+            goals:     () => goalsSvc  ? goalsSvc.list()  : Promise.resolve([]),
         };
     }
 
@@ -272,6 +276,14 @@ class TasksPage extends WNElement {
         });
 
         this.shadowRoot.addEventListener('click', (ev) => {
+            // View task (click on title cell)
+            const viewCell = ev.target.closest('td[data-act="view"]');
+            if (viewCell && !ev.target.closest('.entity-mention')) {
+                const task = this._findTask(viewCell.dataset.taskid);
+                if (!task) return;
+                this._openViewModal(task);
+                return;
+            }
             const noteBtn = ev.target.closest('button[data-act="note"]');
             if (noteBtn) {
                 const task = this._findTask(noteBtn.dataset.taskid);
@@ -372,6 +384,44 @@ class TasksPage extends WNElement {
         return (this._lastTasks || []).find(t => String(t.id) === String(id));
     }
 
+    _openViewModal(task) {
+        const modal = this.shadowRoot.querySelector('task-view-modal');
+        if (!modal) return;
+        const people = this._lastPeople || [];
+        const goals = this._lastGoals || [];
+        const companies = this._lastCompanies || [];
+        modal.open(task, {
+            people,
+            goals,
+            companies,
+            onEdit: (t) => {
+                this.dispatchEvent(new CustomEvent('task:request-edit', {
+                    bubbles: true, composed: true,
+                    detail: { task: t, service: this.service, callback: (res) => { if (res && res.saved) this.refresh(); } },
+                }));
+            },
+            onComplete: (t) => {
+                this.dispatchEvent(new CustomEvent('task:request-complete', {
+                    bubbles: true, composed: true,
+                    detail: {
+                        id: t.id, text: t.text || '',
+                        callback: async (res) => {
+                            if (!res || !res.confirmed) return;
+                            try { await this.service.toggle(res.id, res.comment || ''); }
+                            catch (err) { console.error('tasks-page: toggle failed', err); }
+                            this.refresh();
+                        },
+                    },
+                }));
+            },
+            onUncomplete: async (t) => {
+                try { await this.service.toggle(t.id); }
+                catch (err) { console.error('tasks-page: undo failed', err); }
+                this.refresh();
+            },
+        });
+    }
+
     _applyFilter() {
         const rows = this.shadowRoot.querySelectorAll('tr[data-taskid]');
         const q = this._filter;
@@ -403,6 +453,9 @@ class TasksPage extends WNElement {
         this._lastTasks = all;
         const people = data.people || [];
         const companies = data.companies || [];
+        this._lastPeople = people;
+        this._lastCompanies = companies;
+        this._lastGoals = data.goals || [];
 
         const open = all.filter(t => !t.done);
         const done = all.filter(t => t.done);
@@ -463,6 +516,7 @@ class TasksPage extends WNElement {
                     `
                 }
                 <task-note-modal></task-note-modal>
+                <task-view-modal></task-view-modal>
             </div>
         `;
     }
@@ -486,7 +540,7 @@ class TasksPage extends WNElement {
         return html`
             <tr class="${t.done ? 'task-done' : ''}" data-taskid="${id}" data-filtertext="${escapeHtml(filterText)}">
                 <td><input type="checkbox" data-act="toggle" data-taskid="${id}" ${t.done ? 'checked' : ''}></td>
-                <td class="task-title">${textHtml}</td>
+                <td class="task-title" data-act="view" data-taskid="${id}">${textHtml}</td>
                 <td>${week}</td>
                 <td class="${overdue ? 'overdue' : ''}">${overdue ? '⚠️ ' : ''}${due}</td>
                 <td class="people-cell">${ppl || '—'}</td>
