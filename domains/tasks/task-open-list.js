@@ -352,7 +352,20 @@ class TaskOpenList extends WNElement {
             const task = this._findOpen(id);
             if (!task) return;
             const modal = this.shadowRoot.querySelector('task-view-modal');
-            if (modal && typeof modal.open === 'function') modal.open(task);
+            if (modal && typeof modal.open === 'function') {
+                modal.open(task, {
+                    onEdit: (t) => {
+                        this.dispatchEvent(new CustomEvent('task:request-edit', {
+                            bubbles: true, composed: true,
+                            detail: { task: t, service: this.service, callback: (res) => { if (res && res.saved) this.refresh(); } },
+                        }));
+                    },
+                    onComplete: (t) => {
+                        const cb = this.shadowRoot.querySelector(`input[data-taskid="${t.id}"]`);
+                        if (cb) { cb.checked = true; cb.dispatchEvent(new Event('change', { bubbles: true })); }
+                    },
+                });
+            }
         });
     }
 

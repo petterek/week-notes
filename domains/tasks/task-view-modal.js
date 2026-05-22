@@ -219,7 +219,7 @@ class TaskViewModal extends WNElement {
         this._onUncomplete = opts.onUncomplete || null;
 
         const modal = this._ensureModal();
-        this._titleEl.textContent = task?.text || 'Oppgave';
+        this._titleEl.innerHTML = linkMentions(escapeHtml(task?.text || 'Oppgave'), [], [], []);
         this._body.innerHTML = this._buildContent(task);
         modal.open();
     }
