@@ -803,5 +803,35 @@ module.exports = function(deps) {
         res.end(JSON.stringify({ ok: true }));
         return;
     }
+
+    // GET /api/schemas — list all schema files with index metadata
+    if (pathname === '/api/schemas' && req.method === 'GET') {
+        const dir = path.join(__dirname, 'schemas');
+        let index = [];
+        try { index = JSON.parse(fs.readFileSync(path.join(dir, 'index.json'), 'utf-8')); } catch {}
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, schemas: index }));
+        return;
+    }
+
+    // GET/PUT /api/schemas/:name — read/write a single schema file
+    const schemaMatch = pathname.match(/^\/api\/schemas\/([a-z0-9._-]+)$/);
+    if (schemaMatch && req.method === 'GET') {
+        const file = path.join(__dirname, 'schemas', schemaMatch[1]);
+        let src = '';
+        try { src = fs.readFileSync(file, 'utf-8'); } catch {}
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, name: schemaMatch[1], src }));
+        return;
+    }
+    if (schemaMatch && req.method === 'PUT') {
+        const body = JSON.parse(await readBody(req) || '{}');
+        const src = typeof body.src === 'string' ? body.src : '';
+        const file = path.join(__dirname, 'schemas', schemaMatch[1]);
+        fs.writeFileSync(file, src, 'utf-8');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+    }
     };
 };

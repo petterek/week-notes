@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["id", "key", "name", "members"],
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "key": {
+        "type": "string",
+        "description": "URL-safe key used in @mentions."
+      },
+      "name": {
+        "type": "string",
+        "description": "Team display name."
+      },
+      "members": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Person keys of team members."
+      },
+      "notes": {
+        "type": "string",
+        "description": "Freeform notes."
+      },
+      "created": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "deleted": {
+        "type": "boolean",
+        "description": "Soft-delete flag."
+      }
+    }
+  }
+}
