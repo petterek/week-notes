@@ -21,6 +21,7 @@ import { WNElement, html, unsafeHTML, escapeHtml, linkMentions, wireMentionClick
 import './task-complete-modal.js';
 import './task-note-modal.js';
 import './task-edit-modal.js';
+import './task-view-modal.js';
 
 const STYLES = `
         :host {
@@ -78,7 +79,8 @@ const STYLES = `
         }
         .row-meta-spacer { flex: 1; }
         .row input[type="checkbox"] { accent-color: var(--accent); }
-        .row-text { flex: 1; word-break: break-word; }
+        .row-text { flex: 1; word-break: break-word; cursor: pointer; }
+        .row-text:hover { color: var(--accent); }
         .row-text a { color: var(--accent); text-decoration: none; }
         .row-text a:hover { text-decoration: underline; }
         .row-note-btn {
@@ -191,7 +193,7 @@ function renderTask(t, people, companies) {
             <div class="sidebar-task${overdue ? ' overdue' : ''}" data-taskid="${id}">
                 <div class="row">
                     <input type="checkbox" data-taskid="${id}" data-tasktext="${t.text || ''}" data-act="toggle" />
-                    <span class="row-text">${textHtml}</span>
+                    <span class="row-text" data-act="view" data-taskid="${id}">${textHtml}</span>
                 </div>
                 <div class="row-meta">
                     ${duePill}
@@ -341,6 +343,17 @@ class TaskOpenList extends WNElement {
             })();
         });
         wireMentionClicks(this.shadowRoot);
+        this.shadowRoot.addEventListener('click', (ev) => {
+            // Don't intercept mention link clicks inside .row-text
+            if (ev.target.closest('a')) return;
+            const textEl = ev.target.closest('[data-act="view"]');
+            if (!textEl) return;
+            const id = textEl.dataset.taskid;
+            const task = this._findOpen(id);
+            if (!task) return;
+            const modal = this.shadowRoot.querySelector('task-view-modal');
+            if (modal && typeof modal.open === 'function') modal.open(task);
+        });
     }
 
     _findOpen(id) {
@@ -355,7 +368,7 @@ class TaskOpenList extends WNElement {
                 ${overdueCount > 0 ? unsafeHTML(`<span class="overdue-badge">⚠️ ${overdueCount} forfalt</span>`) : ''}
             </h3>
         `;
-        const modals = html`<task-note-modal></task-note-modal>`;
+        const modals = html`<task-note-modal></task-note-modal><task-view-modal></task-view-modal>`;
         if (data._loading) return html`${header('', 0)}<p class="empty-quiet">Laster…</p>${modals}`;
         const open = Array.isArray(data.open) ? data.open : null;
         if (!open) return html`${header('', 0)}<p class="empty-quiet">Kunne ikke laste oppgaver</p>${modals}`;
