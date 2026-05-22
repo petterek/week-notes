@@ -96,6 +96,8 @@ entity "MeetingType" as meeting_type {
   icon : string
   label : string
   mins : number
+  color? : string
+  allDay? : boolean
 }
 
 entity "Goal" as goal {
@@ -144,7 +146,7 @@ entity "Note" as note {
   type? : "note" | "meeting" | "task" | "presentation"
   title? : string
   pinned? : boolean
-  themes? : string[]
+  tags? : string[]
   created? : string
   modified? : string
   createdBy? : string <<FK person>>
@@ -180,7 +182,6 @@ meeting }o--o| place : placeKey
 meeting }o--o{ person : attendees
 
 person }o--o| company : primaryCompanyKey
-person }o--o{ team : teams
 
 team }o--o{ person : members
 
