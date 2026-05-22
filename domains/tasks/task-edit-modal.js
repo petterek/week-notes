@@ -107,7 +107,7 @@ class TaskEditModal extends WNElement {
                         placeholder="Hva skal gjøres?"
                         ${week}
                         ${goalId}></task-create-full>`)}
-                    <div class="hint">Esc for å avbryte. Markdown og @mentions støttes i notat.</div>
+                    <div class="hint">Esc for å avbryte. @mentions støttes i alle tekstfelt.</div>
                 </div>
             </div>
         `;
