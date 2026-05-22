@@ -277,6 +277,18 @@ class TaskViewModal extends WNElement {
             }
         }
 
+        // Note references
+        if (t.noteRef && /^[^/]+\/[^/]+\.md$/.test(t.noteRef)) {
+            const [w, f] = t.noteRef.split('/');
+            const label = f.replace(/\.md$/, '');
+            meta.push(['Kilde-notat', `<a href="#" data-act="open-note" data-path="${escapeHtml(t.noteRef)}">📝 ${escapeHtml(label)}</a> <span style="color:var(--text-subtle)">(${escapeHtml(w)})</span>`]);
+        }
+        if (t.commentFile && /^[^/]+\/[^/]+\.md$/.test(t.commentFile)) {
+            const [w, f] = t.commentFile.split('/');
+            const label = f.replace(/\.md$/, '');
+            meta.push(['Oppgave-notat', `<a href="#" data-act="open-note" data-path="${escapeHtml(t.commentFile)}">📄 ${escapeHtml(label)}</a> <span style="color:var(--text-subtle)">(${escapeHtml(w)})</span>`]);
+        }
+
         // Participants section
         let participantsHtml = '';
         const parts = t.participants || [];
@@ -370,6 +382,13 @@ class TaskViewModal extends WNElement {
             else if (action === 'edit') this._doEdit();
             else if (action === 'complete') this._doComplete();
             else if (action === 'uncomplete') this._doUncomplete();
+            else if (action === 'open-note') {
+                ev.preventDefault();
+                const notePath = act.dataset.path;
+                if (notePath && window.openNoteViewModal) {
+                    window.openNoteViewModal(notePath);
+                }
+            }
         });
 
         this.shadowRoot.addEventListener('keydown', (ev) => {
