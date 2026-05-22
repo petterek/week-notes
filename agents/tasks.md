@@ -62,3 +62,10 @@ Per-week task list with comments, drag-reorder, merge, completion log.
   creation order.
 - Merge collapses N tasks into one and deletes the others — be
   careful with comment/note loss.
+- **Modal z-index stacking:** Task modals (complete, edit, note) use
+  the `modalZ` system from `components/_shared.js`. Each modal calls
+  `modalZ.next()` **after** `setAttribute('open', '')` (which triggers
+  re-render via `attributeChangedCallback → requestRender()`). Setting
+  `bd.style.zIndex` before setAttribute is a bug — the re-render wipes
+  the inline style. Always: setAttribute first, then query the fresh
+  `.backdrop` element and set z-index.

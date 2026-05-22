@@ -20,14 +20,14 @@
  * Keyboard: Escape cancels, Ctrl/Cmd+Enter saves. Backdrop click and
  * the ✕ button cancel.
  */
-import { WNElement, html, escapeHtml } from './_shared.js';
+import { WNElement, html, escapeHtml, modalZ } from './_shared.js';
 import { attachDateTrigger } from '/components/wn-date-trigger.js';
 
 const STYLES = `
     :host { display: inline-block; font: inherit; }
 
     .backdrop {
-        position: fixed; inset: 0; display: none; z-index: 2000;
+        position: fixed; inset: 0; display: none;
         align-items: center; justify-content: center;
         background: var(--overlay);
     }
@@ -125,7 +125,10 @@ class TaskNoteModal extends WNElement {
     open(task, callback) {
         this.setData({ task: task || {} });
         this._callback = (typeof callback === 'function') ? callback : null;
+        this._zIndex = modalZ.next();
         this.setAttribute('open', '');
+        const bd = this.shadowRoot && this.shadowRoot.querySelector('.backdrop');
+        if (bd) bd.style.zIndex = this._zIndex;
         const initial = (task && typeof task.note === 'string') ? task.note : '';
         setTimeout(() => {
             const ta = this.shadowRoot && this.shadowRoot.querySelector('[data-el="note"]');
@@ -142,6 +145,8 @@ class TaskNoteModal extends WNElement {
     close() {
         if (!this.hasAttribute('open')) return;
         this.removeAttribute('open');
+        modalZ.release();
+        this._zIndex = null;
         this._callback = null;
     }
 

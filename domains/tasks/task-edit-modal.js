@@ -20,7 +20,7 @@
  * Page-level singleton + `task:request-edit` document listener mirrors
  * the previous API so existing callers keep working.
  */
-import { WNElement, html, escapeHtml, unsafeHTML } from './_shared.js';
+import { WNElement, html, escapeHtml, unsafeHTML, modalZ } from './_shared.js';
 import '/components/task-create-full.js';
 import '/components/note-view.js';
 
@@ -28,7 +28,7 @@ const STYLES = `
     :host { display: inline-block; font: inherit; }
 
     .backdrop {
-        position: fixed; inset: 0; display: none; z-index: 2000;
+        position: fixed; inset: 0; display: none;
         align-items: center; justify-content: center;
         background: var(--overlay);
     }
@@ -156,12 +156,17 @@ class TaskEditModal extends WNElement {
     open(task, callback) {
         this._callback = (typeof callback === 'function') ? callback : null;
         this.setData({ task: task || {} });
+        this._zIndex = modalZ.next();
         this.setAttribute('open', '');
+        const bd = this.shadowRoot && this.shadowRoot.querySelector('.backdrop');
+        if (bd) bd.style.zIndex = this._zIndex;
     }
 
     close() {
         if (!this.hasAttribute('open')) return;
         this.removeAttribute('open');
+        modalZ.release();
+        this._zIndex = null;
         this._callback = null;
     }
 

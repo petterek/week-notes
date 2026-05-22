@@ -336,3 +336,13 @@ export class WNElement extends HTMLElement {
         return html`<p style="color:var(--danger);font-style:italic;margin:0">no service connected</p>`;
     }
 }
+
+// --- Modal z-index stacking ---
+// Each modal calls modalZ.next() on open and modalZ.release() on close.
+// Guarantees that later-opened modals always sit on top.
+const _modalZ = { base: 9000, step: 10, current: 9000 };
+export const modalZ = {
+    next()    { _modalZ.current += _modalZ.step; return _modalZ.current; },
+    release() { _modalZ.current = Math.max(_modalZ.base, _modalZ.current - _modalZ.step); },
+    get current() { return _modalZ.current; },
+};

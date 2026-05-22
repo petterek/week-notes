@@ -69,3 +69,38 @@ test('team status API returns team data', async ({ request }) => {
     expect(Array.isArray(data.meetings)).toBe(true);
     expect(Array.isArray(data.tasks)).toBe(true);
 });
+
+// Regression: task-complete-modal must appear above note-view (z-index stacking).
+// Previously the modal had a hardcoded z-index lower than note-view, making it
+// unclickable when triggered from an inline-task inside a note.
+test('task-complete-modal z-index stacks above note-view', async ({ page }) => {
+    await page.goto('/', { waitUntil: 'load' });
+    // Wait for custom elements to be defined
+    await page.waitForFunction(() =>
+        customElements.get('note-view') && customElements.get('task-complete-modal')
+    );
+    // Programmatically open note-view then task-complete-modal and compare z-indexes
+    const result = await page.evaluate(async () => {
+        // Open note-view via the global helper (creates element dynamically)
+        if (typeof window.openNoteViewModal !== 'function') return { error: 'no openNoteViewModal fn' };
+        window.openNoteViewModal('2026-W01', 'fake.md');
+        await new Promise(r => setTimeout(r, 500));
+        const nv = document.querySelector('note-view');
+        if (!nv) return { error: 'no note-view element after open' };
+        const nvBd = nv.shadowRoot && nv.shadowRoot.querySelector('.nv-backdrop');
+        const nvZ = nvBd ? parseInt(nvBd.style.zIndex, 10) : 0;
+
+        // Open task-complete-modal via its singleton getter
+        const getTcm = window.getTaskCompleteModal;
+        if (typeof getTcm !== 'function') return { error: 'no getTaskCompleteModal fn' };
+        const tcm = getTcm();
+        tcm.open({ id: 'test-z', title: 'Z-index test task' });
+        await new Promise(r => setTimeout(r, 300));
+        const tcmBd = tcm.shadowRoot && tcm.shadowRoot.querySelector('.backdrop');
+        const tcmZ = tcmBd ? parseInt(tcmBd.style.zIndex, 10) : 0;
+
+        return { nvZ, tcmZ };
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.tcmZ).toBeGreaterThan(result.nvZ);
+});

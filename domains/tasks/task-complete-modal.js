@@ -23,13 +23,13 @@
  * Keyboard: Escape cancels, Ctrl/Cmd+Enter confirms. Clicking the
  * backdrop or the close button cancels.
  */
-import { WNElement, html, escapeHtml } from './_shared.js';
+import { WNElement, html, escapeHtml, modalZ } from './_shared.js';
 
 const STYLES = `
     :host { display: inline-block; font: inherit; }
 
     .backdrop {
-        position: fixed; inset: 0; display: none; z-index: 2000;
+        position: fixed; inset: 0; display: none;
         align-items: center; justify-content: center;
         background: var(--overlay);
     }
@@ -127,7 +127,10 @@ class TaskCompleteModal extends WNElement {
     open(task, callback) {
         if (task) this.setData({ task });
         this._callback = (typeof callback === 'function') ? callback : null;
+        this._zIndex = modalZ.next();
         this.setAttribute('open', '');
+        const bd = this.shadowRoot && this.shadowRoot.querySelector('.backdrop');
+        if (bd) bd.style.zIndex = this._zIndex;
         setTimeout(() => {
             const ta = this.shadowRoot && this.shadowRoot.querySelector('[data-el="comment"]');
             if (ta) { ta.value = ''; ta.focus(); }
@@ -137,6 +140,8 @@ class TaskCompleteModal extends WNElement {
     close() {
         if (!this.hasAttribute('open')) return;
         this.removeAttribute('open');
+        modalZ.release();
+        this._zIndex = null;
         this._callback = null;
     }
 
