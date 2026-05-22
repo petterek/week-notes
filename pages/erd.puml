@@ -1,0 +1,189 @@
+@startuml
+!theme plain
+skinparam linetype ortho
+skinparam classAttributeIconSize 0
+skinparam classFontSize 12
+skinparam classFontName "JetBrains Mono"
+hide circle
+
+entity "Task" as task {
+  * id : string
+  --
+  text : string
+  done : boolean
+  week : string
+  created : string (ISO)
+  dueDate? : string
+  note? : string
+  commentFile? : string
+  responsible? : string <<FK person>>
+  author? : string <<FK person>>
+  completedBy? : string <<FK person>>
+  completedAt? : string
+  completedWeek? : string
+  goalId? : string <<FK goal>>
+  participants? : string[]
+  noteRefs? : string[]
+  deleted? : boolean
+}
+
+entity "Result" as result {
+  * id : string
+  --
+  text : string
+  week : string
+  people : string[] <<FK person>>
+  created : string (ISO)
+  sentiment? : "good" | "bad"
+  goalId? : string <<FK goal>>
+  taskId? : string <<FK task>>
+  taskText? : string
+}
+
+entity "Person" as person {
+  * id : string
+  * key : string
+  --
+  name : string
+  firstName? : string
+  lastName? : string
+  title? : string
+  email? : string
+  phone? : string
+  notes? : string
+  inactive? : boolean
+  primaryCompanyKey? : string <<FK company>>
+  extraCompanyKeys? : string[]
+  teams? : string[]
+  created : string
+  deleted? : boolean
+}
+
+entity "Company" as company {
+  * id : string
+  * key : string
+  --
+  name : string
+  orgnr? : string
+  url? : string
+  address? : string
+  notes? : string
+  created : string
+  inactive? : boolean
+  deleted? : boolean
+}
+
+entity "Meeting" as meeting {
+  * id : string
+  --
+  title : string
+  date : string
+  start : string (HH:MM)
+  end : string (HH:MM)
+  endDate? : string
+  type : string <<FK meeting_type>>
+  attendees? : string[] <<FK person>>
+  location? : string
+  placeKey? : string <<FK place>>
+  notes? : string
+  created : string
+  updated? : string
+}
+
+entity "MeetingType" as meeting_type {
+  * key : string
+  --
+  icon : string
+  label : string
+  mins : number
+}
+
+entity "Goal" as goal {
+  * id : string
+  --
+  title : string
+  description? : string
+  status : "active" | "achieved" | "abandoned"
+  created : string
+  updated? : string
+  targetDate? : string
+  targetValue? : number
+  currentValue? : number
+  unit? : string
+  achievedAt? : string
+}
+
+entity "Place" as place {
+  * id : string
+  * key : string
+  --
+  name : string
+  address? : string
+  lat? : number
+  lng? : number
+  notes? : string
+  created : string
+  deleted? : boolean
+}
+
+entity "Team" as team {
+  * id : string
+  * key : string
+  --
+  name : string
+  members : string[] <<FK person>>
+  notes? : string
+  created : string
+  deleted? : boolean
+}
+
+entity "Note" as note {
+  * path : string (week/file.md)
+  --
+  content : markdown
+  type? : "note" | "meeting" | "task" | "presentation"
+  title? : string
+  pinned? : boolean
+  themes? : string[]
+  created? : string
+  modified? : string
+  createdBy? : string <<FK person>>
+  presentationStyle? : string
+}
+
+entity "Context" as context {
+  * id : string (dir name)
+  --
+  name? : string
+  icon? : string
+  theme? : string
+  remote? : string
+  defaultMeetingMinutes? : number
+  upcomingMeetingsDays? : number
+  visibleStartHour? : number
+  visibleEndHour? : number
+  workHours? : array[7]
+}
+
+' --- Relationships ---
+task }o--o| goal : goalId
+task }o--o| person : responsible
+task }o--o| person : author
+task }o--o| person : completedBy
+
+result }o--o| goal : goalId
+result }o--o| task : taskId
+result }o--o{ person : people
+
+meeting }o--|| meeting_type : type
+meeting }o--o| place : placeKey
+meeting }o--o{ person : attendees
+
+person }o--o| company : primaryCompanyKey
+person }o--o{ team : teams
+
+team }o--o{ person : members
+
+note }o--o| person : createdBy
+
+@enduml

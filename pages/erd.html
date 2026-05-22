@@ -41,6 +41,7 @@ button.primary:hover { background: #1a365d; }
     <div class="editor-pane">
         <div class="toolbar">
             <button class="primary" id="renderBtn">▶ Render</button>
+            <button id="saveBtn">💾 Lagre</button>
             <button id="resetBtn">↺ Tilbakestill</button>
             <span class="status" id="status"></span>
         </div>
@@ -51,207 +52,48 @@ button.primary:hover { background: #1a365d; }
     </div>
 </div>
 <script>
-const DEFAULT_SRC = `@startuml
-!theme plain
-skinparam linetype ortho
-skinparam classAttributeIconSize 0
-skinparam classFontSize 12
-skinparam classFontName "JetBrains Mono"
-hide circle
-
-entity "Task" as task {
-  * id : string
-  --
-  text : string
-  done : boolean
-  week : string
-  created : string (ISO)
-  dueDate? : string
-  note? : string
-  commentFile? : string
-  responsible? : string <<FK person>>
-  author? : string <<FK person>>
-  completedBy? : string <<FK person>>
-  completedAt? : string
-  completedWeek? : string
-  goalId? : string <<FK goal>>
-  participants? : string[]
-  noteRefs? : string[]
-  deleted? : boolean
-}
-
-entity "Result" as result {
-  * id : string
-  --
-  text : string
-  week : string
-  people : string[] <<FK person>>
-  created : string (ISO)
-  sentiment? : "good" | "bad"
-  goalId? : string <<FK goal>>
-  taskId? : string <<FK task>>
-  taskText? : string
-}
-
-entity "Person" as person {
-  * id : string
-  * key : string
-  --
-  name : string
-  firstName? : string
-  lastName? : string
-  title? : string
-  email? : string
-  phone? : string
-  notes? : string
-  inactive? : boolean
-  primaryCompanyKey? : string <<FK company>>
-  extraCompanyKeys? : string[]
-  teams? : string[]
-  created : string
-  deleted? : boolean
-}
-
-entity "Company" as company {
-  * id : string
-  * key : string
-  --
-  name : string
-  orgnr? : string
-  url? : string
-  address? : string
-  notes? : string
-  created : string
-  inactive? : boolean
-  deleted? : boolean
-}
-
-entity "Meeting" as meeting {
-  * id : string
-  --
-  title : string
-  date : string
-  start : string (HH:MM)
-  end : string (HH:MM)
-  endDate? : string
-  type : string <<FK meeting_type>>
-  attendees? : string[] <<FK person>>
-  location? : string
-  placeKey? : string <<FK place>>
-  notes? : string
-  created : string
-  updated? : string
-}
-
-entity "MeetingType" as meeting_type {
-  * key : string
-  --
-  icon : string
-  label : string
-  mins : number
-}
-
-entity "Goal" as goal {
-  * id : string
-  --
-  title : string
-  description? : string
-  status : "active" | "achieved" | "abandoned"
-  created : string
-  updated? : string
-  targetDate? : string
-  targetValue? : number
-  currentValue? : number
-  unit? : string
-  achievedAt? : string
-}
-
-entity "Place" as place {
-  * id : string
-  * key : string
-  --
-  name : string
-  address? : string
-  lat? : number
-  lng? : number
-  notes? : string
-  created : string
-  deleted? : boolean
-}
-
-entity "Team" as team {
-  * id : string
-  * key : string
-  --
-  name : string
-  members : string[] <<FK person>>
-  notes? : string
-  created : string
-  deleted? : boolean
-}
-
-entity "Note" as note {
-  * path : string (week/file.md)
-  --
-  content : markdown
-  type? : "note" | "meeting" | "task" | "presentation"
-  title? : string
-  pinned? : boolean
-  themes? : string[]
-  created? : string
-  modified? : string
-  createdBy? : string <<FK person>>
-  presentationStyle? : string
-}
-
-entity "Context" as context {
-  * id : string (dir name)
-  --
-  name? : string
-  icon? : string
-  theme? : string
-  remote? : string
-  defaultMeetingMinutes? : number
-  upcomingMeetingsDays? : number
-  visibleStartHour? : number
-  visibleEndHour? : number
-  workHours? : array[7]
-}
-
-' --- Relationships ---
-task }o--o| goal : goalId
-task }o--o| person : responsible
-task }o--o| person : author
-task }o--o| person : completedBy
-
-result }o--o| goal : goalId
-result }o--o| task : taskId
-result }o--o{ person : people
-
-meeting }o--|| meeting_type : type
-meeting }o--o| place : placeKey
-meeting }o--o{ person : attendees
-
-person }o--o| company : primaryCompanyKey
-person }o--o{ team : teams
-
-team }o--o{ person : members
-
-note }o--o| person : createdBy
-
-@enduml`;
-
 const textarea = document.getElementById('src');
 const preview = document.getElementById('preview');
 const status = document.getElementById('status');
 const renderBtn = document.getElementById('renderBtn');
+const saveBtn = document.getElementById('saveBtn');
 const resetBtn = document.getElementById('resetBtn');
 
-// Load from localStorage or default
-textarea.value = localStorage.getItem('wn_erd_src') || DEFAULT_SRC;
+let serverSrc = '';
+
+async function loadFromServer() {
+    try {
+        const res = await fetch('/api/erd');
+        const data = await res.json();
+        serverSrc = data.src || '';
+        textarea.value = serverSrc;
+    } catch (e) {
+        status.textContent = 'Kunne ikke laste fra server';
+    }
+}
+
+async function saveToServer() {
+    const src = textarea.value;
+    status.textContent = 'Lagrer…';
+    try {
+        const res = await fetch('/api/erd', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ src }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+            serverSrc = src;
+            status.textContent = 'Lagret ✓';
+        } else {
+            status.textContent = 'Feil ved lagring';
+        }
+    } catch (e) {
+        status.textContent = 'Feil: ' + e.message;
+    }
+}
 
 function encodePlantUml(text) {
-    // PlantUML uses deflate + custom base64
     const data = new TextEncoder().encode(text);
     const cs = new CompressionStream('deflate');
     const writer = cs.writable.getWriter();
@@ -300,13 +142,12 @@ function encode64(data) {
 async function render() {
     const src = textarea.value.trim();
     if (!src) { preview.innerHTML = '<p class="error">Tom kilde</p>'; return; }
-    localStorage.setItem('wn_erd_src', src);
     status.textContent = 'Rendrer…';
     try {
         const encoded = await encodePlantUml(src);
         const url = 'https://www.plantuml.com/plantuml/svg/~1' + encoded;
         preview.innerHTML = `<img src="${url}" alt="ER diagram" />`;
-        status.textContent = 'OK ✓';
+        status.textContent = textarea.value !== serverSrc ? 'Ulagrede endringer' : 'OK ✓';
     } catch (e) {
         preview.innerHTML = `<p class="error">Feil: ${e.message}</p>`;
         status.textContent = 'Feil';
@@ -314,19 +155,19 @@ async function render() {
 }
 
 renderBtn.addEventListener('click', render);
-resetBtn.addEventListener('click', () => {
-    textarea.value = DEFAULT_SRC;
-    localStorage.removeItem('wn_erd_src');
+saveBtn.addEventListener('click', async () => { await saveToServer(); render(); });
+resetBtn.addEventListener('click', async () => {
+    await loadFromServer();
     render();
 });
 
-// Auto-render on load
-render();
-
-// Ctrl+Enter to render
 textarea.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); render(); }
+    if (e.key === 's' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveToServer(); }
 });
+
+// Load and render on init
+loadFromServer().then(render);
 </script>
 </body>
 </html>

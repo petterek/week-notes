@@ -784,5 +784,24 @@ module.exports = function(deps) {
         }
         return;
     }
+
+    // GET/PUT /api/erd — read/write the ERD PlantUML source
+    if (pathname === '/api/erd' && req.method === 'GET') {
+        const file = path.join(__dirname, 'pages', 'erd.puml');
+        let src = '';
+        try { src = fs.readFileSync(file, 'utf-8'); } catch {}
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, src }));
+        return;
+    }
+    if (pathname === '/api/erd' && req.method === 'PUT') {
+        const body = JSON.parse(await readBody(req) || '{}');
+        const src = typeof body.src === 'string' ? body.src : '';
+        const file = path.join(__dirname, 'pages', 'erd.puml');
+        fs.writeFileSync(file, src, 'utf-8');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+    }
     };
 };
