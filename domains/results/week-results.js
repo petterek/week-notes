@@ -87,9 +87,10 @@ class WeekResults extends WNElement {
                 : '';
             const textHtml = unsafeHTML(linkMentions(escapeHtml(r.text), people, companies));
             const peopleHtml = unsafeHTML(peopleStr);
+            const sentimentIcon = r.sentiment === 'good' ? '🟢 ' : r.sentiment === 'bad' ? '🔴 ' : '';
             return html`
                 <div class="result">
-                    ${textHtml}
+                    ${sentimentIcon}${textHtml}
                     <div class="meta"><span>${peopleHtml}</span><span>${dShort}</span></div>
                 </div>
             `;
