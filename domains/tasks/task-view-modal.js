@@ -163,6 +163,7 @@ const STYLES = `
         color: var(--text-subtle); font-size: 0.75em;
         margin-top: 10px; text-align: right;
     }
+    .muted { color: var(--text-subtle); font-style: italic; }
 `;
 
 function isOverdue(due, done) {
@@ -242,18 +243,22 @@ class TaskViewModal extends WNElement {
             meta.push(['Frist', dueFmt + overStr]);
         }
 
-        // Responsible
+        // Responsible (always show)
         if (t.responsible) {
             const rPerson = people.find(p => p.key === t.responsible);
             const rName = rPerson ? (rPerson.name || rPerson.key) : t.responsible;
             meta.push(['Ansvarlig', `<span class="entity-mention">@${escapeHtml(rName)}</span>`]);
+        } else {
+            meta.push(['Ansvarlig', `<span class="muted">—</span>`]);
         }
 
-        // Goal
+        // Goal (always show)
         if (t.goalId) {
             const goal = goals.find(g => g.id === t.goalId);
             const gName = goal ? (goal.title || goal.text || t.goalId) : t.goalId;
             meta.push(['Mål', `🎯 ${escapeHtml(gName)}`]);
+        } else {
+            meta.push(['Mål', `<span class="muted">—</span>`]);
         }
 
         // Author
@@ -289,7 +294,7 @@ class TaskViewModal extends WNElement {
             meta.push(['Oppgave-notat', `<a href="#" data-act="open-note" data-path="${escapeHtml(t.commentFile)}">📄 ${escapeHtml(label)}</a> <span style="color:var(--text-subtle)">(${escapeHtml(w)})</span>`]);
         }
 
-        // Participants section
+        // Participants section (always show)
         let participantsHtml = '';
         const parts = t.participants || [];
         if (parts.length > 0) {
@@ -302,6 +307,11 @@ class TaskViewModal extends WNElement {
             participantsHtml = `
                 <div class="meta-label" style="align-self:start;padding-top:4px">Deltakere</div>
                 <div class="meta-value"><div class="participants">${chips}</div></div>
+            `;
+        } else {
+            participantsHtml = `
+                <div class="meta-label">Deltakere</div>
+                <div class="meta-value"><span class="muted">—</span></div>
             `;
         }
 
