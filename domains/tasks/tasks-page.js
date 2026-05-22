@@ -119,29 +119,32 @@ const STYLES = `
     /* --- table --- */
     .tp-table {
         width: 100%; border-collapse: separate; border-spacing: 0;
+        table-layout: fixed;
         background: var(--surface); border: 1px solid var(--border-soft);
         border-radius: 10px; overflow: hidden;
     }
     .tp-table th {
-        text-align: left; padding: 10px 14px;
-        font-size: 0.75em; text-transform: uppercase;
+        text-align: left; padding: 8px 10px;
+        font-size: 0.72em; text-transform: uppercase;
         letter-spacing: 0.05em; color: var(--text-muted);
         font-weight: 600; background: var(--surface-alt);
         border-bottom: 1px solid var(--border-soft);
         cursor: pointer; user-select: none; white-space: nowrap;
+        overflow: hidden;
     }
     .tp-table th:hover { color: var(--accent); }
     .tp-table th .arrow { margin-left: 3px; font-size: 0.9em; }
     .tp-table td {
-        padding: 10px 14px; font-size: 0.88em;
+        padding: 8px 10px; font-size: 0.85em;
         border-bottom: 1px solid var(--border-faint);
         color: var(--text); vertical-align: middle;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .tp-table tr:last-child td { border-bottom: none; }
     .tp-table tr:hover td { background: var(--accent-soft, rgba(42,67,101,0.04)); }
     .tp-table .task-title {
         font-weight: 500; color: var(--text-strong);
-        word-break: break-word; cursor: pointer;
+        cursor: pointer; white-space: normal; word-break: break-word;
     }
     .tp-table .task-title:hover { color: var(--accent); }
     .tp-table .task-title a { color: var(--accent); text-decoration: none; }
@@ -159,8 +162,8 @@ const STYLES = `
     .badge-open { background: var(--accent-soft, #ebf4ff); color: var(--accent); }
     .badge-overdue { background: var(--danger-soft, rgba(197,48,48,0.12)); color: var(--danger, #c53030); }
     .badge-done { background: rgba(39, 103, 73, 0.1); color: #276749; }
-    .people-cell { font-size: 0.82em; color: var(--text-muted); }
-    .goal-cell { font-size: 0.82em; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
+    .people-cell { font-size: 0.8em; color: var(--text-muted); }
+    .goal-cell { font-size: 0.8em; color: var(--text-muted); }
     .actions-cell { display: flex; gap: 2px; }
     .actions-cell button {
         border: none; background: transparent; cursor: pointer;
@@ -503,15 +506,15 @@ class TasksPage extends WNElement {
                         <table class="tp-table">
                             <thead>
                                 <tr>
-                                    <th style="width:34px"></th>
+                                    <th style="width:30px"></th>
                                     <th data-col="title">Oppgave <span class="arrow">${arrow('title')}</span></th>
-                                    <th data-col="week" style="width:70px">Uke <span class="arrow">${arrow('week')}</span></th>
-                                    <th data-col="due" style="width:90px">Frist <span class="arrow">${arrow('due')}</span></th>
-                                    <th data-col="responsible" style="width:110px">Ansvarlig</th>
-                                    <th style="width:130px">Deltakere</th>
-                                    <th style="width:130px">Mål</th>
-                                    <th data-col="status" style="width:80px">Status</th>
-                                    <th style="width:90px"></th>
+                                    <th data-col="week" style="width:55px">Uke <span class="arrow">${arrow('week')}</span></th>
+                                    <th data-col="due" style="width:70px">Frist <span class="arrow">${arrow('due')}</span></th>
+                                    <th data-col="responsible" style="width:90px">Ansvarlig</th>
+                                    <th style="width:100px">Deltakere</th>
+                                    <th style="width:100px">Mål</th>
+                                    <th data-col="status" style="width:65px">Status</th>
+                                    <th style="width:70px"></th>
                                 </tr>
                             </thead>
                             <tbody>${rows}</tbody>
