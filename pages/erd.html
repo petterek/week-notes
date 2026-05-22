@@ -94,6 +94,7 @@ textarea:focus { outline: 2px solid #2a4365; border-color: transparent; }
     <div class="editor-pane">
         <div class="toolbar">
             <button class="primary" id="renderBtn">▶ Render diagram</button>
+            <button id="generateBtn">⚙ Generer fra schemas</button>
             <button id="saveBtn">💾 Lagre</button>
             <button id="resetBtn">↺ Tilbakestill</button>
             <span class="status" id="status"></span>
@@ -341,21 +342,139 @@ function encode64(data) {
 }
 
 async function render() {
-    // Always render the puml source (switch to puml tab content if needed)
+    // Use textarea content if on puml tab, otherwise use stored puml
     const src = activeTab === 'puml' ? textarea.value.trim() : pumlServerSrc.trim();
-    if (!src) { preview.innerHTML = '<p class="error">Ingen PlantUML-kilde å rendre</p>'; return; }
-    status.textContent = 'Rendrer…';
+    if (!src) { preview.innerHTML = '<p class="error">Ingen PlantUML-kilde å rendre. Trykk «Generer fra schemas».</p>'; return; }
     try {
         const encoded = await encodePlantUml(src);
         const url = 'https://www.plantuml.com/plantuml/svg/~1' + encoded;
         preview.innerHTML = `<img src="${url}" alt="ER diagram" />`;
-        status.textContent = status.textContent === 'Rendrer…' ? 'OK ✓' : status.textContent;
     } catch (e) {
         preview.innerHTML = `<p class="error">Feil: ${e.message}</p>`;
     }
 }
 
+// ---- Generate PlantUML from schemas ----
+async function generateFromSchemas() {
+    status.textContent = 'Genererer…';
+    // Load all schema files
+    const allSchemas = [];
+    for (const s of schemas) {
+        if (!s.file.endsWith('.schema.json')) continue;
+        let src = serverContent[s.file];
+        if (!src) {
+            const res = await fetch('/api/schemas/' + s.file);
+            const data = await res.json();
+            src = data.src || '';
+            serverContent[s.file] = src;
+        }
+        try {
+            const parsed = JSON.parse(src);
+            allSchemas.push({ meta: s, schema: parsed, name: s.file.replace('.schema.json', '') });
+        } catch {}
+    }
+
+    let puml = '@startuml\n!theme plain\nskinparam linetype ortho\nhide circle\n\n';
+
+    const relations = [];
+
+    for (const { meta, schema, name } of allSchemas) {
+        // Get the item schema (for arrays) or the root object
+        const obj = schema.type === 'array' ? (schema.items || {}) : schema;
+        if (obj.type !== 'object' || !obj.properties) continue;
+
+        const entityName = toPascalCase(name);
+        puml += `entity "${entityName}" {\n`;
+
+        const required = new Set(obj.required || []);
+        const props = obj.properties;
+        let hasPk = false;
+
+        // Put id/key first as PK
+        for (const pk of ['id', 'key']) {
+            if (props[pk]) {
+                puml += `  * ${pk} : ${typeLabel(props[pk])}\n`;
+                hasPk = true;
+            }
+        }
+        if (hasPk) puml += '  --\n';
+
+        for (const [key, def] of Object.entries(props)) {
+            if (key === 'id' || key === 'key') continue;
+            const req = required.has(key) ? '*' : ' ';
+            const type = typeLabel(def);
+            puml += `  ${req} ${key} : ${type}\n`;
+
+            // Detect relations
+            const rel = detectRelation(key, def, entityName, allSchemas);
+            if (rel) relations.push(rel);
+        }
+        puml += '}\n\n';
+    }
+
+    // Add relations
+    if (relations.length) {
+        puml += "' -- Relations --\n";
+        for (const r of relations) puml += r + '\n';
+    }
+
+    puml += '@enduml\n';
+
+    // Switch to PlantUML tab and fill
+    pumlServerSrc = puml;
+    activeTab = 'puml';
+    updateTabs();
+    textarea.value = puml;
+    fileDesc.textContent = 'pages/erd.puml — PlantUML-kilde (generert fra schemas)';
+    status.textContent = 'Generert ✓ — lagre for å beholde';
+    render();
+}
+
+function toPascalCase(s) {
+    return s.replace(/(^|[-_])([a-z])/g, (_, __, c) => c.toUpperCase());
+}
+
+function typeLabel(def) {
+    if (!def) return '?';
+    if (def.enum) return def.enum.join(' | ');
+    if (def.format) return def.format;
+    if (def.type === 'array') {
+        const items = def.items;
+        if (items?.type) return items.type + '[]';
+        return 'array';
+    }
+    return def.type || '?';
+}
+
+function detectRelation(key, def, fromEntity, allSchemas) {
+    // Match keys like "personKey", "companyKeys", "members" (array of person keys)
+    const entityNames = allSchemas.map(s => s.name);
+
+    // Direct FK: key ends with "Key" or "Id" referencing another entity
+    for (const eName of entityNames) {
+        const pascal = toPascalCase(eName);
+        const singular = eName.replace(/-/g, '');
+        if (key === singular + 'Key' || key === singular + 'Id' ||
+            key === 'primary' + pascal + 'Key' || key === 'primaryCompanyKey') {
+            return `${fromEntity} }o--|| ${pascal} : ${key}`;
+        }
+        // Array FK: keys like "extraCompanyKeys", "members" for teams→people
+        if (def.type === 'array' && def.items?.type === 'string') {
+            if (key === singular + 'Keys' || key === 'extra' + pascal + 'Keys' ||
+                (key === 'members' && fromEntity === 'Team')) {
+                return `${fromEntity} }o--o{ ${pascal} : ${key}`;
+            }
+        }
+    }
+    // attendees → People
+    if (key === 'attendees' && def.type === 'array') {
+        return `${fromEntity} }o--o{ People : attendees`;
+    }
+    return null;
+}
+
 // ---- Events ----
+document.getElementById('generateBtn').addEventListener('click', generateFromSchemas);
 renderBtn.addEventListener('click', render);
 saveBtn.addEventListener('click', save);
 resetBtn.addEventListener('click', reset);
