@@ -391,13 +391,7 @@ class TasksPage extends WNElement {
     _openViewModal(task) {
         const modal = this.shadowRoot.querySelector('task-view-modal');
         if (!modal) return;
-        const people = this._lastPeople || [];
-        const goals = this._lastGoals || [];
-        const companies = this._lastCompanies || [];
         modal.open(task, {
-            people,
-            goals,
-            companies,
             onEdit: (t) => {
                 this.dispatchEvent(new CustomEvent('task:request-edit', {
                     bubbles: true, composed: true,

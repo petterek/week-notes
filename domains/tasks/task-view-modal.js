@@ -1,61 +1,26 @@
 /**
  * <task-view-modal>
  *
- * Read-only modal that displays all details of a task: text, note
- * (rendered as markdown), week, due date, status, participants,
- * responsible, goal, creation/completion dates, and completion comment.
+ * Read-only modal that displays all details of a task using the standard
+ * <modal-container>. Shows text, note (rendered as markdown), week, due
+ * date, status, participants, responsible, goal, creation/completion
+ * dates, and completion comment.
  *
  *   const modal = document.querySelector('task-view-modal');
- *   modal.open(taskObj, { people, goals });
+ *   modal.open(taskObj, { onEdit, onComplete });
  *
  * Methods:
  *   - open(task, opts?)  — shows the modal with all task info.
- *       opts.people:  Person[] for resolving participant keys.
- *       opts.goals:   Goal[] for resolving goalId.
  *       opts.onEdit:  callback(task) invoked if user clicks Edit.
  *       opts.onComplete: callback(task) invoked if user clicks Complete.
  *   - close()           — hides the modal.
  *
- * Keyboard: Escape closes, E opens edit, C toggles complete.
+ * Keyboard: Escape closes (via modal-container), E opens edit, C toggles complete.
  */
-import { WNElement, html, unsafeHTML, escapeHtml, linkMentions, modalZ } from './_shared.js';
+import { WNElement, html, unsafeHTML, escapeHtml, linkMentions } from './_shared.js';
 
 const STYLES = `
     :host { display: inline-block; font: inherit; }
-
-    .backdrop {
-        position: fixed; inset: 0; display: none;
-        align-items: flex-start; justify-content: center;
-        background: var(--overlay);
-        padding: 5vh 16px;
-        overflow-y: auto;
-    }
-    :host([open]) .backdrop { display: flex; }
-
-    .card {
-        background: var(--bg); color: var(--text-strong);
-        border: 1px solid var(--border); border-radius: 10px;
-        padding: 24px 28px; width: min(640px, 92vw);
-        box-shadow: 0 20px 60px var(--shadow);
-        font-family: var(--font-family);
-        animation: tvmSlide 0.15s ease-out;
-    }
-    @keyframes tvmSlide { from { opacity: 0; transform: translateY(-10px); } }
-
-    .head {
-        display: flex; align-items: flex-start; justify-content: space-between;
-        gap: 12px; margin-bottom: 16px;
-    }
-    .head h3 {
-        margin: 0; font-family: var(--font-heading);
-        color: var(--text-strong); font-weight: 600; font-size: 1.15em;
-        line-height: 1.4;
-    }
-    .close {
-        background: none; border: none; font-size: 1.3em;
-        cursor: pointer; color: var(--text-muted); flex-shrink: 0;
-    }
-    .close:hover { color: var(--text-strong); }
 
     /* Status badge */
     .badge {
@@ -123,16 +88,6 @@ const STYLES = `
     .participants {
         display: flex; flex-wrap: wrap; gap: 6px;
     }
-    .person-chip {
-        display: inline-flex; align-items: center; gap: 4px;
-        background: var(--surface-alt); border: 1px solid var(--border-soft);
-        border-radius: 14px; padding: 2px 10px; font-size: 0.85em;
-        color: var(--text);
-    }
-    .person-chip.responsible {
-        border-color: var(--accent); background: var(--accent-soft);
-        color: var(--accent-strong);
-    }
 
     /* Actions footer */
     .actions {
@@ -151,13 +106,6 @@ const STYLES = `
         border-color: var(--accent);
     }
     .actions .primary:hover { opacity: 0.9; }
-
-    /* Entity mention styling */
-    .entity-mention {
-        color: var(--accent); font-weight: 500;
-        cursor: pointer;
-    }
-    .entity-mention:hover { text-decoration: underline; }
 
     .hint {
         color: var(--text-subtle); font-size: 0.75em;
@@ -202,19 +150,86 @@ function weekLabel(w) {
 }
 
 class TaskViewModal extends WNElement {
-    static get observedAttributes() { return ['open']; }
-
     css() { return STYLES; }
 
     render() {
-        const t = this._task;
-        if (!t) {
-            return html`<div class="backdrop" data-backdrop><div class="card"></div></div>`;
-        }
-        const people = this._people || [];
-        const goals = this._goals || [];
-        const companies = this._companies || [];
-        const teams = this._teams || [];
+        return html`<span></span>`;
+    }
+
+    connectedCallback() {
+        super.connectedCallback();
+        if (!this._wired) this._wire();
+    }
+
+    _wire() {
+        if (this._wired) return;
+        this._wired = true;
+        // Keyboard shortcuts on the document when modal is open
+        this._keyHandler = (ev) => {
+            if (!this._modal || !this._modal.hasAttribute('open')) return;
+            if (ev.key === 'e' || ev.key === 'E') { if (!ev.ctrlKey && !ev.metaKey) this._doEdit(); }
+            else if (ev.key === 'c' || ev.key === 'C') { if (!ev.ctrlKey && !ev.metaKey) { this._task?.done ? this._doUncomplete() : this._doComplete(); } }
+        };
+        document.addEventListener('keydown', this._keyHandler);
+    }
+
+    _ensureModal() {
+        if (this._modal) return this._modal;
+        const modal = document.createElement('modal-container');
+        modal.setAttribute('size', 'md');
+        const titleEl = document.createElement('span');
+        titleEl.setAttribute('slot', 'title');
+        titleEl.textContent = '📋 Oppgave';
+        this._titleEl = titleEl;
+        this._body = document.createElement('div');
+        modal.append(titleEl, this._body);
+        modal.setButtons([]);
+        document.body.appendChild(modal);
+
+        // Listen for close
+        modal.addEventListener('modal-close', () => {
+            this._modal = modal; // keep ref
+        });
+
+        // Click delegation on body
+        this._body.addEventListener('click', (ev) => {
+            const act = ev.target.closest('[data-act]');
+            if (!act) return;
+            const action = act.dataset.act;
+            if (action === 'edit') this._doEdit();
+            else if (action === 'complete') this._doComplete();
+            else if (action === 'uncomplete') this._doUncomplete();
+            else if (action === 'open-note') {
+                ev.preventDefault();
+                const notePath = act.dataset.path;
+                if (notePath && window.openNoteViewModal) {
+                    window.openNoteViewModal(notePath);
+                }
+            }
+        });
+
+        this._modal = modal;
+        return modal;
+    }
+
+    open(task, opts = {}) {
+        this._task = task || {};
+        this._onEdit = opts.onEdit || null;
+        this._onComplete = opts.onComplete || null;
+        this._onUncomplete = opts.onUncomplete || null;
+
+        const modal = this._ensureModal();
+        this._titleEl.textContent = task?.text || 'Oppgave';
+        this._body.innerHTML = this._buildContent(task);
+        modal.open();
+    }
+
+    close() {
+        if (this._modal) this._modal.close();
+    }
+
+    _buildContent(t) {
+        if (!t) return '';
 
         // Status
         const overdue = isOverdue(t.dueDate, t.done);
@@ -227,58 +242,43 @@ class TaskViewModal extends WNElement {
             statusHtml = `<span class="badge badge-open">◯ Åpen</span>`;
         }
 
-        // Title with rendered mentions
-        const titleHtml = linkMentions(escapeHtml(t.text || '(Uten tittel)'), people, companies, teams);
-
         // Build meta rows
         const meta = [];
 
-        // Week
         if (t.week) meta.push(['Opprettet uke', weekLabel(t.week)]);
 
-        // Due date
         if (t.dueDate) {
             const dueFmt = fmtDate(t.dueDate);
-            const overStr = overdue ? ' <span style="color:#c53030">(forfalt)</span>' : '';
+            const overStr = overdue ? ' <span style="color:var(--danger, #c53030)">(forfalt)</span>' : '';
             meta.push(['Frist', dueFmt + overStr]);
         }
 
         // Responsible (always show)
         if (t.responsible) {
-            const rPerson = people.find(p => p.key === t.responsible);
-            const rName = rPerson ? (rPerson.name || rPerson.key) : t.responsible;
-            meta.push(['Ansvarlig', `<span class="entity-mention">@${escapeHtml(rName)}</span>`]);
+            meta.push(['Ansvarlig', `<entity-mention kind="person" key="${escapeHtml(t.responsible)}"></entity-mention>`]);
         } else {
             meta.push(['Ansvarlig', `<span class="muted">—</span>`]);
         }
 
         // Goal (always show)
         if (t.goalId) {
-            const goal = goals.find(g => g.id === t.goalId);
-            const gName = goal ? (goal.title || goal.text || t.goalId) : t.goalId;
-            meta.push(['Mål', `🎯 ${escapeHtml(gName)}`]);
+            meta.push(['Mål', `🎯 <span>${escapeHtml(t.goalId)}</span>`]);
         } else {
             meta.push(['Mål', `<span class="muted">—</span>`]);
         }
 
         // Author
         if (t.author) {
-            const aPerson = people.find(p => p.key === t.author);
-            const aName = aPerson ? (aPerson.name || aPerson.key) : t.author;
-            meta.push(['Opprettet av', `@${escapeHtml(aName)}`]);
+            meta.push(['Opprettet av', `<entity-mention kind="person" key="${escapeHtml(t.author)}"></entity-mention>`]);
         }
 
-        // Created date
         if (t.created) meta.push(['Opprettet', fmtDateTime(t.created)]);
 
-        // Completed info
         if (t.done) {
             if (t.completedWeek) meta.push(['Fullført uke', weekLabel(t.completedWeek)]);
             if (t.completedAt) meta.push(['Fullført dato', fmtDateTime(t.completedAt)]);
             if (t.completedBy) {
-                const cPerson = people.find(p => p.key === t.completedBy);
-                const cName = cPerson ? (cPerson.name || cPerson.key) : t.completedBy;
-                meta.push(['Fullført av', `@${escapeHtml(cName)}`]);
+                meta.push(['Fullført av', `<entity-mention kind="person" key="${escapeHtml(t.completedBy)}"></entity-mention>`]);
             }
         }
 
@@ -294,16 +294,13 @@ class TaskViewModal extends WNElement {
             meta.push(['Oppgave-notat', `<a href="#" data-act="open-note" data-path="${escapeHtml(t.commentFile)}">📄 ${escapeHtml(label)}</a> <span style="color:var(--text-subtle)">(${escapeHtml(w)})</span>`]);
         }
 
-        // Participants section (always show)
-        let participantsHtml = '';
+        // Participants (always show)
+        let participantsHtml;
         const parts = t.participants || [];
         if (parts.length > 0) {
-            const chips = parts.map(key => {
-                const p = people.find(pp => pp.key === key);
-                const name = p ? (p.name || p.key) : key;
-                const isResp = (key === t.responsible);
-                return `<span class="person-chip${isResp ? ' responsible' : ''}" title="${escapeHtml(key)}">@${escapeHtml(name)}${isResp ? ' (ansvarlig)' : ''}</span>`;
-            }).join('');
+            const chips = parts.map(key =>
+                `<entity-mention kind="person" key="${escapeHtml(key)}"></entity-mention>`
+            ).join(' ');
             participantsHtml = `
                 <div class="meta-label" style="align-self:start;padding-top:4px">Deltakere</div>
                 <div class="meta-value"><div class="participants">${chips}</div></div>
@@ -315,7 +312,6 @@ class TaskViewModal extends WNElement {
             `;
         }
 
-        // Meta grid HTML
         const metaHtml = meta.map(([label, value]) =>
             `<div class="meta-label">${escapeHtml(label)}</div><div class="meta-value">${value}</div>`
         ).join('') + participantsHtml;
@@ -323,7 +319,7 @@ class TaskViewModal extends WNElement {
         // Note section
         let noteSection = '';
         if (t.note) {
-            const noteHtml = linkMentions(escapeHtml(t.note).replace(/\n/g, '<br>'), people, companies, teams);
+            const noteHtml = escapeHtml(t.note).replace(/\n/g, '<br>');
             noteSection = `
                 <div class="note-section">
                     <h4>📝 Notat</h4>
@@ -332,10 +328,10 @@ class TaskViewModal extends WNElement {
             `;
         }
 
-        // Completion comment section
+        // Completion comment
         let commentSection = '';
         if (t.done && t.comment) {
-            const commentHtml = linkMentions(escapeHtml(t.comment).replace(/\n/g, '<br>'), people, companies, teams);
+            const commentHtml = escapeHtml(t.comment).replace(/\n/g, '<br>');
             commentSection = `
                 <div class="comment-section">
                     <h4>💬 Fullføringskommentar</h4>
@@ -345,99 +341,23 @@ class TaskViewModal extends WNElement {
         }
 
         // Action buttons
-        const editBtn = `<button data-act="edit">✏️ Rediger</button>`;
         const toggleBtn = t.done
             ? `<button data-act="uncomplete">↩️ Gjenåpne</button>`
             : `<button data-act="complete" class="primary">✓ Fullfør</button>`;
+        const editBtn = `<button data-act="edit">✏️ Rediger</button>`;
 
-        return html`
-            <div class="backdrop" data-backdrop>
-                <div class="card" role="dialog" aria-modal="true" aria-labelledby="tvm-title">
-                    <div class="head">
-                        <h3 id="tvm-title">${unsafeHTML(titleHtml)}</h3>
-                        <button type="button" class="close" data-act="close" title="Lukk (Esc)">✕</button>
-                    </div>
-                    ${unsafeHTML(statusHtml)}
-                    <div class="meta">${unsafeHTML(metaHtml)}</div>
-                    ${unsafeHTML(noteSection)}
-                    ${unsafeHTML(commentSection)}
-                    <div class="actions">
-                        ${unsafeHTML(toggleBtn)}
-                        ${unsafeHTML(editBtn)}
-                    </div>
-                    <div class="hint">Esc lukk · E rediger · C fullfør/gjenåpne</div>
-                </div>
+        return `
+            <style>${STYLES}</style>
+            ${statusHtml}
+            <div class="meta">${metaHtml}</div>
+            ${noteSection}
+            ${commentSection}
+            <div class="actions">
+                ${toggleBtn}
+                ${editBtn}
             </div>
+            <div class="hint">E rediger · C fullfør/gjenåpne</div>
         `;
-    }
-
-    connectedCallback() {
-        super.connectedCallback();
-        if (!this._wired) this._wire();
-    }
-
-    _wire() {
-        if (this._wired) return;
-        this._wired = true;
-
-        this.shadowRoot.addEventListener('click', (ev) => {
-            const act = ev.target.closest('[data-act]');
-            if (!act) {
-                // Backdrop click
-                if (ev.target.matches('[data-backdrop]')) this._cancel();
-                return;
-            }
-            const action = act.dataset.act;
-            if (action === 'close') this._cancel();
-            else if (action === 'edit') this._doEdit();
-            else if (action === 'complete') this._doComplete();
-            else if (action === 'uncomplete') this._doUncomplete();
-            else if (action === 'open-note') {
-                ev.preventDefault();
-                const notePath = act.dataset.path;
-                if (notePath && window.openNoteViewModal) {
-                    window.openNoteViewModal(notePath);
-                }
-            }
-        });
-
-        this.shadowRoot.addEventListener('keydown', (ev) => {
-            if (ev.key === 'Escape') { ev.stopPropagation(); this._cancel(); }
-            else if (ev.key === 'e' || ev.key === 'E') { if (!ev.ctrlKey && !ev.metaKey) this._doEdit(); }
-            else if (ev.key === 'c' || ev.key === 'C') { if (!ev.ctrlKey && !ev.metaKey) { this._task?.done ? this._doUncomplete() : this._doComplete(); } }
-        });
-    }
-
-    open(task, opts = {}) {
-        this._task = task || {};
-        this._people = opts.people || [];
-        this._goals = opts.goals || [];
-        this._companies = opts.companies || [];
-        this._teams = opts.teams || [];
-        this._onEdit = opts.onEdit || null;
-        this._onComplete = opts.onComplete || null;
-        this._onUncomplete = opts.onUncomplete || null;
-        this.requestRender();
-        this._zIndex = modalZ.next();
-        this.setAttribute('open', '');
-        const bd = this.shadowRoot && this.shadowRoot.querySelector('.backdrop');
-        if (bd) bd.style.zIndex = this._zIndex;
-        // Trap focus
-        requestAnimationFrame(() => {
-            const card = this.shadowRoot.querySelector('.card');
-            if (card) card.focus();
-        });
-    }
-
-    close() {
-        if (!this.hasAttribute('open')) return;
-        this.removeAttribute('open');
-        modalZ.release();
-        this._zIndex = null;
-    }
-
-    _cancel() {
-        this.close();
     }
 
     _doEdit() {
@@ -471,6 +391,14 @@ class TaskViewModal extends WNElement {
                 bubbles: true, composed: true, detail: { task },
             }));
         }
+    }
+
+    disconnectedCallback() {
+        if (this._keyHandler) document.removeEventListener('keydown', this._keyHandler);
+        if (this._modal && this._modal.parentNode) {
+            this._modal.parentNode.removeChild(this._modal);
+        }
+        this._modal = null;
     }
 }
 
