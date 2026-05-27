@@ -89,6 +89,18 @@ const STYLES = `
     .rp-loading, .rp-error { padding: 24px; text-align: center; color: var(--text-muted); font-style: italic; }
     .rp-error { color: var(--danger, #c0392b); }
 
+    .rp-card.sentiment-good { border-left-color: #38a169; }
+    .rp-card.sentiment-bad  { border-left-color: #c53030; }
+
+    .sentiment-pick { display: flex; gap: 4px; }
+    .sentiment-pick button {
+        background: var(--surface-alt); border: 2px solid var(--border-soft);
+        border-radius: 6px; padding: 4px 10px; cursor: pointer;
+        font: inherit; font-size: 0.9em; color: var(--text-muted);
+    }
+    .sentiment-pick button:hover { border-color: var(--accent); }
+    .sentiment-pick button.active { border-color: var(--accent); background: var(--accent-soft); color: var(--text-strong); }
+
     /* Modals (shadow-local; .page-modal global styles do not pierce shadow). */
     .modal {
         position: fixed; inset: 0; background: rgba(0,0,0,0.5);
@@ -203,6 +215,12 @@ class ResultsPage extends WNElement {
 
     _onClick(e) {
         const path = e.composedPath();
+        const sentimentBtn = path.find(n => n.dataset && n.dataset.sentiment);
+        if (sentimentBtn && this._modal) {
+            this._modal.sentiment = sentimentBtn.dataset.sentiment;
+            this.requestRender();
+            return;
+        }
         const newBtn = path.find(n => n.id === 'rpNewBtn');
         if (newBtn) { this._openNew(); return; }
         const editBtn = path.find(n => n.classList && n.classList.contains('rp-edit'));
@@ -240,13 +258,13 @@ class ResultsPage extends WNElement {
     }
 
     _openNew() {
-        this._modal = { mode: 'new', text: '', week: currentYearWeek(), goalId: '' };
+        this._modal = { mode: 'new', text: '', week: currentYearWeek(), goalId: '', sentiment: 'neutral' };
         this.requestRender();
         this._focusModalInput();
     }
 
     _openEdit(r) {
-        this._modal = { mode: 'edit', id: r.id, text: r.text || '', week: r.week || '', goalId: r.goalId || '' };
+        this._modal = { mode: 'edit', id: r.id, text: r.text || '', week: r.week || '', goalId: r.goalId || '', sentiment: r.sentiment || 'neutral' };
         this.requestRender();
         this._focusModalInput();
     }
@@ -271,12 +289,15 @@ class ResultsPage extends WNElement {
         const text = (ta ? ta.value : '').trim();
         const week = wkInput ? wkInput.value.trim() : this._modal.week;
         const goalId = goalSel ? goalSel.value : '';
+        const sentiment = this._modal.sentiment || 'neutral';
         if (!text) return;
         try {
             if (this._modal.mode === 'new') {
-                await this.service.create({ text, week, goalId });
+                const payload = { text, week, goalId };
+                if (sentiment !== 'neutral') payload.sentiment = sentiment;
+                await this.service.create(payload);
             } else {
-                await this.service.update(this._modal.id, { text, goalId });
+                await this.service.update(this._modal.id, { text, goalId, sentiment });
             }
             this._modal = null;
             this.invalidateAwait();
@@ -320,10 +341,12 @@ class ResultsPage extends WNElement {
             const display = p ? (p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : p.name) : name;
             return `<entity-mention kind="person" key="${escapeHtml(key)}" label="${escapeHtml(display)}"></entity-mention>`;
         }).join(' ');
+        const sentimentClass = r.sentiment === 'good' ? ' sentiment-good' : r.sentiment === 'bad' ? ' sentiment-bad' : '';
+        const sentimentIcon = r.sentiment === 'good' ? '🟢 ' : r.sentiment === 'bad' ? '🔴 ' : '';
         return html`
-            <article class="rp-card" id=${'rp-card-' + r.id}>
+            <article class=${'rp-card' + sentimentClass} id=${'rp-card-' + r.id}>
                 <div class="rp-row">
-                    <span class="rp-text">⚖️ ${textHtml}</span>
+                    <span class="rp-text">${sentimentIcon}${textHtml}</span>
                     <button class="rp-act rp-edit" data-id=${r.id} title="Rediger">✏️</button>
                     <button class="rp-act rp-del" data-id=${r.id} title="Slett">✕</button>
                 </div>
@@ -339,6 +362,7 @@ class ResultsPage extends WNElement {
     _renderModal() {
         if (!this._modal) return '';
         const isNew = this._modal.mode === 'new';
+        const s = this._modal.sentiment || 'neutral';
         const goals = (this._goals || []).slice().sort((a, b) => {
             const sa = a.status === 'active' ? 0 : 1;
             const sb = b.status === 'active' ? 0 : 1;
@@ -356,6 +380,13 @@ class ResultsPage extends WNElement {
                         <label>Tekst
                             <textarea id="rpModalText" rows="3"
                                 placeholder="Hva ble besluttet eller oppnådd?">${escapeHtml(this._modal.text || '')}</textarea>
+                        </label>
+                        <label>Vurdering
+                            <div class="sentiment-pick">
+                                <button type="button" data-sentiment="good" class=${s === 'good' ? 'active' : ''}>🟢 Bra</button>
+                                <button type="button" data-sentiment="neutral" class=${s === 'neutral' ? 'active' : ''}>⚪ Nøytral</button>
+                                <button type="button" data-sentiment="bad" class=${s === 'bad' ? 'active' : ''}>🔴 Dårlig</button>
+                            </div>
                         </label>
                         ${isNew ? html`
                             <label>Uke

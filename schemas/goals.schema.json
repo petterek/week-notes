@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["id", "title", "status"],
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "title": {
+        "type": "string",
+        "description": "Goal title."
+      },
+      "description": {
+        "type": "string",
+        "description": "Detailed description of the goal."
+      },
+      "status": {
+        "type": "string",
+        "enum": ["active", "achieved", "abandoned"],
+        "description": "Lifecycle status."
+      },
+      "created": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "updated": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "targetDate": {
+        "type": "string",
+        "format": "date",
+        "description": "Target completion date (YYYY-MM-DD)."
+      },
+      "targetValue": {
+        "type": "number",
+        "description": "Numeric target for measurable goals."
+      },
+      "currentValue": {
+        "type": "number",
+        "description": "Current progress value."
+      },
+      "unit": {
+        "type": "string",
+        "description": "Unit label for the metric (e.g. 'bøker', 'km')."
+      },
+      "achievedAt": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Timestamp when goal was achieved."
+      }
+    }
+  }
+}

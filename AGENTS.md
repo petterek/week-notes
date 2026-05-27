@@ -457,6 +457,33 @@ silently skip the step. See `agents/tests.md` for the test harness.
 
 ---
 
+## Sub-agent model selection
+
+When delegating to sub-agents (via the `task` tool), pick the model
+that fits the work — don't always default to Sonnet.
+
+| Task type | Agent type | Recommended model |
+| --- | --- | --- |
+| Codebase exploration, file search, reading multiple files | `explore` | `claude-haiku-4.5` (default) |
+| Running builds, tests, lints — just need pass/fail | `task` | `claude-haiku-4.5` (default) |
+| Complex multi-step implementation, reasoning about design | `general-purpose` | `claude-sonnet-4.6` (default) |
+| Code review — find real bugs only, no style comments | `code-review` | `claude-sonnet-4.6` (default) |
+| Researching GitHub repos, fetching external docs | `research` | `claude-sonnet-4.6` (default) |
+| Large refactors or architectural changes needing deep reasoning | `general-purpose` | `claude-opus-4.5` |
+
+**Rules of thumb:**
+- Use `haiku` for anything that is mechanical: searching, reading files,
+  running commands, checking output.
+- Use `sonnet` for anything that requires understanding code and writing
+  correct changes.
+- Use `opus` only when sonnet demonstrably fails (complex algorithmic
+  reasoning, very large cross-cutting changes).
+- Parallelize `explore` agents freely — they are cheap and fast.
+- Never run more than one `general-purpose` or `task` agent at a time
+  on the same file; they have side effects.
+
+---
+
 ## Maintenance contract for this file
 
 When you change anything that affects:

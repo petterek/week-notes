@@ -20,6 +20,8 @@ Per-week outcome / result log. Two creation paths:
     week,         // ISO week, e.g. "2026-W17"
     text,
     people,       // string[] of person keys/handles from @mentions
+    sentiment?,   // "good" | "bad" — absent means neutral (default)
+    goalId?,      // links result to a goal
     taskId?,      // present only for results created from a task note
     taskText?,    // snapshot of the task title at creation time
     created       // ISO timestamp
@@ -32,8 +34,8 @@ Per-week outcome / result log. Two creation paths:
 | --- | --- | --- |
 | GET | `/results` | Full results page (grouped by week, current week marked "aktiv") |
 | GET | `/api/results[?week=YYYY-WNN]` | List, optional week filter |
-| POST | `/api/results` | Create free-form `{text, week?}` (defaults to current week) |
-| PUT | `/api/results/:id` | Edit text |
+| POST | `/api/results` | Create free-form `{text, week?, goalId?, sentiment?}` (defaults to current week) |
+| PUT | `/api/results/:id` | Edit `{text?, goalId?, sentiment?}` — sentiment `"neutral"` or `""` removes field |
 | DELETE | `/api/results/:id` | Delete |
 
 ## Where it shows up
@@ -52,6 +54,8 @@ Per-week outcome / result log. Two creation paths:
   creates a result for each `[[X]]` marker and **rewrites the marker in
   place** to `[[?<id>]]` so the saved note keeps a stable reference.
   Mirrors the `{{X}} → {{?<id>}}` task pipeline.
+  **Sentiment suffix**: `[[text+]]` → good, `[[text-]]` → bad. The
+  `+`/`-` is stripped from the stored text.
 - `syncTaskNote(task, rawNote)` — on every task-note save, replaces all
   results that belong to `task.id` with the bracketed pieces.
 - `loadResults` / `saveResults` — file IO at top of `server.js`.
@@ -69,6 +73,11 @@ Per-week outcome / result log. Two creation paths:
   not invent them.
 - All styling is in CSS classes (`.results-page`, `.result-card`,
   `.result-text`, …) using theme variables — no hardcoded colors.
+- **Sentiment convention**: only `"good"` or `"bad"` stored; neutral is
+  absence of the field. On PUT, sending `"neutral"` or `""` deletes it.
+- Cards show sentiment via left border (green=good, red=bad) and emoji
+  prefix (🟢/🔴). The create/edit modal includes a 3-button picker
+  (Bra / Nøytral / Dårlig).
 
 ## Gotchas
 

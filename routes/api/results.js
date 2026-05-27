@@ -39,6 +39,7 @@ module.exports = function(deps) {
             created: new Date().toISOString()
         };
         if (typeof data.goalId === 'string' && data.goalId.trim()) r.goalId = data.goalId.trim();
+        if (data.sentiment === 'good' || data.sentiment === 'bad') r.sentiment = data.sentiment;
         all.push(r);
         saveResults(all);
         try { syncMentions(text); } catch {}
@@ -57,6 +58,8 @@ module.exports = function(deps) {
         if (data.text) r.text = data.text.trim();
         if (data.goalId === null || data.goalId === '') delete r.goalId;
         else if (typeof data.goalId === 'string' && data.goalId.trim()) r.goalId = data.goalId.trim();
+        if (data.sentiment === 'good' || data.sentiment === 'bad') r.sentiment = data.sentiment;
+        else if (data.sentiment === 'neutral' || data.sentiment === '') delete r.sentiment;
         saveResults(results);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true }));

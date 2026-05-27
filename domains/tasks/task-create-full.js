@@ -43,6 +43,7 @@
  * Submit shortcut: Ctrl/Cmd+Enter while in any field.
  */
 import { WNElement, html } from './_shared.js';
+import { attachAutocomplete, replaceRange, highlightMatch } from '/components/wn-autocomplete.js';
 import '/components/date-time-picker.js';
 import '/components/person-picker.js';
 import '/components/person-multi-picker.js';
@@ -131,6 +132,7 @@ class TaskCreateFull extends WNElement {
         });
         this._apply();
         this._loadGoals();
+        this._installAutocomplete();
         if (this.hasAttribute('task-id') && !this._task) this._loadTask();
         else if (this._task) this._applyTask();
         if (this.hasAttribute('autofocus-on-connect')) {
@@ -141,6 +143,11 @@ class TaskCreateFull extends WNElement {
     disconnectedCallback() {
         super.disconnectedCallback && super.disconnectedCallback();
         this._closeDuePicker();
+        if (this._acHandles) {
+            this._acHandles.forEach(h => h.destroy());
+            this._acHandles = null;
+        }
+        this._acInstalled = false;
     }
 
     attributeChangedCallback(name, oldVal, newVal) {
@@ -240,6 +247,87 @@ class TaskCreateFull extends WNElement {
         this._input.placeholder = this.getAttribute('placeholder') || 'Ny oppgave...';
         const defaultLabel = this._isEdit() ? 'Lagre' : 'Legg til';
         this._btn.textContent = this.getAttribute('button-label') || defaultLabel;
+    }
+
+    _installAutocomplete() {
+        if (this._acInstalled) return;
+        this._acInstalled = true;
+
+        let people = null;
+        let companies = null;
+        let teams = null;
+        const ensurePeople = async () => {
+            if (people) return people;
+            try { const r = await fetch('/api/people'); people = (await r.json() || []).filter(p => !p.inactive); } catch (_) { people = []; }
+            return people;
+        };
+        const ensureCompanies = async () => {
+            if (companies) return companies;
+            try { const r = await fetch('/api/companies'); companies = (await r.json() || []).filter(c => !c.deleted); } catch (_) { companies = []; }
+            return companies;
+        };
+        const ensureTeams = async () => {
+            if (teams) return teams;
+            try { const r = await fetch('/api/teams'); teams = (await r.json() || []).filter(t => !t.deleted); } catch (_) { teams = []; }
+            return teams;
+        };
+
+        const mentionTrigger = {
+            detect: (text, caret, opts) => {
+                let i = caret - 1;
+                while (i >= 0 && /[a-zA-ZæøåÆØÅ0-9_-]/.test(text[i])) i--;
+                if (i < 0 || text[i] !== '@') return null;
+                if (i > 0 && !/[\s(\[,;]/.test(text[i - 1])) return null;
+                const frag = text.slice(i + 1, caret);
+                if (!frag && !(opts && opts.force)) return null;
+                return { query: frag, start: i, end: caret };
+            },
+            fetchItems: async () => {
+                const [pp, cc, tt] = await Promise.all([ensurePeople(), ensureCompanies(), ensureTeams()]);
+                const out = [];
+                const meKey = (typeof window !== 'undefined' && window.mePersonKey) || '';
+                if (meKey) {
+                    const me = pp.find(p => (p.key || (p.name || '').toLowerCase()) === meKey);
+                    const disp = me
+                        ? (me.firstName ? (me.lastName ? `${me.firstName} ${me.lastName}` : me.firstName) : (me.name || me.key))
+                        : meKey;
+                    out.push({ value: 'me', label: disp, hint: 'meg', kind: 'me' });
+                } else {
+                    out.push({ value: 'me', label: 'meg', hint: 'sett i Innstillinger', kind: 'me' });
+                }
+                for (const t of tt) out.push({ value: t.key || (t.name || '').toLowerCase(), label: t.name || t.key, hint: 'team', kind: 'team' });
+                for (const c of cc) out.push({ value: c.key || (c.name || '').toLowerCase(), label: c.name || c.key, hint: 'firma', kind: 'company' });
+                for (const p of pp) {
+                    const display = p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : p.name;
+                    out.push({ value: p.key || (p.name || '').toLowerCase(), label: display || p.name || p.key, hint: '', kind: 'person' });
+                }
+                return out;
+            },
+            filter: 'starts',
+            limit: 10,
+            renderItem: (item, query) => {
+                const tag = item.kind === 'team' ? '👥' : item.kind === 'company' ? '🏢' : (item.kind === 'me' ? '🙋' : '👤');
+                return `${tag} ${highlightMatch(item.label, query)}` +
+                    (item.hint ? `<span style="opacity:0.55;font-size:0.85em"> · ${item.hint}</span>` : '');
+            },
+            onSelect: (item, ctx) => {
+                replaceRange(ctx.textarea, ctx.range.start, ctx.range.end, `@${item.value} `);
+            },
+        };
+
+        this._acHandles = [];
+        if (this._input) {
+            this._acHandles.push(attachAutocomplete(this._input, {
+                triggers: [mentionTrigger],
+                container: this.shadowRoot,
+            }));
+        }
+        if (this._noteIn) {
+            this._acHandles.push(attachAutocomplete(this._noteIn, {
+                triggers: [mentionTrigger],
+                container: this.shadowRoot,
+            }));
+        }
     }
 
     async _loadTask() {

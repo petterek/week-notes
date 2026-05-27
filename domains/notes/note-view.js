@@ -17,14 +17,13 @@
  * Events (cancelable, bubbling, composed):
  *   note-view:close   — fired when the overlay closes
  */
-import { WNElement, html, unsafeHTML, escapeHtml } from './_shared.js';
+import { WNElement, html, unsafeHTML, escapeHtml, modalZ } from './_shared.js';
 
 const STYLES = `
     :host { display: contents; }
     .nv-backdrop {
         position: fixed; inset: 0;
         background: rgba(0, 0, 0, 0.5);
-        z-index: 9000;
         display: flex; align-items: flex-start; justify-content: center;
         padding: 5vh 16px;
         overflow-y: auto;
@@ -194,6 +193,7 @@ class NoteView extends WNElement {
     open(path) {
         if (path) this.setAttribute('path', path);
         this._isOpen = true;
+        this._zIndex = modalZ.next();
         if (!this.hasAttribute('open')) this.setAttribute('open', '');
         this._html = null;
         this._error = null;
@@ -210,11 +210,20 @@ class NoteView extends WNElement {
         if (!this._isOpen) return;
         this._isOpen = false;
         if (this.hasAttribute('open')) this.removeAttribute('open');
+        modalZ.release();
+        this._zIndex = null;
         this.requestRender();
         this.dispatchEvent(new CustomEvent('note-view:close', {
             bubbles: true, cancelable: true, composed: true,
             detail: { path: this.getAttribute('path') || '' }
         }));
+    }
+
+    afterRender() {
+        if (this._zIndex) {
+            const bd = this.shadowRoot && this.shadowRoot.querySelector('.nv-backdrop');
+            if (bd) bd.style.zIndex = this._zIndex;
+        }
     }
 
     async copyText() {

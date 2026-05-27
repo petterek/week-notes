@@ -7,7 +7,7 @@
   },
   {
     "path": "data/user.json",
-    "scope": "global (per machine \u2014 outside any context git repo)",
+    "scope": "global (per machine — outside any context git repo)",
     "desc": "Per-machine identity. Maps each context to the @me person key for the current user.",
     "file": "user.schema.json"
   },
@@ -67,14 +67,26 @@
   },
   {
     "path": "data/<ctx>/<week>/<file>.md",
-    "scope": "per context \u00b7 per week",
+    "scope": "per context · per week",
     "desc": "Markdown content for one note. Plain text on disk; structured fields live in notes-meta.json.",
     "file": "note-markdown.schema.json"
   },
   {
     "path": "data/<ctx>/<week>/.<file>.md.autosave",
-    "scope": "per context \u00b7 per week (gitignored hidden file)",
+    "scope": "per context · per week (gitignored hidden file)",
     "desc": "Editor autosave temp. Removed on explicit save or discard.",
     "file": "note-autosave.schema.json"
+  },
+  {
+    "path": "data/<ctx>/goals.json",
+    "scope": "per context",
+    "desc": "Goals with progress tracking. Status: active → achieved | abandoned.",
+    "file": "goals.schema.json"
+  },
+  {
+    "path": "data/<ctx>/teams.json",
+    "scope": "per context",
+    "desc": "Team definitions with member lists. Referenced by @key in mentions.",
+    "file": "teams.schema.json"
   }
 ]

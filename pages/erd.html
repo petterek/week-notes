@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="nb">
+<head>
+<meta charset="utf-8">
+<title>ER-diagram — Week Notes</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: system-ui, sans-serif;
+    background: #f7f7f8;
+    color: #1a1a2e;
+    padding: 16px 24px;
+}
+h1 { font-size: 1.3em; margin-bottom: 12px; color: #2a4365; }
+
+/* Main 3-column layout: file list | editor | preview */
+.layout { display: flex; gap: 16px; height: calc(100vh - 80px); }
+
+/* File list panel */
+.file-panel {
+    flex: 0 0 200px; display: flex; flex-direction: column;
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+    overflow: hidden;
+}
+.file-panel h3 {
+    font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.5px;
+    color: #718096; padding: 10px 12px 6px;
+}
+.file-header {
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid #e2e8f0; padding-right: 8px;
+}
+.add-btn {
+    width: 24px; height: 24px; border-radius: 50%; border: 1px solid #cbd5e0;
+    background: #fff; font-size: 1.1em; line-height: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; padding: 0;
+    color: #2a4365; font-weight: 700;
+}
+.add-btn:hover { background: #ebf4ff; border-color: #2a4365; }
+.file-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+.file-item {
+    padding: 6px 12px; cursor: pointer; font-size: 0.82em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    border-left: 3px solid transparent;
+}
+.file-item:hover { background: #edf2f7; }
+.file-item.active { background: #ebf4ff; border-left-color: #2a4365; font-weight: 600; }
+.file-item.dirty::after { content: ' •'; color: #e53e3e; }
+.file-item .scope { display: block; font-size: 0.75em; color: #a0aec0; }
+
+/* Editor pane */
+.editor-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.toolbar { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; flex-wrap: wrap; }
+button {
+    padding: 5px 12px; border: 1px solid #cbd5e0; border-radius: 6px;
+    background: #fff; cursor: pointer; font-size: 0.82em;
+}
+button:hover { background: #edf2f7; }
+button.primary { background: #2a4365; color: #fff; border-color: #2a4365; }
+button.primary:hover { background: #1a365d; }
+.status { font-size: 0.78em; color: #718096; margin-left: auto; }
+.tab-bar { display: flex; gap: 2px; margin-bottom: 6px; }
+.tab {
+    padding: 5px 12px; font-size: 0.8em; border: 1px solid #e2e8f0;
+    border-bottom: none; border-radius: 6px 6px 0 0; cursor: pointer;
+    background: #f7f7f8; color: #4a5568;
+}
+.tab.active { background: #fff; color: #2a4365; font-weight: 600; border-bottom: 1px solid #fff; margin-bottom: -1px; }
+textarea {
+    flex: 1; width: 100%; resize: none;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.8em;
+    padding: 12px; border: 1px solid #e2e8f0; border-radius: 0 0 8px 8px;
+    background: #fff; color: #1a1a2e; line-height: 1.5;
+}
+textarea:focus { outline: 2px solid #2a4365; border-color: transparent; }
+.file-desc { font-size: 0.75em; color: #718096; padding: 4px 0 6px; }
+
+/* Preview pane */
+.preview-pane {
+    flex: 0 0 38%; overflow: auto; background: #fff;
+    border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px;
+}
+.preview-pane img { max-width: 100%; height: auto; }
+.preview-pane .error { color: #c53030; padding: 12px; }
+</style>
+</head>
+<body>
+<h1>📐 Datamodell — ER-diagram & JSON Schemas</h1>
+<div class="layout">
+    <div class="file-panel">
+        <div class="file-header"><h3>Schemas</h3><button class="add-btn" id="addBtn" title="Ny entitet">+</button></div>
+        <div class="file-list" id="fileList"></div>
+    </div>
+    <div class="editor-pane">
+        <div class="toolbar">
+            <button class="primary" id="renderBtn">▶ Render diagram</button>
+            <button id="generateBtn">⚙ Generer fra schemas</button>
+            <button id="saveBtn">💾 Lagre</button>
+            <button id="resetBtn">↺ Tilbakestill</button>
+            <span class="status" id="status"></span>
+        </div>
+        <div class="tab-bar">
+            <div class="tab active" data-tab="schema">Schema</div>
+            <div class="tab" data-tab="puml">PlantUML</div>
+        </div>
+        <div class="file-desc" id="fileDesc"></div>
+        <textarea id="src" spellcheck="false"></textarea>
+    </div>
+    <div class="preview-pane" id="preview">
+        <p style="color:#718096">Trykk «Render diagram» for å vise PlantUML-diagrammet.</p>
+    </div>
+</div>
+<script>
+const textarea = document.getElementById('src');
+const preview = document.getElementById('preview');
+const status = document.getElementById('status');
+const renderBtn = document.getElementById('renderBtn');
+const saveBtn = document.getElementById('saveBtn');
+const resetBtn = document.getElementById('resetBtn');
+const fileList = document.getElementById('fileList');
+const fileDesc = document.getElementById('fileDesc');
+const tabs = document.querySelectorAll('.tab');
+
+let schemas = []; // from index
+let activeTab = 'schema'; // 'schema' or 'puml'
+let activeFile = null; // schema filename
+let serverContent = {}; // { filename: src }
+let dirtyFiles = new Set();
+let pumlServerSrc = '';
+
+// ---- Schema list ----
+async function loadSchemaList() {
+    const res = await fetch('/api/schemas');
+    const data = await res.json();
+    schemas = data.schemas || [];
+    renderFileList();
+    // Auto-select first
+    if (schemas.length && !activeFile) {
+        selectFile(schemas[0].file);
+    }
+}
+
+function renderFileList() {
+    fileList.innerHTML = schemas.map(s => {
+        const label = s.file.replace('.schema.json', '');
+        const cls = (s.file === activeFile ? ' active' : '') + (dirtyFiles.has(s.file) ? ' dirty' : '');
+        return `<div class="file-item${cls}" data-file="${s.file}">
+            ${label}<span class="scope">${s.scope}</span>
+        </div>`;
+    }).join('');
+}
+
+fileList.addEventListener('click', e => {
+    const item = e.target.closest('.file-item');
+    if (!item) return;
+    selectFile(item.dataset.file);
+});
+
+// ---- Add new entity ----
+document.getElementById('addBtn').addEventListener('click', async () => {
+    const name = prompt('Navn på ny entitet (f.eks. "invoice"):');
+    if (!name || !name.match(/^[a-z][a-z0-9-]*$/)) {
+        if (name) alert('Ugyldig navn. Bruk små bokstaver, tall og bindestrek (a-z, 0-9, -).');
+        return;
+    }
+    const filename = name + '.schema.json';
+    if (schemas.find(s => s.file === filename)) {
+        alert('Finnes allerede: ' + filename);
+        return;
+    }
+    const template = JSON.stringify({
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "array",
+        "items": {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+                "id": { "type": "string" }
+            }
+        }
+    }, null, 2);
+    // Save to server
+    const res = await fetch('/api/schemas/' + filename, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ src: template }),
+    });
+    const data = await res.json();
+    if (!data.ok) { alert('Kunne ikke opprette'); return; }
+    // Add to local list and select
+    const entry = { path: 'data/<ctx>/' + name + '.json', scope: 'per context', desc: '', file: filename };
+    schemas.push(entry);
+    serverContent[filename] = template;
+    renderFileList();
+    selectFile(filename);
+    status.textContent = 'Ny entitet opprettet ✓';
+});
+
+async function selectFile(filename) {
+    // Save current content if switching
+    if (activeFile && activeTab === 'schema') {
+        serverContent[activeFile] = serverContent[activeFile]; // keep server version
+    }
+    activeFile = filename;
+    activeTab = 'schema';
+    updateTabs();
+    renderFileList();
+    // Load content
+    if (!serverContent[filename]) {
+        const res = await fetch('/api/schemas/' + filename);
+        const data = await res.json();
+        serverContent[filename] = data.src || '';
+    }
+    textarea.value = serverContent[filename];
+    const meta = schemas.find(s => s.file === filename);
+    fileDesc.textContent = meta ? `${meta.path} — ${meta.desc}` : '';
+    status.textContent = '';
+}
+
+// ---- Tabs ----
+tabs.forEach(t => t.addEventListener('click', () => {
+    activeTab = t.dataset.tab;
+    updateTabs();
+    if (activeTab === 'puml') {
+        textarea.value = pumlServerSrc;
+        fileDesc.textContent = 'pages/erd.puml — PlantUML-kilde for diagrammet';
+    } else if (activeFile) {
+        textarea.value = serverContent[activeFile] || '';
+        const meta = schemas.find(s => s.file === activeFile);
+        fileDesc.textContent = meta ? `${meta.path} — ${meta.desc}` : '';
+    }
+}));
+
+function updateTabs() {
+    tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === activeTab));
+}
+
+// ---- Save ----
+async function save() {
+    status.textContent = 'Lagrer…';
+    try {
+        if (activeTab === 'puml') {
+            const res = await fetch('/api/erd', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ src: textarea.value }),
+            });
+            const data = await res.json();
+            if (data.ok) { pumlServerSrc = textarea.value; status.textContent = 'Lagret ✓'; }
+        } else if (activeFile) {
+            const src = textarea.value;
+            const res = await fetch('/api/schemas/' + activeFile, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ src }),
+            });
+            const data = await res.json();
+            if (data.ok) {
+                serverContent[activeFile] = src;
+                dirtyFiles.delete(activeFile);
+                renderFileList();
+                status.textContent = 'Lagret ✓';
+            }
+        }
+    } catch (e) {
+        status.textContent = 'Feil: ' + e.message;
+    }
+}
+
+// ---- Dirty tracking ----
+textarea.addEventListener('input', () => {
+    if (activeTab === 'schema' && activeFile) {
+        const isDirty = textarea.value !== serverContent[activeFile];
+        if (isDirty) dirtyFiles.add(activeFile); else dirtyFiles.delete(activeFile);
+        renderFileList();
+        status.textContent = isDirty ? 'Ulagrede endringer' : '';
+    } else if (activeTab === 'puml') {
+        status.textContent = textarea.value !== pumlServerSrc ? 'Ulagrede endringer' : '';
+    }
+});
+
+// ---- Reset ----
+async function reset() {
+    if (activeTab === 'puml') {
+        await loadPuml();
+        textarea.value = pumlServerSrc;
+    } else if (activeFile) {
+        const res = await fetch('/api/schemas/' + activeFile);
+        const data = await res.json();
+        serverContent[activeFile] = data.src || '';
+        textarea.value = serverContent[activeFile];
+        dirtyFiles.delete(activeFile);
+        renderFileList();
+    }
+    status.textContent = '';
+}
+
+// ---- PlantUML rendering ----
+async function loadPuml() {
+    const res = await fetch('/api/erd');
+    const data = await res.json();
+    pumlServerSrc = data.src || '';
+}
+
+function encodePlantUml(text) {
+    const data = new TextEncoder().encode(text);
+    const cs = new CompressionStream('deflate');
+    const writer = cs.writable.getWriter();
+    writer.write(data);
+    writer.close();
+    return new Response(cs.readable).arrayBuffer().then(buf => encode64(new Uint8Array(buf)));
+}
+
+function encode6bit(b) {
+    if (b < 10) return String.fromCharCode(48 + b);
+    b -= 10;
+    if (b < 26) return String.fromCharCode(65 + b);
+    b -= 26;
+    if (b < 26) return String.fromCharCode(97 + b);
+    b -= 26;
+    if (b === 0) return '-';
+    if (b === 1) return '_';
+    return '?';
+}
+
+function append3bytes(b1, b2, b3) {
+    const c1 = b1 >> 2;
+    const c2 = ((b1 & 0x3) << 4) | (b2 >> 4);
+    const c3 = ((b2 & 0xF) << 2) | (b3 >> 6);
+    const c4 = b3 & 0x3F;
+    return encode6bit(c1 & 0x3F) + encode6bit(c2 & 0x3F) + encode6bit(c3 & 0x3F) + encode6bit(c4 & 0x3F);
+}
+
+function encode64(data) {
+    let r = '';
+    for (let i = 0; i < data.length; i += 3) {
+        if (i + 2 === data.length) r += append3bytes(data[i], data[i + 1], 0);
+        else if (i + 1 === data.length) r += append3bytes(data[i], 0, 0);
+        else r += append3bytes(data[i], data[i + 1], data[i + 2]);
+    }
+    return r;
+}
+
+async function render() {
+    // Use textarea content if on puml tab, otherwise use stored puml
+    const src = activeTab === 'puml' ? textarea.value.trim() : pumlServerSrc.trim();
+    if (!src) { preview.innerHTML = '<p class="error">Ingen PlantUML-kilde å rendre. Trykk «Generer fra schemas».</p>'; return; }
+    try {
+        const encoded = await encodePlantUml(src);
+        const url = 'https://www.plantuml.com/plantuml/svg/~1' + encoded;
+        preview.innerHTML = `<img src="${url}" alt="ER diagram" />`;
+    } catch (e) {
+        preview.innerHTML = `<p class="error">Feil: ${e.message}</p>`;
+    }
+}
+
+// ---- Generate PlantUML from schemas ----
+async function generateFromSchemas() {
+    status.textContent = 'Genererer…';
+    // Load all schema files
+    const allSchemas = [];
+    for (const s of schemas) {
+        if (!s.file.endsWith('.schema.json')) continue;
+        let src = serverContent[s.file];
+        if (!src) {
+            const res = await fetch('/api/schemas/' + s.file);
+            const data = await res.json();
+            src = data.src || '';
+            serverContent[s.file] = src;
+        }
+        try {
+            const parsed = JSON.parse(src);
+            allSchemas.push({ meta: s, schema: parsed, name: s.file.replace('.schema.json', '') });
+        } catch {}
+    }
+
+    let puml = '@startuml\n!theme plain\nskinparam linetype ortho\nhide circle\n\n';
+
+    const relations = [];
+
+    for (const { meta, schema, name } of allSchemas) {
+        // Get the item schema (for arrays) or the root object
+        const obj = schema.type === 'array' ? (schema.items || {}) : schema;
+        if (obj.type !== 'object' || !obj.properties) continue;
+
+        const entityName = toPascalCase(name);
+        puml += `entity "${entityName}" {\n`;
+
+        const required = new Set(obj.required || []);
+        const props = obj.properties;
+        let hasPk = false;
+
+        // Put id/key first as PK
+        for (const pk of ['id', 'key']) {
+            if (props[pk]) {
+                puml += `  * ${pk} : ${typeLabel(props[pk])}\n`;
+                hasPk = true;
+            }
+        }
+        if (hasPk) puml += '  --\n';
+
+        for (const [key, def] of Object.entries(props)) {
+            if (key === 'id' || key === 'key') continue;
+            const req = required.has(key) ? '*' : ' ';
+            const type = typeLabel(def);
+            puml += `  ${req} ${key} : ${type}\n`;
+
+            // Detect relations
+            const rel = detectRelation(key, def, entityName, allSchemas);
+            if (rel) relations.push(rel);
+        }
+        puml += '}\n\n';
+    }
+
+    // Add relations
+    if (relations.length) {
+        puml += "' -- Relations --\n";
+        for (const r of relations) puml += r + '\n';
+    }
+
+    puml += '@enduml\n';
+
+    // Switch to PlantUML tab and fill
+    pumlServerSrc = puml;
+    activeTab = 'puml';
+    updateTabs();
+    textarea.value = puml;
+    fileDesc.textContent = 'pages/erd.puml — PlantUML-kilde (generert fra schemas)';
+    status.textContent = 'Generert ✓ — lagre for å beholde';
+    render();
+}
+
+function toPascalCase(s) {
+    return s.replace(/(^|[-_])([a-z])/g, (_, __, c) => c.toUpperCase());
+}
+
+function typeLabel(def) {
+    if (!def) return '?';
+    if (def.enum) return def.enum.join(' | ');
+    if (def.format) return def.format;
+    if (def.type === 'array') {
+        const items = def.items;
+        if (items?.type) return items.type + '[]';
+        return 'array';
+    }
+    return def.type || '?';
+}
+
+function detectRelation(key, def, fromEntity, allSchemas) {
+    // Match keys like "personKey", "companyKeys", "members" (array of person keys)
+    const entityNames = allSchemas.map(s => s.name);
+
+    // Direct FK: key ends with "Key" or "Id" referencing another entity
+    for (const eName of entityNames) {
+        const pascal = toPascalCase(eName);
+        const singular = eName.replace(/-/g, '');
+        if (key === singular + 'Key' || key === singular + 'Id' ||
+            key === 'primary' + pascal + 'Key' || key === 'primaryCompanyKey') {
+            return `${fromEntity} }o--|| ${pascal} : ${key}`;
+        }
+        // Array FK: keys like "extraCompanyKeys", "members" for teams→people
+        if (def.type === 'array' && def.items?.type === 'string') {
+            if (key === singular + 'Keys' || key === 'extra' + pascal + 'Keys' ||
+                (key === 'members' && fromEntity === 'Team')) {
+                return `${fromEntity} }o--o{ ${pascal} : ${key}`;
+            }
+        }
+    }
+    // attendees → People
+    if (key === 'attendees' && def.type === 'array') {
+        return `${fromEntity} }o--o{ People : attendees`;
+    }
+    return null;
+}
+
+// ---- Events ----
+document.getElementById('generateBtn').addEventListener('click', generateFromSchemas);
+renderBtn.addEventListener('click', render);
+saveBtn.addEventListener('click', save);
+resetBtn.addEventListener('click', reset);
+
+textarea.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); render(); }
+    if (e.key === 's' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); save(); }
+});
+
+// ---- Init ----
+Promise.all([loadSchemaList(), loadPuml()]).then(render);
+</script>
+</body>
+</html>
