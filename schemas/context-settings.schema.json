@@ -14,12 +14,6 @@
     },
     "theme": {
       "type": "string",
-      "enum": [
-        "paper",
-        "dark",
-        "mono",
-        "serif"
-      ],
       "description": "Visual theme name."
     },
     "remote": {
