@@ -186,6 +186,16 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-05-27 (v4.21 — ER-diagram + JSON Schema editor + Copilot setup)
+- **ER-diagram-side (`/pages/erd.html`):** trepanel-layout med filvelger, tabbet JSON Schema / PlantUML-editor, og live PlantUML-forhåndsvisning. Lagres til server og støtter Ctrl+S.
+- **Generer fra schemas:** «⚙ Generer fra schemas»-knapp leser alle JSON Schema-filer og bygger PlantUML-ER-diagram automatisk, med entiteter, felt, typer og detekterte FK-relasjoner.
+- **JSON Schema API:** `GET/PUT /api/schemas/:name` og `GET /api/schemas` (med index-metadata). Nye schemas for `goals` og `teams`.
+- **Legg til entitet:** «+»-knapp i schema-panelet oppretter ny entitet med skjelett-schema.
+- **Resultat-sentiment:** nytt `sentiment`-felt på resultater (god/nøytral/dårlig). Syntax `[[tekst+]]` = god, `[[tekst-]]` = dårlig. Emoji-indikator og farget kantlinje i UI.
+- **Oppgave-detaljmodal fra hjem-sidebar:** klikk på oppgavetittel i hjem-sidebar åpner detaljmodal med mentions-rendering og fungerende Rediger-knapp.
+- **@mention autocomplete:** fungerer nå i oppgavebeskrivelse, notatfelt og fullfør-kommentarfelt.
+- **Copilot cloud agent setup:** `.github/workflows/copilot-setup-steps.yml` installerer Node 24, avhengigheter, Playwright og starter server. Sub-agent modellvalg-guide i `AGENTS.md`.
+
 ### 2026-05-21 (v4.20 — teams + team status page + tag-autocomplete + filter-fix)
 - **Teams feature:** nytt team-konsept med CRUD API, `@team`-mentions i notatredigereren, teamfane på `/people`, og person-multi-picker for medlemsvalg.
 - **Team status-side (`/team/:key`):** viser alle relasjoner for et team — medlemmer, notater som nevner teamet, møter med medlemmer, og åpne/fullførte oppgaver.
