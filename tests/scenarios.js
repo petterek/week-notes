@@ -780,6 +780,41 @@
         },
 
         {
+            id: 'meeting-create-submit-emits-created',
+            name: 'meeting-create submit fires meeting-create:created and does not throw',
+            url: '/debug/meeting-create',
+            run: async function (ctx) {
+                var doc = ctx.doc;
+                var mc = await ctx.waitFor(function () { return doc.querySelector('meeting-create'); }, { label: 'meeting-create element' });
+                var sr = mc.shadowRoot;
+
+                // Wait for the form to render
+                await ctx.waitFor(function () {
+                    return sr.querySelector('form[data-form]');
+                }, { label: 'form rendered', timeout: 5000 });
+                await ctx.sleep(200);
+
+                // Fill in the title
+                var titleInput = sr.querySelector('input[name="title"]');
+                ctx.assert(titleInput, 'title input should be present');
+                titleInput.value = 'Test meeting regression';
+
+                // Capture the created event
+                var created = null;
+                mc.addEventListener('meeting-create:created', function (ev) { created = ev.detail; });
+
+                // Submit the form via the submit button so _submit() runs end-to-end
+                var submitBtn = sr.querySelector('[data-submit]');
+                ctx.assert(submitBtn, 'submit button should be present');
+                submitBtn.click();
+
+                // Wait for created event (mock service resolves synchronously)
+                await ctx.waitFor(function () { return created !== null; }, { label: 'meeting-create:created event', timeout: 3000 });
+                ctx.assert(created && created.meeting, 'created event should carry a meeting object');
+            },
+        },
+
+        {
             id: 'note-editor-mention-autocomplete',
             name: 'note-editor @mention autocomplete opens and selects',
             url: '/debug/note-editor',

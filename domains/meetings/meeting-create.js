@@ -220,7 +220,7 @@ class MeetingCreate extends WNElement {
         const endParts = parseDt(endVal);
 
         const fd = new FormData(form);
-        const attPicker = root.querySelector('[data-el="attendees"]');
+        const attPicker = sr.querySelector('[data-el="attendees"]');
         const attendees = attPicker ? attPicker.value : [];
         const data = {
             title: (fd.get('title') || '').toString().trim(),
