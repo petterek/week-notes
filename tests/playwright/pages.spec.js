@@ -104,3 +104,40 @@ test('task-complete-modal z-index stacks above note-view', async ({ page }) => {
     expect(result.error).toBeUndefined();
     expect(result.tcmZ).toBeGreaterThan(result.nvZ);
 });
+
+// Regression: saving a meeting with an attendee whose key contains a space must NOT
+// create a truncated stub person. E.g., attendee key "per jørgen" must NOT produce
+// a new person with key "per" via syncMentions word-boundary truncation.
+test('saving meeting with space-in-key attendee does not create stub person', async ({ request }) => {
+    const peopleBefore = await (await request.get('/api/people')).json();
+    const countBefore = peopleBefore.length;
+
+    // Use the first person whose key contains a space, or skip if none exist
+    const spaceKeyPerson = peopleBefore.find(p => p.key && p.key.includes(' '));
+    if (!spaceKeyPerson) {
+        test.skip();
+        return;
+    }
+
+    // POST a meeting with that person as attendee — title/notes have no @mentions
+    const resp = await request.post('/api/meetings', {
+        data: {
+            title: 'Regression test meeting (auto-delete)',
+            date: '2099-01-01',
+            start: '10:00',
+            end: '11:00',
+            type: 'meeting',
+            attendees: [spaceKeyPerson.key],
+            notes: '',
+        }
+    });
+    expect(resp.ok()).toBe(true);
+    const created = await resp.json();
+
+    // People count must not have changed
+    const peopleAfter = await (await request.get('/api/people')).json();
+    expect(peopleAfter.length).toBe(countBefore);
+
+    // Clean up
+    await request.delete(`/api/meetings/${created.meeting.id}`);
+});

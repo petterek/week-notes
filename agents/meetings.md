@@ -125,8 +125,12 @@ context detail).
 - **Attendees**: stored as person keys (not display names). Components
   use `<person-multi-picker>` for selection.
 - **syncMentions**: after create/update, the server calls
-  `syncMentions(title, notes, attendeeMentions)` to auto-create people
-  entries for any new @mentions.
+  `syncMentions(title, notes)` to auto-create people entries for any
+  free-text @mentions in the title or notes. Attendees are NOT passed
+  to `syncMentions` — they are already structured person keys (enforced
+  by the picker) and passing them would cause `extractMentions` to
+  truncate keys containing spaces (e.g. `'per jørgen'` → extracts `'per'`
+  only), creating spurious stub persons.
 - **Deep links**: meeting blocks in the calendar have
   `id="m-<meetingId>"` so `#m-<id>` in the URL scrolls and pulses.
 - **Cross-context**: `?allContexts=1` returns meetings from all
