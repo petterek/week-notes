@@ -186,7 +186,7 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
-### 2026-05-29 (v4.22 — person bugfixes + pick-place + restore deleted + reload)
+### 2026-05-29 (v4.22 — person bugfixes + pick-place + restore deleted + reload + merge)
 - **Fix: duplikat-person ved lagring av møte:** `syncMentions` ble kalt med deltaker-nøkler som inneholder mellomrom, noe som skapte stub-person. Nå utelatt fra mention-sync.
 - **Fix: meeting-create krasjet ved innsending:** `root` var ikke definert i `_submit()` — fikset til `sr` (shadowRoot).
 - **Fix: pick-date-time-span åpnet på feil dato:** `date-time-picker` ble koblet til DOM etter at `.value` ble satt via property; endret til `setAttribute()` for sikker initialisering.
@@ -194,6 +194,8 @@ MIT — see [`LICENSE`](LICENSE).
 - **`<pick-place>`-komponent:** combo-boks med autocomplete og «lag ny plass»-funksjon. Brukt i møte-oppretting og -redigering.
 - **Vis slettede personer:** «Vis slettede»-avkrysningsboks på personlisten viser slettede med gjennomstrekingsnavn og slettetidspunkt.
 - **Gjenopprett person:** «↩ Gjenopprett»-knapp per slettet person (`POST /api/people/:id/restore`).
+- **Slå sammen personer:** `POST /api/people/:id/merge` skriver om alle referanser på tvers av møter, oppgaver, resultater, team og notater.
+- **Dra-og-slipp for sammenslåing av oppgaver:** dra én oppgave over en annen for å slå dem sammen (bekreftelsdialog → kilden slettes, tekst og notat bevares i målet). Fungerer i oppgavelisten og i hjem-sidebaren.
 - **🔄 Last på nytt:** knapp som tømmer server- og klient-side minnecache (`POST /api/reload`).
 - **44/44 tester grønne.**
 
