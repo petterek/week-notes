@@ -240,10 +240,11 @@ class PickDateTimeSpan extends WNElement {
         const picker = document.createElement('date-time-picker');
         picker.setAttribute('mode', 'datetime');
         if (which === 'start') {
-            picker.value = this._start;
+            if (this._start) picker.setAttribute('value', this._start);
         } else {
-            picker.value = this._end || addMinutesToDt(this._start, 60);
-            picker.setAttribute('min', this._start);
+            const val = this._end || addMinutesToDt(this._start, 60);
+            if (val) picker.setAttribute('value', val);
+            if (this._start) picker.setAttribute('min', this._start);
         }
         slot.appendChild(picker);
         picker.focus();

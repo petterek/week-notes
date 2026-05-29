@@ -145,7 +145,7 @@ module.exports = function(deps) {
         for (const person of people) {
             const memberOf = liveTeams.filter(t => t.members.includes(person.key)).map(t => t.key);
             const current = person.teams || [];
-            if (JSON.stringify(current.sort()) !== JSON.stringify(memberOf.sort())) {
+            if (JSON.stringify([...current].sort()) !== JSON.stringify([...memberOf].sort())) {
                 person.teams = memberOf.length ? memberOf : undefined;
                 changed = true;
             }

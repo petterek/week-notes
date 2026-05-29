@@ -24,6 +24,7 @@
 import { WNElement, html, escapeHtml } from './_shared.js';
 import '/components/pick-date-time-span.js';
 import '/components/person-multi-picker.js';
+import '/components/pick-place.js';
 
 const STYLES = `
     :host { display: block; color: var(--text-strong); font: inherit; }
@@ -167,8 +168,8 @@ class MeetingCreate extends WNElement {
                 <label>Deltakere
                     <person-multi-picker data-el="attendees"></person-multi-picker>
                 </label>
-                <label for="${id('location')}">Sted <span class="hint">(fritekst)</span>
-                    <input type="text" id="${id('location')}" name="location" placeholder="Møterom, Teams, …">
+                <label>Sted
+                    <pick-place data-el="place" placeholder="Velg eller opprett sted…"></pick-place>
                 </label>
                 <label for="${id('notes')}">Notater<textarea id="${id('notes')}" name="notes" rows="4" placeholder="Agenda, lenker, …"></textarea></label>
                 <div class="err" data-err></div>
@@ -220,8 +221,10 @@ class MeetingCreate extends WNElement {
         const endParts = parseDt(endVal);
 
         const fd = new FormData(form);
-        const attPicker = root.querySelector('[data-el="attendees"]');
+        const attPicker = sr.querySelector('[data-el="attendees"]');
         const attendees = attPicker ? attPicker.value : [];
+        const placePicker = sr.querySelector('[data-el="place"]');
+        const placeVal = placePicker ? placePicker.value : null;
         const data = {
             title: (fd.get('title') || '').toString().trim(),
             type: (fd.get('type') || 'meeting').toString(),
@@ -229,7 +232,8 @@ class MeetingCreate extends WNElement {
             start: startParts.time,
             end: endParts.time,
             attendees,
-            location: (fd.get('location') || '').toString().trim(),
+            location: placeVal ? placeVal.name : '',
+            placeKey: placeVal ? (placeVal.key || '') : '',
             notes: (fd.get('notes') || '').toString(),
         };
         // Multi-day meeting: include endDate when it differs from start date

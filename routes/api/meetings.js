@@ -147,7 +147,7 @@ module.exports = function(deps) {
         if (data.endDate && data.endDate !== data.date) m.endDate = data.endDate;
         meetings.push(m);
         saveMeetings(meetings);
-        try { syncMentions(m.title, m.notes, (m.attendees || []).map(a => '@' + a).join(' ')); } catch {}
+        try { syncMentions(m.title, m.notes); } catch {}
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, meeting: m }));
         return;
@@ -202,7 +202,7 @@ module.exports = function(deps) {
         if (data.notes !== undefined) m.notes = (data.notes || '').trim();
         m.updated = new Date().toISOString();
         saveMeetings(meetings);
-        try { syncMentions(m.title, m.notes, (m.attendees || []).map(a => '@' + a).join(' ')); } catch {}
+        try { syncMentions(m.title, m.notes); } catch {}
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, meeting: m }));
         return;

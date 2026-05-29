@@ -15,8 +15,10 @@ module.exports = function(deps) {
     return async function(req, res, ctx) {
         const { pathname, url } = ctx;
     if (pathname === '/api/people' && req.method === 'GET') {
+        const includeDeleted = url.searchParams.get('includeDeleted') === '1';
+        const people = includeDeleted ? loadAllPeople() : loadPeople();
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(loadPeople()));
+        res.end(JSON.stringify(people));
         return;
     }
 
@@ -124,6 +126,169 @@ module.exports = function(deps) {
         people[idx].deleted = true;
         people[idx].deletedAt = new Date().toISOString();
         savePeople(people);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+    }
+
+    // API: restore (un-delete) a person
+    const peopleRestoreMatch = pathname.match(/^\/api\/people\/([^/]+)\/restore$/);
+    if (peopleRestoreMatch && req.method === 'POST') {
+        const people = loadAllPeople();
+        const idx = people.findIndex(p => p.id === peopleRestoreMatch[1]);
+        if (idx === -1) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Not found' }));
+            return;
+        }
+        delete people[idx].deleted;
+        delete people[idx].deletedAt;
+        savePeople(people);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, person: people[idx] }));
+        return;
+    }
+
+    // API: merge two person records
+    const peopleMergeMatch = pathname.match(/^\/api\/people\/([^/]+)\/merge$/);
+    if (peopleMergeMatch && req.method === 'POST') {
+        try {
+            const body = JSON.parse(await readBody(req) || '{}');
+            const sourceId = peopleMergeMatch[1];
+            const targetId = String(body.into || '').trim();
+            if (!targetId) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'into is required' })); return; }
+            if (sourceId === targetId) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'Cannot merge person into itself' })); return; }
+
+            const people = loadAllPeople();
+            const srcIdx = people.findIndex(p => p.id === sourceId);
+            const tgtIdx = people.findIndex(p => p.id === targetId);
+            if (srcIdx === -1 || people[srcIdx].deleted) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'Source not found' })); return; }
+            if (tgtIdx === -1 || people[tgtIdx].deleted) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'Target not found' })); return; }
+
+            const src = people[srcIdx];
+            const tgt = people[tgtIdx];
+            const srcKey = src.key || src.name || '';
+            const tgtKey = tgt.key || tgt.name || '';
+
+            // --- Merge scalar fields: target wins; source fills blanks ---
+            if (!tgt.title  && src.title)  tgt.title  = src.title;
+            if (!tgt.email  && src.email)  tgt.email  = src.email;
+            if (!tgt.phone  && src.phone)  tgt.phone  = src.phone;
+            if (!tgt.notes  && src.notes)  tgt.notes  = src.notes;
+            if (src.inactive && !tgt.inactive) tgt.inactive = true;
+
+            // Merge company memberships: keep target primary; union extras
+            if (!tgt.primaryCompanyKey && src.primaryCompanyKey) tgt.primaryCompanyKey = src.primaryCompanyKey;
+            const allExtras = [...(tgt.extraCompanyKeys || []), ...(src.extraCompanyKeys || []), src.primaryCompanyKey || '']
+                .filter(k => k && k !== tgt.primaryCompanyKey);
+            tgt.extraCompanyKeys = [...new Set(allExtras)];
+
+            // Helper: escape a string for use inside a RegExp
+            const reEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            // Replace @srcKey → @tgtKey in free text (right-boundary only; @ is its own left boundary)
+            const replaceKey = (text) => {
+                if (!text || srcKey === tgtKey) return text;
+                return text.replace(new RegExp(`@${reEscape(srcKey)}(?![a-zA-ZæøåÆØÅ0-9_-])`, 'g'), `@${tgtKey}`);
+            };
+
+            // --- Update meetings ---
+            const meetings = loadMeetings();
+            let meetingsChanged = false;
+            for (const m of meetings) {
+                if (Array.isArray(m.attendees) && m.attendees.includes(srcKey)) {
+                    m.attendees = [...new Set(m.attendees.map(a => a === srcKey ? tgtKey : a))];
+                    meetingsChanged = true;
+                }
+            }
+            if (meetingsChanged) saveMeetings(meetings);
+
+            // --- Update tasks ---
+            const tasks = loadAllTasks();
+            let tasksChanged = false;
+            for (const t of tasks) {
+                if (t.text && t.text.includes('@' + srcKey)) { t.text = replaceKey(t.text); tasksChanged = true; }
+                if (t.responsible === srcKey) { t.responsible = tgtKey; tasksChanged = true; }
+                if (Array.isArray(t.participants) && t.participants.includes(srcKey)) {
+                    t.participants = [...new Set(t.participants.map(k => k === srcKey ? tgtKey : k))];
+                    tasksChanged = true;
+                }
+            }
+            if (tasksChanged) saveTasks(tasks);
+
+            // --- Update results ---
+            const results = loadResults();
+            let resultsChanged = false;
+            for (const r of results) {
+                if (r.text && r.text.includes('@' + srcKey)) { r.text = replaceKey(r.text); resultsChanged = true; }
+                if (Array.isArray(r.people) && r.people.includes(srcKey)) {
+                    r.people = [...new Set(r.people.map(k => k === srcKey ? tgtKey : k))];
+                    resultsChanged = true;
+                }
+            }
+            if (resultsChanged) saveResults(results);
+
+            // --- Update teams members ---
+            const teams = loadCollection('teams') || [];
+            let teamsChanged = false;
+            for (const team of teams) {
+                if (Array.isArray(team.members) && team.members.includes(srcKey)) {
+                    team.members = [...new Set(team.members.map(k => k === srcKey ? tgtKey : k))];
+                    teamsChanged = true;
+                }
+            }
+            if (teamsChanged) {
+                syncCollection('teams', teams);
+                // Rebuild target person's denormalized teams list
+                tgt.teams = teams.filter(t => (t.members || []).includes(tgtKey)).map(t => t.key);
+                if (!tgt.teams.length) delete tgt.teams;
+            }
+
+            // --- Rewrite @mentions in all note markdown files ---
+            if (srcKey !== tgtKey) {
+                const re = new RegExp(`@${reEscape(srcKey)}(?![a-zA-ZæøåÆØÅ0-9_-])`, 'g');
+                for (const weekDir of getWeekDirs()) {
+                    for (const mdFile of getMdFiles(weekDir)) {
+                        try {
+                            const orig = fs.readFileSync(mdFile, 'utf-8');
+                            if (orig.includes('@' + srcKey)) {
+                                fs.writeFileSync(mdFile, orig.replace(re, `@${tgtKey}`), 'utf-8');
+                            }
+                        } catch (_) {}
+                    }
+                }
+            }
+
+            // --- Tombstone source ---
+            src.deleted = true;
+            src.deletedAt = new Date().toISOString();
+            src.mergedInto = targetId;
+
+            savePeople(people);
+            _cacheInvalidateCollection('people');
+            _cacheInvalidateCollection('tasks');
+            _cacheInvalidateCollection('results');
+            _cacheInvalidateCollection('teams');
+            _cacheInvalidateCollection('meetings');
+            _cacheInvalidateNotesMeta();
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, target: tgt }));
+        } catch (e) {
+            console.error('merge error', e);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: String(e.message || e) }));
+        }
+        return;
+    }
+
+    // API: reload — clear server-side in-memory caches for the active context
+    if (pathname === '/api/reload' && req.method === 'POST') {
+        _cacheInvalidateCollection('people');
+        _cacheInvalidateCollection('companies');
+        _cacheInvalidateCollection('places');
+        _cacheInvalidateCollection('teams');
+        _cacheInvalidateCollection('tasks');
+        _cacheInvalidateCollection('results');
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true }));
         return;

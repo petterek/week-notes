@@ -253,7 +253,7 @@ class PersonMultiPicker extends WNElement {
         let filtered = this._people.filter(p => !selectedSet.has(p.key));
         if (q) {
             filtered = filtered.filter(p =>
-                p.name.toLowerCase().startsWith(q) || p.key.toLowerCase().startsWith(q)
+                p.name.toLowerCase().includes(q) || p.key.toLowerCase().startsWith(q)
             );
         }
         return filtered;
@@ -297,7 +297,11 @@ class PersonMultiPicker extends WNElement {
             if (!Array.isArray(arr)) return;
             this._people = arr
                 .filter(p => p && p.key)
-                .map(p => ({ key: p.key, name: p.name || p.key, isMe: p.key === meKey }))
+                .map(p => {
+                    const first = p.firstName || p.name || p.key;
+                    const full = p.lastName ? `${first} ${p.lastName}` : first;
+                    return { key: p.key, name: full, isMe: p.key === meKey };
+                })
                 .sort((a, b) => {
                     if (a.isMe !== b.isMe) return a.isMe ? -1 : 1;
                     return a.name.localeCompare(b.name);

@@ -161,6 +161,14 @@ const STYLES = `
             padding-left: 30px;
             font-size: 0.95em;
         }
+        /* drag-to-merge */
+        .sidebar-task[draggable="true"] { cursor: grab; }
+        .sidebar-task[draggable="true"]:active { cursor: grabbing; }
+        .sidebar-task.dragging { opacity: 0.35; }
+        .sidebar-task.drop-target {
+            outline: 2px dashed var(--accent);
+            background: var(--accent-soft, rgba(42,67,101,0.1));
+        }
 `;
 
 function isOverdue(due, done) {
@@ -190,7 +198,7 @@ function renderTask(t, people, companies) {
             ? unsafeHTML(`<span class="due-pill${overdue ? ' overdue' : ''}" title="Frist${overdue ? ' (forfalt)' : ''}">📅 ${escapeHtml(due)}</span>`)
             : '';
         return html`
-            <div class="sidebar-task${overdue ? ' overdue' : ''}" data-taskid="${id}">
+            <div class="sidebar-task${overdue ? ' overdue' : ''}" draggable="true" data-taskid="${id}">
                 <div class="row">
                     <input type="checkbox" data-taskid="${id}" data-tasktext="${t.text || ''}" data-act="toggle" />
                     <span class="row-text" data-act="view" data-taskid="${id}">${textHtml}</span>
@@ -366,6 +374,67 @@ class TaskOpenList extends WNElement {
                     },
                 });
             }
+        });
+
+        // Drag-to-merge: drag one task onto another to merge them.
+        this._dragSrcId = null;
+
+        this.shadowRoot.addEventListener('dragstart', (ev) => {
+            const row = ev.target.closest('.sidebar-task[data-taskid]');
+            if (!row) return;
+            this._dragSrcId = row.dataset.taskid;
+            ev.dataTransfer.effectAllowed = 'move';
+            ev.dataTransfer.setData('text/plain', this._dragSrcId);
+            requestAnimationFrame(() => row.classList.add('dragging'));
+        });
+
+        this.shadowRoot.addEventListener('dragover', (ev) => {
+            const row = ev.target.closest('.sidebar-task[data-taskid]');
+            if (!row || row.dataset.taskid === this._dragSrcId) return;
+            ev.preventDefault();
+            ev.dataTransfer.dropEffect = 'move';
+            this.shadowRoot.querySelectorAll('.sidebar-task.drop-target').forEach(r => r.classList.remove('drop-target'));
+            row.classList.add('drop-target');
+        });
+
+        this.shadowRoot.addEventListener('dragleave', (ev) => {
+            const row = ev.target.closest('.sidebar-task[data-taskid]');
+            if (row) row.classList.remove('drop-target');
+        });
+
+        this.shadowRoot.addEventListener('dragend', () => {
+            this._dragSrcId = null;
+            this.shadowRoot.querySelectorAll('.sidebar-task.dragging, .sidebar-task.drop-target').forEach(r => {
+                r.classList.remove('dragging', 'drop-target');
+            });
+        });
+
+        this.shadowRoot.addEventListener('drop', (ev) => {
+            ev.preventDefault();
+            const tgtRow = ev.target.closest('.sidebar-task[data-taskid]');
+            const srcId = this._dragSrcId;
+            this._dragSrcId = null;
+            this.shadowRoot.querySelectorAll('.sidebar-task.dragging, .sidebar-task.drop-target').forEach(r => {
+                r.classList.remove('dragging', 'drop-target');
+            });
+            if (!tgtRow || !srcId || tgtRow.dataset.taskid === srcId) return;
+            const tgtId = tgtRow.dataset.taskid;
+            const srcTask = this._findOpen(srcId);
+            const tgtTask = this._findOpen(tgtId);
+            if (!srcTask || !tgtTask) return;
+            const ok = confirm(`Slå sammen?\n\n« ${srcTask.text} »\n→ inn i →\n« ${tgtTask.text} »\n\nKilden slettes. Tekst og notat fra kilden legges i notater.`);
+            if (!ok) return;
+            (async () => {
+                try {
+                    if (this.service && typeof this.service.merge === 'function') {
+                        await this.service.merge(srcId, tgtId);
+                    }
+                } catch (err) { console.error('task-open-list: merge failed', err); }
+                this.refresh();
+                this.dispatchEvent(new CustomEvent('task:merged', {
+                    bubbles: true, composed: true, detail: { srcId, tgtId },
+                }));
+            })();
         });
     }
 

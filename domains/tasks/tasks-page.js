@@ -193,6 +193,16 @@ const STYLES = `
     }
     .tp-done-toggle[open] summary::before { transform: rotate(90deg); }
     .tp-done-toggle summary:hover { color: var(--text-strong); }
+
+    /* --- drag-to-merge --- */
+    .tp-table tr[draggable="true"] { cursor: grab; }
+    .tp-table tr[draggable="true"]:active { cursor: grabbing; }
+    .tp-table tr.dragging { opacity: 0.35; }
+    .tp-table tr.drop-target td {
+        background: var(--accent-soft, rgba(42,67,101,0.1));
+        outline: 2px dashed var(--accent);
+        outline-offset: -2px;
+    }
 `;
 
 class TasksPage extends WNElement {
@@ -368,6 +378,64 @@ class TasksPage extends WNElement {
         });
 
         wireMentionClicks(this.shadowRoot);
+
+        // Drag-to-merge: drag one task row onto another to merge them.
+        // _dragSrcId holds the source task ID across drag events (dataTransfer
+        // cannot be read during dragover, only on drop).
+        this._dragSrcId = null;
+
+        this.shadowRoot.addEventListener('dragstart', (ev) => {
+            const row = ev.target.closest('tr[data-taskid]');
+            if (!row) return;
+            this._dragSrcId = row.dataset.taskid;
+            ev.dataTransfer.effectAllowed = 'move';
+            ev.dataTransfer.setData('text/plain', this._dragSrcId);
+            requestAnimationFrame(() => row.classList.add('dragging'));
+        });
+
+        this.shadowRoot.addEventListener('dragover', (ev) => {
+            const row = ev.target.closest('tr[data-taskid]');
+            if (!row || row.dataset.taskid === this._dragSrcId) return;
+            ev.preventDefault();
+            ev.dataTransfer.dropEffect = 'move';
+            // Highlight only the current target row
+            this.shadowRoot.querySelectorAll('tr.drop-target').forEach(r => r.classList.remove('drop-target'));
+            row.classList.add('drop-target');
+        });
+
+        this.shadowRoot.addEventListener('dragleave', (ev) => {
+            const row = ev.target.closest('tr[data-taskid]');
+            if (row) row.classList.remove('drop-target');
+        });
+
+        this.shadowRoot.addEventListener('dragend', () => {
+            this._dragSrcId = null;
+            this.shadowRoot.querySelectorAll('tr.dragging, tr.drop-target').forEach(r => {
+                r.classList.remove('dragging', 'drop-target');
+            });
+        });
+
+        this.shadowRoot.addEventListener('drop', (ev) => {
+            ev.preventDefault();
+            const tgtRow = ev.target.closest('tr[data-taskid]');
+            const srcId = this._dragSrcId;
+            this._dragSrcId = null;
+            this.shadowRoot.querySelectorAll('tr.dragging, tr.drop-target').forEach(r => {
+                r.classList.remove('dragging', 'drop-target');
+            });
+            if (!tgtRow || !srcId || tgtRow.dataset.taskid === srcId) return;
+            const tgtId = tgtRow.dataset.taskid;
+            const srcTask = this._findTask(srcId);
+            const tgtTask = this._findTask(tgtId);
+            if (!srcTask || !tgtTask) return;
+            const ok = confirm(`Slå sammen?\n\n« ${srcTask.text} »\n→ inn i →\n« ${tgtTask.text} »\n\nKilden slettes. Tekst og notat fra kilden legges i notater.`);
+            if (!ok) return;
+            (async () => {
+                try { await this.service.merge(srcId, tgtId); }
+                catch (err) { console.error('tasks-page: merge failed', err); }
+                this.refresh();
+            })();
+        });
     }
 
     async _doCreate() {
@@ -560,7 +628,7 @@ class TasksPage extends WNElement {
         const filterText = [t.text || '', t.note || '', respName, partsStr, goalName, t.responsible || ''].join(' ');
 
         return html`
-            <tr class="${t.done ? 'task-done' : ''}" data-taskid="${id}" data-filtertext="${escapeHtml(filterText)}">
+            <tr class="${t.done ? 'task-done' : ''}" draggable="true" data-taskid="${id}" data-filtertext="${escapeHtml(filterText)}">
                 <td><input type="checkbox" data-act="toggle" data-taskid="${id}" ${t.done ? 'checked' : ''}></td>
                 <td class="task-title" data-act="view" data-taskid="${id}">${textHtml}</td>
                 <td>${week}</td>
