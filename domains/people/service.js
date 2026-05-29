@@ -73,6 +73,12 @@ export const PeopleService = {
     update:  async (id, patch) => { const r = await req('PUT',    `${PEOPLE}/${encodeURIComponent(id)}`, patch); _peopleList.invalidate(); return r; },
     remove:  async (id)        => { const r = await req('DELETE', `${PEOPLE}/${encodeURIComponent(id)}`);        _peopleList.invalidate(); return r; },
     restore: async (id)        => { const r = await req('POST',   `${PEOPLE}/${encodeURIComponent(id)}/restore`); _peopleList.invalidate(); return r; },
+    merge:   async (sourceId, targetId) => {
+        const r = await req('POST', `${PEOPLE}/${encodeURIComponent(sourceId)}/merge`, { into: targetId });
+        _peopleList.invalidate();
+        _teamsList.invalidate();
+        return r;
+    },
 };
 
 export const CompaniesService = {
