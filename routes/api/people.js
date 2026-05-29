@@ -15,8 +15,10 @@ module.exports = function(deps) {
     return async function(req, res, ctx) {
         const { pathname, url } = ctx;
     if (pathname === '/api/people' && req.method === 'GET') {
+        const includeDeleted = url.searchParams.get('includeDeleted') === '1';
+        const people = includeDeleted ? loadAllPeople() : loadPeople();
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(loadPeople()));
+        res.end(JSON.stringify(people));
         return;
     }
 
@@ -124,6 +126,37 @@ module.exports = function(deps) {
         people[idx].deleted = true;
         people[idx].deletedAt = new Date().toISOString();
         savePeople(people);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+    }
+
+    // API: restore (un-delete) a person
+    const peopleRestoreMatch = pathname.match(/^\/api\/people\/([^/]+)\/restore$/);
+    if (peopleRestoreMatch && req.method === 'POST') {
+        const people = loadAllPeople();
+        const idx = people.findIndex(p => p.id === peopleRestoreMatch[1]);
+        if (idx === -1) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Not found' }));
+            return;
+        }
+        delete people[idx].deleted;
+        delete people[idx].deletedAt;
+        savePeople(people);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, person: people[idx] }));
+        return;
+    }
+
+    // API: reload — clear server-side in-memory caches for the active context
+    if (pathname === '/api/reload' && req.method === 'POST') {
+        _cacheInvalidateCollection('people');
+        _cacheInvalidateCollection('companies');
+        _cacheInvalidateCollection('places');
+        _cacheInvalidateCollection('teams');
+        _cacheInvalidateCollection('tasks');
+        _cacheInvalidateCollection('results');
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true }));
         return;

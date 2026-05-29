@@ -63,10 +63,16 @@ const _placesList    = makeCachedList(PLACES);
 const _teamsList     = makeCachedList(TEAMS);
 
 export const PeopleService = {
-    list:   _peopleList,
-    create: async (person)     => { const r = await req('POST',   PEOPLE, person);                              _peopleList.invalidate(); return r; },
-    update: async (id, patch)  => { const r = await req('PUT',    `${PEOPLE}/${encodeURIComponent(id)}`, patch); _peopleList.invalidate(); return r; },
-    remove: async (id)         => { const r = await req('DELETE', `${PEOPLE}/${encodeURIComponent(id)}`);        _peopleList.invalidate(); return r; },
+    list:    _peopleList,
+    listAll: async () => {
+        // Bypasses cache — fetches all people including deleted ones.
+        const r = await req('GET', `${PEOPLE}?includeDeleted=1`);
+        return r;
+    },
+    create:  async (person)    => { const r = await req('POST',   PEOPLE, person);                              _peopleList.invalidate(); return r; },
+    update:  async (id, patch) => { const r = await req('PUT',    `${PEOPLE}/${encodeURIComponent(id)}`, patch); _peopleList.invalidate(); return r; },
+    remove:  async (id)        => { const r = await req('DELETE', `${PEOPLE}/${encodeURIComponent(id)}`);        _peopleList.invalidate(); return r; },
+    restore: async (id)        => { const r = await req('POST',   `${PEOPLE}/${encodeURIComponent(id)}/restore`); _peopleList.invalidate(); return r; },
 };
 
 export const CompaniesService = {
@@ -89,3 +95,12 @@ export const TeamsService = {
     update: async (id, patch)  => { const r = await req('PUT',    `${TEAMS}/${encodeURIComponent(id)}`, patch); _teamsList.invalidate(); _peopleList.invalidate(); return r; },
     remove: async (id)         => { const r = await req('DELETE', `${TEAMS}/${encodeURIComponent(id)}`);        _teamsList.invalidate(); _peopleList.invalidate(); return r; },
 };
+
+/** Clears all service-level caches and tells the server to drop its caches too. */
+export async function reloadAll() {
+    _peopleList.invalidate();
+    _companiesList.invalidate();
+    _placesList.invalidate();
+    _teamsList.invalidate();
+    try { await req('POST', '/api/reload'); } catch (_) {}
+}

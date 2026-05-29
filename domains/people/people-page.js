@@ -91,6 +91,11 @@ const STYLES = `
     .pp-toolbar .btn-primary:hover { filter: brightness(0.95); }
     .pp-toolbar .show-inactive { display: flex; align-items: center; gap: 6px; font-size: 0.85em; color: var(--text-muted); cursor: pointer; padding: 8px 6px; }
     .pp-count { font-size: 0.85em; color: var(--text-subtle); margin-left: auto; }
+    .deleted-section { margin-top: 20px; border-top: 1px dashed var(--border-soft); padding-top: 12px; }
+    .deleted-section-h { font-size: 0.8em; font-weight: 600; color: var(--text-subtle); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; }
+    .deleted-row { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 6px; background: var(--surface); border: 1px solid var(--border-faint); margin-bottom: 4px; opacity: 0.7; }
+    .deleted-name { text-decoration: line-through; color: var(--text-muted); font-size: 0.9em; flex: 1; }
+    .deleted-when { font-size: 0.8em; color: var(--text-subtle); }
 
     .person-card { margin-bottom: 8px; background: var(--surface); border-radius: 8px; border: 1px solid var(--border-soft); overflow: hidden; }
     .person-card.inactive { opacity: 0.55; }
@@ -222,6 +227,9 @@ class PeoplePage extends WNElement {
         this._filters = { people: '', company: '', place: '', team: '' };
         this._sort = 'name-asc';
         this._showInactive = false;
+        this._showDeleted = false;
+        this._deletedPeople = [];
+        this._reloading = false;
         this._expanded = new Set();   // ids/keys of open cards
         this._modal = null;           // current modal name or null
         this._modalCtx = null;        // current edit context (the row being edited)
@@ -611,12 +619,31 @@ class PeoplePage extends WNElement {
                 <button class="btn-ghost" data-act="expand-all" data-tab="people" title="Utvid alle">⇣ Utvid</button>
                 <button class="btn-ghost" data-act="collapse-all" data-tab="people" title="Skjul alle">⇡ Skjul</button>
                 <label class="show-inactive"><input type="checkbox" data-input="show-inactive" ${this._showInactive ? 'checked' : ''} /> Vis inaktive</label>
+                <label class="show-inactive"><input type="checkbox" data-input="show-deleted" ${this._showDeleted ? 'checked' : ''} /> Vis slettede</label>
+                <button class="btn-ghost" data-act="reload-people" title="Tøm cache og last på nytt" ${this._reloading ? 'disabled' : ''}>${this._reloading ? '⏳' : '🔄'}</button>
                 <span class="pp-count">${filtered.length} av ${total}</span>
                 <button class="btn-primary" data-act="new-person">➕ Ny person</button>
             </div>
             ${total === 0
                 ? html`<p class="empty-quiet">Ingen personer registrert ennå. Klikk <strong>➕ Ny person</strong> for å legge til.</p>`
                 : html`<div data-list="people">${cards}</div>`}
+            ${this._showDeleted && this._deletedPeople.length > 0 ? html`
+                <div class="deleted-section">
+                    <div class="deleted-section-h">Slettede (${this._deletedPeople.length})</div>
+                    ${this._deletedPeople.map(p => {
+                        const name = this._personDisplay(p);
+                        const when = p.deletedAt ? new Date(p.deletedAt).toLocaleDateString('nb-NO') : '';
+                        return html`<div class="deleted-row">
+                            <span class="deleted-name">${name}</span>
+                            ${when ? html`<span class="deleted-when">slettet ${when}</span>` : ''}
+                            <button class="btn-ghost" data-act="restore-person" data-id="${p.id}">↩ Gjenopprett</button>
+                        </div>`;
+                    })}
+                </div>
+            ` : ''}
+            ${this._showDeleted && this._deletedPeople.length === 0 ? html`
+                <p class="empty-quiet" style="color:var(--text-subtle);font-style:italic">Ingen slettede personer.</p>
+            ` : ''}
         `;
     }
 
@@ -924,6 +951,55 @@ class PeoplePage extends WNElement {
         if (a === 'close-modal')  { this._closeModal(); return; }
         if (a === 'goto-company') { this._gotoTabKey('companies', act.dataset.key); return; }
         if (a === 'goto-person')  { this._gotoTabKey('people', act.dataset.key); return; }
+        if (a === 'restore-person') { this._restorePerson(act.dataset.id); return; }
+        if (a === 'reload-people') { this._reloadPeople(); return; }
+    }
+
+    async _loadDeletedPeople() {
+        const ps = this._svc('people_service');
+        if (!ps) return;
+        try {
+            const all = await ps.listAll();
+            this._deletedPeople = (all || []).filter(p => p.deleted);
+        } catch (e) {
+            console.error('Failed to load deleted people', e);
+            this._deletedPeople = [];
+        }
+        this._refreshPane('people');
+    }
+
+    async _restorePerson(id) {
+        const ps = this._svc('people_service');
+        if (!ps || !id) return;
+        try {
+            await ps.restore(id);
+            this._deletedPeople = this._deletedPeople.filter(p => p.id !== id);
+            this.invalidateAwait('people');
+            await this.requestRender();
+        } catch (e) {
+            console.error('Failed to restore person', e);
+        }
+    }
+
+    async _reloadPeople() {
+        if (this._reloading) return;
+        this._reloading = true;
+        this._refreshPane('people');
+        const ps = this._svc('people_service');
+        try {
+            // Hit server reload and invalidate client cache.
+            await fetch('/api/reload', { method: 'POST' });
+            if (ps && ps.list && ps.list.invalidate) ps.list.invalidate();
+            this._deletedPeople = [];
+            this.invalidateAwait();
+            await this.requestRender();
+            if (this._showDeleted) await this._loadDeletedPeople();
+        } catch (e) {
+            console.error('Reload failed', e);
+        } finally {
+            this._reloading = false;
+            this._refreshPane('people');
+        }
     }
 
     _onInput(e) {
@@ -935,6 +1011,15 @@ class PeoplePage extends WNElement {
         if (t.dataset.input === 'team')     { this._filters.team = t.value; this._refreshPane('teams'); return; }
         if (t.dataset.input === 'sort')     { this._sort = t.value; this._refreshPane('people'); return; }
         if (t.dataset.input === 'show-inactive') { this._showInactive = !!t.checked; this._refreshPane('people'); return; }
+        if (t.dataset.input === 'show-deleted') {
+            this._showDeleted = !!t.checked;
+            if (this._showDeleted && this._deletedPeople.length === 0) {
+                this._loadDeletedPeople();
+            } else {
+                this._refreshPane('people');
+            }
+            return;
+        }
         // Person form: refresh extras list when primary company changes.
         if (this._modal === 'person' && t.dataset.f === 'primaryCompanyKey') {
             const card = this.shadowRoot.querySelector('[data-modal-card]');
