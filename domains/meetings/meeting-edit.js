@@ -19,6 +19,7 @@
 import { WNElement, html, escapeHtml } from './_shared.js';
 import '/components/date-time-picker.js';
 import '/components/person-multi-picker.js';
+import '/components/pick-place.js';
 
 const STYLES = `
     :host { display: block; color: var(--text-strong); font: inherit; }
@@ -173,8 +174,8 @@ class MeetingEdit extends WNElement {
                 <label>Deltakere
                     <person-multi-picker data-el="attendees" value="${escapeHtml(attInitial)}"></person-multi-picker>
                 </label>
-                <label for="${id('location')}">Sted <span class="hint">(fritekst)</span>
-                    <input type="text" id="${id('location')}" name="location" value="${escapeHtml(m.location || '')}" placeholder="Møterom, Teams, …">
+                <label>Sted
+                    <pick-place data-el="place" placeholder="Velg eller opprett sted…"></pick-place>
                 </label>
                 <label for="${id('notes')}">Notater<textarea id="${id('notes')}" name="notes" rows="4" placeholder="Agenda, lenker, …">${escapeHtml(m.notes || '')}</textarea></label>
                 <div class="err" data-err></div>
@@ -192,6 +193,14 @@ class MeetingEdit extends WNElement {
     afterRender(data) {
         if (!data) return;
         this._wire();
+        // Pre-populate the place picker from the current meeting
+        const m = this._meeting || {};
+        if (m.location || m.placeKey) {
+            const placePicker = this.shadowRoot && this.shadowRoot.querySelector('[data-el="place"]');
+            if (placePicker) {
+                placePicker.value = { key: m.placeKey || null, name: m.location || '' };
+            }
+        }
     }
 
     _wire() {
@@ -312,6 +321,8 @@ class MeetingEdit extends WNElement {
         if (!startParts.date) { this._showError('Velg starttid'); return; }
         const attPicker = this.shadowRoot.querySelector('[data-el="attendees"]');
         const attendees = attPicker ? attPicker.value : [];
+        const placePicker = this.shadowRoot.querySelector('[data-el="place"]');
+        const placeVal = placePicker ? placePicker.value : null;
         const data = {
             title: (fd.get('title') || '').toString().trim(),
             type: (fd.get('type') || 'meeting').toString(),
@@ -319,7 +330,8 @@ class MeetingEdit extends WNElement {
             start: startParts.time || '',
             end: endParts.time || '',
             attendees,
-            location: (fd.get('location') || '').toString().trim(),
+            location: placeVal ? placeVal.name : '',
+            placeKey: placeVal ? (placeVal.key || '') : '',
             notes: (fd.get('notes') || '').toString(),
         };
         if (!data.title) { this._showError('Tittel er påkrevd'); return; }
