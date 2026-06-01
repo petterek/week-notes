@@ -186,6 +186,13 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-06-01 (v4.23 — people-page scroll inside component)
+- **Scroll inne i komponenten:** peoplesiden (`/people`) scroller nå internt i `<people-page>`-komponenten — tittel, faner og verktøylinje forblir synlige mens kortlisten scroller.
+- **Verktøylinje fast øverst per fane:** `.pp-toolbar` er `flex-shrink: 0` over `.pp-scroll`-rullingsområdet.
+- **Konsistent bredde på tvers av faner:** `margin: 0 auto` på et flex-element deaktiverer `align-self: stretch`; fikset ved å legge til `width: 100%` på `:host` — alle fire faner er nå like brede.
+- **Konsistent rullefeltstørrelse:** `overflow-y: scroll` på rullingsområdet sikrer at rullefeltet alltid er reservert.
+- **45/45 tester grønne.**
+
 ### 2026-05-29 (v4.22 — person bugfixes + pick-place + restore deleted + reload + merge)
 - **Fix: duplikat-person ved lagring av møte:** `syncMentions` ble kalt med deltaker-nøkler som inneholder mellomrom, noe som skapte stub-person. Nå utelatt fra mention-sync.
 - **Fix: meeting-create krasjet ved innsending:** `root` var ikke definert i `_submit()` — fikset til `sr` (shadowRoot).
