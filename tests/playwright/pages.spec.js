@@ -141,3 +141,40 @@ test('saving meeting with space-in-key attendee does not create stub person', as
     // Clean up
     await request.delete(`/api/meetings/${created.meeting.id}`);
 });
+
+// Regression: updating a person whose firstName matches another person's firstName
+// must NOT assign a duplicate key (e.g., both "Ole Hansen" and "Ole Johansen" getting key="ole").
+// The update handler must use the same uniqueness logic as create (excluding self).
+test('editing person with duplicate firstName preserves unique keys', async ({ request }) => {
+    // Create two people with the same first name
+    const r1 = await request.post('/api/people', {
+        data: { firstName: 'RegTestOle', lastName: 'Hansen' }
+    });
+    expect(r1.ok()).toBe(true);
+    const p1 = (await r1.json()).person;
+
+    const r2 = await request.post('/api/people', {
+        data: { firstName: 'RegTestOle', lastName: 'Johansen' }
+    });
+    expect(r2.ok()).toBe(true);
+    const p2 = (await r2.json()).person;
+
+    // Keys must differ (uniqueness on create)
+    expect(p1.key).not.toBe(p2.key);
+
+    // Now edit p2 (change email) — this used to reset key to firstName.toLowerCase()
+    // causing a collision with p1
+    const upd = await request.put(`/api/people/${p2.id}`, {
+        data: { ...p2, email: 'ole.j@example.com' }
+    });
+    expect(upd.ok()).toBe(true);
+    const updated = (await upd.json()).person;
+
+    // Keys must still be distinct after edit
+    expect(updated.key).not.toBe(p1.key);
+
+    // Clean up
+    await request.delete(`/api/people/${p1.id}`);
+    await request.delete(`/api/people/${p2.id}`);
+});
+

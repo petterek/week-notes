@@ -84,11 +84,12 @@ module.exports = function(deps) {
                 if (idx === -1) { res.writeHead(404); res.end(JSON.stringify({ ok: false })); return; }
                 const person = people[idx];
                 if (data.firstName) {
-                    person.firstName = data.firstName;
-                    person.lastName = data.lastName || '';
-                    // @mention key stays as first name for compatibility
-                    person.name = data.firstName;
-                    person.key = data.firstName.toLowerCase();
+                    const firstName = String(data.firstName).trim();
+                    const lastName  = String(data.lastName  || '').trim();
+                    person.firstName = firstName;
+                    person.lastName  = lastName;
+                    person.name      = firstName;
+                    // key is immutable after creation — never overwrite it
                 }
                 if (data.title !== undefined) person.title = data.title;
                 if (data.email !== undefined) person.email = data.email;
