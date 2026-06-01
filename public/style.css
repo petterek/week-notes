@@ -190,5 +190,5 @@ html, body { height: 100%; }
 body:has(main#content) { display: flex; flex-direction: column; max-width: none; padding: 0; overflow: hidden; }
 header#appHeader { flex: 0 0 auto; }
 main#content { flex: 1 1 auto; min-height: 0; overflow: auto; display: block; }
-main#content:has(people-page) { overflow: hidden; display: flex; flex-direction: column; }
+main#content:has(people-page) { overflow: hidden; display: flex; flex-direction: column; padding-bottom: 32px; box-sizing: border-box; }
 people-page { flex: 1; min-height: 0; }
