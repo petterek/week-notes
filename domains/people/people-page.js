@@ -1047,7 +1047,7 @@ class PeoplePage extends WNElement {
                 list.innerHTML = filtered.map(p => `<person-card data-key="${this._personKey(p)}" data-id="${p.id || ''}"></person-card>`).join('');
                 this._populatePersonCards();
             }
-            const count = root.querySelector('.pp-count');
+            const count = root.querySelector('[data-tab-toolbar="people"] .pp-count');
             if (count) count.textContent = `${filtered.length} av ${this._people.length}`;
             return;
         }
@@ -1058,7 +1058,7 @@ class PeoplePage extends WNElement {
                 list.innerHTML = filtered.map(c => `<company-card data-key="${c.key}" data-id="${c.id || ''}"></company-card>`).join('');
                 this._populateCompanyCards();
             }
-            const count = root.querySelector('[data-pane="companies"] .pp-count');
+            const count = root.querySelector('[data-tab-toolbar="companies"] .pp-count');
             if (count) count.textContent = `${filtered.length} av ${this._companies.length}`;
             return;
         }
@@ -1069,8 +1069,8 @@ class PeoplePage extends WNElement {
                 list.innerHTML = filtered.map(p => `<place-card data-key="${p.key}" data-id="${p.id || ''}"></place-card>`).join('');
                 this._populatePlaceCards();
             }
-            const count = root.querySelector('[data-pane="places"] .pp-count');
-            if (count) count.textContent = `${filtered.length} av ${this._places.length}`;
+            const count = root.querySelector('[data-tab-toolbar="places"] .pp-count');
+            if (count) count.textContent = `${filtered.length} av ${this._places.filter(p => !p.deleted).length}`;
             return;
         }
         if (which === 'teams') {
@@ -1078,6 +1078,8 @@ class PeoplePage extends WNElement {
             if (list) {
                 const filtered = this._filterTeams();
                 list.innerHTML = filtered.map(t => this._renderTeamCard(t)).join('');
+                const count = root.querySelector('[data-tab-toolbar="teams"] .pp-count');
+                if (count) count.textContent = `${filtered.length} av ${this._teams.length}`;
             }
             return;
         }
