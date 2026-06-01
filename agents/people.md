@@ -131,3 +131,21 @@ People POST accepts `primaryCompanyKey` and `primaryCompanyKey`+`extraCompanyKey
 - Address autocomplete in the place picker (Nominatim search)
 - Automatic migration of free-text `location` strings into places
 - Roles / titles per person×company relation (currently just keys)
+
+## Scroll layout gotchas
+
+- **`margin: 0 auto` disables flex stretch.** When `people-page` is a
+  flex item inside `main#content:has(people-page) { display: flex; flex-direction: column }`,
+  adding `margin: 0 auto` to `:host` overrides `align-self: stretch`.
+  The host then shrinks to its content width per tab instead of filling
+  the parent. Fix: always pair `margin: 0 auto` with `width: 100%` so
+  the element fills the parent before max-width caps it.
+
+- **Scroll layout pattern.** `main#content:has(people-page)` in
+  `public/style.css` overrides `overflow: hidden; display: flex;
+  flex-direction: column; padding-bottom: 32px` (to clear the fixed
+  shortcuts bar). `people-page { flex: 1; min-height: 0 }` fills the
+  space. Inside shadow DOM, `:host` is `display: flex; flex-direction:
+  column; overflow: hidden`. Active pane is `display: flex; flex:1;
+  min-height:0`. `.pp-scroll` inside each pane is `overflow-y: scroll`
+  — the scrollable list area. `.pp-toolbar` above it is `flex-shrink:0`.
