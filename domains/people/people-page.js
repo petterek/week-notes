@@ -75,7 +75,7 @@ const STYLES = `
 
     .pp-sticky-head {
         position: sticky;
-        top: 46px; /* below app-navbar (min-height: 46px) */
+        top: 0; /* scroll container is main#content which starts below the navbar */
         z-index: 40;
         background: var(--bg);
         padding-top: 18px;
