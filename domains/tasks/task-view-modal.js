@@ -65,6 +65,8 @@ const STYLES = `
     }
     .note-body p { margin: 0 0 8px; }
     .note-body p:last-child { margin-bottom: 0; }
+    .note-body a { color: var(--accent); text-decoration: underline; }
+    .note-body a:hover { opacity: 0.8; }
 
     /* Comment section */
     .comment-section {
@@ -319,7 +321,9 @@ class TaskViewModal extends WNElement {
         // Note section
         let noteSection = '';
         if (t.note) {
-            const noteHtml = escapeHtml(t.note).replace(/\n/g, '<br>');
+            const noteHtml = window.marked
+                ? window.marked.parse(t.note)
+                : escapeHtml(t.note).replace(/\n/g, '<br>');
             noteSection = `
                 <div class="note-section">
                     <h4>📝 Notat</h4>
