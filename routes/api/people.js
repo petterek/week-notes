@@ -84,11 +84,24 @@ module.exports = function(deps) {
                 if (idx === -1) { res.writeHead(404); res.end(JSON.stringify({ ok: false })); return; }
                 const person = people[idx];
                 if (data.firstName) {
-                    person.firstName = data.firstName;
-                    person.lastName = data.lastName || '';
-                    // @mention key stays as first name for compatibility
-                    person.name = data.firstName;
-                    person.key = data.firstName.toLowerCase();
+                    const firstName = String(data.firstName).trim();
+                    const lastName  = String(data.lastName  || '').trim();
+                    person.firstName = firstName;
+                    person.lastName  = lastName;
+                    person.name      = firstName;
+                    // Re-derive key with uniqueness check (same logic as create),
+                    // excluding self so unchanged firstName doesn't gain a suffix.
+                    const liveKeys = new Set(
+                        people.filter((p, i) => i !== idx && !p.deleted).map(p => p.key)
+                    );
+                    const baseKey = firstName.toLowerCase().replace(/\s+/g, '');
+                    let newKey = baseKey;
+                    if (liveKeys.has(newKey) && lastName) {
+                        newKey = (firstName + lastName.charAt(0)).toLowerCase().replace(/\s+/g, '');
+                    }
+                    let n = 2;
+                    while (liveKeys.has(newKey)) { newKey = baseKey + n; n++; }
+                    person.key = newKey;
                 }
                 if (data.title !== undefined) person.title = data.title;
                 if (data.email !== undefined) person.email = data.email;
