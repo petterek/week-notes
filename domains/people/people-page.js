@@ -70,7 +70,7 @@ function loadLeaflet() {
 }
 
 const STYLES = `
-    :host { display: block; padding: 18px 22px; box-sizing: border-box; max-width: 1100px; margin: 0 auto; color: var(--text-strong); font: inherit; }
+    :host { display: block; padding: 18px 22px; box-sizing: border-box; max-width: 1100px; margin: 0 auto; color: var(--text-strong); font: inherit; height: 100%; overflow-y: auto; }
     h1.pp-title { font-family: var(--font-heading, Georgia, serif); font-weight: 400; color: var(--accent); margin: 0 0 14px; font-size: 1.4em; }
 
     .dir-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-soft); margin-bottom: 16px; flex-wrap: wrap; }
