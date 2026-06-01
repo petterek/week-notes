@@ -70,22 +70,18 @@ function loadLeaflet() {
 }
 
 const STYLES = `
-    :host { display: flex; flex-direction: column; height: 100%; max-width: 1100px; margin: 0 auto; box-sizing: border-box; color: var(--text-strong); font: inherit; }
+    :host { display: block; padding: 18px 22px; box-sizing: border-box; max-width: 1100px; margin: 0 auto; color: var(--text-strong); font: inherit; }
     h1.pp-title { font-family: var(--font-heading, Georgia, serif); font-weight: 400; color: var(--accent); margin: 0 0 14px; font-size: 1.4em; }
 
-    .pp-sticky-head { flex: 0 0 auto; padding: 18px 22px 0; background: var(--bg); }
-    .dir-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-soft); margin-bottom: 0; flex-wrap: wrap; }
+    .dir-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-soft); margin-bottom: 16px; flex-wrap: wrap; }
     .dir-tab { background: transparent; border: 1px solid transparent; border-bottom: none; padding: 8px 14px; cursor: pointer; font-size: 0.95em; color: var(--text-muted); border-radius: 8px 8px 0 0; font: inherit; }
     .dir-tab:hover { color: var(--text); background: var(--surface); }
     .dir-tab.active { background: var(--surface); color: var(--accent); border-color: var(--border-soft); border-bottom: 1px solid var(--surface); margin-bottom: -1px; font-weight: 600; }
     .dir-tab-c { display: inline-block; min-width: 18px; padding: 0 6px; margin-left: 4px; background: var(--surface-alt); color: var(--text-muted); border-radius: 9px; font-size: 0.8em; }
     .dir-pane { display: none; }
-    .dir-pane.active { display: block; flex: 1 1 auto; overflow-y: auto; padding: 16px 22px 18px; min-height: 0; }
+    .dir-pane.active { display: block; }
 
     .pp-toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
-    /* Must come after .pp-toolbar to win the specificity tie */
-    .pp-toolbar[data-tab-toolbar] { display: none; }
-    .pp-toolbar[data-tab-toolbar].active { display: flex; }
     .pp-toolbar input[type=text] { flex: 1; min-width: 220px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.95em; outline: none; background: var(--surface); color: var(--text); font: inherit; }
     .pp-toolbar input[type=text]:focus { border-color: var(--accent); }
     .pp-toolbar select { padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.95em; outline: none; background: var(--surface); color: var(--text); cursor: pointer; font: inherit; }
@@ -405,45 +401,8 @@ class PeoplePage extends WNElement {
             </div>`;
 
         return html`
-            <div class="pp-sticky-head">
-                <h1 class="pp-title">👥 Personer og steder</h1>
-                ${tabs}
-                <div class="pp-toolbar ${this._tab === 'people' ? 'active' : ''}" data-tab-toolbar="people">
-                    <input type="text" placeholder="🔍 Filter på navn, tittel, e-post..." data-input="people" value="${this._filters.people}" />
-                    <select data-input="sort">
-                        <option value="name-asc"  ${this._sort === 'name-asc'  ? 'selected' : ''}>Navn A–Å</option>
-                        <option value="name-desc" ${this._sort === 'name-desc' ? 'selected' : ''}>Navn Å–A</option>
-                        <option value="refs-desc" ${this._sort === 'refs-desc' ? 'selected' : ''}>Flest referanser</option>
-                        <option value="refs-asc"  ${this._sort === 'refs-asc'  ? 'selected' : ''}>Færrest referanser</option>
-                    </select>
-                    <button class="btn-ghost" data-act="expand-all" data-tab="people" title="Utvid alle">⇣ Utvid</button>
-                    <button class="btn-ghost" data-act="collapse-all" data-tab="people" title="Skjul alle">⇡ Skjul</button>
-                    <label class="show-inactive"><input type="checkbox" data-input="show-inactive" ${this._showInactive ? 'checked' : ''} /> Vis inaktive</label>
-                    <label class="show-inactive"><input type="checkbox" data-input="show-deleted" ${this._showDeleted ? 'checked' : ''} /> Vis slettede</label>
-                    <button class="btn-ghost" data-act="reload-people" title="Tøm cache og last på nytt" ${this._reloading ? 'disabled' : ''}>${this._reloading ? '⏳' : '🔄'}</button>
-                    <span class="pp-count">${this._filterPeople().length} av ${this._people.length}</span>
-                    <button class="btn-primary" data-act="new-person">➕ Ny person</button>
-                </div>
-                <div class="pp-toolbar ${this._tab === 'companies' ? 'active' : ''}" data-tab-toolbar="companies">
-                    <input type="text" placeholder="🔍 Filter på navn, adresse, notat..." data-input="company" value="${this._filters.company}" />
-                    <button class="btn-ghost" data-act="expand-all" data-tab="companies">⇣ Utvid</button>
-                    <button class="btn-ghost" data-act="collapse-all" data-tab="companies">⇡ Skjul</button>
-                    <span class="pp-count">${this._filterCompanies().length} av ${this._companies.length}</span>
-                    <button class="btn-primary" data-act="new-company">➕ Nytt selskap</button>
-                </div>
-                <div class="pp-toolbar ${this._tab === 'teams' ? 'active' : ''}" data-tab-toolbar="teams">
-                    <input type="text" placeholder="🔍 Filter på teamnavn..." data-input="team" value="${this._filters.team}" />
-                    <span class="pp-count">${this._filterTeams().length} av ${this._teams.length}</span>
-                    <button class="btn-primary" data-act="new-team">➕ Nytt team</button>
-                </div>
-                <div class="pp-toolbar ${this._tab === 'places' ? 'active' : ''}" data-tab-toolbar="places">
-                    <input type="text" placeholder="🔍 Filter på navn, adresse..." data-input="place" value="${this._filters.place}" />
-                    <button class="btn-ghost" data-act="expand-all" data-tab="places">⇣ Utvid</button>
-                    <button class="btn-ghost" data-act="collapse-all" data-tab="places">⇡ Skjul</button>
-                    <span class="pp-count">${this._filterPlaces().length} av ${this._places.filter(p => !p.deleted).length}</span>
-                    <button class="btn-primary" data-act="new-place">➕ Nytt sted</button>
-                </div>
-            </div>
+            <h1 class="pp-title">👥 Personer og steder</h1>
+            ${tabs}
             <section class="dir-pane ${this._tab === 'people' ? 'active' : ''}" data-pane="people">
                 ${this._renderPeoplePane()}
             </section>
@@ -649,6 +608,22 @@ class PeoplePage extends WNElement {
         const total = this._people.length;
         const cards = filtered.map(p => this._renderPersonCard(p));
         return html`
+            <div class="pp-toolbar">
+                <input type="text" placeholder="🔍 Filter på navn, tittel, e-post..." data-input="people" value="${this._filters.people}" />
+                <select data-input="sort">
+                    <option value="name-asc"  ${this._sort === 'name-asc'  ? 'selected' : ''}>Navn A–Å</option>
+                    <option value="name-desc" ${this._sort === 'name-desc' ? 'selected' : ''}>Navn Å–A</option>
+                    <option value="refs-desc" ${this._sort === 'refs-desc' ? 'selected' : ''}>Flest referanser</option>
+                    <option value="refs-asc"  ${this._sort === 'refs-asc'  ? 'selected' : ''}>Færrest referanser</option>
+                </select>
+                <button class="btn-ghost" data-act="expand-all" data-tab="people" title="Utvid alle">⇣ Utvid</button>
+                <button class="btn-ghost" data-act="collapse-all" data-tab="people" title="Skjul alle">⇡ Skjul</button>
+                <label class="show-inactive"><input type="checkbox" data-input="show-inactive" ${this._showInactive ? 'checked' : ''} /> Vis inaktive</label>
+                <label class="show-inactive"><input type="checkbox" data-input="show-deleted" ${this._showDeleted ? 'checked' : ''} /> Vis slettede</label>
+                <button class="btn-ghost" data-act="reload-people" title="Tøm cache og last på nytt" ${this._reloading ? 'disabled' : ''}>${this._reloading ? '⏳' : '🔄'}</button>
+                <span class="pp-count">${filtered.length} av ${total}</span>
+                <button class="btn-primary" data-act="new-person">➕ Ny person</button>
+            </div>
             ${total === 0
                 ? html`<p class="empty-quiet">Ingen personer registrert ennå. Klikk <strong>➕ Ny person</strong> for å legge til.</p>`
                 : html`<div data-list="people">${cards}</div>`}
@@ -725,6 +700,13 @@ class PeoplePage extends WNElement {
         const filtered = this._filterCompanies();
         const total = this._companies.length;
         return html`
+            <div class="pp-toolbar">
+                <input type="text" placeholder="🔍 Filter på navn, adresse, notat..." data-input="company" value="${this._filters.company}" />
+                <button class="btn-ghost" data-act="expand-all" data-tab="companies">⇣ Utvid</button>
+                <button class="btn-ghost" data-act="collapse-all" data-tab="companies">⇡ Skjul</button>
+                <span class="pp-count">${filtered.length} av ${total}</span>
+                <button class="btn-primary" data-act="new-company">➕ Nytt selskap</button>
+            </div>
             ${total === 0
                 ? html`<p class="empty-quiet">Ingen selskaper registrert ennå.</p>`
                 : html`<div data-list="companies">${filtered.map(c => this._renderCompanyCard(c))}</div>`}
@@ -746,6 +728,13 @@ class PeoplePage extends WNElement {
         const filtered = this._filterPlaces();
         const total = this._places.filter(p => !p.deleted).length;
         return html`
+            <div class="pp-toolbar">
+                <input type="text" placeholder="🔍 Filter på navn, adresse..." data-input="place" value="${this._filters.place}" />
+                <button class="btn-ghost" data-act="expand-all" data-tab="places">⇣ Utvid</button>
+                <button class="btn-ghost" data-act="collapse-all" data-tab="places">⇡ Skjul</button>
+                <span class="pp-count">${filtered.length} av ${total}</span>
+                <button class="btn-primary" data-act="new-place">➕ Nytt sted</button>
+            </div>
             ${total === 0
                 ? html`<p class="empty-quiet">Ingen steder registrert ennå.</p>`
                 : html`<div data-list="places">${filtered.map(p => this._renderPlaceCard(p))}</div>`}
@@ -761,6 +750,11 @@ class PeoplePage extends WNElement {
         const filtered = this._filterTeams();
         const total = this._teams.length;
         return html`
+            <div class="pp-toolbar">
+                <input type="text" placeholder="🔍 Filter på teamnavn..." data-input="team" value="${this._filters.team}" />
+                <span class="pp-count">${filtered.length} av ${total}</span>
+                <button class="btn-primary" data-act="new-team">➕ Nytt team</button>
+            </div>
             ${total === 0
                 ? html`<p class="empty-quiet">Ingen team opprettet ennå.</p>`
                 : html`<div data-list="teams" class="team-list">${filtered.map(t => this._renderTeamCard(t))}</div>`}
@@ -1048,7 +1042,7 @@ class PeoplePage extends WNElement {
                 list.innerHTML = filtered.map(p => `<person-card data-key="${this._personKey(p)}" data-id="${p.id || ''}"></person-card>`).join('');
                 this._populatePersonCards();
             }
-            const count = root.querySelector('[data-tab-toolbar="people"] .pp-count');
+            const count = root.querySelector('[data-pane="people"] .pp-count');
             if (count) count.textContent = `${filtered.length} av ${this._people.length}`;
             return;
         }
@@ -1059,7 +1053,7 @@ class PeoplePage extends WNElement {
                 list.innerHTML = filtered.map(c => `<company-card data-key="${c.key}" data-id="${c.id || ''}"></company-card>`).join('');
                 this._populateCompanyCards();
             }
-            const count = root.querySelector('[data-tab-toolbar="companies"] .pp-count');
+            const count = root.querySelector('[data-pane="companies"] .pp-count');
             if (count) count.textContent = `${filtered.length} av ${this._companies.length}`;
             return;
         }
@@ -1070,7 +1064,7 @@ class PeoplePage extends WNElement {
                 list.innerHTML = filtered.map(p => `<place-card data-key="${p.key}" data-id="${p.id || ''}"></place-card>`).join('');
                 this._populatePlaceCards();
             }
-            const count = root.querySelector('[data-tab-toolbar="places"] .pp-count');
+            const count = root.querySelector('[data-pane="places"] .pp-count');
             if (count) count.textContent = `${filtered.length} av ${this._places.filter(p => !p.deleted).length}`;
             return;
         }
@@ -1079,7 +1073,7 @@ class PeoplePage extends WNElement {
             if (list) {
                 const filtered = this._filterTeams();
                 list.innerHTML = filtered.map(t => this._renderTeamCard(t)).join('');
-                const count = root.querySelector('[data-tab-toolbar="teams"] .pp-count');
+                const count = root.querySelector('[data-pane="teams"] .pp-count');
                 if (count) count.textContent = `${filtered.length} av ${this._teams.length}`;
             }
             return;
@@ -1089,7 +1083,6 @@ class PeoplePage extends WNElement {
     _applyTab() {
         this.shadowRoot.querySelectorAll('.dir-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === this._tab));
         this.shadowRoot.querySelectorAll('.dir-pane').forEach(p => p.classList.toggle('active', p.dataset.pane === this._tab));
-        this.shadowRoot.querySelectorAll('[data-tab-toolbar]').forEach(t => t.classList.toggle('active', t.dataset.tabToolbar === this._tab));
         if (this._tab === 'places') this._populatePlaceCards();
     }
 
