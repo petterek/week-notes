@@ -83,7 +83,7 @@ const STYLES = `
     .pp-scroll { flex: 1; min-height: 0; overflow-y: scroll; padding-bottom: 64px; }
 
     .pp-toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; flex-shrink: 0; }
-    .pp-toolbar input[type=text] { flex: 1; min-width: 220px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.95em; outline: none; background: var(--surface); color: var(--text); font: inherit; }
+    .pp-toolbar input[type=text] { flex: 0 1 280px; min-width: 180px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.95em; outline: none; background: var(--surface); color: var(--text); font: inherit; }
     .pp-toolbar input[type=text]:focus { border-color: var(--accent); }
     .pp-toolbar select { padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.95em; outline: none; background: var(--surface); color: var(--text); cursor: pointer; font: inherit; }
     .pp-toolbar .btn-ghost { padding: 8px 12px; border: 1px solid var(--border); background: var(--surface); border-radius: 8px; cursor: pointer; color: var(--text-muted); font-size: 0.9em; font: inherit; }
