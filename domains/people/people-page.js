@@ -70,18 +70,19 @@ function loadLeaflet() {
 }
 
 const STYLES = `
-    :host { display: block; padding: 18px 22px; box-sizing: border-box; max-width: 1100px; margin: 0 auto; color: var(--text-strong); font: inherit; height: 100%; overflow-y: auto; }
-    h1.pp-title { font-family: var(--font-heading, Georgia, serif); font-weight: 400; color: var(--accent); margin: 0 0 14px; font-size: 1.4em; }
+    :host { display: flex; flex-direction: column; padding: 18px 22px 0; box-sizing: border-box; max-width: 1100px; margin: 0 auto; color: var(--text-strong); font: inherit; height: 100%; overflow: hidden; }
+    h1.pp-title { font-family: var(--font-heading, Georgia, serif); font-weight: 400; color: var(--accent); margin: 0 0 14px; font-size: 1.4em; flex-shrink: 0; }
 
-    .dir-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-soft); margin-bottom: 16px; flex-wrap: wrap; }
+    .dir-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-soft); margin-bottom: 16px; flex-wrap: wrap; flex-shrink: 0; }
     .dir-tab { background: transparent; border: 1px solid transparent; border-bottom: none; padding: 8px 14px; cursor: pointer; font-size: 0.95em; color: var(--text-muted); border-radius: 8px 8px 0 0; font: inherit; }
     .dir-tab:hover { color: var(--text); background: var(--surface); }
     .dir-tab.active { background: var(--surface); color: var(--accent); border-color: var(--border-soft); border-bottom: 1px solid var(--surface); margin-bottom: -1px; font-weight: 600; }
     .dir-tab-c { display: inline-block; min-width: 18px; padding: 0 6px; margin-left: 4px; background: var(--surface-alt); color: var(--text-muted); border-radius: 9px; font-size: 0.8em; }
     .dir-pane { display: none; }
-    .dir-pane.active { display: block; }
+    .dir-pane.active { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    .pp-scroll { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 22px; }
 
-    .pp-toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+    .pp-toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; flex-shrink: 0; }
     .pp-toolbar input[type=text] { flex: 1; min-width: 220px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.95em; outline: none; background: var(--surface); color: var(--text); font: inherit; }
     .pp-toolbar input[type=text]:focus { border-color: var(--accent); }
     .pp-toolbar select { padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.95em; outline: none; background: var(--surface); color: var(--text); cursor: pointer; font: inherit; }
@@ -624,26 +625,28 @@ class PeoplePage extends WNElement {
                 <span class="pp-count">${filtered.length} av ${total}</span>
                 <button class="btn-primary" data-act="new-person">➕ Ny person</button>
             </div>
-            ${total === 0
-                ? html`<p class="empty-quiet">Ingen personer registrert ennå. Klikk <strong>➕ Ny person</strong> for å legge til.</p>`
-                : html`<div data-list="people">${cards}</div>`}
-            ${this._showDeleted && this._deletedPeople.length > 0 ? html`
-                <div class="deleted-section">
-                    <div class="deleted-section-h">Slettede (${this._deletedPeople.length})</div>
-                    ${this._deletedPeople.map(p => {
-                        const name = this._personDisplay(p);
-                        const when = p.deletedAt ? new Date(p.deletedAt).toLocaleDateString('nb-NO') : '';
-                        return html`<div class="deleted-row">
-                            <span class="deleted-name">${name}</span>
-                            ${when ? html`<span class="deleted-when">slettet ${when}</span>` : ''}
-                            <button class="btn-ghost" data-act="restore-person" data-id="${p.id}">↩ Gjenopprett</button>
-                        </div>`;
-                    })}
-                </div>
-            ` : ''}
-            ${this._showDeleted && this._deletedPeople.length === 0 ? html`
-                <p class="empty-quiet" style="color:var(--text-subtle);font-style:italic">Ingen slettede personer.</p>
-            ` : ''}
+            <div class="pp-scroll">
+                ${total === 0
+                    ? html`<p class="empty-quiet">Ingen personer registrert ennå. Klikk <strong>➕ Ny person</strong> for å legge til.</p>`
+                    : html`<div data-list="people">${cards}</div>`}
+                ${this._showDeleted && this._deletedPeople.length > 0 ? html`
+                    <div class="deleted-section">
+                        <div class="deleted-section-h">Slettede (${this._deletedPeople.length})</div>
+                        ${this._deletedPeople.map(p => {
+                            const name = this._personDisplay(p);
+                            const when = p.deletedAt ? new Date(p.deletedAt).toLocaleDateString('nb-NO') : '';
+                            return html`<div class="deleted-row">
+                                <span class="deleted-name">${name}</span>
+                                ${when ? html`<span class="deleted-when">slettet ${when}</span>` : ''}
+                                <button class="btn-ghost" data-act="restore-person" data-id="${p.id}">↩ Gjenopprett</button>
+                            </div>`;
+                        })}
+                    </div>
+                ` : ''}
+                ${this._showDeleted && this._deletedPeople.length === 0 ? html`
+                    <p class="empty-quiet" style="color:var(--text-subtle);font-style:italic">Ingen slettede personer.</p>
+                ` : ''}
+            </div>
         `;
     }
 
@@ -707,9 +710,11 @@ class PeoplePage extends WNElement {
                 <span class="pp-count">${filtered.length} av ${total}</span>
                 <button class="btn-primary" data-act="new-company">➕ Nytt selskap</button>
             </div>
-            ${total === 0
-                ? html`<p class="empty-quiet">Ingen selskaper registrert ennå.</p>`
-                : html`<div data-list="companies">${filtered.map(c => this._renderCompanyCard(c))}</div>`}
+            <div class="pp-scroll">
+                ${total === 0
+                    ? html`<p class="empty-quiet">Ingen selskaper registrert ennå.</p>`
+                    : html`<div data-list="companies">${filtered.map(c => this._renderCompanyCard(c))}</div>`}
+            </div>
         `;
     }
 
@@ -735,9 +740,11 @@ class PeoplePage extends WNElement {
                 <span class="pp-count">${filtered.length} av ${total}</span>
                 <button class="btn-primary" data-act="new-place">➕ Nytt sted</button>
             </div>
-            ${total === 0
-                ? html`<p class="empty-quiet">Ingen steder registrert ennå.</p>`
-                : html`<div data-list="places">${filtered.map(p => this._renderPlaceCard(p))}</div>`}
+            <div class="pp-scroll">
+                ${total === 0
+                    ? html`<p class="empty-quiet">Ingen steder registrert ennå.</p>`
+                    : html`<div data-list="places">${filtered.map(p => this._renderPlaceCard(p))}</div>`}
+            </div>
         `;
     }
 
@@ -755,9 +762,11 @@ class PeoplePage extends WNElement {
                 <span class="pp-count">${filtered.length} av ${total}</span>
                 <button class="btn-primary" data-act="new-team">➕ Nytt team</button>
             </div>
-            ${total === 0
-                ? html`<p class="empty-quiet">Ingen team opprettet ennå.</p>`
-                : html`<div data-list="teams" class="team-list">${filtered.map(t => this._renderTeamCard(t))}</div>`}
+            <div class="pp-scroll">
+                ${total === 0
+                    ? html`<p class="empty-quiet">Ingen team opprettet ennå.</p>`
+                    : html`<div data-list="teams" class="team-list">${filtered.map(t => this._renderTeamCard(t))}</div>`}
+            </div>
         `;
     }
 
