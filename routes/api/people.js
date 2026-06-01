@@ -89,19 +89,7 @@ module.exports = function(deps) {
                     person.firstName = firstName;
                     person.lastName  = lastName;
                     person.name      = firstName;
-                    // Re-derive key with uniqueness check (same logic as create),
-                    // excluding self so unchanged firstName doesn't gain a suffix.
-                    const liveKeys = new Set(
-                        people.filter((p, i) => i !== idx && !p.deleted).map(p => p.key)
-                    );
-                    const baseKey = firstName.toLowerCase().replace(/\s+/g, '');
-                    let newKey = baseKey;
-                    if (liveKeys.has(newKey) && lastName) {
-                        newKey = (firstName + lastName.charAt(0)).toLowerCase().replace(/\s+/g, '');
-                    }
-                    let n = 2;
-                    while (liveKeys.has(newKey)) { newKey = baseKey + n; n++; }
-                    person.key = newKey;
+                    // key is immutable after creation — never overwrite it
                 }
                 if (data.title !== undefined) person.title = data.title;
                 if (data.email !== undefined) person.email = data.email;
