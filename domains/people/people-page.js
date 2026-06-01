@@ -74,8 +74,6 @@ const STYLES = `
     h1.pp-title { font-family: var(--font-heading, Georgia, serif); font-weight: 400; color: var(--accent); margin: 0 0 14px; font-size: 1.4em; }
 
     .pp-sticky-head { flex: 0 0 auto; padding: 18px 22px 0; background: var(--bg); }
-    [data-tab-toolbar] { display: none; }
-    [data-tab-toolbar].active { display: flex; }
     .dir-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-soft); margin-bottom: 0; flex-wrap: wrap; }
     .dir-tab { background: transparent; border: 1px solid transparent; border-bottom: none; padding: 8px 14px; cursor: pointer; font-size: 0.95em; color: var(--text-muted); border-radius: 8px 8px 0 0; font: inherit; }
     .dir-tab:hover { color: var(--text); background: var(--surface); }
@@ -85,6 +83,9 @@ const STYLES = `
     .dir-pane.active { display: block; flex: 1 1 auto; overflow-y: auto; padding: 16px 22px 18px; min-height: 0; }
 
     .pp-toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+    /* Must come after .pp-toolbar to win the specificity tie */
+    .pp-toolbar[data-tab-toolbar] { display: none; }
+    .pp-toolbar[data-tab-toolbar].active { display: flex; }
     .pp-toolbar input[type=text] { flex: 1; min-width: 220px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.95em; outline: none; background: var(--surface); color: var(--text); font: inherit; }
     .pp-toolbar input[type=text]:focus { border-color: var(--accent); }
     .pp-toolbar select { padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.95em; outline: none; background: var(--surface); color: var(--text); cursor: pointer; font: inherit; }
