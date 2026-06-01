@@ -70,9 +70,19 @@ function loadLeaflet() {
 }
 
 const STYLES = `
-    :host { display: block; padding: 18px 22px; box-sizing: border-box; max-width: 1100px; margin: 0 auto; color: var(--text-strong); font: inherit; }
+    :host { display: block; padding: 0 22px 18px; box-sizing: border-box; max-width: 1100px; margin: 0 auto; color: var(--text-strong); font: inherit; }
     h1.pp-title { font-family: var(--font-heading, Georgia, serif); font-weight: 400; color: var(--accent); margin: 0 0 14px; font-size: 1.4em; }
 
+    .pp-sticky-head {
+        position: sticky;
+        top: 46px; /* below app-navbar (min-height: 46px) */
+        z-index: 40;
+        background: var(--bg);
+        padding-top: 18px;
+        margin: 0 -22px;
+        padding-left: 22px;
+        padding-right: 22px;
+    }
     .dir-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-soft); margin-bottom: 16px; flex-wrap: wrap; }
     .dir-tab { background: transparent; border: 1px solid transparent; border-bottom: none; padding: 8px 14px; cursor: pointer; font-size: 0.95em; color: var(--text-muted); border-radius: 8px 8px 0 0; font: inherit; }
     .dir-tab:hover { color: var(--text); background: var(--surface); }
@@ -401,8 +411,10 @@ class PeoplePage extends WNElement {
             </div>`;
 
         return html`
-            <h1 class="pp-title">👥 Personer og steder</h1>
-            ${tabs}
+            <div class="pp-sticky-head">
+                <h1 class="pp-title">👥 Personer og steder</h1>
+                ${tabs}
+            </div>
             <section class="dir-pane ${this._tab === 'people' ? 'active' : ''}" data-pane="people">
                 ${this._renderPeoplePane()}
             </section>
