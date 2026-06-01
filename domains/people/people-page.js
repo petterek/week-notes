@@ -70,28 +70,19 @@ function loadLeaflet() {
 }
 
 const STYLES = `
-    :host { display: block; padding: 0 22px 18px; box-sizing: border-box; max-width: 1100px; margin: 0 auto; color: var(--text-strong); font: inherit; }
+    :host { display: flex; flex-direction: column; height: 100%; max-width: 1100px; margin: 0 auto; box-sizing: border-box; color: var(--text-strong); font: inherit; }
     h1.pp-title { font-family: var(--font-heading, Georgia, serif); font-weight: 400; color: var(--accent); margin: 0 0 14px; font-size: 1.4em; }
 
-    .pp-sticky-head {
-        position: sticky;
-        top: 0; /* scroll container is main#content which starts below the navbar */
-        z-index: 40;
-        background: var(--bg);
-        padding-top: 18px;
-        margin: 0 -22px;
-        padding-left: 22px;
-        padding-right: 22px;
-    }
+    .pp-sticky-head { flex: 0 0 auto; padding: 18px 22px 0; background: var(--bg); }
     [data-tab-toolbar] { display: none; }
     [data-tab-toolbar].active { display: flex; }
-    .dir-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-soft); margin-bottom: 16px; flex-wrap: wrap; }
+    .dir-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-soft); margin-bottom: 0; flex-wrap: wrap; }
     .dir-tab { background: transparent; border: 1px solid transparent; border-bottom: none; padding: 8px 14px; cursor: pointer; font-size: 0.95em; color: var(--text-muted); border-radius: 8px 8px 0 0; font: inherit; }
     .dir-tab:hover { color: var(--text); background: var(--surface); }
     .dir-tab.active { background: var(--surface); color: var(--accent); border-color: var(--border-soft); border-bottom: 1px solid var(--surface); margin-bottom: -1px; font-weight: 600; }
     .dir-tab-c { display: inline-block; min-width: 18px; padding: 0 6px; margin-left: 4px; background: var(--surface-alt); color: var(--text-muted); border-radius: 9px; font-size: 0.8em; }
     .dir-pane { display: none; }
-    .dir-pane.active { display: block; }
+    .dir-pane.active { display: block; flex: 1 1 auto; overflow-y: auto; padding: 16px 22px 18px; min-height: 0; }
 
     .pp-toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
     .pp-toolbar input[type=text] { flex: 1; min-width: 220px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.95em; outline: none; background: var(--surface); color: var(--text); font: inherit; }
