@@ -80,7 +80,7 @@ const STYLES = `
     .dir-tab-c { display: inline-block; min-width: 18px; padding: 0 6px; margin-left: 4px; background: var(--surface-alt); color: var(--text-muted); border-radius: 9px; font-size: 0.8em; }
     .dir-pane { display: none; }
     .dir-pane.active { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-    .pp-scroll { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 64px; }
+    .pp-scroll { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 64px; scrollbar-gutter: stable; }
 
     .pp-toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; flex-shrink: 0; }
     .pp-toolbar input[type=text] { flex: 1; min-width: 220px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.95em; outline: none; background: var(--surface); color: var(--text); font: inherit; }
