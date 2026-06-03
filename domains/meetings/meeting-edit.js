@@ -63,8 +63,13 @@ const STYLES = `
     button[type=submit]:disabled { opacity: 0.6; cursor: progress; }
     button.danger { background: transparent; color: var(--danger, #c53030); border-color: var(--danger, #c53030); }
     button.danger:hover { background: var(--danger, #c53030); color: var(--text-on-accent, #fff); }
-    .err { color: var(--danger, #c53030); font-size: 0.85em; margin-top: 4px; min-height: 1em; }
-    .hint { color: var(--text-subtle); font-size: 0.78em; font-weight: 400; text-transform: none; letter-spacing: normal; }
+    .note-ref-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+    .note-ref-pill { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 20px; background: var(--accent-soft); color: var(--accent-strong); font-size: 0.85em; max-width: 100%; overflow: hidden; }
+    .note-ref-pill span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .note-ref-rm { background: none; border: none; padding: 0 2px; cursor: pointer; color: inherit; font-size: 1em; line-height: 1; flex-shrink: 0; }
+    .note-ref-rm:hover { opacity: 0.7; }
+    .note-pick-btn { padding: 5px 11px; border-radius: 5px; border: 1px dashed var(--border); background: var(--bg); color: var(--text-muted); cursor: pointer; font: inherit; font-size: 0.85em; margin-top: 6px; }
+    .note-pick-btn:hover { border-color: var(--accent); color: var(--accent); }
 `;
 
 function pad2(n) { return String(n).padStart(2, '0'); }
@@ -92,6 +97,7 @@ class MeetingEdit extends WNElement {
     disconnectedCallback() {
         if (super.disconnectedCallback) super.disconnectedCallback();
         this._closePicker();
+        this._closeNotePicker();
     }
 
     attributeChangedCallback(name, oldVal, newVal) {
@@ -128,6 +134,7 @@ class MeetingEdit extends WNElement {
      */
     setMeeting(m) {
         this._meeting = m && typeof m === 'object' ? { ...m } : null;
+        this._noteRef = (m && m.noteRef) || '';
         this._startDt = this._meeting ? fmtDateTime(this._meeting.date, this._meeting.start) : '';
         this._endDt   = this._meeting ? fmtDateTime(this._meeting.date, this._meeting.end)   : '';
         if (this.isConnected) this.requestRender();
@@ -135,6 +142,23 @@ class MeetingEdit extends WNElement {
 
     loadData() {
         return { types: () => this._fetchTypes() };
+    }
+
+    _renderNoteRefHtml() {
+        if (this._noteRef) {
+            const parts = this._noteRef.split('/');
+            const week = parts[0] || '';
+            const name = (parts[1] || '').replace(/\.md$/, '');
+            return `<div class="note-ref-row">
+                <span class="note-ref-pill">
+                    <span>📝 ${escapeHtml(name)}</span>
+                    <span style="opacity:0.6;font-size:0.88em">${escapeHtml(week)}</span>
+                    <button type="button" class="note-ref-rm" data-clear-note title="Fjern notat">✕</button>
+                </span>
+                <button type="button" class="note-pick-btn" data-pick-note>Bytt…</button>
+            </div>`;
+        }
+        return `<button type="button" class="note-pick-btn" data-pick-note>📎 Velg notat…</button>`;
     }
 
     render({ types = [] } = {}) {
@@ -178,6 +202,9 @@ class MeetingEdit extends WNElement {
                     <pick-place data-el="place" placeholder="Velg eller opprett sted…"></pick-place>
                 </label>
                 <label for="${id('notes')}">Notater<textarea id="${id('notes')}" name="notes" rows="4" placeholder="Agenda, lenker, …">${escapeHtml(m.notes || '')}</textarea></label>
+                <label>Lenket notat <span class="hint">Knytt en eksisterende notatfil til møtet</span>
+                    <div data-note-ref-row>${this._renderNoteRefHtml()}</div>
+                </label>
                 <div class="err" data-err></div>
                 <div class="actions">
                     <button type="button" class="danger" data-delete>🗑 Slett</button>
@@ -218,6 +245,119 @@ class MeetingEdit extends WNElement {
         this.shadowRoot.querySelectorAll('[data-dt-trigger]').forEach(btn => {
             btn.addEventListener('click', () => this._openPicker(btn.dataset.dtTrigger, btn));
         });
+        this._wireNoteRef();
+    }
+
+    _wireNoteRef() {
+        const root = this.shadowRoot;
+        if (!root) return;
+        const row = root.querySelector('[data-note-ref-row]');
+        if (!row) return;
+        const clearBtn = row.querySelector('[data-clear-note]');
+        if (clearBtn) clearBtn.addEventListener('click', () => this._setNoteRef(''));
+        const pickBtn = row.querySelector('[data-pick-note]');
+        if (pickBtn) pickBtn.addEventListener('click', () => this._openNotePicker(pickBtn));
+    }
+
+    _setNoteRef(path) {
+        this._noteRef = path || '';
+        const root = this.shadowRoot;
+        if (!root) return;
+        const row = root.querySelector('[data-note-ref-row]');
+        if (row) {
+            row.innerHTML = this._renderNoteRefHtml();
+            this._wireNoteRef();
+        }
+    }
+
+    async _openNotePicker(triggerEl) {
+        this._closeNotePicker();
+        let notes = [];
+        try {
+            const r = await fetch('/api/notes');
+            if (r.ok) notes = await r.json();
+        } catch {}
+
+        const picker = document.createElement('div');
+        picker.style.cssText = 'position:fixed;z-index:10000;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,0.18);width:310px;max-height:340px;display:flex;flex-direction:column;overflow:hidden;box-sizing:border-box;';
+        picker.innerHTML = `
+            <input type="text" placeholder="Søk notater…" style="margin:10px;padding:6px 10px;border:1px solid var(--border);border-radius:5px;font:inherit;font-size:0.9em;background:var(--bg);color:var(--text-strong);box-sizing:border-box;">
+            <div style="overflow-y:auto;flex:1;"></div>
+        `;
+        document.body.appendChild(picker);
+        this._notePicker = picker;
+
+        const input = picker.querySelector('input');
+        const list = picker.querySelector('div');
+
+        const render = (filter) => {
+            const q = (filter || '').toLowerCase();
+            const filtered = q ? notes.filter(n => (n.name || '').toLowerCase().includes(q) || (n.week || '').includes(q)) : notes;
+            if (!filtered.length) {
+                list.innerHTML = `<div style="padding:14px;color:var(--text-muted);font-size:0.88em;text-align:center;">Ingen notater funnet</div>`;
+                return;
+            }
+            list.innerHTML = filtered.slice(0, 60).map(n => {
+                const name = escapeHtml(n.name || n.file || '');
+                const week = escapeHtml(n.week || '');
+                const path = escapeHtml((n.week || '') + '/' + (n.file || ''));
+                return `<div data-path="${path}" style="padding:8px 14px;cursor:pointer;border-bottom:1px solid var(--border-faint);font-size:0.88em;">
+                    <div style="color:var(--text-strong);">📝 ${name}</div>
+                    <div style="color:var(--text-muted);font-size:0.8em;">${week}</div>
+                </div>`;
+            }).join('');
+            list.querySelectorAll('[data-path]').forEach(el => {
+                el.addEventListener('mouseenter', () => { el.style.background = 'var(--surface-alt)'; });
+                el.addEventListener('mouseleave', () => { el.style.background = ''; });
+                el.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    this._setNoteRef(el.dataset.path);
+                    this._closeNotePicker();
+                });
+            });
+        };
+        render('');
+        input.addEventListener('input', () => render(input.value));
+
+        // Position below trigger
+        const place = () => {
+            const rect = triggerEl.getBoundingClientRect();
+            const w = 310;
+            let left = rect.left;
+            let top = rect.bottom + 4;
+            if (left + w > window.innerWidth - 8) left = Math.max(8, window.innerWidth - w - 8);
+            if (top + 340 > window.innerHeight - 8) top = Math.max(8, rect.top - 340 - 4);
+            picker.style.left = left + 'px';
+            picker.style.top = top + 'px';
+        };
+        requestAnimationFrame(place);
+        setTimeout(() => input.focus(), 30);
+
+        const onOutside = (e) => {
+            if (!this._notePicker) return;
+            if (picker.contains(e.target)) return;
+            this._closeNotePicker();
+        };
+        const onKey = (e) => { if (e.key === 'Escape') this._closeNotePicker(); };
+        document.addEventListener('mousedown', onOutside, true);
+        document.addEventListener('keydown', onKey, true);
+        this._notePickerOutside = onOutside;
+        this._notePickerKey = onKey;
+    }
+
+    _closeNotePicker() {
+        if (this._notePickerOutside) {
+            document.removeEventListener('mousedown', this._notePickerOutside, true);
+            this._notePickerOutside = null;
+        }
+        if (this._notePickerKey) {
+            document.removeEventListener('keydown', this._notePickerKey, true);
+            this._notePickerKey = null;
+        }
+        if (this._notePicker && this._notePicker.parentNode) {
+            this._notePicker.parentNode.removeChild(this._notePicker);
+        }
+        this._notePicker = null;
     }
 
     _showError(msg) {
@@ -333,6 +473,7 @@ class MeetingEdit extends WNElement {
             location: placeVal ? placeVal.name : '',
             placeKey: placeVal ? (placeVal.key || '') : '',
             notes: (fd.get('notes') || '').toString(),
+            noteRef: this._noteRef || '',
         };
         if (!data.title) { this._showError('Tittel er påkrevd'); return; }
 
