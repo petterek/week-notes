@@ -205,7 +205,10 @@ class TaskViewModal extends WNElement {
                 ev.preventDefault();
                 const notePath = act.dataset.path;
                 if (notePath && window.openNoteViewModal) {
-                    window.openNoteViewModal(notePath);
+                    const slash = notePath.indexOf('/');
+                    const week = notePath.slice(0, slash);
+                    const fileEnc = encodeURIComponent(notePath.slice(slash + 1));
+                    window.openNoteViewModal(week, fileEnc);
                 }
             }
         });
