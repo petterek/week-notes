@@ -796,6 +796,8 @@ class SettingsPage extends WNElement {
                 let statusCell;
                 if (m.remote) {
                     statusCell = `<span class="vs-status-ok">☁ Ekstern</span>`;
+                } else if (m.ollama) {
+                    statusCell = `<span class="vs-status-ok">🦙 Ollama</span>`;
                 } else if (isLoading) {
                     const pctTxt = loadingPct != null ? (loadingPct + '%') : '…';
                     statusCell = `<div class="vs-row-prog">
@@ -812,7 +814,7 @@ class SettingsPage extends WNElement {
                     actions = `<button class="vs-action" disabled>Laster…</button>`;
                 } else if (isActive) {
                     actions = `<button class="vs-action is-active-btn" disabled>Aktiv</button>`;
-                } else if (m.remote) {
+                } else if (m.remote || m.ollama) {
                     actions = `<button class="vs-action" data-sm-act="${escapeHtml(m.id)}">Aktiver</button>`;
                 } else if (downloaded) {
                     actions = `<button class="vs-action" data-sm-act="${escapeHtml(m.id)}">Aktiver</button>
@@ -820,7 +822,7 @@ class SettingsPage extends WNElement {
                 } else {
                     actions = `<button class="vs-action" data-sm-act="${escapeHtml(m.id)}">⬇ Last ned</button>`;
                 }
-                const sizeTxt = m.remote ? '—' : ('~' + m.sizeMb + 'MB');
+                const sizeTxt = (m.remote || m.ollama) ? '—' : ('~' + m.sizeMb + 'MB');
                 return `<tr class="${isActive ? 'is-active' : ''}${isLoading ? ' is-loading' : ''}">
                     <td><div class="vs-name">${escapeHtml(m.label)}${m.recommended ? ' <small style="display:inline;color:var(--accent);font-weight:600;margin-left:4px">Anbefalt</small>' : ''}<small>${escapeHtml(m.id)}</small></div></td>
                     <td>${sizeTxt}</td>

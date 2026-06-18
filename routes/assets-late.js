@@ -1,4 +1,23 @@
 'use strict';
+
+// Build emoji map once at module load; served to clients as part of /emoji-ext.js
+let _emojiExtScript = null;
+function buildEmojiExtScript() {
+    if (_emojiExtScript) return _emojiExtScript;
+    let map = {};
+    try { const lib = require('emojilib').lib; for (const [k, v] of Object.entries(lib)) { if (v && v.char) map[k] = v.char; } } catch (_) {}
+    _emojiExtScript = `(function(){
+if(!window.marked||!marked.use)return;
+var E=${JSON.stringify(map)};
+marked.use({extensions:[{name:'emoji',level:'inline',
+  start:function(s){return s.indexOf(':');},
+  tokenizer:function(s){var m=/^:([a-z0-9_+\\-]+):/.exec(s);if(m&&E[m[1]])return{type:'emoji',raw:m[0],text:E[m[1]]};},
+  renderer:function(t){return t.text;}
+}]});
+})();`;
+    return _emojiExtScript;
+}
+
 module.exports = function(deps) {
     const fs = require('fs');
     const path = require('path');
@@ -45,6 +64,13 @@ module.exports = function(deps) {
         } catch (e) {
             res.writeHead(404); res.end('Not found');
         }
+        return;
+    }
+
+    // Emoji shortcode extension for client-side marked
+    if (pathname === '/emoji-ext.js') {
+        res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'public, max-age=3600' });
+        res.end(buildEmojiExtScript());
         return;
     }
 

@@ -178,3 +178,58 @@ test('editing person with duplicate firstName preserves unique keys', async ({ r
     await request.delete(`/api/people/${p2.id}`);
 });
 
+// Regression: inline-task rendered in a note must reflect live task.done status,
+// not just the stale {{?id}} marker in the note file. If a task is closed via the
+// tasks page (which doesn't flip the note marker), the note should still show the
+// task as checked when opened.
+test('inline-task in note reflects live done status ignoring stale open marker', async ({ page, request }) => {
+    const week = '2099-W01';
+
+    // 1. Create a task
+    const createResp = await request.post('/api/tasks', {
+        data: { text: 'Regression inline-task state', week }
+    });
+    expect(createResp.ok()).toBe(true);
+    const tasks = await createResp.json();
+    const task = tasks.find(t => t.text === 'Regression inline-task state' && !t.done);
+    expect(task).toBeTruthy();
+    const taskId = task.id;
+
+    // 2. Mark the task done via the regular toggle (does NOT flip note markers)
+    const toggleResp = await request.put(`/api/tasks/${taskId}/toggle`, { data: {} });
+    expect(toggleResp.ok()).toBe(true);
+
+    // 3. Write a note with a stale {{?id}} open marker (as if the note was written
+    //    before the task was closed elsewhere)
+    const noteFile = 'inline-task-regression-test.md';
+    const saveResp = await request.post('/api/save', {
+        data: { folder: week, file: noteFile, content: `# Test\n\n{{?${taskId}}}\n` }
+    });
+    expect(saveResp.ok()).toBe(true);
+
+    // 4. Open the rendered note page
+    await page.goto(`/${week}/${noteFile}`, { waitUntil: 'domcontentloaded' });
+
+    // 5. Wait for inline-task to upgrade and fetch live task data
+    await page.waitForFunction(
+        () => !!document.querySelector('inline-task'),
+        { timeout: 5000 }
+    );
+    await page.waitForTimeout(2000); // allow task fetch + re-render
+
+    // 6. The checkbox inside the shadow DOM must be checked (done), not open
+    const isChecked = await page.evaluate(() => {
+        const el = document.querySelector('inline-task');
+        if (!el || !el.shadowRoot) return null;
+        const cb = el.shadowRoot.querySelector('input[type="checkbox"]');
+        return cb ? cb.checked : null;
+    });
+    expect(isChecked, 'inline-task should show as checked when task is done, even with stale open marker').toBe(true);
+
+    // Clean up
+    await request.delete(`/api/tasks/${taskId}`);
+    try {
+        // Remove the test note
+        await request.delete(`/api/notes/${week}/${encodeURIComponent(noteFile)}`);
+    } catch {}
+});

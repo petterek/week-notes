@@ -46,6 +46,7 @@ const {
     checkExternalTools,
     ensureAllContextsInitialised,
     rebuildTaskNoteRefs,
+    autoSelectSummarizeModel,
     startSearchWorker,
     startEmbedWorker,
     startSummarizeWorker,
@@ -125,6 +126,6 @@ server.listen(PORT, () => {
     try { rebuildTaskNoteRefs(); } catch (e) { console.error('rebuildTaskNoteRefs', e.message); }
     startSearchWorker();
     startEmbedWorker();
-    startSummarizeWorker();
+    autoSelectSummarizeModel(); // probes Ollama async, then calls startSummarizeWorker
     console.log('Press Ctrl+C to stop');
 });

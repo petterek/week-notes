@@ -123,7 +123,10 @@ class InlineTask extends WNElement {
         const id = this.getAttribute('task-id') || '';
         const attrState = (this.getAttribute('state') || 'open') === 'done' ? 'done' : 'open';
         const isDeleted = !!(task && task.deleted);
-        const state = isDeleted ? 'deleted' : attrState;
+        // Use live task.done from the API when available; fall back to the note
+        // marker state (attrState) while the data is still loading or not found.
+        const liveState = task ? (task.done ? 'done' : 'open') : attrState;
+        const state = isDeleted ? 'deleted' : liveState;
         const checked = state === 'done' ? 'checked' : '';
         const text = task ? (task.text || '') : (_loading && id ? '…' : '');
         const suffix = isDeleted ? ' (slettet)' : '';

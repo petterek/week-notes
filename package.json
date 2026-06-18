@@ -11,7 +11,9 @@
   "type": "commonjs",
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
-    "marked": "^17.0.5"
+    "marked": "^17.0.5",
+    "marked-emoji": "^2.0.3",
+    "node-emoji": "^2.2.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1"
