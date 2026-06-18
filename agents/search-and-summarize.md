@@ -108,6 +108,25 @@ the `href` builder in `searchAll` accordingly.
   writes the result to `summarize.md` in that week's folder.
 - `saveSummary()` (~line 2345) handles the save.
 
+### Model types
+
+Three flavours, selected in App-settings → Oppsummering:
+
+| Flag | Examples | How it runs |
+|---|---|---|
+| `remote: true` | `remote:github-models/gpt-4o-mini` | HTTPS to GitHub Models API; needs `gh auth` token |
+| `ollama: true` | `ollama:gemma3`, `ollama:gemma3:1b`, `ollama:llama3.2` | HTTP to `localhost:11434` (Ollama); no token, no download |
+| _(neither)_ | `Xenova/distilbart-cnn-6-6`, etc. | `@huggingface/transformers` via Worker thread; model files cached in `models/` |
+
+**Ollama path** (`isOllamaSummarizeModel`):
+- Uses the same richly-instructed Norwegian prompt as the remote path
+  (chat models understand instructions; seq2seq models do not).
+- Calls `http://127.0.0.1:11434/v1/chat/completions` with `stream: false`.
+- The `ollama:` prefix is stripped to get the model name passed to Ollama.
+- If Ollama isn't running the error is `"Ollama ikke tilgjengelig — er Ollama startet?"`.
+- To use: `ollama pull gemma3` then activate in Settings.
+- Settings UI shows `🦙 Ollama` status cell; size column shows `—`.
+
 ## Code map
 
 - Search worker: `search-worker.js` (top-level file, separate from

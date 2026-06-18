@@ -186,6 +186,14 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-06-18 (v4.24 — inline-task live state + Ollama summarize + emoji shortcodes)
+- **Fix: inline-task viser live done-status:** `<inline-task>` leste kun `state`-attributtet fra notatmarkøren (`{{?id}}`/`{{!id}}`). Nå brukes `task.done` fra live API-henting — oppgaver som er lukket fra oppgavelisten vises korrekt som avkrysset i notater selv om markøren ikke ble flippet.
+- **Regresjonstest:** Playwright-test som verifiserer at en lukket oppgave med utdatert `{{?id}}`-markør vises som ferdig i rendret notat.
+- **Ollama summarize-modeller:** `gemma3` (ny standard), `gemma4`, `gemma3:1b` og `llama3.2` tilgjengelig som lokale Ollama-alternativer i innstillinger-siden.
+- **Innstillinger-UI for Ollama:** Ollama-modeller viser 🦙-merke, ingen nedlastingsknapp — kun «Aktiver».
+- **Emoji shortcodes:** `:smile:` → 😄, `:rocket:` → 🚀 osv. i notater og editor-forhåndsvisning. Fungerer server-side (marked-utvidelse i `core.js`) og klient-side (`/emoji-ext.js`).
+- **46/46 tester grønne.**
+
 ### 2026-06-01 (v4.23 — people-page scroll inside component)
 - **Scroll inne i komponenten:** peoplesiden (`/people`) scroller nå internt i `<people-page>`-komponenten — tittel, faner og verktøylinje forblir synlige mens kortlisten scroller.
 - **Verktøylinje fast øverst per fane:** `.pp-toolbar` er `flex-shrink: 0` over `.pp-scroll`-rullingsområdet.

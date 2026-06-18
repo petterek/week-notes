@@ -2997,6 +2997,7 @@ modal.open();</pre>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/jsoneditor@10.1.0/dist/jsoneditor.min.css">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>if(window.marked&&marked.use)marked.use({breaks:true,gfm:true});</script>
+    <script src="/emoji-ext.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsoneditor@10.1.0/dist/jsoneditor.min.js"></script>
     <script type="module" src="/components/_shared.js"></script>
     <script defer src="/debug/_mock-services.js"></script>

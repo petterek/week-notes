@@ -142,6 +142,7 @@ module.exports = function(deps) {
             location: (data.location || '').trim(),
             placeKey: (data.placeKey || '').trim().toLowerCase(),
             notes: (data.notes || '').trim(),
+            noteRef: /^[^/]+\/[^/]+\.md$/.test(data.noteRef || '') ? data.noteRef.trim() : '',
             created: new Date().toISOString()
         };
         if (data.endDate && data.endDate !== data.date) m.endDate = data.endDate;
@@ -200,6 +201,7 @@ module.exports = function(deps) {
         if (data.location !== undefined) m.location = (data.location || '').trim();
         if (data.placeKey !== undefined) m.placeKey = (data.placeKey || '').trim().toLowerCase();
         if (data.notes !== undefined) m.notes = (data.notes || '').trim();
+        if (data.noteRef !== undefined) m.noteRef = /^[^/]+\/[^/]+\.md$/.test(data.noteRef || '') ? data.noteRef.trim() : '';
         m.updated = new Date().toISOString();
         saveMeetings(meetings);
         try { syncMentions(m.title, m.notes); } catch {}

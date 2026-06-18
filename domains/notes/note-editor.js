@@ -312,7 +312,8 @@ class NoteEditor extends WNElement {
                 <code>#</code> tag ·
                 <code>{{?</code> oppgave ·
                 <code>[[?</code> resultat ·
-                <code>Ctrl+M</code> møte ·
+                <code>{{m:?</code> møte ·
+                <code>Ctrl+M</code> nytt møte ·
                 <code>Ctrl+D</code> dato ·
                 <code>Ctrl+Shift+D</code> dato + tid ·
                 <code>Ctrl+Enter</code> lagre og lukk
@@ -1213,6 +1214,7 @@ class NoteEditor extends WNElement {
         let companies = null;
         let teams = null;
         let results = null;
+        let meetings = null;
         const ensureOpenTasks = async () => {
             if (openTasks) return openTasks;
             try {
@@ -1253,6 +1255,15 @@ class NoteEditor extends WNElement {
                 if (!Array.isArray(results)) results = [];
             } catch (_) { results = []; }
             return results;
+        };
+        const ensureMeetings = async () => {
+            if (meetings) return meetings;
+            try {
+                const r = await fetch('/api/meetings');
+                meetings = await r.json() || [];
+                if (!Array.isArray(meetings)) meetings = [];
+            } catch (_) { meetings = []; }
+            return meetings;
         };
 
         const taskTrigger = {
@@ -1431,8 +1442,48 @@ class NoteEditor extends WNElement {
             },
         };
 
+        const meetingTrigger = {
+            // Detect '{{m:?' or '{{m:!' before the caret.
+            detect: (text, caret) => {
+                const upto = text.slice(0, caret);
+                const doneIdx = upto.lastIndexOf('{{m:!');
+                const openIdx = upto.lastIndexOf('{{m:?');
+                const idx = Math.max(doneIdx, openIdx);
+                if (idx < 0) return null;
+                const between = upto.slice(idx + 5);
+                if (/[\n}]/.test(between)) return null;
+                const kind = (idx === doneIdx) ? '!' : '?';
+                return { query: between, start: idx, end: caret, extra: { kind } };
+            },
+            fetchItems: async () => {
+                const all = await ensureMeetings();
+                return all.slice().sort((a, b) => {
+                    const ad = (a.date || '') + (a.start || '');
+                    const bd = (b.date || '') + (b.start || '');
+                    return bd.localeCompare(ad);
+                }).map(m => ({
+                    value: m.id,
+                    label: m.title || '(uten tittel)',
+                    hint: (m.date || '') + (m.start ? ' ' + m.start : ''),
+                }));
+            },
+            filter: 'words',
+            limit: 12,
+            renderItem: (item, query) =>
+                `🤝 ${highlightMatch(item.label, query)}` +
+                (item.hint ? `<span style="opacity:0.55;font-size:0.85em"> · ${highlightMatch(item.hint, query)}</span>` : ''),
+            onSelect: (item, ctx) => {
+                const kind = (ctx.extra && ctx.extra.kind) || '?';
+                let endIdx = ctx.range.end;
+                if (ta.value.slice(endIdx, endIdx + 2) === '}}') endIdx += 2;
+                replaceRange(ta, ctx.range.start, endIdx, `{{m:${kind}${item.value}}} `);
+                this._renderPreview();
+                this._markDirty();
+            },
+        };
+
         this._acHandle = attachAutocomplete(ta, {
-            triggers: [taskTrigger, resultTrigger, tagTrigger, mentionTrigger],
+            triggers: [taskTrigger, resultTrigger, meetingTrigger, tagTrigger, mentionTrigger],
             container: this.shadowRoot,
         });
         this._dateHandle = attachDateTrigger(ta);
