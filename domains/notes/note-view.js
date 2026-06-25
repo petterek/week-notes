@@ -18,6 +18,7 @@
  *   note-view:close   — fired when the overlay closes
  */
 import { WNElement, html, unsafeHTML, escapeHtml, modalZ } from './_shared.js';
+import '/components/entity-mention.js';
 
 const STYLES = `
     :host { display: contents; }
@@ -85,6 +86,10 @@ const STYLES = `
     }
     .nv-body th { background: var(--surface-head); font-weight: 600; color: var(--text-strong); }
     .nv-body tr:nth-child(even) td { background: var(--surface-alt); }
+    .nv-body entity-mention { display: inline; color: var(--accent); cursor: pointer; }
+    .nv-body entity-mention:hover { text-decoration: underline; }
+    .nv-body entity-mention[kind="place"]::before { content: '📍 '; }
+    .nv-body entity-mention[kind="team"]::before { content: '👥 '; }
     .nv-loading, .nv-error {
         color: var(--text-muted); font-style: italic; padding: 16px 0;
     }
@@ -231,7 +236,14 @@ class NoteView extends WNElement {
         if (!parts || !this.service || !this.service.raw) return;
         try {
             const text = await this.service.raw(parts.week, parts.file);
-            const htmlOut = this._html || '';
+            let htmlOut = this._html || '';
+            // Convert entity-mention elements to semantic HTML that works when pasted
+            // Replace <entity-mention kind="..." label="..."></entity-mention> with plain text
+            htmlOut = htmlOut.replace(/<entity-mention[^>]*\slabel="([^"]*)"\s*><\/entity-mention>/g, '$1');
+            htmlOut = htmlOut.replace(/<entity-mention[^>]*\slabel='([^']*)'\s*><\/entity-mention>/g, '$1');
+            // Fallback for entity-mention without label (use @key format)
+            htmlOut = htmlOut.replace(/<entity-mention[^>]*\skey="([^"]*)"\s*><\/entity-mention>/g, '@$1');
+            htmlOut = htmlOut.replace(/<entity-mention[^>]*\skey='([^']*)'\s*><\/entity-mention>/g, '@$1');
             const plain = text || '';
             let copied = false;
             if (navigator.clipboard && typeof window.ClipboardItem === 'function' && navigator.clipboard.write) {
