@@ -69,6 +69,8 @@ class MarkdownPreview extends WNElement {
                 }));
             };
             this.addEventListener('scroll', this._onScroll, { passive: true });
+            // Configure marked once on first use
+            this._configureMarked();
         }
         this.setAttribute('aria-live', this.getAttribute('aria-live') || 'polite');
         if (this._value == null) {
@@ -82,6 +84,14 @@ class MarkdownPreview extends WNElement {
         }
         this._renderContent();
         this._applyOffset();
+    }
+
+    _configureMarked() {
+        if (this._markedConfigured || !window.marked) return;
+        if (typeof window.marked.use === 'function') {
+            try { window.marked.use({ breaks: true, gfm: true }); } catch (_) {}
+        }
+        this._markedConfigured = true;
     }
 
     attributeChangedCallback(name, oldV, newV) {

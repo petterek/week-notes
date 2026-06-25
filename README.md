@@ -186,6 +186,12 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-06-25 (v4.25 — preview fixes: marked consistency + mention support in detached mode + copy button)
+- **Preview rendering consistency:** `<markdown-preview>` now configures marked with `{ breaks: true, gfm: true }` on first connection, matching detached (Picture-in-Picture) mode. Eliminates line break and GFM feature rendering differences.
+- **Mentions in detached preview:** PiP window now loads `entity-mention` component, shares services from main window, and includes CSS fallback styling for mention chips (inline, colored, with emoji prefixes). Mentions render consistently in both attached and detached modes.
+- **Copy button fix:** When copying a viewed note, `<entity-mention>` custom elements are now converted to plain semantic text (e.g., "John Smith") so the HTML pastes correctly into Word and other apps. Falls back to `@key` format for mentions without labels.
+- **50/50 tests green.**
+
 ### 2026-06-18 (v4.24 — inline-task live state + Ollama summarize + emoji shortcodes)
 - **Fix: inline-task viser live done-status:** `<inline-task>` leste kun `state`-attributtet fra notatmarkøren (`{{?id}}`/`{{!id}}`). Nå brukes `task.done` fra live API-henting — oppgaver som er lukket fra oppgavelisten vises korrekt som avkrysset i notater selv om markøren ikke ble flippet.
 - **Regresjonstest:** Playwright-test som verifiserer at en lukket oppgave med utdatert `{{?id}}`-markør vises som ferdig i rendret notat.

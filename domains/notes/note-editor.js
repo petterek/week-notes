@@ -723,6 +723,10 @@ class NoteEditor extends WNElement {
             ul,ol{padding-left:1.4em}
             img{max-width:100%}
             .empty{color:var(--text-subtle);font-style:italic}
+            entity-mention{display:inline;color:var(--accent);cursor:pointer}
+            entity-mention:hover{text-decoration:underline}
+            entity-mention[kind="place"]::before{content:'📍 '}
+            entity-mention[kind="team"]::before{content:'👥 '}
         `;
         doc.head.appendChild(s);
 
@@ -732,6 +736,13 @@ class NoteEditor extends WNElement {
         doc.body.appendChild(root);
         this._pipRoot = root;
 
+        // Create a shared services object in the PiP window so entity-mention can find services
+        const servicesScript = doc.createElement('script');
+        servicesScript.textContent = `
+            window['week-note-services'] = window.opener['week-note-services'] || {};
+        `;
+        doc.head.appendChild(servicesScript);
+
         const marked = doc.createElement('script');
         marked.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
         marked.onload = () => {
@@ -739,6 +750,12 @@ class NoteEditor extends WNElement {
             this._publishPreview();
         };
         doc.head.appendChild(marked);
+
+        // Load entity-mention component in the PiP window
+        const entityMentionScript = doc.createElement('script');
+        entityMentionScript.type = 'module';
+        entityMentionScript.src = '/components/entity-mention.js';
+        doc.head.appendChild(entityMentionScript);
 
         pip.addEventListener('pagehide', () => this._reattachPreview());
         this._setDetachedUI(true);
