@@ -40,7 +40,7 @@ Stack:
 │   └── dates.js       # ISO-week / date math (pure, no deps)
 ├── routes/            # per-domain route modules. Each exports `(deps) => async (req, res, ctx) => void`
 │   ├── static-early.js  # /welcome, /welcome.css, /themes/*.css, /_layouts, /help.md, /pages/*.html
-│   ├── spa.js           # /, /tasks /people /results /notes /settings SPA stubs, /calendar stub
+│   ├── spa.js           # /, /tasks /people /results /notes /settings /meeting-series SPA stubs, /calendar + /meeting-occurrence/:id stubs
 │   ├── debug-static.js  # /debug/_mock-services.js, /services/*.js, /services/_shared/*
 │   ├── debug.js         # /debug + helper functions (renderServicesDebug, renderDataShapesDebug, …)
 │   ├── pages.js         # /themes /meeting-note/:id /editor /present (remaining server-rendered pages)
@@ -54,7 +54,8 @@ Stack:
 │       ├── people.js    # /api/people*
 │       ├── companies.js # /api/companies*
 │       ├── places.js    # /api/places*
-│       ├── meetings.js  # /api/meetings*, /api/meeting-types
+│       ├── meetings.js  # /api/meetings*, /api/meeting-types, occurrence lifecycle (start/close/reopen), agenda, decisions
+│       ├── meeting-series.js # /api/meeting-series* — recurring series CRUD + agenda queue management
 │       ├── themes.js    # /api/themes*
 │       ├── contexts.js  # /api/contexts*, including settings/git/migrations subpaths
 │       └── notes.js     # /api/notes/* (render, meta, history, raw, pin, card, delete) + /api/weeks /api/week/:id
@@ -87,6 +88,7 @@ Stack:
 │       ├── settings.json
 │       ├── meetings.json
 │       ├── meeting-types.json   # optional, falls back to defaults
+│       ├── meeting-series/      # one JSON file per recurring meeting series (loadCollection/syncCollection)
 │       ├── people.json
 │       ├── tasks.json
 │       └── YYYY-WNN/            # one folder per ISO week
@@ -149,9 +151,12 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3001/settings
 | `/people` | People directory (CRM-lite) |
 | `/results` | Result/outcome log |
 | `/settings` | Master/detail context settings (full width) |
+| `/meeting-series` | Recurring meeting series dashboard (agenda queue, occurrence history) |
+| `/meeting-occurrence/:id` | Workspace for one series occurrence (agenda, decisions, minutes, lifecycle) |
 | `/note/...`, `/meeting-note/:id` | Note editors |
 | `/help.md` | Raw markdown for the help modal |
-| `/api/...` | JSON APIs (people, tasks, meetings, contexts/:id/settings, contexts/:id/meeting-types, contexts/switch, …) |
+| `/meetings/:id/minutes` | Printable/PDF meeting minutes export |
+| `/api/...` | JSON APIs (people, tasks, meetings, meeting-series, contexts/:id/settings, contexts/:id/meeting-types, contexts/switch, …) |
 
 ### Adding/moving a route
 

@@ -6,7 +6,8 @@ Per-week task list with comments, drag-reorder, merge, completion log.
 
 - File: `data/<ctx>/tasks.json`
 - Shape (array): `{ id, text, week, done, completedWeek?, comment?,
-  due?, dueDate?, order?, notes?, responsible?, participants?, goalId?, author? }`
+  due?, dueDate?, order?, notes?, responsible?, participants?, goalId?,
+  meetingSeriesId?, meetingId?, agendaItemId?, author? }`
 - `completedWeek` is set on the toggle that marks `done=true`. It
   preserves which week the task was closed in (different from the
   week it was created in).
@@ -14,6 +15,11 @@ Per-week task list with comments, drag-reorder, merge, completion log.
   `@mentions` in the text on create; can also be set/modified manually
   via the API (`PUT /api/tasks/:id` with `participants: [...]`).
   Set to `null` to clear.
+- `meetingSeriesId` / `meetingId` / `agendaItemId` link a follow-up
+  task back to a meeting series occurrence — set via POST/PUT exactly
+  like `goalId` (accepted in both handlers, no extra validation).
+  Set by `<task-create>`'s `meeting-series-id` / `meeting-id` /
+  `agenda-item-id` attributes. See `agents/meetings.md`.
 
 ## Routes
 

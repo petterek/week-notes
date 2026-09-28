@@ -91,6 +91,15 @@ module.exports = function(deps) {
         if (typeof body.goalId === 'string' && body.goalId.trim()) {
             task.goalId = body.goalId.trim();
         }
+        if (typeof body.meetingSeriesId === 'string' && body.meetingSeriesId.trim()) {
+            task.meetingSeriesId = body.meetingSeriesId.trim();
+        }
+        if (typeof body.meetingId === 'string' && body.meetingId.trim()) {
+            task.meetingId = body.meetingId.trim();
+        }
+        if (typeof body.agendaItemId === 'string' && body.agendaItemId.trim()) {
+            task.agendaItemId = body.agendaItemId.trim();
+        }
         // Participants: explicit array wins, otherwise remaining @mentions (after responsible)
         if (Array.isArray(body.participants)) {
             task.participants = [...new Set(body.participants.map(p => p.trim().toLowerCase()).filter(Boolean))];
@@ -133,6 +142,21 @@ module.exports = function(deps) {
                 delete task.goalId;
             } else if (typeof body.goalId === 'string' && body.goalId.trim()) {
                 task.goalId = body.goalId.trim();
+            }
+            if (body.meetingSeriesId === null || body.meetingSeriesId === '') {
+                delete task.meetingSeriesId;
+            } else if (typeof body.meetingSeriesId === 'string' && body.meetingSeriesId.trim()) {
+                task.meetingSeriesId = body.meetingSeriesId.trim();
+            }
+            if (body.meetingId === null || body.meetingId === '') {
+                delete task.meetingId;
+            } else if (typeof body.meetingId === 'string' && body.meetingId.trim()) {
+                task.meetingId = body.meetingId.trim();
+            }
+            if (body.agendaItemId === null || body.agendaItemId === '') {
+                delete task.agendaItemId;
+            } else if (typeof body.agendaItemId === 'string' && body.agendaItemId.trim()) {
+                task.agendaItemId = body.agendaItemId.trim();
             }
             // Participants: explicit array sets/replaces; null clears
             if (Array.isArray(body.participants)) {

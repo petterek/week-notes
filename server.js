@@ -71,6 +71,7 @@ const handlers = [
     require('./routes/api/places')(deps),
     require('./routes/api/teams')(deps),
     require('./routes/api/meetings')(deps),
+    require('./routes/api/meeting-series')(deps),
     require('./routes/api/themes')(deps),
     require('./routes/api/contexts')(deps),
     require('./routes/api/notes')(deps),

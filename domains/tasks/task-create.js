@@ -78,7 +78,7 @@ const CSS = `
 
 class TaskCreate extends WNElement {
     static get domain() { return 'tasks'; }
-    static get observedAttributes() { return ['placeholder', 'button-label', 'full', 'goal-id']; }
+    static get observedAttributes() { return ['placeholder', 'button-label', 'full', 'goal-id', 'meeting-id', 'meeting-series-id', 'agenda-item-id']; }
 
     connectedCallback() {
         super.connectedCallback();
@@ -247,6 +247,12 @@ class TaskCreate extends WNElement {
             const goalId = this.getAttribute('goal-id');
             if (goalId) opts.goalId = goalId;
         }
+        const meetingSeriesId = this.getAttribute('meeting-series-id');
+        if (meetingSeriesId) opts.meetingSeriesId = meetingSeriesId;
+        const meetingId = this.getAttribute('meeting-id');
+        if (meetingId) opts.meetingId = meetingId;
+        const agendaItemId = this.getAttribute('agenda-item-id');
+        if (agendaItemId) opts.agendaItemId = agendaItemId;
         const week = this.getAttribute('week');
         if (week) opts.week = week;
         btn.disabled = true;

@@ -33,6 +33,7 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 - Per-context **working hours** (start/end + weekdays, default Mon–Fri 08:00–16:00) rendered as a band overlay
 - Per-context **default meeting length** prefills the end time when creating new meetings
 - Click an upcoming-meeting card on the home page to jump to that week and pulse-highlight the meeting
+- **Meeting series** (`/meeting-series`): recurring meetings with a persistent agenda queue — start/close occurrences, record decisions, auto-defer unresolved agenda items to the next occurrence, link follow-up tasks, and export minutes to PDF
 
 ### People & results
 - Lightweight CRM: name, title, email, phone, freeform notes
@@ -125,6 +126,7 @@ weeks/
         ├── people.json
         ├── meetings.json
         ├── meeting-types.json   # optional, falls back to defaults
+        ├── meeting-series/      # one JSON file per recurring meeting series
         ├── results.json
         └── <YYYY-WNN>/
             └── *.md
@@ -164,6 +166,8 @@ Mostly JSON, mostly REST-shaped. Useful endpoints:
 | GET/PUT| `/api/contexts/:id/meeting-types`   | Per-context meeting type list        |
 | GET    | `/api/people`                       | People directory (excludes tombstones) |
 | GET    | `/api/meetings`                     | Meetings for the active context      |
+| GET/POST| `/api/meeting-series`              | Recurring meeting series (agenda queue, defaults) |
+| GET    | `/meetings/:id/minutes`             | Printable/PDF meeting minutes export  |
 | GET    | `/api/notes/:week/:file/render`     | Rendered markdown for hover/preview  |
 | GET    | `/help.md`                          | In-app help content                  |
 
@@ -185,6 +189,14 @@ No build step. No bundler. ~4300 lines of `server.js`.
 MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
+
+### 2026-09-28 (møteserier: recurring meetings med agenda-kø, live møteforløp og PDF-referat)
+- **Ny funksjon: møteserier.** En serie (f.eks. et ukentlig 1:1 eller teammøte) eier en varig agenda-kø. Hver kalendermøte-forekomst koblet til serien (`seriesId`) får en egen arbeidsflate: start møtet, jobb gjennom sakslisten, registrer beslutninger, avslutt (uløste punkter utsettes automatisk til neste gang), og eksporter referatet til PDF. Vanlige enkeltmøter er upåvirket.
+- **Ny side `/meeting-series`** (`<meeting-series-page>`): oversikt over alle serier (aktive/arkiverte), agenda-kø-administrasjon, forekomsthistorikk, oppfølgingsoppgaver og samlet beslutningslogg. Nav-lenke "🔁 Møteserier".
+- **Ny side `/meeting-occurrence/:id`** (`<meeting-occurrence-page>`): arbeidsflate for én møteforekomst — redigerbar saksliste med notater og utfall (✅ Løst / ⏭️ Utsatt / 🚫 Avlyst), beslutninger, fritekst-referat, oppfølgingsoppgaver, og Start/Avslutt/Gjenåpne-knapper. Klikk på en serie-tilknyttet møteforekomst i kalenderen åpner denne siden i stedet for hurtigredigeringsmodalen.
+- **PDF-eksport:** `GET /meetings/:id/minutes` gir en utskriftsvennlig referatside (via nettleserens utskriftsdialog). Uavsluttede møter viser et "UTKAST"-vannmerke.
+- **Oppgavekobling:** oppgaver kan nå peke til `meetingSeriesId`/`meetingId`/`agendaItemId`, samme mønster som eksisterende `goalId`-kobling.
+- **Ny API:** `routes/api/meeting-series.js` (serie-CRUD + agenda) og utvidelser i `routes/api/meetings.js` (start/avslutt/gjenåpne, agenda, beslutninger, referat).
 
 ### 2026-06-25 (v4.25 — preview fixes: marked consistency + mention support in detached mode + copy button)
 - **Preview rendering consistency:** `<markdown-preview>` now configures marked with `{ breaks: true, gfm: true }` on first connection, matching detached (Picture-in-Picture) mode. Eliminates line break and GFM feature rendering differences.

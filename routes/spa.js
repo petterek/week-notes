@@ -32,7 +32,8 @@ module.exports = function(deps) {
             '/results':  'Resultater',
             '/goals':    'Mål',
             '/notes':    'Notater',
-            '/settings': 'Innstillinger'
+            '/settings': 'Innstillinger',
+            '/meeting-series': 'Møteserier'
         };
         if (Object.prototype.hasOwnProperty.call(SPA_STUBS, pathname)) {
             res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Set-Cookie': ctxCookie });
@@ -55,6 +56,13 @@ module.exports = function(deps) {
         if (teamMatch) {
             res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Set-Cookie': ctxCookie });
             res.end(pageHtml('Team', ''));
+            return;
+        }
+        // Meeting occurrence workspace: /meeting-occurrence/:id
+        const meetingOccMatch = pathname.match(/^\/meeting-occurrence\/([^/]+)$/);
+        if (meetingOccMatch) {
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Set-Cookie': ctxCookie });
+            res.end(pageHtml('Møte', ''));
             return;
         }
     }
