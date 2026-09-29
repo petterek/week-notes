@@ -56,6 +56,7 @@ For møter som gjentar seg (f.eks. et ukentlig 1:1 eller teammøte) kan du oppre
 - **Opprett en forekomst** (en konkret kalendermøte-instans) fra serien — den arver forvalgene og får automatisk med alle punkter som står i kø.
 - **Under møtet**: klikk møtet i kalenderen for å åpne arbeidsflaten. Start møtet, skriv notater per saklistepunkt, og merk hvert punkt ✅ Løst, ⏭️ Utsatt eller 🚫 Avlyst. Legg til saklistepunkter underveis, registrer beslutninger, og skriv et fritekst-referat.
 - **Avslutt møtet**: punkter uten utfall blir automatisk merket "utsatt". Utsatte (og eksplisitt utsatte) punkter havner tilbake i seriens kø til neste forekomst; løste og avlyste punkter forsvinner fra køen.
+- **Gjenåpne før endring**: et avsluttet møte er låst for endringer i saksliste, beslutninger og referat. Bruk Gjenåpne for å korrigere innholdet.
 - **Oppfølgingsoppgaver** kan opprettes direkte fra arbeidsflaten og kobles til både møtet og serien.
 - **Eksporter til PDF** via 📄-knappen — åpner en utskriftsvennlig referatside (bruk nettleserens utskriftsdialog). Uavsluttede møter vises med et "UTKAST"-vannmerke.
 

@@ -67,7 +67,8 @@ Used on the home page sidebar.
 
 ## Storage
 
-Meetings are stored in `data/<ctx>/meetings.json`. See
+Meetings are stored in `data/<ctx>/meetings/<id>.json`, with a legacy
+`meetings.json` array fallback when the directory does not exist. See
 `agents/calendar.md` for full shape.
 
 Key fields:
@@ -211,7 +212,8 @@ occurrences' minutes.
    item: `resolved`→`resolved`, `cancelled`→`cancelled`, anything else
    (`deferred`, or an explicitly cleared outcome) → back to `queued`,
    which is exactly what makes it reappear on the *next* occurrence
-   created for the series.
+   created for the series. Closed occurrences render read-only in the
+   workspace; only existing follow-up task completion stays actionable.
 6. **Reopen** — `POST /api/meetings/:id/reopen` → `status:
    in-progress`, clears `closedAt`. Does **not** revert the series
    sync from step 5 — editing agenda outcomes again after reopening
@@ -220,6 +222,14 @@ occurrences' minutes.
 
 Only occurrences with a `seriesId` expose any of the above endpoints;
 calling them on a plain meeting returns 400.
+Editing an agenda outcome syncs only that entry back to the series;
+closing syncs the whole occurrence in one collection write. Do not replay
+unrelated stale outcomes while editing a single entry.
+
+Deleting a series removes its links, not its occurrences or follow-up
+tasks. Unlinked occurrences remain editable as ordinary calendar meetings,
+including ones that were closed before unlinking; their stored minutes
+and the tasks' `meetingId` links are preserved.
 
 ### API
 
@@ -236,7 +246,7 @@ two new route files since there's no repo precedent either way).
 | POST | `/api/meeting-series` | Create `{title, description?, defaultAttendees?, defaultLocation?, defaultPlaceKey?, defaultType?, defaultDurationMins?}` |
 | GET | `/api/meeting-series/:id` | Single series + rollup (bare object) |
 | PUT | `/api/meeting-series/:id` | Update series fields (incl. `status` for archive/unarchive) |
-| DELETE | `/api/meeting-series/:id` | Delete series (occurrences + tasks keep their data but lose the `seriesId` link is NOT auto-cleared — they just point at a dead id; UI treats a missing series lookup as "unlinked") |
+| DELETE | `/api/meeting-series/:id` | Delete series (occurrences + tasks keep their data, but `seriesId` / `meetingSeriesId` links are cleared so they become standalone records) |
 | POST | `/api/meeting-series/:id/agenda` | Add a queued agenda item `{title}` |
 | PUT | `/api/meeting-series/:id/agenda/:itemId` | Update (e.g. rename, or force a `state`) |
 | DELETE | `/api/meeting-series/:id/agenda/:itemId` | Remove from the queue |

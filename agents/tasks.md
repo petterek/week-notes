@@ -4,8 +4,9 @@ Per-week task list with comments, drag-reorder, merge, completion log.
 
 ## Storage
 
-- File: `data/<ctx>/tasks.json`
-- Shape (array): `{ id, text, week, done, completedWeek?, comment?,
+- Files: `CONTEXTS_DIR/<ctx>/tasks/<id>.json` (legacy `tasks.json`
+  arrays remain readable until the directory exists).
+- Record shape: `{ id, text, week, done, completedWeek?, comment?,
   due?, dueDate?, order?, notes?, responsible?, participants?, goalId?,
   meetingSeriesId?, meetingId?, agendaItemId?, author? }`
 - `completedWeek` is set on the toggle that marks `done=true`. It
@@ -30,8 +31,9 @@ Per-week task list with comments, drag-reorder, merge, completion log.
 | POST | `/api/tasks` | Create `{text, week}` |
 | PUT | `/api/tasks/:id` | Edit fields |
 | PUT | `/api/tasks/:id/toggle` | Toggle done; body may include `comment` |
-| POST | `/api/tasks/merge` | Body `{ids:[...], targetText}` |
-| POST | `/api/tasks/reorder` | Body `{order:[id,id,...]}` |
+| POST | `/api/tasks/:id/close-from-note` | Set completion and update the source note marker |
+| POST | `/api/tasks/merge` | Body `{srcId, tgtId}` |
+| POST | `/api/tasks/reorder` | Body `{ids:[id,id,...]}` |
 | DELETE | `/api/tasks/:id` | Delete |
 
 ## Where it shows up
@@ -44,11 +46,13 @@ Per-week task list with comments, drag-reorder, merge, completion log.
 
 ## Code map
 
-- Backend helpers: `loadTasks` / `saveTasks` near the top of
-  `server.js`.
-- `/tasks` route (~line 3918) renders the page; `renderTasks()` in
-  the inline script builds the list.
-- API handlers: `/api/tasks*` blocks (~lines 4238-4790).
+- Backend helpers: `loadTasks`, `loadAllTasks`, `saveTasks` in `lib/core.js`;
+  strict per-item storage in `lib/collection-store.js`.
+- `/tasks` SPA stub: `routes/spa.js`; browser UI: `domains/tasks/`.
+- API handlers: `routes/api/tasks.js`.
+- Body handling: `await readJsonBody(req)` before loading mutable task
+  snapshots. Malformed JSON must return 400 without toggling/completing
+  a task; empty bodies remain valid for toggling.
 
 ## Conventions
 
@@ -62,6 +66,10 @@ Per-week task list with comments, drag-reorder, merge, completion log.
 
 ## Gotchas
 
+- `loadTasks()` omits tombstones; `loadAllTasks()` preserves them.
+  `saveTasks()` replaces a collection, not just visible records. Use a
+  complete snapshot for mutations that must preserve deleted references;
+  do not treat a filtered UI list as authoritative storage.
 - `data-tasktext` is escaped at render — when the user re-edits,
   unescape via `el.dataset.tasktext` (browser already decodes).
 - `order` is lazy: only set after first reorder. Sort fallback is

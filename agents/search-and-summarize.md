@@ -15,7 +15,8 @@ week as `summarize.md`.
   - `{type:'reindex', contextDir}` → worker walks the dir and
     rebuilds the index, replies `{type:'indexed', docCount,
     tokenCount, ms, trigger}`.
-  - `{type:'query', q, requestId}` → worker returns
+  - `{type:'query', q, requestId, contextDir}` → worker switches/rebuilds
+    its index if needed, then returns
     `{type:'result', requestId, results, ms}`.
 - Index data structures (in the worker):
   - `docs[]` — array of `{type, title, subtitle, href, body,
@@ -28,7 +29,7 @@ week as `summarize.md`.
     substring on the candidates.
   - If any token is missing, fall back to a full scan so partial-word
     substring queries still match.
-- Backend helpers in `server.js` (kept as an in-process fallback if
+- Backend helpers in `lib/core.js` (kept as an in-process fallback if
   the worker dies):
   - `searchSnippet`, `searchMdFiles`, `searchAll`.
 - Re-indexing:
@@ -36,14 +37,14 @@ week as `summarize.md`.
   - After every successful context switch. The
     `/api/contexts/switch` handler responds immediately and runs
     `pullContextRemote` + `reindexSearch()` from a `setImmediate`
-    callback so the user sees a fast switch even on contexts with
-    a slow git remote.
+    callback under `runWithDataContext(next, ...)` so background work
+    cannot inherit the previous request's context.
   - Automatically when the worker's `fs.watch(contextDir,
     {recursive:true})` sees a relevant file change. Debounced 200 ms.
-    Watched: `**/*.md` (week notes) and the four context-level
-    `tasks.json` / `meetings.json` / `people.json` /
-    `results.json` files. `.git/`, dotfiles, swap/tmp files are
-    ignored.
+    Watched: `**/*.md` (week notes), JSON records under `tasks/`,
+    `meetings/`, `people/`, `results/`, `notes-meta/`, and their
+    legacy root JSON files. Atomic replacement's final rename triggers
+    rebuilding; `.git/`, dotfiles and swap/tmp files are ignored.
 - Sources covered (mirrors `searchAll`):
   - **Notes** — filename + body
   - **Tasks** — `text`, `comment`, `notes`
@@ -51,26 +52,45 @@ week as `summarize.md`.
   - **People** — `name`, `firstName`, `lastName`, `title`, `email`,
     `phone`, `notes` (tombstones skipped)
   - **Results** — `text`
-- Scope: the **active** context only.
+- Scope: the **captured request** context only. Every query supplies its
+  directory, and worker reindex/query handling is synchronous: requests
+  from different cookie contexts cannot share the wrong index. Advanced
+  boolean queries still use the worker even for a non-default context.
 - Limits: query timeout in `searchViaWorker` is 5 s; if the worker is
   unavailable we fall back to `searchAll` synchronously.
+- Worker callbacks are bound to a particular worker instance. Delayed
+  messages or exit events from a terminated instance must not clear a
+  replacement worker or complete its pending requests.
+
+### Vector-search ownership
+
+The embedding worker still owns a single context. Its initialization
+directory and every `buildEmbedDocs()` call use that captured id, not
+the context of whichever request happened to trigger reindexing.
+`isEmbedReady()` also checks the caller's context. `/api/embed-search`
+returns 503 when the current worker belongs to another context; it must
+never hydrate another workspace's documents. Context switching restarts
+the embedding worker when vector search is enabled.
 
 ### Frontend (global search modal)
 
-- The page-wrapper layout (`pageHtml`) injects a global search modal
-  (`#globalSearchModal` with `#gsInput`, `#gsResults`) on **every**
-  page and a script that wires:
+- The shared navbar mounts `<global-search>` from
+  `domains/search/global-search.js` with an injected search service.
+  That component owns the input/results and keyboard behavior:
   - `Ctrl+K` / `Cmd+K` from anywhere → open modal
   - `/` from anywhere (when not typing) → open modal
   - `Esc` → close modal
   - `Enter` in the input → navigate to the first result
-  - The 🔎 nav link (`#navSearchBtn`) also opens the modal
+  - Its navbar search control also opens the modal
   - Input is debounced 200 ms, then hits `/api/search`
   - `window.__openGlobalSearch(prefill?)` and
     `window.__closeGlobalSearch()` are exposed so other scripts can
     drive it.
 - The home page no longer has its own inline search input — the
   modal is the single entry point.
+- Selection emits `element-selected`, handled in `public/app-shell.js`.
+  `lib/page-shell.js` loads the shell and service registry before the
+  components; keep these event bridges when moving browser code.
 
 ### Result shape
 
@@ -100,13 +120,13 @@ the `href` builder in `searchAll` accordingly.
 ## Summarize
 
 - Endpoint: `POST /api/summarize` body `{week}`.
-- Backend helper: `summarizeWeek(week)` (~line 503). Concatenates
+- Backend helper: `summarizeWeek(week)` in `lib/core.js`. Concatenates
   every note in the week into a context, then prompts an LLM (or
   whichever backend is configured) and returns the result.
 - The home week section has an `✨ Oppsummering` button that opens
   `#summaryModal`. The modal lets the user accept and save — saving
   writes the result to `summarize.md` in that week's folder.
-- `saveSummary()` (~line 2345) handles the save.
+- The shared app-shell handler saves accepted summaries through `/api/save`.
 
 ### Model types
 
@@ -131,15 +151,14 @@ Three flavours, selected in App-settings → Oppsummering:
 
 - Search worker: `search-worker.js` (top-level file, separate from
   `server.js`).
-- Worker glue in `server.js`: `startSearchWorker`, `reindexSearch`,
+- Worker glue in `lib/core.js`: `startSearchWorker`, `reindexSearch`,
   `searchViaWorker`, `pendingSearches` map. Startup hook is in the
   `server.listen` callback. `setActiveContext` reindex call is in
   the `/api/contexts/switch` handler.
 - In-process fallback search: `searchSnippet`, `searchMdFiles`,
-  `searchAll` near the top of `server.js`. The `/api/search` route
-  uses the worker first and falls back to `searchAll` only if both
-  the worker call and its retry fail.
-- Home script search wiring (`searchInput`, `doSearch`).
+  `searchAll` in `lib/core.js`. `routes/api/misc.js` uses the worker
+  first and falls back to `searchAll` if that call fails.
+- Global browser shell owns the search modal wiring.
 - CSS: `.search-result`, `.sr-title`, `.sr-path`, `.sr-snippet`,
   `.sr-group`, `.sr-count`.
 - Summarize: `summarizeWeek` + `/api/summarize` route +
@@ -158,9 +177,9 @@ Three flavours, selected in App-settings → Oppsummering:
   all results.
 - The summary file is always named `summarize.md`. It's deliberately
   an "auto" filename so re-running overwrites cleanly.
-- Search is case-insensitive substring with snippet extraction. Don't
-  over-engineer it (no fuzzy matching, no ranking) — note volume is
-  small.
+- The worker supports `AND`, `OR`, `NOT`, `NEAR/N`, parentheses and
+  quoted phrases. The emergency in-process fallback is simpler
+  case-insensitive substring search, not a second full query parser.
 
 ## Gotchas
 
@@ -192,4 +211,3 @@ Three flavours, selected in App-settings → Oppsummering:
 - `calendar.md` — `#m-<id>` deep-link handler.
 - `people.md`, `tasks.md`, `results.md` — destination pages for the
   non-note result types.
-

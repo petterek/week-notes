@@ -27,6 +27,8 @@
 import { WNElement, html, escapeHtml, linkMentions, isoWeek } from './_shared.js';
 import { attachAutocomplete, replaceRange, highlightMatch } from '/components/wn-autocomplete.js';
 import { attachDateTrigger } from '/components/wn-date-trigger.js';
+import { createMentionSource } from '/services/_shared/wn-mention-source.js';
+import { createDetachedMarkdownPreview } from '/services/_shared/wn-markdown-preview.js';
 
 const STYLES = `
     :host {
@@ -579,6 +581,15 @@ class NoteEditor extends WNElement {
         this._previewEl.value = this._previewTransform(raw);
     }
 
+    _getMentionSource() {
+        if (!this._mentionSource) {
+            this._mentionSource = createMentionSource({
+                serviceFor: (key) => this.serviceFor(key),
+            });
+        }
+        return this._mentionSource;
+    }
+
     // Preview-only transforms for inline markers:
     //  - A run of 2+ adjacent markers becomes an ordered task list
     //    ('1. [ ] text' / '1. [x] text') so marked produces a single
@@ -641,18 +652,17 @@ class NoteEditor extends WNElement {
 
     _loadLinkData() {
         this._linkDataLoading = true;
-        Promise.all([
-            fetch('/api/people').then(r => r.json()).catch(() => []),
-            fetch('/api/companies').then(r => r.json()).catch(() => []),
-            fetch('/api/teams').then(r => r.json()).catch(() => []),
-        ]).then(([pp, cc, tt]) => {
-            this._people = (Array.isArray(pp) ? pp : []).filter(p => !p.inactive);
-            this._companies = (Array.isArray(cc) ? cc : []).filter(c => !c.deleted);
-            this._teams = (Array.isArray(tt) ? tt : []).filter(t => !t.deleted);
+        this._getMentionSource().loadAll().then(({ people, companies, teams }) => {
+            this._people = people || [];
+            this._companies = companies || [];
+            this._teams = teams || [];
             this._linkDataLoaded = true;
             this._linkDataLoading = false;
             this._renderPreview();
-        }).catch(() => { this._linkDataLoading = false; });
+        }).catch((error) => {
+            this._linkDataLoading = false;
+            this._setStatus('Kunne ikke laste omtaler: ' + error.message, true);
+        });
     }
 
     _loadTaskTexts() {
@@ -673,8 +683,12 @@ class NoteEditor extends WNElement {
         const raw = this._contentEl ? this._contentEl.value : '';
         const md = this._previewTransform(raw);
         try {
-            const m = this._pipWindow.marked;
-            this._pipRoot.innerHTML = (m && m.parse) ? m.parse(md) : escapeHtml(md);
+            if (this._pipPreview && typeof this._pipPreview.render === 'function') {
+                this._pipPreview.render(md);
+            } else {
+                const m = this._pipWindow.marked;
+                this._pipRoot.innerHTML = (m && m.parse) ? m.parse(md) : escapeHtml(md);
+            }
         } catch (_) {}
     }
 
@@ -686,6 +700,10 @@ class NoteEditor extends WNElement {
         }
         try {
             const pip = await window.documentPictureInPicture.requestWindow({ width: 900, height: 720 });
+            if (!this.isConnected) {
+                pip.close();
+                return;
+            }
             this._setupPipWindow(pip);
         } catch (e) {
             this._setStatus('Kunne ikke åpne forhåndsvisning: ' + (e.message || e), true);
@@ -693,73 +711,32 @@ class NoteEditor extends WNElement {
     }
 
     _setupPipWindow(pip) {
-        // Document Picture-in-Picture: render markdown directly into a plain
-        // <div> in the PiP document. Avoids cross-realm custom-element upgrade
-        // races by using `marked` (loaded into the PiP window) imperatively.
         this._pipWindow = pip;
         const doc = pip.document;
-        doc.title = 'Forhåndsvisning';
-
         const themeLink = document.getElementById('themeStylesheet');
-        if (themeLink) {
-            const l = doc.createElement('link');
-            l.rel = 'stylesheet';
-            l.href = themeLink.href;
-            doc.head.appendChild(l);
-        }
-        const s = doc.createElement('style');
-        s.textContent = `
-            html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--text-strong);font-family:var(--font-family,-apple-system,sans-serif);line-height:1.55}
-            #pip-root{position:fixed;inset:0;padding:20px 28px;overflow:auto;box-sizing:border-box}
-            #pip-root > :first-child{margin-top:0}
-            h1,h2,h3,h4{color:var(--accent);font-family:var(--font-heading);font-weight:400}
-            a{color:var(--accent)}
-            pre{background:var(--code-bg);color:var(--code-fg);padding:12px;border-radius:6px;overflow:auto}
-            code{background:var(--surface-alt);padding:1px 5px;border-radius:3px;font-size:0.9em}
-            pre code{background:none;padding:0}
-            blockquote{border-left:4px solid var(--accent);padding:4px 12px;color:var(--text-muted);background:var(--surface-alt);border-radius:0 6px 6px 0}
-            table{border-collapse:collapse;width:100%}
-            th,td{border:1px solid var(--border-soft);padding:6px 10px;text-align:left}
-            ul,ol{padding-left:1.4em}
-            img{max-width:100%}
-            .empty{color:var(--text-subtle);font-style:italic}
-            entity-mention{display:inline;color:var(--accent);cursor:pointer}
-            entity-mention:hover{text-decoration:underline}
-            entity-mention[kind="place"]::before{content:'📍 '}
-            entity-mention[kind="team"]::before{content:'👥 '}
-        `;
-        doc.head.appendChild(s);
-
-        const root = doc.createElement('div');
-        root.id = 'pip-root';
-        root.innerHTML = '<p class="empty">Venter på innhold…</p>';
-        doc.body.appendChild(root);
-        this._pipRoot = root;
-
-        // Create a shared services object in the PiP window so entity-mention can find services
-        const servicesScript = doc.createElement('script');
-        servicesScript.textContent = `
-            window['week-note-services'] = window.opener['week-note-services'] || {};
-        `;
-        doc.head.appendChild(servicesScript);
-
-        const marked = doc.createElement('script');
-        marked.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
-        marked.onload = () => {
-            try { if (doc.defaultView.marked && doc.defaultView.marked.use) doc.defaultView.marked.use({ breaks: true, gfm: true }); } catch (_) {}
-            this._publishPreview();
-        };
-        doc.head.appendChild(marked);
-
-        // Load entity-mention component in the PiP window
-        const entityMentionScript = doc.createElement('script');
-        entityMentionScript.type = 'module';
-        entityMentionScript.src = '/components/entity-mention.js';
-        doc.head.appendChild(entityMentionScript);
+        const mounted = createDetachedMarkdownPreview(doc, {
+            title: 'Forhåndsvisning',
+            themeHref: themeLink ? themeLink.href : '',
+            marked: window.marked || (pip && pip.marked) || null,
+            services: window['week-note-services'] || {},
+        });
+        this._pipPreview = mounted;
+        this._pipRoot = mounted.root;
 
         pip.addEventListener('pagehide', () => this._reattachPreview());
         this._setDetachedUI(true);
-        this._publishPreview();
+        if (mounted && mounted.ready && typeof mounted.ready.then === 'function') {
+            mounted.ready.then(() => {
+                if (this._pipPreview === mounted) this._publishPreview();
+            }).catch((error) => {
+                if (this._pipPreview === mounted) {
+                    this._reattachPreview();
+                    this._setStatus('Kunne ikke laste forhåndsvisning: ' + error.message, true);
+                }
+            });
+        } else {
+            this._publishPreview();
+        }
     }
 
     _setDetachedUI(on) {
@@ -778,12 +755,13 @@ class NoteEditor extends WNElement {
 
     _reattachPreview() {
         if (!this._detached) return;
-        if (this._pipWindow) {
-            try { this._pipWindow.close(); } catch (_) {}
-            this._pipWindow = null;
-        }
+        const pip = this._pipWindow;
+        this._pipWindow = null;
+        if (this._pipPreview) this._pipPreview.destroy();
+        this._pipPreview = null;
         this._pipRoot = null;
         this._setDetachedUI(false);
+        if (pip && !pip.closed) pip.close();
         this._renderPreview();
     }
 
@@ -797,6 +775,10 @@ class NoteEditor extends WNElement {
             try { this._dateHandle.destroy(); } catch (_) {}
             this._dateHandle = null;
         }
+        if (this._meetingPopupCleanup) {
+            this._meetingPopupCleanup();
+            this._meetingPopupCleanup = null;
+        }
         if (this._docKeyHandler) {
             document.removeEventListener('keydown', this._docKeyHandler);
             this._docKeyHandler = null;
@@ -804,6 +786,10 @@ class NoteEditor extends WNElement {
         if (this._beforeUnloadHandler) {
             window.removeEventListener('beforeunload', this._beforeUnloadHandler);
             this._beforeUnloadHandler = null;
+        }
+        if (this._pipPreview && typeof this._pipPreview.destroy === 'function') {
+            try { this._pipPreview.destroy(); } catch (_) {}
+            this._pipPreview = null;
         }
         if (this._pipWindow) {
             try { this._pipWindow.close(); } catch (_) {}
@@ -1076,12 +1062,14 @@ class NoteEditor extends WNElement {
         };
         let popup = null;
         let outsideHandler = null;
+        let outsideTimer = null;
         let datePicker = null;
         const closeDatePicker = () => {
             if (datePicker) { datePicker.remove(); datePicker = null; }
         };
         const closePopup = () => {
             closeDatePicker();
+            if (outsideTimer) { clearTimeout(outsideTimer); outsideTimer = null; }
             if (popup) { popup.remove(); popup = null; }
             if (outsideHandler) { document.removeEventListener('mousedown', outsideHandler, true); outsideHandler = null; }
         };
@@ -1130,6 +1118,7 @@ class NoteEditor extends WNElement {
             setTimeout(() => titleEl.focus(), 0);
             const openDateTimePicker = async () => {
                 await ensurePickerLoaded();
+                if (!this.isConnected || popup !== wrap) return;
                 closeDatePicker();
                 const picker = document.createElement('date-time-picker');
                 picker.setAttribute('mode', 'datetime');
@@ -1190,9 +1179,13 @@ class NoteEditor extends WNElement {
                 if (datePicker && datePicker.contains(e.target)) return;
                 if (popup && !popup.contains(e.target) && e.target !== ta) cancel();
             };
-            setTimeout(() => document.addEventListener('mousedown', outsideHandler, true), 0);
+            outsideTimer = setTimeout(() => {
+                outsideTimer = null;
+                if (!popup || !outsideHandler) return;
+                document.addEventListener('mousedown', outsideHandler, true);
+            }, 0);
         };
-        ta.addEventListener('keydown', (e) => {
+        const onMeetingShortcut = (e) => {
             if (!e.ctrlKey || e.altKey || e.metaKey) return;
             if ((e.key || '').toLowerCase() !== 'm') return;
             e.preventDefault();
@@ -1200,7 +1193,13 @@ class NoteEditor extends WNElement {
             if (popup) { closePopup(); return; }
             const caret = ta.selectionStart != null ? ta.selectionStart : ta.value.length;
             openPopup(caret);
-        });
+        };
+        ta.addEventListener('keydown', onMeetingShortcut);
+        this._meetingPopupCleanup = () => {
+            closePopup();
+            ta.removeEventListener('keydown', onMeetingShortcut);
+            this._meetingSnippetWired = false;
+        };
         this._meetingSnippetWired = true;
     }
 
@@ -1227,9 +1226,6 @@ class NoteEditor extends WNElement {
 
         // Lazy caches — fetched on first activation, reused thereafter.
         let openTasks = null;
-        let people = null;
-        let companies = null;
-        let teams = null;
         let results = null;
         let meetings = null;
         const ensureOpenTasks = async () => {
@@ -1239,30 +1235,6 @@ class NoteEditor extends WNElement {
                 openTasks = (Array.isArray(all) ? all : []).filter(t => !t.done);
             } catch (_) { openTasks = []; }
             return openTasks;
-        };
-        const ensurePeople = async () => {
-            if (people) return people;
-            try {
-                const r = await fetch('/api/people');
-                people = (await r.json() || []).filter(p => !p.inactive);
-            } catch (_) { people = []; }
-            return people;
-        };
-        const ensureCompanies = async () => {
-            if (companies) return companies;
-            try {
-                const r = await fetch('/api/companies');
-                companies = (await r.json() || []).filter(c => !c.deleted);
-            } catch (_) { companies = []; }
-            return companies;
-        };
-        const ensureTeams = async () => {
-            if (teams) return teams;
-            try {
-                const r = await fetch('/api/teams');
-                teams = (await r.json() || []).filter(t => !t.deleted);
-            } catch (_) { teams = []; }
-            return teams;
         };
         const ensureResults = async () => {
             if (results) return results;
@@ -1407,58 +1379,7 @@ class NoteEditor extends WNElement {
             },
         };
 
-        const mentionTrigger = {
-            // Detect '@word' with the same boundary rules as the legacy
-            // mention parser: start of value or preceded by whitespace /
-            // bracket / paren / comma / semicolon.
-            detect: (text, caret, opts) => {
-                let i = caret - 1;
-                while (i >= 0 && /[a-zA-ZæøåÆØÅ0-9_-]/.test(text[i])) i--;
-                if (i < 0 || text[i] !== '@') return null;
-                if (i > 0 && !/[\s(\[,;]/.test(text[i - 1])) return null;
-                const frag = text.slice(i + 1, caret);
-                if (!frag && !(opts && opts.force)) return null;
-                return { query: frag, start: i, end: caret };
-            },
-            fetchItems: async () => {
-                const [pp, cc, tt] = await Promise.all([ensurePeople(), ensureCompanies(), ensureTeams()]);
-                const out = [];
-                const meKey = (typeof window !== 'undefined' && window.mePersonKey) || '';
-                if (meKey) {
-                    const me = pp.find(p => (p.key || (p.name || '').toLowerCase()) === meKey);
-                    const disp = me
-                        ? (me.firstName ? (me.lastName ? `${me.firstName} ${me.lastName}` : me.firstName) : (me.name || me.key))
-                        : meKey;
-                    out.push({ value: 'me', label: disp, hint: 'meg', kind: 'me' });
-                } else {
-                    out.push({ value: 'me', label: 'meg', hint: 'sett i Innstillinger', kind: 'me' });
-                }
-                for (const t of tt) {
-                    out.push({ value: t.key || (t.name || '').toLowerCase(), label: t.name || t.key, hint: 'team', kind: 'team' });
-                }
-                for (const c of cc) {
-                    out.push({ value: c.key || (c.name || '').toLowerCase(), label: c.name || c.key, hint: 'firma', kind: 'company' });
-                }
-                for (const p of pp) {
-                    const display = p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : p.name;
-                    out.push({ value: p.key || (p.name || '').toLowerCase(), label: display || p.name || p.key, hint: '', kind: 'person' });
-                }
-                return out;
-            },
-            filter: 'starts',
-            limit: 10,
-            renderItem: (item, query) => {
-                const tag = item.kind === 'team' ? '👥' : item.kind === 'company' ? '🏢' : (item.kind === 'me' ? '🙋' : '👤');
-                return `${tag} ${highlightMatch(item.label, query)}` +
-                    (item.hint ? `<span style="opacity:0.55;font-size:0.85em"> · ${item.hint}</span>` : '');
-            },
-            onSelect: (item, ctx) => {
-                replaceRange(ta, ctx.range.start, ctx.range.end, `@${item.value} `);
-                this._renderPreview();
-                this._markDirty();
-            },
-        };
-
+        const mentionSource = this._getMentionSource();
         const meetingTrigger = {
             // Detect '{{m:?' or '{{m:!' before the caret.
             detect: (text, caret) => {
@@ -1500,7 +1421,7 @@ class NoteEditor extends WNElement {
         };
 
         this._acHandle = attachAutocomplete(ta, {
-            triggers: [taskTrigger, resultTrigger, meetingTrigger, tagTrigger, mentionTrigger],
+            triggers: [taskTrigger, resultTrigger, meetingTrigger, tagTrigger, mentionSource.createTrigger()],
             container: this.shadowRoot,
         });
         this._dateHandle = attachDateTrigger(ta);

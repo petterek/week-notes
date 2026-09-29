@@ -1,17 +1,14 @@
 'use strict';
 module.exports = function(deps) {
-    const fs = require('fs');
-    const path = require('path');
-    const https = require('https');
-    const crypto = require('crypto');
-    const { execSync, execFileSync } = require('child_process');
-    const { marked } = require('marked');
     const _core = deps.core;
-    const __dirname = deps.rootDir;
-    const _bound = Object.assign({}, _core);
-    // Destructure lazily via getters so live bindings (e.g. embedState) work.
-    // For simplicity destructure all.
-    const { ACTIVE_FILE, APP_SETTINGS_FILE, CONTEXTS_DIR, CONTEXT_ICONS, CUSTOM_THEMES_DIR, DEFAULT_EMBED_MODEL, DEFAULT_MEETING_TYPES, DEFAULT_SUMMARIZE_MODEL, DISCONNECTED_FILE, EMBED_MODELS, PORT, SUMMARIZE_MODELS, THEMES, THEME_LABELS, THEME_VAR_NAMES, USER_FILE, WEEK_NOTES_MARKER, WEEK_NOTES_VERSION, _cacheGetCollection, _cacheInvalidateCollection, _cacheInvalidateContext, _cacheInvalidateNotesMeta, _cacheInvalidateSettings, _cacheSetCollection, _cloneArray, _ctxCache, _ctxCacheBucket, _ensureNotesMetaBucket, _loadWeekNotesMeta, _mdFilesCache, _noteContentCache, _statMtime, _weekDirsCache, buildEmbedDocs, checkExternalTools, clearTaskNoteRef, cloneContext, commentModalHtml, companiesFile, computeNoteReferences, contextSwitcherHtml, createContext, currentIsoWeek, currentReleaseTag, dataDir, dateToIsoWeek, deleteCustomTheme, deleteNoteMeta, disconnectContext, embedEmit, embedMeta, embedReady, embedReqSeq, embedSseClients, embedState, embedWorker, ensureAllContextsInitialised, entityDir, entityLegacyFile, escapeHtml, extractCloseMarkers, extractInlineTasks, extractMentions, extractNoteRelations, extractResults, extractTaskRefs, findTheme, forgetDisconnected, getActiveContext, getActiveTheme, getAppSettings, getCalendarActivity, getContextSettings, getContextThemes, getCurrentYearWeek, getDefaultMeetingMinutes, getGhToken, getMdFiles, getMePersonKey, getNoteMeta, getUpcomingMeetingsDays, getUser, getWeekDirs, getWorkHours, git, gitCommitAll, gitCurrentBranch, gitGetRemote, gitInitIfNeeded, gitIsDirty, gitIsRepo, gitLastCommit, gitPull, gitPullInitial, gitPush, gitRemoteHasFile, iconPickerHtml, isEmbedReady, isRemoteSummarizeModel, isValidThemeId, isoToLocalDateTime, isoWeekMonday, isoWeekToDateRange, itemStem, linkMentions, listAllThemes, listBuiltinThemes, listContexts, listCustomThemes, loadAllCompanies, loadAllPeople, loadAllPlaces, loadAllTasks, loadCollection, loadCompanies, loadDisconnected, loadMeetingTypes, loadMeetings, loadMeetingsForContext, loadMeetingSeries, saveMeetingSeries, loadNotesMeta, loadPeople, loadPlaces, loadResults, loadTasks, meetingId, meetingSeriesId, agendaItemId, decisionId, meetingTypeIcon, meetingTypeLabel, meetingTypesFile, meetingsFile, navLinksHtml, navbarHtml, noteModalHtml, noteSnippet, noteSnippetCached, notesMetaDir, notesMetaFile, notesMetaSidecarPath, pageHtml, parseThemeCss, pendingEmbed, pendingSearches, pendingSummarize, peopleFile, placesFile, preTaskMarkers, presentationPageHtml, presentationStyleCss, processInlineResults, pullContextRemote, readBody, readBuiltinTheme, readCustomTheme, readJsonDirAll, readMarker, readNoteCached, rebuildTaskNoteRefs, reindexEmbeddings, reindexSearch, restartEmbedWorker, restartSearchWorker, restartSummarizeWorker, resultsFile, safeName, safeThemeId, sanitizeItemFilename, saveCompanies, saveDisconnected, saveMeetingTypes, saveMeetings, saveNotesMeta, savePeople, savePlaces, saveResults, saveTasks, searchAll, searchMdFiles, searchReqSeq, searchSnippet, searchViaWorker, searchWorker, setActiveContext, setAppSettings, setContextSettings, setMePersonKey, setNoteMeta, shiftIsoWeek, startEmbedWorker, startSearchWorker, startSummarizeWorker, stopEmbedWorker, stopSearchWorker, stopSummarizeWorker, summarizeEmit, summarizeReady, summarizeReqSeq, summarizeSseClients, summarizeState, summarizeViaLocalWorker, summarizeWeek, summarizeWorker, syncCollection, syncMentions, syncTaskNote, syncTaskNoteRefs, tasksFile, themeCssFor, uniqueThemeId, vectorHitToSearchResult, vectorSearchViaWorker, writeCustomTheme, writeMarker } = _core;
+    const {
+        dateToIsoWeek, extractMentions, getAppSettings, getContextSettings, getDataContext,
+        isoWeekMonday, listContexts, loadMeetingTypes, loadMeetings, loadMeetingsForContext,
+        loadMeetingSeries, saveMeetingSeries, loadTasks, meetingId, meetingSeriesId,
+        agendaItemId, decisionId, readJsonBody, saveMeetingTypes, saveMeetings,
+        saveTasks, syncMentions,
+    } = _core;
+    const { validateOpenSeriesOccurrence, syncOccurrenceOutcomesToSeries } = require('../../lib/meeting-lifecycle');
     return async function(req, res, ctx) {
         const { pathname, url } = ctx;
     if (pathname === '/api/meeting-types' && req.method === 'GET') {
@@ -22,7 +19,7 @@ module.exports = function(deps) {
     }
     if (pathname === '/api/meeting-types' && req.method === 'PUT') {
         try {
-            const data = JSON.parse(await readBody(req) || '[]');
+            const data = await readJsonBody(req, []);
             if (!Array.isArray(data)) throw new Error('expected array');
             const seenKeys = new Set();
             const cleaned = data.map(t => {
@@ -64,7 +61,7 @@ module.exports = function(deps) {
                 return;
             }
             const ctxIds = listContexts();
-            const activeCtx = getActiveContext();
+            const activeCtx = getDataContext();
             meetings = [];
             for (const ctxId of ctxIds) {
                 const s = getContextSettings(ctxId);
@@ -113,7 +110,7 @@ module.exports = function(deps) {
 
     // API: create meeting
     if (pathname === '/api/meetings' && req.method === 'POST') {
-        const data = JSON.parse(await readBody(req) || '{}');
+        const data = await readJsonBody(req, {});
         if (!data.date || (!data.title && !data.seriesId)) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: false, error: 'date and title required' }));
@@ -129,8 +126,8 @@ module.exports = function(deps) {
                 return;
             }
         }
-        const meetings = loadMeetings();
         const validTypes = loadMeetingTypes().map(t => t.key);
+        const meetings = loadMeetings();
         let series = null;
         if (data.seriesId) {
             series = loadMeetingSeries().find(s => s.id === data.seriesId);
@@ -209,21 +206,6 @@ module.exports = function(deps) {
     // unaffected. Closing syncs each agenda entry's outcome back onto the
     // series' persistent agendaItems (resolved/cancelled leave the queue,
     // deferred — including auto-deferred still-open items — re-enters it).
-    function syncAgendaOutcomeToSeries(m, entry) {
-        if (!m.seriesId) return;
-        const series = loadMeetingSeries();
-        const s = series.find(x => x.id === m.seriesId);
-        if (!s || !Array.isArray(s.agendaItems)) return;
-        const item = s.agendaItems.find(a => a.id === entry.agendaItemId);
-        if (!item) return;
-        if (entry.outcome === 'resolved') item.state = 'resolved';
-        else if (entry.outcome === 'cancelled') item.state = 'cancelled';
-        else item.state = 'queued'; // deferred, or outcome cleared back to open
-        item.updatedAt = new Date().toISOString();
-        s.updated = new Date().toISOString();
-        saveMeetingSeries(series);
-    }
-
     const startMatch = pathname.match(/^\/api\/meetings\/([^/]+)\/start$/);
     if (startMatch && req.method === 'POST') {
         const meetings = loadMeetings();
@@ -249,8 +231,9 @@ module.exports = function(deps) {
         if (Array.isArray(m.agenda)) {
             for (const entry of m.agenda) {
                 if (!entry.outcome) entry.outcome = 'deferred'; // confirm_auto_defer
-                syncAgendaOutcomeToSeries(m, entry);
             }
+            const series = loadMeetingSeries();
+            if (syncOccurrenceOutcomesToSeries(m, series)) saveMeetingSeries(series);
         }
         m.status = 'closed';
         m.closedAt = new Date().toISOString();
@@ -282,13 +265,14 @@ module.exports = function(deps) {
     // forward if deferred).
     const agendaAddMatch = pathname.match(/^\/api\/meetings\/([^/]+)\/agenda$/);
     if (agendaAddMatch && req.method === 'POST') {
+        const data = await readJsonBody(req, {});
+        const title = String(data.title || '').trim();
+        if (!title) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'title required' })); return; }
         const meetings = loadMeetings();
         const m = meetings.find(x => x.id === agendaAddMatch[1]);
         if (!m) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'not found' })); return; }
-        if (!m.seriesId) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'not a series occurrence' })); return; }
-        const data = JSON.parse(await readBody(req) || '{}');
-        const title = String(data.title || '').trim();
-        if (!title) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'title required' })); return; }
+        const guard = validateOpenSeriesOccurrence(m);
+        if (guard) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: guard })); return; }
         const series = loadMeetingSeries();
         const s = series.find(x => x.id === m.seriesId);
         if (!s) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'series not found' })); return; }
@@ -309,17 +293,23 @@ module.exports = function(deps) {
     // Update one occurrence's agenda entry (notes and/or outcome).
     const agendaEntryMatch = pathname.match(/^\/api\/meetings\/([^/]+)\/agenda\/([^/]+)$/);
     if (agendaEntryMatch && req.method === 'PUT') {
+        const data = await readJsonBody(req, {});
         const meetings = loadMeetings();
         const m = meetings.find(x => x.id === agendaEntryMatch[1]);
-        if (!m || !Array.isArray(m.agenda)) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'not found' })); return; }
+        if (!m) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'not found' })); return; }
+        const guard = validateOpenSeriesOccurrence(m);
+        if (guard) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: guard })); return; }
+        if (!Array.isArray(m.agenda)) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'not found' })); return; }
         const entry = m.agenda.find(a => a.agendaItemId === agendaEntryMatch[2]);
         if (!entry) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'agenda entry not found' })); return; }
-        const data = JSON.parse(await readBody(req) || '{}');
         if (data.notes !== undefined) entry.notes = String(data.notes || '');
         if (data.outcome !== undefined) {
             entry.outcome = (data.outcome === null || data.outcome === '') ? null
                 : (['resolved', 'deferred', 'cancelled'].includes(data.outcome) ? data.outcome : entry.outcome);
-            syncAgendaOutcomeToSeries(m, entry);
+            const series = loadMeetingSeries();
+            // A single edit must not replay stale outcomes from other entries.
+            syncOccurrenceOutcomesToSeries({ ...m, agenda: [entry] }, series);
+            saveMeetingSeries(series);
         }
         m.updated = new Date().toISOString();
         saveMeetings(meetings);
@@ -331,12 +321,14 @@ module.exports = function(deps) {
     // Decisions: immutable per-occurrence log (add + correction-delete only).
     const decisionsCollMatch = pathname.match(/^\/api\/meetings\/([^/]+)\/decisions$/);
     if (decisionsCollMatch && req.method === 'POST') {
+        const data = await readJsonBody(req, {});
+        const text = String(data.text || '').trim();
+        if (!text) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'text required' })); return; }
         const meetings = loadMeetings();
         const m = meetings.find(x => x.id === decisionsCollMatch[1]);
         if (!m) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'not found' })); return; }
-        const data = JSON.parse(await readBody(req) || '{}');
-        const text = String(data.text || '').trim();
-        if (!text) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'text required' })); return; }
+        const guard = validateOpenSeriesOccurrence(m);
+        if (guard) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: guard })); return; }
         if (!Array.isArray(m.decisions)) m.decisions = [];
         const d = { id: decisionId(), text, createdAt: new Date().toISOString() };
         m.decisions.push(d);
@@ -351,7 +343,10 @@ module.exports = function(deps) {
     if (decisionItemMatch && req.method === 'DELETE') {
         const meetings = loadMeetings();
         const m = meetings.find(x => x.id === decisionItemMatch[1]);
-        if (!m || !Array.isArray(m.decisions)) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'not found' })); return; }
+        if (!m) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'not found' })); return; }
+        const guard = validateOpenSeriesOccurrence(m);
+        if (guard) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: guard })); return; }
+        if (!Array.isArray(m.decisions)) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'not found' })); return; }
         const idx = m.decisions.findIndex(d => d.id === decisionItemMatch[2]);
         if (idx === -1) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'decision not found' })); return; }
         m.decisions.splice(idx, 1);
@@ -366,14 +361,14 @@ module.exports = function(deps) {
     const meetingEditMatch = pathname.match(/^\/api\/meetings\/([^/]+)$/);
     if (meetingEditMatch && (req.method === 'PUT' || req.method === 'DELETE')) {
         const id = meetingEditMatch[1];
-        const meetings = loadMeetings();
-        const idx = meetings.findIndex(m => m.id === id);
-        if (idx === -1) {
-            res.writeHead(404, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: false, error: 'not found' }));
-            return;
-        }
         if (req.method === 'DELETE') {
+            const meetings = loadMeetings();
+            const idx = meetings.findIndex(m => m.id === id);
+            if (idx === -1) {
+                res.writeHead(404, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: 'not found' }));
+                return;
+            }
             meetings.splice(idx, 1);
             saveMeetings(meetings);
             // Cascade: dangling references to this specific occurrence no
@@ -387,8 +382,20 @@ module.exports = function(deps) {
             res.end(JSON.stringify({ ok: true }));
             return;
         }
-        const data = JSON.parse(await readBody(req) || '{}');
+        const data = await readJsonBody(req, {});
+        const meetings = loadMeetings();
+        const idx = meetings.findIndex(m => m.id === id);
+        if (idx === -1) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'not found' }));
+            return;
+        }
         const m = meetings[idx];
+        if (m.seriesId && m.status === 'closed') {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'closed occurrence is read-only' }));
+            return;
+        }
         // Validate end > start (compare full datetimes for multi-day support)
         const effDate = data.date !== undefined ? data.date : m.date;
         const effStart = data.start !== undefined ? data.start : m.start;
@@ -428,4 +435,3 @@ module.exports = function(deps) {
 
     };
 };
-

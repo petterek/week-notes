@@ -274,15 +274,15 @@ class MeetingOccurrencePage extends WNElement {
         } catch (e) { alert((e && e.message) || 'Feil'); }
     }
 
-    _renderAgendaItem(a) {
+    _renderAgendaItem(a, closed = false) {
         const outcomes = ['resolved', 'deferred', 'cancelled'];
         return html`
             <div class="mo-agenda-item">
                 <div class="row1"><span class="title">${a.title}</span></div>
-                <textarea placeholder="Notater…" data-agenda="${a.agendaItemId}">${a.notes || ''}</textarea>
+                <textarea placeholder="Notater…" data-agenda="${a.agendaItemId}" ${closed ? 'readonly disabled' : ''}>${a.notes || ''}</textarea>
                 <div class="mo-outcome-btns">
                     ${outcomes.map(o => html`
-                        <button type="button" class="mo-outcome-btn ${a.outcome === o ? 'on' : ''}" data-item="${a.agendaItemId}" data-outcome="${o}" data-current="${a.outcome || ''}">${OUTCOME_LABEL[o]}</button>
+                        <button type="button" class="mo-outcome-btn ${a.outcome === o ? 'on' : ''}" data-item="${a.agendaItemId}" data-outcome="${o}" data-current="${a.outcome || ''}" ${closed ? 'disabled' : ''}>${OUTCOME_LABEL[o]}</button>
                     `)}
                 </div>
             </div>
@@ -323,6 +323,7 @@ class MeetingOccurrencePage extends WNElement {
         const agenda = Array.isArray(meeting.agenda) ? meeting.agenda.slice().sort((a, b) => (a.order || 0) - (b.order || 0)) : [];
         const decisions = Array.isArray(meeting.decisions) ? meeting.decisions : [];
         const isSeriesOccurrence = !!meeting.seriesId;
+        const isClosed = meeting.status === 'closed';
         const timeRange = [meeting.start, meeting.end].filter(Boolean).join('–');
 
         return html`
@@ -336,7 +337,7 @@ class MeetingOccurrencePage extends WNElement {
                     <span>📅 ${meeting.date}${timeRange ? ' ' + timeRange : ''}</span>
                     ${meeting.location ? html`<span>📍 ${meeting.location}</span>` : ''}
                     ${(meeting.attendees || []).length ? html`<span>👥 ${meeting.attendees.map(a => '@' + a).join(' ')}</span>` : ''}
-                    <button type="button" class="mo-act mo-edit-head" title="Rediger møte">✏️ Rediger</button>
+                    ${!isClosed ? html`<button type="button" class="mo-act mo-edit-head" title="Rediger møte">✏️ Rediger</button>` : ''}
                     <a class="mo-act" href="/meetings/${encodeURIComponent(this._id)}/minutes" target="_blank" rel="noopener">📄 Eksporter til PDF</a>
                 </div>
 
@@ -349,11 +350,13 @@ class MeetingOccurrencePage extends WNElement {
 
                     <div class="mo-section">
                         <h2>📋 Saksliste <span class="c">${agenda.length}</span></h2>
-                        ${agenda.length === 0 ? html`<p class="mo-empty">Ingen saklistepunkter i dette møtet.</p>` : agenda.map(a => this._renderAgendaItem(a))}
-                        <div class="mo-agenda-add">
-                            <input type="text" data-el="agenda-add" placeholder="➕ Legg til saklistepunkt (også til serien)…" />
-                            <button type="button" class="mo-agenda-add-btn">Legg til</button>
-                        </div>
+                        ${agenda.length === 0 ? html`<p class="mo-empty">Ingen saklistepunkter i dette møtet.</p>` : agenda.map(a => this._renderAgendaItem(a, isClosed))}
+                        ${!isClosed ? html`
+                            <div class="mo-agenda-add">
+                                <input type="text" data-el="agenda-add" placeholder="➕ Legg til saklistepunkt (også til serien)…" />
+                                <button type="button" class="mo-agenda-add-btn">Legg til</button>
+                            </div>
+                        ` : ''}
                     </div>
 
                     <div class="mo-section">
@@ -361,21 +364,23 @@ class MeetingOccurrencePage extends WNElement {
                         ${decisions.length === 0 ? html`<p class="mo-empty">Ingen beslutninger registrert.</p>` : decisions.map(d => html`
                             <div class="mo-decision">
                                 <span class="text">${d.text}</span>
-                                <button type="button" class="rm mo-decision-rm" data-id="${d.id}" title="Fjern (korriger feilregistrering)">✕</button>
+                                ${!isClosed ? html`<button type="button" class="rm mo-decision-rm" data-id="${d.id}" title="Fjern (korriger feilregistrering)">✕</button>` : ''}
                             </div>
                         `)}
-                        <div class="mo-decision-add">
-                            <input type="text" data-el="decision-add" placeholder="➕ Ny beslutning…" />
-                            <button type="button" class="mo-decision-add-btn">Legg til</button>
-                        </div>
+                        ${!isClosed ? html`
+                            <div class="mo-decision-add">
+                                <input type="text" data-el="decision-add" placeholder="➕ Ny beslutning…" />
+                                <button type="button" class="mo-decision-add-btn">Legg til</button>
+                            </div>
+                        ` : ''}
                     </div>
                 ` : html`<p class="mo-empty">Dette møtet tilhører ikke en møteserie — saksliste, beslutninger og livssyklus er ikke tilgjengelig.</p>`}
 
                 <div class="mo-section mo-minutes">
                     <h2>📝 Referat (fritekst)</h2>
-                    <textarea data-el="minutes" placeholder="Skriv referat i markdown…">${meeting.minutes || ''}</textarea>
+                    <textarea data-el="minutes" placeholder="Skriv referat i markdown…" ${isClosed ? 'readonly disabled' : ''}>${meeting.minutes || ''}</textarea>
                     <div class="hint">Støtter markdown. Vises i PDF-eksporten.</div>
-                    <div class="save-row"><button type="button" class="mo-act mo-save-minutes">💾 Lagre referat</button></div>
+                    ${!isClosed ? html`<div class="save-row"><button type="button" class="mo-act mo-save-minutes">💾 Lagre referat</button></div>` : ''}
                 </div>
 
                 <div class="mo-section mo-tasks">
@@ -386,12 +391,14 @@ class MeetingOccurrencePage extends WNElement {
                             <span class="text">${t.text || '(uten tekst)'}</span>
                         </li>
                     `)}</ul>`}
-                    <task-create compact
-                        tasks_service="week-note-services.tasks_service"
-                        meeting-id="${this._id}"
-                        meeting-series-id="${series ? series.id : ''}"
-                        placeholder="➕ Ny oppfølgingsoppgave fra møtet"
-                        button-label="Legg til"></task-create>
+                    ${!isClosed ? html`
+                        <task-create compact
+                            tasks_service="week-note-services.tasks_service"
+                            meeting-id="${this._id}"
+                            meeting-series-id="${series ? series.id : ''}"
+                            placeholder="➕ Ny oppfølgingsoppgave fra møtet"
+                            button-label="Legg til"></task-create>
+                    ` : ''}
                 </div>
 
                 ${this._headerModal ? this._renderModal() : ''}

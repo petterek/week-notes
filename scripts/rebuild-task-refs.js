@@ -25,9 +25,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { CONTEXTS_DIR } = require('../lib/data-paths');
 
-const REPO_ROOT = path.resolve(__dirname, '..');
-const DATA_ROOT = path.join(REPO_ROOT, 'data');
+const DATA_ROOT = CONTEXTS_DIR;
 
 // Match inline task markers: {{?<id>}} (open) or {{!<id>}} (closed).
 // The braces and id charset mirror server.js's preTaskMarkers.

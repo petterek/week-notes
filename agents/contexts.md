@@ -1,17 +1,42 @@
 # Feature: Contexts (multi-workspace)
 
 Multiple isolated workspaces, each its own folder with its own data
-and its own git repo. The "active context" is what every other
-feature reads from.
+and its own git repo. A request captures its active context before
+reading its body or calling any domain handlers.
 
 ## Storage
 
-- Root: `data/<ctx>/` — must pass `safeName` (`[A-Za-z0-9_-]+`).
-- Each context contains: `settings.json`, `tasks.json`, `people.json`,
-  `meetings.json`, `meeting-types.json` (optional), `results.json`,
-  `notes-meta.json`, plus week folders `YYYY-WNN/`.
+- Root: `CONTEXTS_DIR/<ctx>/` from `lib/data-paths.js`; `DATA_DIR`
+  overrides the default `<repo>/data`. Context ids pass `safeName`.
+- Each context contains `settings.json`, optional `meeting-types.json`,
+  week folders `YYYY-WNN/`, and per-item directories registered in
+  `lib/collections-manifest.js` (including `meeting-series`, `goals`,
+  and `teams`). Legacy `<collection>.json` arrays remain readable when
+  their directory does not exist.
+- Metadata is stored in `notes-meta/<week>/<note>.md.json`; sidecars
+  override matching entries in a remaining legacy `notes-meta.json`.
 - Active context state: `data/.active` — single-line file with the
   context id. Created automatically.
+
+## Request isolation
+
+`server.js` resolves `wn_ctx` cookie → `.active` fallback once, exposes
+`ctx.contextId`, and wraps the awaited route chain in
+`runWithDataContext(contextId, ...)` (`lib/request-context.js`).
+Use `getDataContext()` in handlers and helper defaults: it survives
+awaits and is used by `dataDir()` and the per-context caches.
+`getActiveContext()` intentionally means the global default only.
+
+`dataDir(id)` and `loadCollection(name, id)` support explicit reads.
+Background post-switch pull/index work runs inside
+`runWithDataContext(next, ...)`, rather than inheriting the old request.
+Context switching no longer deletes either context's in-progress
+autosaves. The legacy startup cleanup policy is separate.
+
+This is request isolation, not a separate identity for every tab:
+browser-profile cookies are shared between tabs. Collections, note
+metadata and settings return independent nested snapshots; modifications
+must be persisted explicitly.
 
 ## Settings shape
 
@@ -52,16 +77,15 @@ read by `getWorkHours()` if `workHours` is missing.
 
 ## Code map
 
-- Backend helpers: `safeName`, `listContexts`, `getActiveContext`,
+- Backend helpers in `lib/core.js`: `safeName`, `listContexts`,
+  `getActiveContextFromReq`, `getDataContext`, `getActiveContext`,
   `getContextSettings`, `setContextSettings`, `getWorkHours`,
-  `getDefaultMeetingMinutes` near the top.
-- `/settings` page route (~line 2487) — master/detail layout.
-- Form submit handler — see `~line 2790`. Builds the request body
-  (incl. per-day `workHours`) before PUTing.
-- No-context guard: redirects unknown paths to `/settings` if no
-  contexts exist (~line 1832).
-- Context switcher: navbar dropdown (`ctxTrigger` etc.) wired in the
-  global body script.
+  `getDefaultMeetingMinutes`.
+- APIs: `routes/api/contexts.js`; SPA stub: `routes/spa.js`.
+- Settings UI: `domains/settings/settings-page.js`; its form submit
+  builds the request body (including `workHours`) before PUTing.
+- No-context guard: `server.js` redirects disallowed paths to `/welcome`.
+- Context switcher: shared navbar and browser app-shell wiring.
 
 ## Settings page UI
 
@@ -85,7 +109,7 @@ When `listContexts().length === 0`, the no-context guard at the top
 of the request handler redirects every non-allowed path to
 `/welcome` (a standalone HTML page, NOT pageHtml-wrapped). That page:
 
-- Lives entirely on the `/welcome` route in `server.js` and pulls
+- Lives on the `/welcome` route in `routes/static-early.js` and pulls
   styles from a real file at the repo root: `welcome.css`, served by
   the `/welcome.css` route.
 - Has no navbar, no context switcher, no global search. Just hero +
@@ -171,8 +195,9 @@ no server-side change needed unless validation is required.
   read/forget the URL memory.
 - The active-context dropdown lives in EVERY page's navbar via the
   global body script — adding a context doesn't refresh open tabs.
-- If no contexts exist, all paths except `/settings` and assets
-  redirect to `/settings` (force-create one).
+- With no contexts, only welcome resources, themes and context APIs
+  bypass the `/welcome` redirect; do not send users to a settings stub
+  that requires an existing context.
 
 ## Related
 

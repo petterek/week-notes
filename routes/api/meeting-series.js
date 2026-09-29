@@ -2,16 +2,15 @@
 module.exports = function(deps) {
     const _core = deps.core;
     const {
-        loadMeetingSeries, saveMeetingSeries, meetingSeriesId, agendaItemId,
-        loadMeetings, saveMeetings, loadTasks, saveTasks,
-        extractMentions, readBody,
+        loadMeetingSeries, saveMeetingSeries, meetingSeriesId, agendaItemId, loadMeetings,
+        saveMeetings, loadTasks, saveTasks, extractMentions, readJsonBody,
     } = _core;
+    const { reindexAgendaItems } = require('../../lib/meeting-lifecycle');
 
     // Compute lightweight rollup fields for the series list view: number of
     // queued agenda items and the next/most-recent related occurrence date.
     function withRollup(s, meetings) {
         const related = meetings.filter(m => m.seriesId === s.id);
-        const today = new Date().toISOString().slice(0, 10);
         const upcoming = related
             .filter(m => m.status !== 'closed')
             .sort((a, b) => (a.date + (a.start || '')).localeCompare(b.date + (b.start || '')))[0];
@@ -43,7 +42,7 @@ module.exports = function(deps) {
 
         // POST /api/meeting-series — create a new series
         if (pathname === '/api/meeting-series' && req.method === 'POST') {
-            const data = JSON.parse(await readBody(req) || '{}');
+            const data = await readJsonBody(req, {});
             const title = String(data.title || '').trim();
             if (!title) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -87,6 +86,7 @@ module.exports = function(deps) {
 
         // PUT /api/meeting-series/:id — update series fields
         if (oneMatch && req.method === 'PUT') {
+            const data = await readJsonBody(req, {});
             const series = loadMeetingSeries();
             const s = series.find(x => x.id === oneMatch[1]);
             if (!s) {
@@ -94,7 +94,6 @@ module.exports = function(deps) {
                 res.end(JSON.stringify({ ok: false, error: 'not found' }));
                 return;
             }
-            const data = JSON.parse(await readBody(req) || '{}');
             if (data.title !== undefined) s.title = String(data.title).trim();
             if (data.description !== undefined) s.description = String(data.description || '').trim();
             if (data.status !== undefined && ['active', 'archived'].includes(data.status)) s.status = data.status;
@@ -146,6 +145,13 @@ module.exports = function(deps) {
         // POST /api/meeting-series/:id/agenda — add a new queued agenda item
         const agendaCollMatch = pathname.match(/^\/api\/meeting-series\/([^/]+)\/agenda$/);
         if (agendaCollMatch && req.method === 'POST') {
+            const data = await readJsonBody(req, {});
+            const title = String(data.title || '').trim();
+            if (!title) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: 'title required' }));
+                return;
+            }
             const series = loadMeetingSeries();
             const s = series.find(x => x.id === agendaCollMatch[1]);
             if (!s) {
@@ -153,14 +159,8 @@ module.exports = function(deps) {
                 res.end(JSON.stringify({ ok: false, error: 'not found' }));
                 return;
             }
-            const data = JSON.parse(await readBody(req) || '{}');
-            const title = String(data.title || '').trim();
-            if (!title) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: false, error: 'title required' }));
-                return;
-            }
             if (!Array.isArray(s.agendaItems)) s.agendaItems = [];
+            s.agendaItems = reindexAgendaItems(s.agendaItems);
             const item = {
                 id: agendaItemId(),
                 title,
@@ -181,6 +181,29 @@ module.exports = function(deps) {
         // snapshotted this item's title into their own agenda log).
         const agendaItemMatch = pathname.match(/^\/api\/meeting-series\/([^/]+)\/agenda\/([^/]+)$/);
         if (agendaItemMatch && (req.method === 'PUT' || req.method === 'DELETE')) {
+            if (req.method === 'DELETE') {
+                const series = loadMeetingSeries();
+                const s = series.find(x => x.id === agendaItemMatch[1]);
+                if (!s || !Array.isArray(s.agendaItems)) {
+                    res.writeHead(404, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ ok: false, error: 'not found' }));
+                    return;
+                }
+                const itemIdx = s.agendaItems.findIndex(a => a.id === agendaItemMatch[2]);
+                if (itemIdx === -1) {
+                    res.writeHead(404, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ ok: false, error: 'agenda item not found' }));
+                    return;
+                }
+                s.agendaItems.splice(itemIdx, 1);
+                s.agendaItems = reindexAgendaItems(s.agendaItems);
+                s.updated = new Date().toISOString();
+                saveMeetingSeries(series);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: true }));
+                return;
+            }
+            const data = await readJsonBody(req, {});
             const series = loadMeetingSeries();
             const s = series.find(x => x.id === agendaItemMatch[1]);
             if (!s || !Array.isArray(s.agendaItems)) {
@@ -194,15 +217,6 @@ module.exports = function(deps) {
                 res.end(JSON.stringify({ ok: false, error: 'agenda item not found' }));
                 return;
             }
-            if (req.method === 'DELETE') {
-                s.agendaItems.splice(itemIdx, 1);
-                s.updated = new Date().toISOString();
-                saveMeetingSeries(series);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: true }));
-                return;
-            }
-            const data = JSON.parse(await readBody(req) || '{}');
             const item = s.agendaItems[itemIdx];
             if (data.title !== undefined) item.title = String(data.title).trim();
             if (data.state !== undefined && ['queued', 'resolved', 'cancelled'].includes(data.state)) item.state = data.state;

@@ -1,22 +1,15 @@
 # Feature: Home page
 
-The landing page (`/`) with weekly notes list + task sidebar +
-upcoming-meetings sidebar.
+The landing page (`/`) is a SPA fragment with a weekly notes list and a
+sidebar containing tasks, upcoming meetings, goals and today's calendar.
 
 ## Layout
 
 ```
-┌─────────────────────────────────────────────────┐
-│ navbar (full width)                             │
-├──────────┬─────────────────────────┬────────────┤
-│ tasks    │ search bar              │ upcoming   │
-│ sidebar  ├─────────────────────────┤ meetings   │
-│ (open +  │ week list (most recent  │ sidebar    │
-│ done)    │ first), each with:      │            │
-│          │  - notes (links/types)  │            │
-│          │  - tasks (open/done)    │            │
-│          │  - results              │            │
-└──────────┴─────────────────────────┴────────────┘
+navbar + global-search
+home-layout
+  taskSidebar: open tasks, upcoming meetings, goals, today-calendar
+  homeMain: week-list with notes, completed tasks and results
 ```
 
 `.home-layout` is a flex container; sidebars are fixed-width, main
@@ -27,42 +20,38 @@ overrides the global 1100px constraint.
 
 ## Code map
 
-- Route: `if (pathname === '/' || pathname === '/index.html')`
-  (~line 1869) — the biggest single render block.
-- Sidebar augmentation: `sidebar.replace('</aside>', ...)` (~line 1898)
-  — appends "Kommende møter" cards.
-- Modals: `#summaryModal` (week summary), `#noteViewModal` (read-only
-  note view), `#commentModal` (task completion comment).
-- Search wiring: `searchInput`, `searchResults`, `weekList` IDs.
-  Debounced fetch to `/api/search`.
+- Route metadata: `lib/page-routes.js` (`/`, alias `/index.html`).
+- Empty document shell: `routes/spa.js` via `lib/page-shell.js`;
+  `public/app-shell.js` hydrates `pages/home.html` into `#content`.
+- Sidebar components and week-list declare injected services in the
+  fragment; `public/service-registry.js` installs the shared registry.
+- Shared modals, summary actions, search-result navigation and entity
+  callouts are wired in `public/app-shell.js`, not a home-only script.
+- Home spacing and responsive styles live in `public/style.css`.
 
 ## Sidebar deep-links
 
-- Each `.sidebar-meeting` card has `data-cal-href="/calendar/<week>#m-<id>"`.
-- A document-level click handler navigates to that href when the
-  card is clicked, except when the click is on a child `<a>` or
-  `<button>` (e.g. the 📝 note shortcut).
+- Upcoming-meeting cards provide calendar links to
+  `/calendar/<week>#m-<id>` and separate meeting-note actions.
 - Calendar handles the `#m-<id>` hash to scroll + pulse-highlight.
 
 ## Search
 
-- `GET /api/search?q=...` returns matches grouped by week.
-- `highlightSnippet()` wraps matches in `<mark>` (regex-escapes the
-  query).
-- When search is non-empty, `weekList` hides and `searchResults`
-  shows.
+- The navbar's `<global-search>` uses the injected search service and
+  `GET /api/search?q=...` to search the captured request context.
+- `element-selected` is handled by the shared app shell: note results
+  open `<note-view>`, while other entities navigate to their detail links.
 
 ## Conventions
 
 - Don't add heavy logic to home — extract helpers if it grows.
 - All escaping must use `escapeHtml` before insertion into HTML.
-- The home script is large and loads other scripts (mention
-  autocomplete) — make sure new code is added inside an existing
-  `<script>` block or a new IIFE so we don't pollute globals.
+- Put component-specific behavior in domain components; reserve the
+  shared app shell for cross-page events and navigation.
 
 ## Gotchas
 
-- `pendingToggleEl` is a module-scoped global used for task comment
-  flow.
-- The clock in the navbar is its own `(function tick(){...})()` —
-  not on home specifically, lives in the global body script.
+- Register a new SPA route in `lib/page-routes.js`, not a second local
+  route table in a browser component.
+- Fragments are replaced during navigation. Wire cross-page handlers
+  once in the shell and keep component cleanup in `disconnectedCallback`.

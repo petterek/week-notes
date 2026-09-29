@@ -58,6 +58,18 @@
       "commentFile": {
         "type": "string",
         "description": "Path to a sidecar markdown comment file (week/file)."
+      },
+      "meetingId": {
+        "type": "string",
+        "description": "Linked occurrence id for follow-up tasks created from a meeting."
+      },
+      "meetingSeriesId": {
+        "type": "string",
+        "description": "Linked recurring series id for follow-up tasks that should appear in the series dashboard."
+      },
+      "agendaItemId": {
+        "type": "string",
+        "description": "Optional series agenda item id that spawned the task."
       }
     }
   }

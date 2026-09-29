@@ -259,6 +259,39 @@
         },
 
         {
+            id: 'task-note-modal-mention-autocomplete',
+            name: 'task-note-modal @mention autocomplete opens and inserts',
+            url: '/debug/task-note-modal',
+            run: async function (ctx) {
+                var doc = ctx.doc;
+                var modal = await ctx.waitFor(function () { return doc.querySelector('task-note-modal'); }, { label: 'task-note-modal' });
+                ctx.assert(typeof modal.open === 'function', 'expected open()');
+                modal.open({ id: 'demo-note', text: 'Demo task', note: '' }, function () {});
+                var ta = await ctx.waitFor(function () {
+                    var input = modal.shadowRoot && modal.shadowRoot.querySelector('[data-el="note"]');
+                    return input && input.__wnMentionAttached ? input : null;
+                }, { label: 'note textarea' });
+                ta.focus();
+                ta.value = '@me';
+                ta.selectionStart = ta.selectionEnd = ta.value.length;
+                ta.dispatchEvent(new Event('input', { bubbles: true }));
+
+                var pop = await ctx.waitFor(function () {
+                    var p = modal.shadowRoot.querySelector('[role="listbox"]');
+                    return p && !p.hidden && p.children.length > 0 ? p : null;
+                }, { label: 'mention dropdown visible', timeout: 2000 });
+
+                ctx.assert(pop.textContent.indexOf('meg') >= 0 || pop.textContent.indexOf('me') >= 0,
+                    'dropdown should show matching person, got: ' + pop.textContent.slice(0, 80));
+                ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+                await ctx.sleep(100);
+                ctx.assert(ta.value.indexOf('@me') >= 0,
+                    'textarea should contain @mention after selection, got: ' + ta.value);
+                modal.close();
+            },
+        },
+
+        {
             id: 'icon-picker-emits-change',
             name: 'icon-picker fires valueChanged on selection',
             url: '/debug/icon-picker',
@@ -275,6 +308,44 @@
                 btn.click();
                 await ctx.waitFor(function () { return fired || ip.value; }, { label: 'value set' });
                 ctx.assert(ip.value, 'expected non-empty value after click, got "' + ip.value + '"');
+            },
+        },
+
+        {
+            id: 'task-modal-reconnect-shortcuts',
+            name: 'task modals restore keyboard shortcuts after reconnecting',
+            url: '/debug/task-note-modal',
+            run: async function (ctx) {
+                await import('/components/task-note-modal.js');
+                await import('/components/task-complete-modal.js');
+                var variants = [
+                    { tag: 'task-note-modal', input: 'note', flag: 'saved' },
+                    { tag: 'task-complete-modal', input: 'comment', flag: 'confirmed' },
+                ];
+                for (var variant of variants) {
+                    var modal = ctx.doc.createElement(variant.tag);
+                    ctx.doc.body.appendChild(modal);
+                    modal.remove();
+                    ctx.doc.body.appendChild(modal);
+                    var result = null;
+                    try {
+                        modal.open({ id: 'reconnected', text: 'Synthetic task' }, function (value) { result = value; });
+                        var input = await ctx.waitFor(function () {
+                            var field = modal.shadowRoot.querySelector('[data-el="' + variant.input + '"]');
+                            return field && field.__wnMentionAttached ? field : null;
+                        }, { label: variant.tag + ' ready' });
+                        input.value = 'Saved after reconnect';
+                        input.dispatchEvent(new KeyboardEvent('keydown', {
+                            key: 'Enter', ctrlKey: true, bubbles: true, composed: true, cancelable: true,
+                        }));
+                        await ctx.waitFor(function () { return result; }, { label: variant.tag + ' callback' });
+                        ctx.assert(result[variant.flag] === true, 'keyboard action must succeed after reconnect');
+                        ctx.assert(result[variant.input] === 'Saved after reconnect', 'keyboard action must preserve the text');
+                    } finally {
+                        modal.close();
+                        modal.remove();
+                    }
+                }
             },
         },
 
@@ -334,6 +405,51 @@
                     var strong = root.querySelector('strong');
                     return h1 && /Hello/.test(h1.textContent) && strong ? true : null;
                 }, { label: 'rendered h1 + strong', timeout: 4000 });
+            },
+        },
+
+        {
+            id: 'markdown-preview-detached-custom-elements',
+            name: 'markdown-preview helper renders custom elements in detached docs',
+            url: '/debug/markdown-preview',
+            run: async function (ctx) {
+                var doc = ctx.doc;
+                var win = ctx.win;
+                await ctx.waitFor(function () { return win.marked && win.marked.parse; }, { label: 'window.marked', timeout: 5000 });
+                var helper = await import('/services/_shared/wn-markdown-preview.js');
+                var frame = doc.createElement('iframe');
+                var loaded = new Promise(function (resolve) { frame.addEventListener('load', resolve, { once: true }); });
+                frame.srcdoc = '<!doctype html><html><head></head><body></body></html>';
+                doc.body.appendChild(frame);
+                var preview;
+                try {
+                    await loaded;
+                    preview = helper.createDetachedMarkdownPreview(frame.contentDocument, {
+                        marked: win.marked,
+                        services: win['week-note-services'],
+                        title: 'Scenario preview',
+                    });
+                    await preview.ready;
+                    preview.render('# Hello\n\n<entity-mention kind="person" key="ada" label="Ada Test"></entity-mention>\n\n<inline-action kind="task" label="Ring @ada"></inline-action>');
+
+                    await ctx.waitFor(function () {
+                        var root = frame.contentDocument.querySelector('#pip-root');
+                        if (!root) return null;
+                        return root.querySelector('entity-mention') && root.querySelector('inline-action') ? root : null;
+                    }, { label: 'detached preview rendered', timeout: 5000 });
+
+                    var root = frame.contentDocument.querySelector('#pip-root');
+                    var cwin = frame.contentWindow;
+                    ctx.assert(cwin.getComputedStyle(root).paddingTop === '20px', 'expected shared detached padding, got ' + cwin.getComputedStyle(root).paddingTop);
+                    var entity = root.querySelector('entity-mention');
+                    ctx.assert(entity && entity.shadowRoot && /Ada Test/.test(entity.shadowRoot.textContent), 'expected entity-mention to render label');
+                    var pill = root.querySelector('inline-action');
+                    ctx.assert(pill && pill.shadowRoot && /Ring/.test(pill.shadowRoot.textContent), 'expected inline-action to render label');
+                    ctx.assert(!!(pill && pill.shadowRoot && pill.shadowRoot.querySelector('entity-mention')), 'expected inline-action nested mention chip');
+                } finally {
+                    if (preview) preview.destroy();
+                    frame.remove();
+                }
             },
         },
 
@@ -827,9 +943,9 @@
                 var ta = sr.querySelector('.ne-content');
                 ctx.assert(ta, 'textarea found');
 
-                // Type @ali and check popup
+                // Use a person from MockPeopleService, not the active context.
                 ta.focus();
-                ta.value = '@ali';
+                ta.value = '@ast';
                 ta.selectionStart = ta.selectionEnd = 4;
                 ta.dispatchEvent(new Event('input', { bubbles: true }));
 
@@ -838,14 +954,14 @@
                     return p && !p.hidden && p.children.length > 0 ? p : null;
                 }, { label: 'mention dropdown visible', timeout: 2000 });
 
-                ctx.assert(pop.textContent.indexOf('alice') >= 0 || pop.textContent.indexOf('ali') >= 0,
+                ctx.assert(pop.textContent.toLowerCase().indexOf('astrid') >= 0,
                     'dropdown should show matching person, got: ' + pop.textContent.slice(0, 80));
 
                 // Select with Enter
                 ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
                 await ctx.sleep(100);
 
-                ctx.assert(ta.value.indexOf('@alice') >= 0 || ta.value.indexOf('@ali') >= 0,
+                ctx.assert(ta.value.indexOf('@astrid') >= 0,
                     'textarea should contain @mention after selection, got: ' + ta.value);
             },
         },
@@ -912,6 +1028,33 @@
                 await ctx.sleep(50);
 
                 ctx.assert(ta.value === '#hello_', 'space should become underscore, got: ' + JSON.stringify(ta.value));
+            },
+        },
+
+        {
+            id: 'note-editor-ctrl-m-popup-unmount',
+            name: 'note-editor closes the Ctrl+M popup on disconnect',
+            url: '/debug/note-editor',
+            run: async function (ctx) {
+                var doc = ctx.doc;
+                var editor = await ctx.waitFor(function () { return doc.querySelector('note-editor'); }, { label: 'note-editor' });
+                var ta = await ctx.waitFor(function () {
+                    return editor.shadowRoot && editor.shadowRoot.querySelector('.ne-content');
+                }, { label: 'editor textarea' });
+
+                ta.focus();
+                ta.value = 'Nytt møte ';
+                ta.selectionStart = ta.selectionEnd = ta.value.length;
+                ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', ctrlKey: true, bubbles: true, cancelable: true }));
+                ctx.assert(!!doc.querySelector('input.m-title'), 'Ctrl+M must open the popup before testing its cleanup');
+                editor.remove();
+
+                await ctx.sleep(100);
+                ctx.assert(!doc.querySelector('input.m-title'), 'expected Ctrl+M popup to be removed after disconnect');
+
+                doc.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+                await ctx.sleep(50);
+                ctx.assert(!doc.querySelector('input.m-title'), 'expected no popup after document mousedown');
             },
         },
     ];

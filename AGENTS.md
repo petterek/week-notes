@@ -11,7 +11,7 @@ push to git unless explicitly told to** ("push", "send it", etc).
 
 ## What this is
 
-`week-notes` — a self-hosted, single-binary Node.js web app for
+`week-notes` — a self-hosted Node.js web app for
 structured weekly notes, tasks, people, meetings and results across
 multiple isolated **contexts** (each context = its own git repo under
 `data/<ctx>/`).
@@ -20,10 +20,11 @@ Vibe-coded. No specs, no tickets. Features grow organically.
 
 Stack:
 - Node.js (no framework, raw `http` module)
-- Slim dispatcher in `server.js` (~9.4k lines, mostly the `http.createServer`
-  request handler) + helper layer in `lib/` (`lib/core.js` for the bulk,
-  `lib/dates.js` for date helpers; more per-domain splits TBD)
-- Markdown rendered with `marked` (CDN)
+- Small dispatcher in `server.js`, domain handlers in `routes/`, shared
+  storage/HTTP/context helpers in `lib/`; `lib/core.js` still contains
+  legacy domain, rendering and worker orchestration
+- Browser ES modules and Web Components in `components/` and `domains/`
+- Markdown rendered with `marked` (Node dependency and browser CDN)
 - Slides via `reveal.js` (CDN)
 - No build step, no bundler, no TypeScript
 - Storage = plain JSON + markdown files on disk
@@ -34,13 +35,21 @@ Stack:
 
 ```
 /home/p/migration/weeks/
-├── server.js          # slim dispatcher (~95 lines): bootstrap + handler chain
+├── server.js          # bootstrap + awaited handler chain + request context
 ├── lib/               # server-side helpers (extracted from server.js)
-│   ├── core.js        # bulk: contexts, git, storage, domain loaders, render, workers
-│   └── dates.js       # ISO-week / date math (pure, no deps)
+│   ├── core.js        # contexts, git, cached domain loaders, render, workers
+│   ├── data-paths.js  # ROOT_DIR + DATA_DIR-aware CONTEXTS_DIR
+│   ├── collections-manifest.js # supported collections and identity fields
+│   ├── collection-store.js     # strict reads + atomic per-file replacement
+│   ├── request-context.js      # AsyncLocalStorage context boundary
+│   ├── http.js        # awaited body parsing, HttpError, JSON responses
+│   ├── page-routes.js # shared SPA route, fragment and title manifest
+│   ├── page-shell.js  # full HTML shell + safely serialized browser bootstrap
+│   ├── dates.js       # ISO-week / date math (pure, no deps)
+│   └── meeting-lifecycle.js # pure meeting-series/occurrence lifecycle helpers
 ├── routes/            # per-domain route modules. Each exports `(deps) => async (req, res, ctx) => void`
-│   ├── static-early.js  # /welcome, /welcome.css, /themes/*.css, /_layouts, /help.md, /pages/*.html
-│   ├── spa.js           # /, /tasks /people /results /notes /settings /meeting-series SPA stubs, /calendar + /meeting-occurrence/:id stubs
+│   ├── static-early.js  # /welcome, themes/help/fragments, /app-shell.js, /service-registry.js
+│   ├── spa.js           # empty page shells resolved through lib/page-routes.js
 │   ├── debug-static.js  # /debug/_mock-services.js, /services/*.js, /services/_shared/*
 │   ├── debug.js         # /debug + helper functions (renderServicesDebug, renderDataShapesDebug, …)
 │   ├── pages.js         # /themes /meeting-note/:id /editor /present (remaining server-rendered pages)
@@ -82,18 +91,24 @@ Stack:
 │   └── search-and-summarize.md
 ├── help.md            # in-app help, served at /help.md and rendered in a modal
 ├── run.sh             # start helper (checks if already running)
-├── package.json       # minimal — no deps in production
+├── package.json       # markdown/emoji + optional local AI dependencies; Playwright for tests
+├── domains/           # domain components + injectable browser services
+├── components/        # shared Web Components
+├── pages/             # SPA HTML fragments
+├── schemas/           # data schemas and relationship diagram
+├── tests/             # component scenarios, Playwright specs + isolated server fixtures
 ├── data/              # per-context data, each subdir is a git repo
 │   └── <ctx>/
 │       ├── settings.json
-│       ├── meetings.json
+│       ├── meetings/            # one JSON file per meeting
 │       ├── meeting-types.json   # optional, falls back to defaults
 │       ├── meeting-series/      # one JSON file per recurring meeting series (loadCollection/syncCollection)
-│       ├── people.json
-│       ├── tasks.json
+│       ├── people/              # other collections follow collections-manifest.js
+│       ├── tasks/
+│       ├── notes-meta/<week>/   # <note>.md.json sidecars
 │       └── YYYY-WNN/            # one folder per ISO week
 │           └── *.md             # freeform markdown notes
-└── public/            # static assets if any (mention-autocomplete.js etc)
+└── public/            # app-shell.js, service-registry.js, style.css and other browser assets
 ```
 
 When working on a specific feature, **open the matching `agents/*.md`
@@ -110,26 +125,13 @@ gotchas before changing code.
 
 # or manually
 node server.js          # default port 3001
-node server.js -p 4000  # custom port
 PORT=4000 node server.js
 ```
 
-When restarting from an agent shell:
-
-```bash
-PID=$(lsof -ti:3001 || echo NONE)
-[ "$PID" != "NONE" ] && [ -n "$PID" ] && kill $PID && sleep 1
-nohup node server.js > /tmp/weeks.log 2>&1 &
-disown
-```
-
-Notes:
-- `bash mode: async, detach: true` is fine but be aware it may still
-  emit a completion notification when the runtime closes the pty.
-- The `kill` tool in this environment refuses empty PIDs and refuses
-  `pkill`/`killall` — always grab the PID first via `lsof -ti:3001`
-  and pass it explicitly.
-- Don't rely on `pgrep` either; `lsof` is the standard.
+Do not restart the user's server for automated tests. Playwright owns a
+separate server and disposable data root; see `agents/tests.md`.
+For a requested restart, use the project's `stop.sh` / `run.sh` helpers
+or identify the exact PID with `lsof -ti:3001`. Never kill by process name.
 
 Quick smoke test:
 
@@ -161,42 +163,67 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3001/settings
 ### Adding/moving a route
 
 Routes live in `routes/` modules grouped by URL prefix or domain. Each
-module exports `(deps) => async (req, res, ctx) => void`, where `ctx`
-contains `{ pathname, url, method }`. Inside the function the original
+module exports `(deps) => async (req, res, ctx) => void | true`, where `ctx`
+contains `{ pathname, url, method, contextId }`. Inside the function the
 imperative pattern is preserved verbatim — match a path, write the
-response, `return;`. Modules destructure everything they need from
-`deps.core` (and `deps.rootDir` shadows `__dirname` so existing
+response, `return;`. Modules destructure only the helpers they use from
+`deps.core` (and `deps.rootDir` can shadow `__dirname` so existing
 `path.join(__dirname, …)` calls keep working).
 
 Dispatch lives in `server.js`. After each handler runs the dispatcher
 checks three signals to decide whether the route owned the request:
 
-1. `res.writableEnded` (sync write+end)
-2. `res.headersSent` (e.g. SSE: writeHead but no end yet)
-3. New listeners added to `req` ('data'/'end') — i.e. the handler
-   started reading a POST body
+1. The awaited handler returned `true` (explicit ownership).
+2. `res.writableEnded` (write+end).
+3. `res.headersSent` (e.g. SSE: headers sent but stream still open).
 
 If none of those triggered, the next handler runs. The order in
 `server.js`'s `handlers = [...]` array is significant — most-specific
-static routes first, then per-domain APIs, then page catch-alls, then
+static routes first, domain/page handlers in their existing order, then
 late assets. Don't reorder without thinking about the catch-all
 `/<week>/<file>.md` (note render) and `/api/notes/:ctx/(.+)` (delete
 note) interactions. `setImmediate(...)` after `res.end()` is fine for
-fire-and-forget background work — see `routes/api/contexts.js` switch
-for the canonical pattern.
+background work — see `routes/api/contexts.js` for explicit
+`runWithDataContext(next, ...)` around post-switch work.
 
 If you add a new route module, register it in `server.js`'s `handlers`
 array and place it in the right slot relative to siblings. If a
 handler does **async work via fs callbacks** (rather than awaitable
 APIs), promisify it (`await fs.promises.readFile(...)`) — otherwise
 the dispatcher will see no claim signal and forward the request to
-the next handler.
+the next handler. Body-reader listeners no longer claim a request:
+use `await readJsonBody(req)` from `lib/http.js` (also exported by core).
+It rejects malformed JSON as `HttpError(400, ...)`; an empty body defaults
+to `{}` (or an explicitly supplied default). Validate the parsed shape
+in the endpoint. Await the body **before** loading collections to mutate;
+do not retain a read-modify-write snapshot across another `await`.
 
 ---
 
 ## Conventions / things that bite
 
-### Server.js is template-literal heavy
+### Browser shell and page routing
+- `lib/page-shell.js` renders the full document. `lib/core.js` retains a
+  `pageHtml` facade so existing callers need not know about the extraction.
+- Define SPA paths, patterns, fragment URLs and titles in
+  `lib/page-routes.js`. `routes/spa.js` uses that manifest, and
+  `routes/static-early.js` applies its titles to known page fragments.
+  Existing-note editor paths have `serverShell: false`: their filename
+  title and path guard remain in `routes/pages.js`.
+- The shell safely serializes `WN_PAGE_ROUTES` and `WN_ME_PERSON_KEY`
+  before loading the classic `/app-shell.js`. Do not add a separate
+  hardcoded browser route table as a fallback.
+- `/app-shell.js` owns SPA navigation and document-level event handlers,
+  including entity callouts, search selection, summaries and shortcuts.
+  Keep query strings, anchors, and the `spa:navigated` event intact.
+- `/service-registry.js` is an ES module loaded before component modules.
+  Preserve `window['week-note-services']`, `window.WeekNoteServices`,
+  `window.mePersonKey`, and the `week-note-services:ready` event.
+- The entity-callout bridge must move with the shell, not just the SPA
+  router. Detached documents still need their own component registrations;
+  `domains/_shared/wn-markdown-preview.js` handles those.
+
+### Server-side template strings
 - Pages are built by concatenating big `` ` ` `` template strings.
 - `${...}` interpolates at render time. Use `\\n` for **literal** `\n`
   inside JS strings rendered into the page.
@@ -228,14 +255,14 @@ the next handler.
   the same variables without redefining them.
 
 ### Web components
-- Components live in `components/<name>.js` and are loaded via
-  `<script defer src="/components/<name>.js">` from the relevant
-  `<head>` in `server.js`. The `/components/*.js` static route serves
-  them with a slug-safety check.
+- Components live in `components/` and `domains/<domain>/`, served as
+  `/components/<name>.js` by `routes/assets-late.js`. Load them as ES
+  modules; relative browser imports resolve against the served URL,
+  not the on-disk directory.
 - Custom elements default to `display: inline`. If a component is
   meant to be a block (e.g. card or list), add a global rule like
   `note-card { display: block; }` next to its other CSS in
-  `server.js`, or set it in `:host { display: block; }` for shadow-DOM
+  the shared stylesheet, or set it in `:host { display: block; }` for shadow-DOM
   components.
 - Markup uses backtick template literals, not string concatenation.
 - Components stay decoupled from page logic by **emitting CustomEvents**
@@ -327,11 +354,16 @@ the next handler.
 ### Active context resolution
 - Two sources, in priority order: `wn_ctx` cookie (per-request) →
   `data/.active` file (global default).
-- `getActiveContext()` is file-only; safe everywhere but ignores
-  per-request override.
-- **In request handlers prefer `getActiveContextFromReq(req)`** when
-  you need the user's currently-selected context. Falls back to file
-  if cookie is missing or invalid.
+- `getActiveContext()` is deliberately file-only: use it only when the
+  global default itself is needed, not for request storage.
+- `server.js` resolves `getActiveContextFromReq(req)` once, then runs
+  the entire awaited handler chain with `runWithDataContext(contextId, ...)`.
+  `getDataContext()` returns that captured id across awaits; unscoped
+  startup/CLI calls fall back to the global default.
+- `dataDir()`, caches and context-sensitive helper defaults use
+  `getDataContext()`. An explicit id is also supported by `dataDir(id)`
+  and `loadCollection(name, id)`. Background work targeting a different
+  context must wrap itself in `runWithDataContext(id, ...)`.
 - The cookie is set by:
   - `POST /api/contexts/switch` (always)
   - `GET  /api/contexts` (refreshes on every fetch)
@@ -339,15 +371,42 @@ the next handler.
 - Use `activeContextCookie(id)` from `lib/core.js` to construct the
   `Set-Cookie` value (`wn_ctx=…; Path=/; Max-Age=1y; SameSite=Lax; HttpOnly`).
 - Pass an empty id (`activeContextCookie('')`) to clear it.
-- **Latent bug:** `dataDir()` (lib/core.js) still resolves via the
-  file-only `getActiveContext()`, so handlers that touch the filesystem
-  via `dataDir()` ignore the per-request cookie. New endpoints that need
-  per-tab context isolation must compute the path with
-  `path.join(CONTEXTS_DIR, getActiveContextFromReq(req))` instead.
-  Notably this affects `/api/save` (incl. new-note draft autosave),
-  `/api/save/draft`, and `/api/save/autosave` — autosaves still land in
-  the file-active context if the user switched contexts in another tab.
+- Context switches preserve both contexts' autosave files: other
+  requests/editors may still be using them. Explicit save/discard owns
+  normal cleanup. Startup still has the legacy autosave cleanup policy.
+- Cookies are shared by tabs in the same browser profile. Capturing a
+  context prevents an in-flight request changing targets; it does **not**
+  create independent per-tab identities.
+- Full-text queries carry an explicit context directory to the worker,
+  which indexes and queries that context in one synchronous message.
+  Vector search is available only for the embedding worker's own context;
+  another context gets 503, not results from the wrong index.
 
+### Storage and cache safety
+- Use `lib/data-paths.js` in the server and maintenance scripts so
+  `DATA_DIR` always has the same meaning. Never hard-code `<repo>/data`
+  in new tools or tests.
+- `lib/collections-manifest.js` is the shared collection inventory and
+  default identity-field map. Register new collections there before use.
+  Migration inventory must preserve their directories, legacy files,
+  `notes-meta/`, `.cache/`, drafts and autosaves.
+- `loadCollection` returns independent nested snapshots. Mutating one
+  does not persist anything; call the relevant save helper explicitly.
+- Missing storage can be empty; invalid/unreadable JSON must throw with
+  its file path. Never omit a broken record and then bulk-save the subset.
+- `collection-store.js` serializes replacements before writing, uses
+  temporary sibling files + rename, then prunes omitted files only after
+  every replacement succeeds. This is **per-file atomicity, not a
+  multi-file transaction**. Cache invalidation also runs on failed saves.
+- A collection's first directory write is staged in a temporary sibling
+  directory and published only when complete. A failed conversion must
+  not expose a partial directory that masks the legacy JSON array.
+- Note metadata uses the same strict/atomic primitives. Sidecars override
+  matching legacy entries without hiding other legacy metadata. Use
+  `getNoteMeta(week, file, { fresh: true })` before a write/preflight.
+- `/api/save` acknowledges success and discards recovery files only after
+  metadata and related persistence complete. Best-effort git commit
+  failures are logged separately.
 
 ### Calendar specifics
 - Grid: `HOUR_START=0, HOUR_END=23, HOUR_PX=36`. All 24 hours rendered.
@@ -400,7 +459,7 @@ the next handler.
   freely; wait for "push", "send it", "ship it" or similar before
   `git push`.
 - **Always update the README changelog before pushing.** README has a
-  `## 📜 Changelog` section above Features; add a bullet under the
+  `## 📜 Changelog` section; add a bullet under the
   current date for every notable change being shipped, then include
   the README update in the push.
 - **Release tags as migration anchors.** When shipping a breaking data
@@ -415,18 +474,19 @@ the next handler.
 
 ## Common patterns / recipes
 
-- **Add a setting**: getter in top of `server.js` (near
+- **Add a setting**: getter in `lib/core.js` (near
   `getWorkHours`), form field in `/settings` Generelt section, extend
   form submit, optional default in helper.
 - **Add a calendar feature that needs server data in JS**: inject as
   `const X = ${JSON.stringify(x)};` at the top of the right IIFE.
 - **Add a new emoji to a picker**: `ICON_GROUPS` array (settings copy
   AND calendar copy — there are two!). Keep the group structure.
-- **Add an API endpoint**: append a `pathname.match(...)` block in the
-  big request handler. Mind method (`req.method`). Body parse pattern:
+- **Add an API endpoint**: use the matching module in `routes/api/`.
+  Mind method (`req.method`) and await parsing before reading mutable data:
   ```js
-  let body = ''; req.on('data', c => body += c);
-  req.on('end', () => { try { const data = JSON.parse(body || '{}'); ... } catch (e) { ... } });
+  const data = await readJsonBody(req);
+  const items = loadCollection('tasks');
+  // Validate, mutate, save synchronously, then respond.
   ```
 
 ---
@@ -464,28 +524,47 @@ silently skip the step. See `agents/tests.md` for the test harness.
 
 ## Sub-agent model selection
 
-When delegating to sub-agents (via the `task` tool), pick the model
-that fits the work — don't always default to Sonnet.
+Prefer lower-cost models for bounded rewrites and mechanical work.
+Keep architecture decisions, integration and final review in the parent.
+Use direct tools instead of an agent for a few file reads or a small edit.
 
 | Task type | Agent type | Recommended model |
 | --- | --- | --- |
-| Codebase exploration, file search, reading multiple files | `explore` | `claude-haiku-4.5` (default) |
-| Running builds, tests, lints — just need pass/fail | `task` | `claude-haiku-4.5` (default) |
-| Complex multi-step implementation, reasoning about design | `general-purpose` | `claude-sonnet-4.6` (default) |
-| Code review — find real bugs only, no style comments | `code-review` | `claude-sonnet-4.6` (default) |
-| Researching GitHub repos, fetching external docs | `research` | `claude-sonnet-4.6` (default) |
-| Large refactors or architectural changes needing deep reasoning | `general-purpose` | `claude-opus-4.5` |
+| Independent, substantial exploration | `explore` | `gpt-5.4-mini` |
+| Existing test/build commands, pass/fail summary | `task` | `gpt-5.4-mini` |
+| Bounded rewrite with explicit file ownership and regression cases | `general-purpose` | `gpt-5.4-mini` |
+| Complex integration or review after the bounded approach fails | matching specialist | Escalate deliberately to an available higher-capability model |
 
 **Rules of thumb:**
-- Use `haiku` for anything that is mechanical: searching, reading files,
-  running commands, checking output.
-- Use `sonnet` for anything that requires understanding code and writing
-  correct changes.
-- Use `opus` only when sonnet demonstrably fails (complex algorithmic
-  reasoning, very large cross-cutting changes).
-- Parallelize `explore` agents freely — they are cheap and fast.
-- Never run more than one `general-purpose` or `task` agent at a time
-  on the same file; they have side effects.
+- Assign disjoint files and concrete completion criteria. Keep shared
+  integration files (notably `lib/core.js` and `server.js`) with one owner.
+- Parallelize only independent work; don't duplicate an agent's scope.
+- Coordinate test-server ports and output directories between runners.
+- Model availability changes; use a currently available lower-cost model
+  rather than copying an obsolete model id.
+
+## Cleanup findings and remaining work
+
+The cleanup keeps vanilla JS, Web Components, existing URLs and JSON/
+markdown storage. It is not a framework migration.
+
+Confirmed failure modes were shared nested cache objects, destructive
+partial collection reads, request/global context mixing, callback handlers
+escaping the dispatcher, unknown-directory quarantine of valid collections,
+note-save success before metadata persistence, editable closed occurrences,
+and preview modules/mention sources diverging. Preserve the regression
+coverage and storage/context boundaries above when refactoring further.
+
+`lib/core.js`, `routes/debug.js` and large domain page controllers still
+need smaller domain-specific boundaries. Legacy catches, multi-collection
+operations without transactions, direct per-domain file writes, and startup
+autosave cleanup remain separate follow-up work; do not treat the shared
+storage layer as having solved every persistence path.
+
+During extraction, preserve all global event bridges and route aliases:
+syntax-only coverage cannot catch a missing new-note route or callout host.
+Keep component demos on explicitly injected mocks, not whatever people
+happen to exist in the active context.
 
 ---
 

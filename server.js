@@ -3,6 +3,7 @@
 const http = require('http');
 const _core = require('./lib/core');
 const _dates = require('./lib/dates');
+const { HttpError, sendJson } = require('./lib/http');
 
 // --- lifecycle diagnostics --------------------------------------------------
 // The server has been observed to "stop" without leaving a crash trace. These
@@ -79,45 +80,42 @@ const handlers = [
 ];
 
 const server = http.createServer(async (req, res) => {
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    const pathname = decodeURIComponent(url.pathname);
-
-    // First-run guard: if no contexts exist, force the user onto /welcome.
-    if (listContexts().length === 0) {
-        const allowed = pathname === '/welcome'
-            || pathname === '/welcome.css'
-            || pathname.startsWith('/themes/')
-            || pathname.startsWith('/api/contexts')
-            || pathname === '/_layouts' || pathname === '/_layouts.html';
-        if (!allowed) {
-            res.writeHead(302, { Location: '/welcome' });
-            res.end();
-            return;
-        }
-    }
-
-    const ctx = { pathname, url, method: req.method };
-
     try {
-        for (const h of handlers) {
-            const beforeListeners = req.listenerCount('end') + req.listenerCount('data');
-            await h(req, res, ctx);
-            if (res.writableEnded || res.headersSent) return;
-            // If the handler started reading the request body it has claimed the route.
-            if (req.listenerCount('end') + req.listenerCount('data') > beforeListeners) return;
+        const url = new URL(req.url, `http://${req.headers.host}`);
+        const pathname = decodeURIComponent(url.pathname);
+
+        // First-run guard: if no contexts exist, force the user onto /welcome.
+        if (listContexts().length === 0) {
+            const allowed = pathname === '/welcome'
+                || pathname === '/welcome.css'
+                || pathname.startsWith('/themes/')
+                || pathname.startsWith('/api/contexts');
+            if (!allowed) {
+                res.writeHead(302, { Location: '/welcome' });
+                res.end();
+                return;
+            }
         }
+
+        const contextId = _core.getActiveContextFromReq(req);
+        const ctx = { pathname, url, method: req.method, contextId };
+        await _core.runWithDataContext(contextId, async () => {
+            for (const handler of handlers) {
+                const handled = await handler(req, res, ctx);
+                if (handled === true || res.writableEnded || res.headersSent) return;
+            }
+            res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+            res.end(pageHtml('Ikke funnet', '<h1>404</h1><p><a href="/">← Tilbake</a></p>'));
+        });
     } catch (e) {
         console.error('handler error', e);
         if (!res.headersSent) {
-            res.writeHead(500, { 'Content-Type': 'text/plain' });
-            res.end('Internal Server Error');
+            const status = e instanceof HttpError ? e.status : (e instanceof URIError ? 400 : 500);
+            sendJson(res, status, { ok: false, error: status === 500 ? 'Internal Server Error' : e.message });
+        } else if (!res.writableEnded) {
+            res.destroy(e);
         }
-        return;
     }
-
-    // 404 fallback
-    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(pageHtml('Ikke funnet', '<h1>404</h1><p><a href="/">← Tilbake</a></p>'));
 });
 
 server.listen(PORT, () => {

@@ -1,7 +1,9 @@
 'use strict';
 module.exports = function(deps) {
     const _core = deps.core;
-    const { loadGoals, saveGoals, loadTasks, saveTasks, loadResults, saveResults, readBody } = _core;
+    const {
+        loadGoals, saveGoals, loadTasks, saveTasks, loadResults, saveResults, readJsonBody,
+    } = _core;
 
     const VALID_STATUS = new Set(['active', 'achieved', 'abandoned']);
 
@@ -47,7 +49,7 @@ module.exports = function(deps) {
         }
 
         if (pathname === '/api/goals' && req.method === 'POST') {
-            const data = JSON.parse(await readBody(req) || '{}');
+            const data = await readJsonBody(req);
             const title = String(data.title || '').trim();
             if (!title) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -75,7 +77,7 @@ module.exports = function(deps) {
 
         const editMatch = pathname.match(/^\/api\/goals\/([^/]+)$/);
         if (editMatch && req.method === 'PUT') {
-            const data = JSON.parse(await readBody(req) || '{}');
+            const data = await readJsonBody(req);
             const goals = loadGoals();
             const g = goals.find(x => x.id === editMatch[1]);
             if (!g) { res.writeHead(404); res.end(JSON.stringify({ ok: false })); return; }

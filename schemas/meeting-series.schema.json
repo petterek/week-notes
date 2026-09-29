@@ -1,0 +1,94 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "id",
+    "title",
+    "status",
+    "agendaItems",
+    "created"
+  ],
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string",
+      "description": "Series title."
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional longer description."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "archived"],
+      "description": "Lifecycle status of the recurring series."
+    },
+    "defaultAttendees": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "Person key."
+      }
+    },
+    "defaultLocation": {
+      "type": "string"
+    },
+    "defaultPlaceKey": {
+      "type": "string",
+      "description": "Optional place reference used when creating new occurrences."
+    },
+    "defaultType": {
+      "type": "string",
+      "description": "Default meeting type key for new occurrences."
+    },
+    "defaultDurationMins": {
+      "type": "integer",
+      "minimum": 5,
+      "description": "Default duration for newly created occurrences."
+    },
+    "agendaItems": {
+      "type": "array",
+      "description": "Durable agenda queue for the series.",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "state", "order"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "description": "Queue item title."
+          },
+          "state": {
+            "type": "string",
+            "enum": ["queued", "resolved", "cancelled"]
+          },
+          "order": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Queue order used when snapshotting the next occurrence."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    },
+    "created": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

@@ -1,7 +1,10 @@
 'use strict';
 module.exports = function(deps) {
     const _core = deps.core;
-    const { escapeHtml, loadTeams, loadAllTeams, saveTeams, loadPeople, loadAllPeople, loadCompanies, savePeople, readBody, loadTasks, loadMeetings, searchMdFiles } = _core;
+    const {
+        loadTeams, loadAllTeams, saveTeams, loadPeople, loadAllPeople, loadCompanies, savePeople,
+        readJsonBody, loadTasks, loadMeetings, searchMdFiles,
+    } = _core;
     return async function(req, res, ctx) {
         const { pathname } = ctx;
 
@@ -15,7 +18,7 @@ module.exports = function(deps) {
     // POST /api/teams — create a team
     if (pathname === '/api/teams' && req.method === 'POST') {
         try {
-            const data = JSON.parse(await readBody(req) || '{}');
+            const data = await readJsonBody(req);
             const name = String(data.name || '').trim();
             if (!name) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'name is required' })); return; }
             const all = loadAllTeams();
@@ -48,7 +51,7 @@ module.exports = function(deps) {
             res.writeHead(201, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(team));
         } catch (e) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: false, error: e.message }));
         }
         return;
@@ -102,7 +105,7 @@ module.exports = function(deps) {
     if (putMatch && req.method === 'PUT') {
         try {
             const id = putMatch[1];
-            const data = JSON.parse(await readBody(req) || '{}');
+            const data = await readJsonBody(req);
             const all = loadAllTeams();
             const team = all.find(t => t.id === id);
             if (!team) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'not found' })); return; }
@@ -116,7 +119,7 @@ module.exports = function(deps) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(team));
         } catch (e) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: false, error: e.message }));
         }
         return;

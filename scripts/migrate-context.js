@@ -28,9 +28,11 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { ROOT_DIR, CONTEXTS_DIR } = require('../lib/data-paths');
+const { COLLECTIONS } = require('../lib/collections-manifest');
 
-const REPO_ROOT = path.resolve(__dirname, '..');
-const DATA_ROOT = path.join(REPO_ROOT, 'data');
+const REPO_ROOT = ROOT_DIR;
+const DATA_ROOT = CONTEXTS_DIR;
 const MARKER = '.week-notes';
 
 function currentHead() {
@@ -132,29 +134,23 @@ function writeMarker(dir, hash) {
 // File inventory
 // ------------------------------------------------------------------
 
+const COLLECTION_NAMES = Object.freeze(Object.keys(COLLECTIONS));
 const KNOWN_ROOT_FILES = new Set([
     '.week-notes',
     '.gitignore',
     '.gitattributes',
+    '.draft-newnote.md',
+    '.draft-newnote.meta.json',
     'settings.json',
-    'tasks.json',
-    'results.json',
-    'people.json',
-    'meetings.json',
     'meeting-types.json',
     'notes-meta.json',
-    'companies.json',
-    'places.json',
+    ...COLLECTION_NAMES.map(name => `${name}.json`),
 ]);
 const KNOWN_ROOT_DIRS = new Set([
     '.git',
-    'tasks',
-    'meetings',
-    'people',
-    'companies',
-    'places',
-    'results',
+    '.cache',
     'notes-meta',
+    ...COLLECTION_NAMES,
 ]);
 
 function classifyRootEntry(name, isDir) {
@@ -169,8 +165,8 @@ function classifyRootEntry(name, isDir) {
     return { kind: 'unknown-file' };
 }
 
-function inventoryContext(ctxDir, opts) {
-    const log = opts.log;
+function inventoryContext(ctxDir, opts = {}) {
+    const log = opts.log || (() => {});
     const unknowns = []; // { absPath, relPath, isDir }
 
     const rootEntries = fs.readdirSync(ctxDir, { withFileTypes: true });
@@ -189,7 +185,7 @@ function inventoryContext(ctxDir, opts) {
         for (const sub of fs.readdirSync(weekDir, { withFileTypes: true })) {
             if (sub.isDirectory()) {
                 unknowns.push({ absPath: path.join(weekDir, sub.name), relPath: `${e.name}/${sub.name}`, isDir: true });
-            } else if (!sub.name.toLowerCase().endsWith('.md')) {
+            } else if (!sub.name.toLowerCase().endsWith('.md') && !(sub.name.startsWith('.') && sub.name.endsWith('.autosave'))) {
                 unknowns.push({ absPath: path.join(weekDir, sub.name), relPath: `${e.name}/${sub.name}`, isDir: false });
             }
         }
@@ -198,14 +194,10 @@ function inventoryContext(ctxDir, opts) {
     // Validate known JSON files parse + have expected shape.
     const jsonChecks = [
         { file: 'settings.json', expect: 'object' },
-        { file: 'tasks.json', expect: 'array' },
-        { file: 'results.json', expect: 'array' },
-        { file: 'people.json', expect: 'array' },
-        { file: 'meetings.json', expect: 'array' },
         { file: 'meeting-types.json', expect: 'array' },
         { file: 'notes-meta.json', expect: 'object' },
-        { file: 'companies.json', expect: 'array' },
-        { file: 'places.json', expect: 'array' },
+        { file: '.draft-newnote.meta.json', expect: 'object' },
+        ...COLLECTION_NAMES.map(name => ({ file: `${name}.json`, expect: 'array' })),
     ];
     const jsonProblems = [];
     for (const c of jsonChecks) {
@@ -395,25 +387,16 @@ function migrateGitignore(ctxDir, opts) {
 // Converts each <entity>.json (array) into one JSON file per item
 // under <entity>/, then deletes the legacy file.
 //
-//   tasks.json    → tasks/<id>.json
-//   meetings.json → meetings/<id>.json
-//   results.json  → results/<id>.json
-//   people.json   → people/<key>.json   (tombstones kept)
-//   companies.json → companies/<key>.json (tombstones kept)
-//   places.json   → places/<key>.json   (tombstones kept)
-//
-// Idempotent: if the folder already exists for an entity, the legacy
-// file is just removed.
+// The manifest in lib/collections-manifest.js is the single source of
+// truth for the per-item collections. Each legacy `<name>.json` file is
+// split into `<name>/<id>.json` and then removed.
 // ------------------------------------------------------------------
 
-const SPLIT_ENTITIES = [
-    { file: 'tasks.json', dir: 'tasks', idField: 'id' },
-    { file: 'meetings.json', dir: 'meetings', idField: 'id' },
-    { file: 'results.json', dir: 'results', idField: 'id' },
-    { file: 'people.json', dir: 'people', idField: 'key' },
-    { file: 'companies.json', dir: 'companies', idField: 'key' },
-    { file: 'places.json', dir: 'places', idField: 'key' },
-];
+const SPLIT_ENTITIES = Object.entries(COLLECTIONS).map(([dir, cfg]) => ({
+    file: `${dir}.json`,
+    dir,
+    idField: cfg.idField,
+}));
 
 function sanitizeStem(s) {
     if (s === undefined || s === null) return '';
@@ -773,4 +756,6 @@ function main() {
     }
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = { classifyRootEntry, inventoryContext, migrateCtx, appliesBeforeTag };

@@ -26,6 +26,11 @@
         "type": "string",
         "pattern": "^[0-2][0-9]:[0-5][0-9]$"
       },
+      "endDate": {
+        "type": "string",
+        "format": "date",
+        "description": "Optional YYYY-MM-DD end date for multi-day meetings."
+      },
       "title": {
         "type": "string"
       },
@@ -47,8 +52,83 @@
         "type": "string",
         "description": "Optional place reference."
       },
+      "seriesId": {
+        "type": "string",
+        "description": "Recurring series id for linked occurrences."
+      },
+      "status": {
+        "type": "string",
+        "enum": ["planned", "in-progress", "closed"],
+        "description": "Occurrence lifecycle status for series meetings."
+      },
+      "agenda": {
+        "type": "array",
+        "description": "Per-occurrence agenda snapshot for linked series meetings.",
+        "items": {
+          "type": "object",
+          "required": [
+            "agendaItemId",
+            "title",
+            "order",
+            "notes",
+            "outcome"
+          ],
+          "properties": {
+            "agendaItemId": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string",
+              "description": "Snapshot title copied from the series agenda item."
+            },
+            "order": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "notes": {
+              "type": "string"
+            },
+            "outcome": {
+              "oneOf": [
+                { "type": "null" },
+                { "type": "string", "enum": ["resolved", "deferred", "cancelled"] }
+              ]
+            }
+          }
+        }
+      },
+      "decisions": {
+        "type": "array",
+        "description": "Per-occurrence decision log for linked series meetings.",
+        "items": {
+          "type": "object",
+          "required": ["id", "text", "createdAt"],
+          "properties": {
+            "id": { "type": "string" },
+            "text": { "type": "string" },
+            "createdAt": { "type": "string", "format": "date-time" }
+          }
+        }
+      },
+      "minutes": {
+        "type": "string",
+        "description": "Freeform markdown recap for the occurrence."
+      },
+      "closedAt": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Timestamp set when a series occurrence is closed."
+      },
       "notes": {
         "type": "string"
+      },
+      "noteRef": {
+        "type": "string",
+        "description": "Optional linked note path (week/file.md)."
+      },
+      "updated": {
+        "type": "string",
+        "format": "date-time"
       },
       "created": {
         "type": "string",
