@@ -2,7 +2,7 @@
 
 > 🌀 **Totally vibe-coded.** No specs, no tickets, no roadmap — just a long conversation with an AI pair-programmer and a steady stream of "ooh, what if it also did this?" Every feature here exists because it felt right in the moment. Reader discretion advised.
 
-A self-hosted, single-binary Node.js web app for keeping structured weekly notes, tasks, people and results across multiple isolated **contexts** — each one its own git repo.
+A self-hosted Node.js web app for keeping structured weekly notes, tasks, people and results across multiple isolated **contexts** — each one its own git repo.
 
 Built for the daily reality of knowledge work: notes are markdown, tasks live next to the week they came up in, and everything is plain files on disk you can grep, back up, and version with git.
 
@@ -33,6 +33,7 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 - Per-context **working hours** (start/end + weekdays, default Mon–Fri 08:00–16:00) rendered as a band overlay
 - Per-context **default meeting length** prefills the end time when creating new meetings
 - Click an upcoming-meeting card on the home page to jump to that week and pulse-highlight the meeting
+- **Meeting series** (`/meeting-series`): recurring meetings with a persistent agenda queue — start/close occurrences, record decisions, auto-defer unresolved agenda items to the next occurrence, link follow-up tasks, and export minutes to PDF
 
 ### People & results
 - Lightweight CRM: name, title, email, phone, freeform notes
@@ -111,8 +112,16 @@ To stop:
 
 ```
 weeks/
-├── server.js           # the entire app (single-file Node.js, no framework)
-├── package.json        # only dep: marked
+├── server.js           # HTTP bootstrap and awaited request dispatcher
+├── lib/                # storage, request context, lifecycle, rendering and worker helpers
+├── routes/             # static/page handlers and per-domain JSON APIs
+├── domains/            # Web Components and injectable browser services
+├── components/         # shared Web Components
+├── public/             # browser app shell, service registry and CSS
+├── pages/              # SPA fragments
+├── schemas/            # JSON schemas and relationships
+├── tests/              # Playwright scenarios/specs and isolated fixtures
+├── package.json        # markdown/emoji, local AI support, Playwright
 ├── run.sh / stop.sh    # PID-based start/stop scripts
 ├── .gitignore          # excludes data/ — context data is its own repo
 └── data/
@@ -120,17 +129,29 @@ weeks/
     └── <context>/      # one folder per context, each a git repo
         ├── .git/
         ├── settings.json
-        ├── tasks.json
-        ├── notes-meta.json
-        ├── people.json
-        ├── meetings.json
+        ├── tasks/      # one JSON file per record
+        ├── notes-meta/<week>/<note>.md.json
+        ├── people/
+        ├── meetings/
         ├── meeting-types.json   # optional, falls back to defaults
-        ├── results.json
+        ├── meeting-series/      # one JSON file per recurring meeting series
+        ├── results/
+        ├── goals/
+        ├── teams/
         └── <YYYY-WNN>/
             └── *.md
 ```
 
 `data/` is `.gitignore`-d in the app repo because each context is independently versioned.
+`DATA_DIR` can point the server and maintenance scripts at another data
+root. Older single-array collection files remain readable until migrated.
+
+### Development
+
+`npm test` starts a separate Playwright-managed server with disposable
+synthetic data; it does not reuse the normal server on port 3001.
+See [`agents/tests.md`](agents/tests.md) for fixtures and focused commands,
+and [`AGENTS.md`](AGENTS.md) for storage and request-context invariants.
 
 ---
 
@@ -164,6 +185,8 @@ Mostly JSON, mostly REST-shaped. Useful endpoints:
 | GET/PUT| `/api/contexts/:id/meeting-types`   | Per-context meeting type list        |
 | GET    | `/api/people`                       | People directory (excludes tombstones) |
 | GET    | `/api/meetings`                     | Meetings for the active context      |
+| GET/POST| `/api/meeting-series`              | Recurring meeting series (agenda queue, defaults) |
+| GET    | `/meetings/:id/minutes`             | Printable/PDF meeting minutes export  |
 | GET    | `/api/notes/:week/:file/render`     | Rendered markdown for hover/preview  |
 | GET    | `/help.md`                          | In-app help content                  |
 
@@ -176,7 +199,7 @@ Mostly JSON, mostly REST-shaped. Useful endpoints:
 - [reveal.js](https://revealjs.com/) for presentations (loaded from CDN)
 - [Aksel design tokens](https://aksel.nav.no/) + Source Sans 3 for the NAV slide style
 
-No build step. No bundler. ~4300 lines of `server.js`.
+No build step or bundler. Framework-free HTTP handlers and browser ES modules.
 
 ---
 
@@ -185,6 +208,24 @@ No build step. No bundler. ~4300 lines of `server.js`.
 MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
+
+### 2026-09-29 (teknisk opprydding)
+- **Tryggere lagring:** delte lagringshjelpere avviser korrupt JSON i stedet for å lagre ufullstendige samlinger; atomisk utskifting per fil og uavhengige cache-kopier beskytter mot delvise filer og utilsiktede endringer.
+- **Kontekstisolasjon:** hver forespørsel beholder valgt kontekst gjennom asynkront arbeid. Søk bruker riktig kontekst, og kontekstbytte sletter ikke andre editorers autosave-filer.
+- **Pålitelig notatlagring:** suksess og opprydding i gjenopprettingsfiler skjer først etter at metadata og relaterte data er lagret. Eldre metadata beholdes når de første sidecar-filene opprettes.
+- **Felles struktur:** vedlikeholdsskript og lagring deler `DATA_DIR` og samlingsregister; migrering kjenner igjen møteserier, mål, team og utkast. Asynkrone ruter bruker felles JSON-leser og eksplisitt håndteringskontrakt.
+- **Møteforløp:** avsluttede serieforekomster må gjenåpnes før redigering. En endring av ett agendapunkt overskriver ikke lenger andre forekomsters utfall, og sletting av serien beholder vanlige møter og oppgavekoblinger.
+- **Forhåndsvisning:** felles rendering for innebygd og løsrevet visning, delt omtale-autofullføring med fungerende `@me`, og tydelig feil når komponenter ikke kan lastes. Popover- og tastaturlyttere ryddes opp når komponenter fjernes.
+- **Vedlikehold:** isolert Playwright-server, oppdaterte agentinstruksjoner og fjerning av den gamle `/_layouts`-ruten som pekte på en lokal sesjonsfil.
+- **Sideskall:** global nettleserkode og tjenesteregister er flyttet ut av `lib/core.js`; server og SPA bruker et felles ruteregister, med samme adresser, snarveier og hendelser som før.
+
+### 2026-09-28 (møteserier: recurring meetings med agenda-kø, live møteforløp og PDF-referat)
+- **Ny funksjon: møteserier.** En serie (f.eks. et ukentlig 1:1 eller teammøte) eier en varig agenda-kø. Hver kalendermøte-forekomst koblet til serien (`seriesId`) får en egen arbeidsflate: start møtet, jobb gjennom sakslisten, registrer beslutninger, avslutt (uløste punkter utsettes automatisk til neste gang), og eksporter referatet til PDF. Vanlige enkeltmøter er upåvirket.
+- **Ny side `/meeting-series`** (`<meeting-series-page>`): oversikt over alle serier (aktive/arkiverte), agenda-kø-administrasjon, forekomsthistorikk, oppfølgingsoppgaver og samlet beslutningslogg. Nav-lenke "🔁 Møteserier".
+- **Ny side `/meeting-occurrence/:id`** (`<meeting-occurrence-page>`): arbeidsflate for én møteforekomst — redigerbar saksliste med notater og utfall (✅ Løst / ⏭️ Utsatt / 🚫 Avlyst), beslutninger, fritekst-referat, oppfølgingsoppgaver, og Start/Avslutt/Gjenåpne-knapper. Klikk på en serie-tilknyttet møteforekomst i kalenderen åpner denne siden i stedet for hurtigredigeringsmodalen.
+- **PDF-eksport:** `GET /meetings/:id/minutes` gir en utskriftsvennlig referatside (via nettleserens utskriftsdialog). Uavsluttede møter viser et "UTKAST"-vannmerke.
+- **Oppgavekobling:** oppgaver kan nå peke til `meetingSeriesId`/`meetingId`/`agendaItemId`, samme mønster som eksisterende `goalId`-kobling.
+- **Ny API:** `routes/api/meeting-series.js` (serie-CRUD + agenda) og utvidelser i `routes/api/meetings.js` (start/avslutt/gjenåpne, agenda, beslutninger, referat).
 
 ### 2026-06-25 (v4.25 — preview fixes: marked consistency + mention support in detached mode + copy button)
 - **Preview rendering consistency:** `<markdown-preview>` now configures marked with `{ breaks: true, gfm: true }` on first connection, matching detached (Picture-in-Picture) mode. Eliminates line break and GFM feature rendering differences.

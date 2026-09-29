@@ -33,7 +33,7 @@
             "label": "meetings",
             "x": 40, "y": 290, "w": 240, "h": 170,
             "pk": "id",
-            "fields": ["id", "date", "start", "end", "title", "type", "attendees[]", "placeKey"]
+            "fields": ["id", "date", "start", "end", "title", "type", "seriesId", "status", "agenda[]", "decisions[]", "minutes", "closedAt", "attendees[]", "placeKey"]
         },
         {
             "slug": "meeting-types",
@@ -41,6 +41,13 @@
             "x": 360, "y": 290, "w": 200, "h": 110,
             "pk": "key",
             "fields": ["key", "icon", "label", "mins"]
+        },
+        {
+            "slug": "meeting-series",
+            "label": "meeting-series",
+            "x": 360, "y": 430, "w": 240, "h": 170,
+            "pk": "id",
+            "fields": ["id", "title", "status", "defaultAttendees[]", "defaultLocation", "defaultPlaceKey", "defaultType", "defaultDurationMins", "agendaItems[]", "created", "updated"]
         },
         {
             "slug": "context-settings",
@@ -53,7 +60,7 @@
             "label": "tasks",
             "x": 40, "y": 540, "w": 240, "h": 150,
             "pk": "id",
-            "fields": ["id", "text", "done", "week", "completedAt", "commentFile"]
+            "fields": ["id", "text", "done", "week", "completedAt", "commentFile", "meetingId", "meetingSeriesId", "agendaItemId"]
         },
         {
             "slug": "results",
@@ -84,6 +91,9 @@
         { "from": "meetings", "fromField": "type",              "to": "meeting-types", "label": "type" },
         { "from": "results",  "fromField": "people",            "to": "people",        "label": "people[]" },
         { "from": "tasks",    "fromField": "commentFile",       "to": "notes-meta",    "label": "commentFile" },
+        { "from": "tasks",    "fromField": "meetingId",         "to": "meetings",      "label": "meetingId" },
+        { "from": "tasks",    "fromField": "meetingSeriesId",   "to": "meeting-series","label": "meetingSeriesId" },
+        { "from": "meetings", "fromField": "seriesId",          "to": "meeting-series","label": "seriesId" },
         { "from": "notes-meta","fromField": "createdBy",        "to": "people",        "label": "createdBy" },
         { "from": "notes-meta","fromField": "lastSavedBy",      "to": "people",        "label": "lastSavedBy" },
         { "from": "user",     "fromField": "mePersonKey",       "to": "people",        "label": "contexts[].mePersonKey" },

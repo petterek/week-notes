@@ -5,9 +5,10 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { ROOT_DIR, CONTEXTS_DIR } = require('../lib/data-paths');
 
-const ROOT = path.resolve(__dirname, '..');
-const DATA = path.join(ROOT, 'data');
+const ROOT = ROOT_DIR;
+const DATA = CONTEXTS_DIR;
 
 function dateToIsoWeek(d) {
     const target = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -175,7 +176,12 @@ const hjem = {
     }
 };
 
-writeContext('demo-jobb', jobb.settings, jobb);
-writeContext('demo-hjem', hjem.settings, hjem);
+function seedDummy() {
+    writeContext('demo-jobb', jobb.settings, jobb);
+    writeContext('demo-hjem', hjem.settings, hjem);
+    console.log('\nDone. Bytt kontekst i nav-baren for å se dem.');
+}
 
-console.log('\nDone. Bytt kontekst i nav-baren for å se dem.');
+if (require.main === module) seedDummy();
+
+module.exports = { seedDummy, writeContext, dateToIsoWeek, isoWeekMonday, shiftWeek, dateInWeek };

@@ -1,17 +1,17 @@
 'use strict';
 module.exports = function(deps) {
-    const fs = require('fs');
     const path = require('path');
-    const https = require('https');
-    const crypto = require('crypto');
-    const { execSync, execFileSync } = require('child_process');
-    const { marked } = require('marked');
+    const { execFileSync } = require('child_process');
     const _core = deps.core;
     const __dirname = deps.rootDir;
-    const _bound = Object.assign({}, _core);
-    // Destructure lazily via getters so live bindings (e.g. embedState) work.
-    // For simplicity destructure all.
-    const { ACTIVE_FILE, APP_SETTINGS_FILE, CONTEXTS_DIR, CONTEXT_ICONS, CUSTOM_THEMES_DIR, DEFAULT_EMBED_MODEL, DEFAULT_MEETING_TYPES, DEFAULT_SUMMARIZE_MODEL, DISCONNECTED_FILE, EMBED_MODELS, PORT, SUMMARIZE_MODELS, THEMES, THEME_LABELS, THEME_VAR_NAMES, USER_FILE, WEEK_NOTES_MARKER, WEEK_NOTES_VERSION, _cacheGetCollection, _cacheInvalidateCollection, _cacheInvalidateContext, _cacheInvalidateNotesMeta, _cacheInvalidateSettings, _cacheSetCollection, _cloneArray, _ctxCache, _ctxCacheBucket, _ensureNotesMetaBucket, _loadWeekNotesMeta, _mdFilesCache, _noteContentCache, _statMtime, _weekDirsCache, buildEmbedDocs, checkExternalTools, clearTaskNoteRef, cloneContext, commentModalHtml, companiesFile, computeNoteReferences, contextSwitcherHtml, createContext, currentIsoWeek, currentReleaseTag, dataDir, dateToIsoWeek, deleteCustomTheme, deleteNoteMeta, disconnectContext, embedEmit, embedMeta, embedReady, embedReqSeq, embedSseClients, embedState, embedWorker, ensureAllContextsInitialised, entityDir, entityLegacyFile, escapeHtml, extractCloseMarkers, extractInlineTasks, extractMentions, extractNoteRelations, extractResults, extractTaskRefs, findTheme, forgetDisconnected, getActiveContext, getActiveTheme, getAppSettings, getCalendarActivity, getContextSettings, getContextThemes, getCurrentYearWeek, getDefaultMeetingMinutes, getGhToken, getMdFiles, getMePersonKey, getNoteMeta, getUpcomingMeetingsDays, getUser, getWeekDirs, getWorkHours, git, gitCommitAll, gitCurrentBranch, gitGetRemote, gitInitIfNeeded, gitIsDirty, gitIsRepo, gitLastCommit, gitPull, gitPullInitial, gitPush, gitRemoteHasFile, iconPickerHtml, isEmbedReady, isRemoteSummarizeModel, isValidThemeId, isoToLocalDateTime, isoWeekMonday, isoWeekToDateRange, itemStem, linkMentions, listAllThemes, listBuiltinThemes, listContexts, listCustomThemes, loadAllCompanies, loadAllPeople, loadAllPlaces, loadAllTasks, loadCollection, loadCompanies, loadDisconnected, loadMeetingTypes, loadMeetings, loadNotesMeta, loadPeople, loadPlaces, loadResults, loadTasks, meetingId, meetingTypeIcon, meetingTypeLabel, meetingTypesFile, meetingsFile, navLinksHtml, navbarHtml, noteModalHtml, noteSnippet, noteSnippetCached, notesMetaDir, notesMetaFile, notesMetaSidecarPath, pageHtml, parseThemeCss, pendingEmbed, pendingSearches, pendingSummarize, peopleFile, placesFile, preTaskMarkers, presentationPageHtml, presentationStyleCss, processInlineResults, pullContextRemote, readBody, readBuiltinTheme, readCustomTheme, readJsonDirAll, readMarker, readNoteCached, rebuildTaskNoteRefs, reindexEmbeddings, reindexSearch, restartEmbedWorker, restartSearchWorker, restartSummarizeWorker, resultsFile, safeName, safeThemeId, sanitizeItemFilename, saveCompanies, saveDisconnected, saveMeetingTypes, saveMeetings, saveNotesMeta, savePeople, savePlaces, saveResults, saveTasks, searchAll, searchMdFiles, searchReqSeq, searchSnippet, searchViaWorker, searchWorker, setActiveContext, setAppSettings, setContextSettings, setMePersonKey, setNoteMeta, shiftIsoWeek, startEmbedWorker, startSearchWorker, startSummarizeWorker, stopEmbedWorker, stopSearchWorker, stopSummarizeWorker, summarizeEmit, summarizeReady, summarizeReqSeq, summarizeSseClients, summarizeState, summarizeViaLocalWorker, summarizeWeek, summarizeWorker, syncCollection, syncMentions, syncTaskNote, syncTaskNoteRefs, tasksFile, themeCssFor, uniqueThemeId, vectorHitToSearchResult, vectorSearchViaWorker, writeCustomTheme, writeMarker } = _core;
+    const {
+        CONTEXTS_DIR, _cacheInvalidateContext, cloneContext, createContext, disconnectContext,
+        forgetDisconnected, getAppSettings, getContextSettings, getContextThemes, git, gitCommitAll,
+        gitCurrentBranch, gitGetRemote, gitInitIfNeeded, gitIsDirty, gitIsRepo, gitLastCommit, gitPull,
+        gitPush, listContexts, loadDisconnected, loadMeetingTypes, pullContextRemote,
+        rebuildTaskNoteRefs, reindexSearch, restartEmbedWorker, safeName, saveMeetingTypes,
+        setActiveContext, setContextSettings,
+    } = _core;
     return async function(req, res, ctx) {
         const { pathname, url } = ctx;
     if (pathname === '/api/contexts' && req.method === 'GET') {
@@ -72,67 +72,53 @@ module.exports = function(deps) {
 
     // API: switch active context
     if (pathname === '/api/contexts/switch' && req.method === 'POST') {
-        let body = '';
-        req.on('data', c => body += c);
-        req.on('end', () => {
-            try {
-                const { id } = JSON.parse(body || '{}');
-                // Fast path: just commit current and flip the .active pointer.
-                // The git pull and the search reindex run in the background.
-                const next = setActiveContext(id, { skipPull: true });
-                res.writeHead(200, {
-                    'Content-Type': 'application/json',
-                    'Set-Cookie': _core.activeContextCookie(next),
-                });
-                res.end(JSON.stringify({ ok: true, active: next }));
-                setImmediate(() => {
-                    try { pullContextRemote(next); } catch (e) { console.error('bg pull', e.message); }
-                    try { rebuildTaskNoteRefs(); } catch (e) { console.error('rebuildTaskNoteRefs', e.message); }
-                    reindexSearch();
-                    if (getAppSettings().vectorSearch.enabled) restartEmbedWorker();
-                });
-            } catch (e) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: false, error: String(e.message || e) }));
-            }
-        });
+        try {
+            const { id } = await _core.readJsonBody(req);
+            const next = setActiveContext(id, { skipPull: true });
+            res.writeHead(200, {
+                'Content-Type': 'application/json',
+                'Set-Cookie': _core.activeContextCookie(next),
+            });
+            res.end(JSON.stringify({ ok: true, active: next }));
+            setImmediate(() => _core.runWithDataContext(next, () => {
+                try { pullContextRemote(next); } catch (e) { console.error('bg pull', e.message); }
+                try { rebuildTaskNoteRefs(); } catch (e) { console.error('rebuildTaskNoteRefs', e.message); }
+                reindexSearch();
+                if (getAppSettings().vectorSearch.enabled) restartEmbedWorker();
+            }));
+        } catch (e) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: String(e.message || e) }));
+        }
         return;
     }
 
     // API: create new context
     if (pathname === '/api/contexts' && req.method === 'POST') {
-        let body = '';
-        req.on('data', c => body += c);
-        req.on('end', () => {
-            try {
-                const { name, icon, description, remote, force } = JSON.parse(body || '{}');
-                if (!name) throw new Error('Mangler navn');
-                const id = createContext(name, { name, icon: icon || '📁', description: description || '', remote: remote || '' }, { force: !!force });
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: true, id }));
-            } catch (e) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: false, error: String(e.message || e), needsConfirm: !!e.needsConfirm }));
-            }
-        });
+        try {
+            const { name, icon, description, remote, force } = await _core.readJsonBody(req);
+            if (!name) throw new Error('Mangler navn');
+            const id = createContext(name, { name, icon: icon || '📁', description: description || '', remote: remote || '' }, { force: !!force });
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, id }));
+        } catch (e) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: String(e.message || e), needsConfirm: !!e.needsConfirm }));
+        }
         return;
     }
 
     // API: clone context from a git remote
     if (pathname === '/api/contexts/clone' && req.method === 'POST') {
-        let body = '';
-        req.on('data', c => body += c);
-        req.on('end', () => {
-            try {
-                const { remote, name, force } = JSON.parse(body || '{}');
-                const id = cloneContext(remote, name, { force: !!force });
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: true, id }));
-            } catch (e) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: false, error: String(e.message || e), needsConfirm: !!e.needsConfirm }));
-            }
-        });
+        try {
+            const { remote, name, force } = await _core.readJsonBody(req);
+            const id = cloneContext(remote, name, { force: !!force });
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, id }));
+        } catch (e) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: String(e.message || e), needsConfirm: !!e.needsConfirm }));
+        }
         return;
     }
 
@@ -152,36 +138,32 @@ module.exports = function(deps) {
             res.end(JSON.stringify({ ok: false, error: 'context not found' }));
             return;
         }
-        let body = '';
-        req.on('data', c => body += c);
-        req.on('end', () => {
-            try {
-                const data = JSON.parse(body || '[]');
-                if (!Array.isArray(data)) throw new Error('expected array');
-                const seenKeys = new Set();
-                const cleaned = data.map(t => {
-                    let key = (t && typeof t.key === 'string') ? t.key.trim() : '';
-                    const label = (t && typeof t.label === 'string') ? t.label.trim() : '';
-                    const icon = (t && typeof t.icon === 'string') ? t.icon.trim() : '';
-                    if (!label) return null;
-                    if (!key || seenKeys.has(key)) {
-                        const base = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'type';
-                        key = base;
-                        let n = 2;
-                        while (seenKeys.has(key)) key = base + '-' + (n++);
-                    }
-                    seenKeys.add(key);
-                    const mins = parseInt(t && t.mins, 10);
-                    return { key, icon, label, mins: (mins > 0 && mins <= 600) ? mins : 60 };
-                }).filter(Boolean);
-                saveMeetingTypes(cleaned, id);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: true, types: cleaned }));
-            } catch (e) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: false, error: String(e.message || e) }));
-            }
-        });
+        try {
+            const data = await _core.readJsonBody(req, []);
+            if (!Array.isArray(data)) throw new Error('expected array');
+            const seenKeys = new Set();
+            const cleaned = data.map(t => {
+                let key = (t && typeof t.key === 'string') ? t.key.trim() : '';
+                const label = (t && typeof t.label === 'string') ? t.label.trim() : '';
+                const icon = (t && typeof t.icon === 'string') ? t.icon.trim() : '';
+                if (!label) return null;
+                if (!key || seenKeys.has(key)) {
+                    const base = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'type';
+                    key = base;
+                    let n = 2;
+                    while (seenKeys.has(key)) key = base + '-' + (n++);
+                }
+                seenKeys.add(key);
+                const mins = parseInt(t && t.mins, 10);
+                return { key, icon, label, mins: (mins > 0 && mins <= 600) ? mins : 60 };
+            }).filter(Boolean);
+            saveMeetingTypes(cleaned, id);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, types: cleaned }));
+        } catch (e) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: String(e.message || e) }));
+        }
         return;
     }
 
@@ -195,21 +177,17 @@ module.exports = function(deps) {
     }
     if (ctxSettingsMatch && req.method === 'PUT') {
         const id = safeName(ctxSettingsMatch[1]);
-        let body = '';
-        req.on('data', c => body += c);
-        req.on('end', () => {
-            try {
-                const data = JSON.parse(body || '{}');
-                const force = !!data.__force;
-                delete data.__force;
-                setContextSettings(id, data, { force });
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: true }));
-            } catch (e) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: false, error: String(e.message || e), needsConfirm: !!e.needsConfirm }));
-            }
-        });
+        try {
+            const data = await _core.readJsonBody(req);
+            const force = !!data.__force;
+            delete data.__force;
+            setContextSettings(id, data, { force });
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true }));
+        } catch (e) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: String(e.message || e), needsConfirm: !!e.needsConfirm }));
+        }
         return;
     }
 
@@ -222,17 +200,12 @@ module.exports = function(deps) {
             res.end(JSON.stringify({ ok: false, error: 'Kontekst finnes ikke' }));
             return;
         }
-        let body = '';
-        req.on('data', c => body += c);
-        req.on('end', () => {
-            const dir = path.join(CONTEXTS_DIR, id);
-            gitInitIfNeeded(dir, getContextSettings(id).name || id);
-            let message = '';
-            try { message = JSON.parse(body || '{}').message || ''; } catch {}
-            const result = gitCommitAll(dir, message || `Manuell commit (${new Date().toISOString()})`);
-            res.writeHead(result.ok ? 200 : 500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(result));
-        });
+        const { message = '' } = await _core.readJsonBody(req);
+        const dir = path.join(CONTEXTS_DIR, id);
+        gitInitIfNeeded(dir, getContextSettings(id).name || id);
+        const result = gitCommitAll(dir, message || `Manuell commit (${new Date().toISOString()})`);
+        res.writeHead(result.ok ? 200 : 500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
         return;
     }
 
@@ -323,23 +296,15 @@ module.exports = function(deps) {
             res.end(JSON.stringify(r));
             return;
         }
-        let body = '';
-        req.on('data', c => body += c);
-        req.on('end', () => {
-            let opts = {};
-            try { opts = JSON.parse(body || '{}'); } catch {}
-            const r = runMigrate({
-                quarantine: !!opts.quarantine,
-                commit: opts.commit !== false,
-                only: Array.isArray(opts.only) ? opts.only : null,
-            });
-            // Migrations rewrite the on-disk shape — drop everything
-            // we cached for this context so subsequent reads pick up
-            // the new layout.
-            _cacheInvalidateContext(id);
-            res.writeHead(r.ok ? 200 : 500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(r));
+        const opts = await _core.readJsonBody(req);
+        const r = runMigrate({
+            quarantine: !!opts.quarantine,
+            commit: opts.commit !== false,
+            only: Array.isArray(opts.only) ? opts.only : null,
         });
+        _cacheInvalidateContext(id);
+        res.writeHead(r.ok ? 200 : 500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(r));
         return;
     }
 

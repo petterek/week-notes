@@ -1,22 +1,28 @@
 'use strict';
+const { writeFileAtomic } = require('../../lib/collection-store');
+
 module.exports = function(deps) {
     const fs = require('fs');
     const path = require('path');
-    const https = require('https');
-    const crypto = require('crypto');
-    const { execSync, execFileSync } = require('child_process');
-    const { marked } = require('marked');
     const _core = deps.core;
     const __dirname = deps.rootDir;
-    const _bound = Object.assign({}, _core);
-    // Destructure lazily via getters so live bindings (e.g. embedState) work.
-    // For simplicity destructure all.
-    const { ACTIVE_FILE, APP_SETTINGS_FILE, CONTEXTS_DIR, CONTEXT_ICONS, CUSTOM_THEMES_DIR, DEFAULT_EMBED_MODEL, DEFAULT_MEETING_TYPES, DEFAULT_SUMMARIZE_MODEL, DISCONNECTED_FILE, EMBED_MODELS, PORT, SUMMARIZE_MODELS, THEMES, THEME_LABELS, THEME_VAR_NAMES, USER_FILE, WEEK_NOTES_MARKER, WEEK_NOTES_VERSION, _cacheGetCollection, _cacheInvalidateCollection, _cacheInvalidateContext, _cacheInvalidateNotesMeta, _cacheInvalidateSettings, _cacheSetCollection, _cloneArray, _ctxCache, _ctxCacheBucket, _ensureNotesMetaBucket, _loadWeekNotesMeta, _mdFilesCache, _noteContentCache, _statMtime, _weekDirsCache, buildEmbedDocs, checkExternalTools, clearTaskNoteRef, cloneContext, commentModalHtml, companiesFile, computeNoteReferences, contextSwitcherHtml, createContext, currentIsoWeek, currentReleaseTag, dataDir, dateToIsoWeek, deleteCustomTheme, deleteNoteMeta, disconnectContext, embedEmit, embedMeta, embedReady, embedReqSeq, embedSseClients, getEmbedState, embedWorker, ensureAllContextsInitialised, entityDir, entityLegacyFile, escapeHtml, extractCloseMarkers, extractInlineTasks, extractMentions, extractNoteRelations, extractResults, extractTaskRefs, findTheme, forgetDisconnected, getActiveContext, getActiveTheme, getAppSettings, getCalendarActivity, getContextSettings, getContextThemes, getCurrentYearWeek, getDefaultMeetingMinutes, getGhToken, getMdFiles, getMePersonKey, getNoteMeta, getUpcomingMeetingsDays, getUser, getWeekDirs, getWorkHours, git, gitCommitAll, gitCurrentBranch, gitGetRemote, gitInitIfNeeded, gitIsDirty, gitIsRepo, gitLastCommit, gitPull, gitPullInitial, gitPush, gitRemoteHasFile, iconPickerHtml, isEmbedReady, isRemoteSummarizeModel, isValidThemeId, isoToLocalDateTime, isoWeekMonday, isoWeekToDateRange, itemStem, linkMentions, listAllThemes, listBuiltinThemes, listContexts, listCustomThemes, loadAllCompanies, loadAllPeople, loadAllPlaces, loadAllTasks, loadCollection, loadCompanies, loadDisconnected, loadMeetingTypes, loadMeetings, loadNotesMeta, loadPeople, loadPlaces, loadResults, loadTasks, meetingId, meetingTypeIcon, meetingTypeLabel, meetingTypesFile, meetingsFile, navLinksHtml, navbarHtml, noteModalHtml, noteSnippet, noteSnippetCached, notesMetaDir, notesMetaFile, notesMetaSidecarPath, pageHtml, parseThemeCss, pendingEmbed, pendingSearches, pendingSummarize, peopleFile, placesFile, preTaskMarkers, presentationPageHtml, presentationStyleCss, processInlineResults, pullContextRemote, readBody, readBuiltinTheme, readCustomTheme, readJsonDirAll, readMarker, readNoteCached, rebuildTaskNoteRefs, reindexEmbeddings, reindexSearch, restartEmbedWorker, restartSearchWorker, restartSummarizeWorker, resultsFile, safeName, safeThemeId, sanitizeItemFilename, saveCompanies, saveDisconnected, saveMeetingTypes, saveMeetings, saveNotesMeta, savePeople, savePlaces, saveResults, saveTasks, searchAll, searchMdFiles, searchReqSeq, searchSnippet, searchViaWorker, searchWorker, setActiveContext, setAppSettings, setContextSettings, setMePersonKey, setNoteMeta, shiftIsoWeek, startEmbedWorker, startSearchWorker, startSummarizeWorker, stopEmbedWorker, stopSearchWorker, stopSummarizeWorker, summarizeEmit, summarizeReady, summarizeReqSeq, summarizeSseClients, getSummarizeState, summarizeViaLocalWorker, summarizeWeek, summarizeWorker, syncCollection, syncMentions, syncTaskNote, syncTaskNoteRefs, tasksFile, themeCssFor, uniqueThemeId, vectorHitToSearchResult, vectorSearchViaWorker, writeCustomTheme, writeMarker } = _core;
+    const {
+        CONTEXTS_DIR, EMBED_MODELS, SUMMARIZE_MODELS, WEEK_NOTES_MARKER, computeNoteReferences, dataDir,
+        embedEmit, embedSseClients, getEmbedState, extractInlineTasks, extractMentions, getDataContext,
+        getAppSettings, getCalendarActivity, getCurrentYearWeek, getDefaultMeetingMinutes,
+        getMePersonKey, getNoteMeta, git, gitCommitAll, gitInitIfNeeded, gitIsRepo, isEmbedReady,
+        isRemoteSummarizeModel, listContexts, loadMeetings, loadTasks, meetingId, noteSnippet,
+        processInlineResults, readJsonBody, restartEmbedWorker, restartSearchWorker, restartSummarizeWorker,
+        saveMeetings, saveTasks, searchAll, searchViaWorker, setAppSettings, setMePersonKey, setNoteMeta,
+        stopEmbedWorker, stopSearchWorker, stopSummarizeWorker, summarizeEmit, summarizeSseClients,
+        getSummarizeState, summarizeWeek, syncMentions, syncTaskNoteRefs, vectorHitToSearchResult,
+        vectorSearchViaWorker, writeMarker,
+    } = _core;
     return async function(req, res, ctx) {
         const { pathname, url } = ctx;
     if (pathname === '/api/summarize' && req.method === 'POST') {
         try {
-            const body = JSON.parse(await readBody(req));
+            const body = await readJsonBody(req);
             const { week } = body;
             if (!week || week.includes('/') || week.includes('\\')) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -27,7 +33,7 @@ module.exports = function(deps) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: true, summary }));
         } catch (e) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: e.message }));
         }
         return;
@@ -95,13 +101,13 @@ module.exports = function(deps) {
     // (outside any context's git repo), so multiple users sharing a context
     // each have their own "@me" mapping.
     if (pathname === '/api/me' && req.method === 'GET') {
-        const ctx = getActiveContext();
+        const ctx = getDataContext();
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, context: ctx, key: getMePersonKey(ctx) }));
         return;
     }
     if (pathname === '/api/me/all' && req.method === 'GET') {
-        const active = getActiveContext();
+        const active = getDataContext();
         const mappings = listContexts().map(c => ({
             context: c,
             key: getMePersonKey(c),
@@ -113,8 +119,8 @@ module.exports = function(deps) {
     }
     if (pathname === '/api/me' && req.method === 'PUT') {
         try {
-            const body = JSON.parse(await readBody(req) || '{}');
-            const ctx = getActiveContext();
+            const body = await readJsonBody(req);
+            const ctx = getDataContext();
             const saved = setMePersonKey(ctx, body.key || '');
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: true, context: ctx, key: saved }));
@@ -189,7 +195,7 @@ module.exports = function(deps) {
     }
     if (pathname === '/api/app-settings' && req.method === 'PUT') {
         try {
-            const body = JSON.parse(await readBody(req) || '{}');
+            const body = await readJsonBody(req);
             const before = getAppSettings();
             const next = setAppSettings(body);
             const vsChanged = before.vectorSearch.enabled !== next.vectorSearch.enabled
@@ -263,7 +269,7 @@ module.exports = function(deps) {
             };
             const search = readCache('search-index.json');
             const embed  = readCache('embeddings.json');
-            const isActive = id === getActiveContext();
+            const isActive = id === getDataContext();
             const out = {
                 ok: true,
                 contextId: id,
@@ -355,7 +361,7 @@ module.exports = function(deps) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: true, removed }));
         } catch (e) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Serverfeil: ' + e.message }));
         }
         return;
@@ -398,7 +404,7 @@ module.exports = function(deps) {
 
     if (pathname === '/api/save/autosave' && req.method === 'DELETE') {
         try {
-            const body = JSON.parse(await readBody(req) || '{}');
+            const body = await readJsonBody(req);
             const { folder, file } = body;
             if (!folder || !file || file.includes('/') || file.includes('\\') || folder.includes('/') || folder.includes('\\')) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -417,7 +423,7 @@ module.exports = function(deps) {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: true, removed }));
         } catch (e) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Serverfeil: ' + e.message }));
         }
         return;
@@ -426,7 +432,7 @@ module.exports = function(deps) {
     // API: save file
     if (pathname === '/api/save' && req.method === 'POST') {
         try {
-            const body = JSON.parse(await readBody(req));
+            const body = await readJsonBody(req);
             const { folder, file: rawFile, content, append, type, presentationStyle, autosave, themes, tags, commit, createNew, title, draft, meta } = body;
             let file = rawFile;
 
@@ -441,12 +447,10 @@ module.exports = function(deps) {
                 }
                 try {
                     const tmpPath = path.join(dataDir(), '.draft-newnote.md');
-                    fs.writeFileSync(tmpPath, content, 'utf-8');
+                    writeFileAtomic(tmpPath, content);
                     if (meta && typeof meta === 'object') {
-                        try {
-                            const metaPath = path.join(dataDir(), '.draft-newnote.meta.json');
-                            fs.writeFileSync(metaPath, JSON.stringify(meta), 'utf-8');
-                        } catch (_) {}
+                        const metaPath = path.join(dataDir(), '.draft-newnote.meta.json');
+                        writeFileAtomic(metaPath, JSON.stringify(meta));
                     }
                     const stat = fs.statSync(tmpPath);
                     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -494,6 +498,7 @@ module.exports = function(deps) {
                 file = candidate;
             }
             const filePath = path.join(dataDir(), folder, file);
+            const existing = autosave ? {} : getNoteMeta(folder, file, { fresh: true });
 
             // On EXPLICIT save (not autosave), process inline-create markers:
             //   {{X}} → create a new task with text X
@@ -555,7 +560,7 @@ module.exports = function(deps) {
                             t.done = true;
                             t.completedWeek = noteWeek;
                             t.completedAt = new Date().toISOString();
-                            const meKey = getMePersonKey(getActiveContext());
+                            const meKey = getMePersonKey(getDataContext());
                             if (meKey) t.completedBy = meKey;
                             if (!seen.has(id)) { closedTasks++; seen.add(id); }
                         }
@@ -572,7 +577,7 @@ module.exports = function(deps) {
                     if (openByText.length) {
                         let changed = false;
                         const nowIso = new Date().toISOString();
-                        const meKey = getMePersonKey(getActiveContext());
+                        const meKey = getMePersonKey(getDataContext());
                         for (const t of openByText) {
                             const marker = `~~${t.text}~~`;
                             if (finalContent.includes(marker)) {
@@ -595,7 +600,7 @@ module.exports = function(deps) {
                 // → create meeting, replace with {{m:?<id>}}. Skip already-
                 // resolved references {{m:?<id>}} / {{m:!<id>}}.
                 {
-                    const ctxId = getActiveContext();
+                    const ctxId = getDataContext();
                     const defaultMins = getDefaultMeetingMinutes(ctxId);
                     const allMeetings = loadMeetings();
                     const noteMentions = extractMentions(finalContent);
@@ -647,49 +652,21 @@ module.exports = function(deps) {
                 // touched until the user explicitly saves. The temp file is
                 // a hidden dotfile next to the real file: `.<file>.autosave`.
                 const tmpPath = path.join(dataDir(), folder, '.' + file + '.autosave');
-                fs.writeFileSync(tmpPath, finalContent, 'utf-8');
+                writeFileAtomic(tmpPath, finalContent);
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ ok: true, autosave: true, path: `/${folder}/${file}`, tmp: true }));
                 return;
             }
 
-            if (append && fs.existsSync(filePath)) {
-                fs.appendFileSync(filePath, '\n\n' + finalContent, 'utf-8');
-            } else {
-                fs.writeFileSync(filePath, finalContent, 'utf-8');
-            }
-            // Reconcile task→note backrefs against the post-write content.
-            // For append we need the merged file; for overwrite finalContent
-            // is the same as on-disk. Using readFileSync covers both.
-            try {
-                const onDisk = fs.readFileSync(filePath, 'utf-8');
-                syncTaskNoteRefs(`${folder}/${file}`, onDisk);
-            } catch (_) {}
-            // Remove any stale autosave temp file now that we've persisted.
-            try {
-                const tmpPath = path.join(dataDir(), folder, '.' + file + '.autosave');
-                if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
-            } catch (_) {}
-            // If this save promotes a brand-new-note draft to a real file,
-            // discard the draft (and its metadata sidecar) now.
-            if (draft) {
-                try {
-                    const draftPath = path.join(dataDir(), '.draft-newnote.md');
-                    if (fs.existsSync(draftPath)) fs.unlinkSync(draftPath);
-                } catch (_) {}
-                try {
-                    const metaPath = path.join(dataDir(), '.draft-newnote.meta.json');
-                    if (fs.existsSync(metaPath)) fs.unlinkSync(metaPath);
-                } catch (_) {}
-            }
-
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: true, path: `/${folder}/${file}`, file, folder, content: finalContent, createdTasks, createdResults, createdMeetings, closedTasks }));
-
+            const savedContent = append && fs.existsSync(filePath)
+                ? fs.readFileSync(filePath, 'utf-8') + '\n\n' + finalContent
+                : finalContent;
+            writeFileAtomic(filePath, savedContent);
+            // Append saves must reconcile against the whole resulting note.
+            syncTaskNoteRefs(`${folder}/${file}`, savedContent);
             const now = new Date().toISOString();
-            const existing = getNoteMeta(folder, file);
             const saves = Array.isArray(existing.saves) ? existing.saves.slice() : [];
-            const meKey = !autosave ? getMePersonKey(getActiveContext()) : '';
+            const meKey = !autosave ? getMePersonKey(getDataContext()) : '';
             if (!autosave) {
                 const entry = { at: now };
                 if (meKey) entry.by = meKey;
@@ -748,6 +725,23 @@ module.exports = function(deps) {
             setNoteMeta(folder, file, updates);
             syncMentions(content);
 
+            // Preserve recovery files until all required persistence succeeds.
+            const recoveryFiles = [path.join(dataDir(), folder, '.' + file + '.autosave')];
+            if (draft) recoveryFiles.push(
+                path.join(dataDir(), '.draft-newnote.md'),
+                path.join(dataDir(), '.draft-newnote.meta.json'),
+            );
+            for (const recoveryFile of recoveryFiles) {
+                try {
+                    fs.unlinkSync(recoveryFile);
+                } catch (error) {
+                    if (error.code !== 'ENOENT') console.error('recovery cleanup failed', error);
+                }
+            }
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, path: `/${folder}/${file}`, file, folder, content: finalContent, createdTasks, createdResults, createdMeetings, closedTasks }));
+
             // Commit the note (and *every* sidecar / related entity file
             // touched by this save — git add -A sweeps the whole context
             // repo) to git so we keep history. Best-effort, never blocks
@@ -777,9 +771,9 @@ module.exports = function(deps) {
                     const subject = `${action} ${folder}/${file}`;
                     gitCommitAll(repo, subject);
                 }
-            } catch (_) {}
+            } catch (error) { console.error('note commit failed', error); }
         } catch (e) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Serverfeil: ' + e.message }));
         }
         return;
@@ -795,7 +789,7 @@ module.exports = function(deps) {
         return;
     }
     if (pathname === '/api/erd' && req.method === 'PUT') {
-        const body = JSON.parse(await readBody(req) || '{}');
+        const body = await readJsonBody(req);
         const src = typeof body.src === 'string' ? body.src : '';
         const file = path.join(__dirname, 'pages', 'erd.puml');
         fs.writeFileSync(file, src, 'utf-8');
@@ -825,7 +819,7 @@ module.exports = function(deps) {
         return;
     }
     if (schemaMatch && req.method === 'PUT') {
-        const body = JSON.parse(await readBody(req) || '{}');
+        const body = await readJsonBody(req);
         const src = typeof body.src === 'string' ? body.src : '';
         const file = path.join(__dirname, 'schemas', schemaMatch[1]);
         fs.writeFileSync(file, src, 'utf-8');

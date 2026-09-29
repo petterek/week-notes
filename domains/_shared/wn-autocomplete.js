@@ -279,7 +279,10 @@ export function attachAutocomplete(target, config) {
             let items;
             try {
                 items = await trig.fetchItems(currentQuery, { textarea: target, range: currentRange, extra: currentExtra });
-            } catch (e) { items = []; }
+            } catch (e) {
+                console.error('autocomplete source failed', e);
+                items = [];
+            }
             // A newer open() superseded us — bail.
             if (token !== openToken) return;
             items = items || [];

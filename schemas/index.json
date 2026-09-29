@@ -56,8 +56,14 @@
   {
     "path": "data/<ctx>/meetings.json",
     "scope": "per context",
-    "desc": "All meetings (past + future) for one workspace.",
+    "desc": "All meetings (past + future) for one workspace; series occurrences carry `seriesId`, `status`, agenda and decisions snapshots.",
     "file": "meetings.schema.json"
+  },
+  {
+    "path": "data/<ctx>/meeting-series/<id>.json",
+    "scope": "per context · per series",
+    "desc": "One recurring meeting series, stored as a standalone JSON record with its own agenda queue.",
+    "file": "meeting-series.schema.json"
   },
   {
     "path": "data/<ctx>/notes-meta.json",

@@ -48,6 +48,18 @@ Møter har en **type** (møte, 1-på-1, standup, workshop osv.) som vises som et
 
 Møtetyper konfigureres per kontekst på `/settings` under "Møtetyper". Velg ikoner fra det grupperte ikonpaletten (Personer, Kommunikasjon, Dokumenter, Sport, …).
 
+### Møteserier
+
+For møter som gjentar seg (f.eks. et ukentlig 1:1 eller teammøte) kan du opprette en **møteserie** på `/meeting-series`. En serie eier en varig saksliste (agenda-kø) som følger møtet fra gang til gang:
+
+- **Opprett en serie** med tittel og forvalgte deltakere/sted/type/varighet, og legg til saklistepunkter i køen.
+- **Opprett en forekomst** (en konkret kalendermøte-instans) fra serien — den arver forvalgene og får automatisk med alle punkter som står i kø.
+- **Under møtet**: klikk møtet i kalenderen for å åpne arbeidsflaten. Start møtet, skriv notater per saklistepunkt, og merk hvert punkt ✅ Løst, ⏭️ Utsatt eller 🚫 Avlyst. Legg til saklistepunkter underveis, registrer beslutninger, og skriv et fritekst-referat.
+- **Avslutt møtet**: punkter uten utfall blir automatisk merket "utsatt". Utsatte (og eksplisitt utsatte) punkter havner tilbake i seriens kø til neste forekomst; løste og avlyste punkter forsvinner fra køen.
+- **Gjenåpne før endring**: et avsluttet møte er låst for endringer i saksliste, beslutninger og referat. Bruk Gjenåpne for å korrigere innholdet.
+- **Oppfølgingsoppgaver** kan opprettes direkte fra arbeidsflaten og kobles til både møtet og serien.
+- **Eksporter til PDF** via 📄-knappen — åpner en utskriftsvennlig referatside (bruk nettleserens utskriftsdialog). Uavsluttede møter vises med et "UTKAST"-vannmerke.
+
 ## Resultater
 
 Resultater er korte utsagn om utfall, beslutninger eller leveranser knyttet til en uke. De vises på `/results`, i hjemskjermens uke-sidekort, og inkluderes i ukentlige AI-oppsummeringer.

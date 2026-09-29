@@ -4,7 +4,7 @@
 //
 // Protocol (parent → worker):
 //   { type: 'reindex', contextDir }
-//   { type: 'query',   q, requestId }
+//   { type: 'query',   q, requestId, contextDir }
 //
 // Replies (worker → parent):
 //   { type: 'indexed', contextDir, docCount, tokenCount, ms }
@@ -374,13 +374,15 @@ function buildIndexUncached(contextDir) {
 //   'cache'   — loaded from disk, no rebuild
 //   'fresh'   — full rebuild (cache miss or stale)
 function buildIndex(contextDir) {
-    currentContextDir = contextDir;
+    currentContextDir = null;
     const sig = computeSignature(contextDir);
     if (sig && loadCache(contextDir, sig)) {
+        currentContextDir = contextDir;
         return { source: 'cache', signature: sig };
     }
     buildIndexUncached(contextDir);
     if (sig) saveCache(contextDir, sig);
+    currentContextDir = contextDir;
     return { source: 'fresh', signature: sig };
 }
 
@@ -391,9 +393,11 @@ function isWatchableChange(filename) {
     if (filename.startsWith('.git/') || filename.includes('/.git/')) return false;
     if (base === '.active' || base.startsWith('.')) return false;
     if (base.endsWith('.swp') || base.endsWith('.tmp') || base.endsWith('~')) return false;
-    // Care about week note .md files and the four context-level json files
+    // Atomic collection writes become visible through their final JSON name.
     if (filename.endsWith('.md')) return true;
-    if (['tasks.json', 'meetings.json', 'people.json', 'results.json'].includes(base)) return true;
+    if (['tasks.json', 'meetings.json', 'people.json', 'results.json', 'notes-meta.json'].includes(base)) return true;
+    const root = filename.split(/[\\/]/)[0];
+    if (filename.endsWith('.json') && ['tasks', 'meetings', 'people', 'results', 'notes-meta'].includes(root)) return true;
     return false;
 }
 
@@ -852,6 +856,15 @@ parentPort.on('message', (msg) => {
             });
         } else if (msg.type === 'query') {
             const t0 = Date.now();
+            if (typeof msg.contextDir !== 'string' || !msg.contextDir) {
+                throw new Error('Search query requires a context directory');
+            }
+            // Reindex and query synchronously in this message handler so
+            // interleaved requests cannot use another context's index.
+            if (currentContextDir !== msg.contextDir) {
+                buildIndex(msg.contextDir);
+                startWatcher(msg.contextDir);
+            }
             const results = runQuery(msg.q);
             parentPort.postMessage({
                 type: 'result',

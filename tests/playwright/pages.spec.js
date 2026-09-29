@@ -1,6 +1,7 @@
 // Page-level smoke tests against the real app.
 // Verifies routes return 200 and the document contains expected anchors.
 const { test, expect } = require('@playwright/test');
+const { createCleanupStack, SEEDED_PEOPLE, SEEDED_TEAM } = require('../helpers/playwright-fixtures');
 
 const PAGES = [
     { path: '/',         title: /Ukenotater|Hjem/ },
@@ -50,20 +51,11 @@ test('inline-action renders @mentions in label as entity-mention chips', async (
 
 // Regression: /api/teams/:key/status returns team relations.
 test('team status API returns team data', async ({ request }) => {
-    // First get a team key from the teams list
-    const teamsResp = await request.get('/api/teams');
-    expect(teamsResp.ok()).toBe(true);
-    const teams = await teamsResp.json();
-    if (teams.length === 0) {
-        test.skip();
-        return;
-    }
-    const key = teams[0].key;
-    const statusResp = await request.get(`/api/teams/${encodeURIComponent(key)}/status`);
-    expect(statusResp.ok(), `/api/teams/${key}/status should return 200`).toBe(true);
+    const statusResp = await request.get(`/api/teams/${encodeURIComponent(SEEDED_TEAM.key)}/status`);
+    expect(statusResp.ok(), `/api/teams/${SEEDED_TEAM.key}/status should return 200`).toBe(true);
     const data = await statusResp.json();
     expect(data.team).toBeTruthy();
-    expect(data.team.key).toBe(key);
+    expect(data.team.key).toBe(SEEDED_TEAM.key);
     expect(Array.isArray(data.memberDetails)).toBe(true);
     expect(Array.isArray(data.notesMentioning)).toBe(true);
     expect(Array.isArray(data.meetings)).toBe(true);
@@ -109,73 +101,64 @@ test('task-complete-modal z-index stacks above note-view', async ({ page }) => {
 // create a truncated stub person. E.g., attendee key "per jørgen" must NOT produce
 // a new person with key "per" via syncMentions word-boundary truncation.
 test('saving meeting with space-in-key attendee does not create stub person', async ({ request }) => {
-    const peopleBefore = await (await request.get('/api/people')).json();
-    const countBefore = peopleBefore.length;
+    const cleanup = createCleanupStack();
+    try {
+        const peopleBefore = await (await request.get('/api/people')).json();
+        const countBefore = peopleBefore.length;
 
-    // Use the first person whose key contains a space, or skip if none exist
-    const spaceKeyPerson = peopleBefore.find(p => p.key && p.key.includes(' '));
-    if (!spaceKeyPerson) {
-        test.skip();
-        return;
+        const resp = await request.post('/api/meetings', {
+            data: {
+                title: 'Regression test meeting (auto-delete)',
+                date: '2099-01-01',
+                start: '10:00',
+                end: '11:00',
+                type: 'meeting',
+                attendees: [SEEDED_PEOPLE.spaceKey.key],
+                notes: '',
+            }
+        });
+        expect(resp.ok()).toBe(true);
+        const created = await resp.json();
+        cleanup.add(async () => { await request.delete(`/api/meetings/${created.meeting.id}`); });
+
+        const peopleAfter = await (await request.get('/api/people')).json();
+        expect(peopleAfter.length).toBe(countBefore);
+    } finally {
+        await cleanup.run();
     }
-
-    // POST a meeting with that person as attendee — title/notes have no @mentions
-    const resp = await request.post('/api/meetings', {
-        data: {
-            title: 'Regression test meeting (auto-delete)',
-            date: '2099-01-01',
-            start: '10:00',
-            end: '11:00',
-            type: 'meeting',
-            attendees: [spaceKeyPerson.key],
-            notes: '',
-        }
-    });
-    expect(resp.ok()).toBe(true);
-    const created = await resp.json();
-
-    // People count must not have changed
-    const peopleAfter = await (await request.get('/api/people')).json();
-    expect(peopleAfter.length).toBe(countBefore);
-
-    // Clean up
-    await request.delete(`/api/meetings/${created.meeting.id}`);
 });
 
 // Regression: updating a person whose firstName matches another person's firstName
 // must NOT assign a duplicate key (e.g., both "Ole Hansen" and "Ole Johansen" getting key="ole").
 // The update handler must use the same uniqueness logic as create (excluding self).
 test('editing person with duplicate firstName preserves unique keys', async ({ request }) => {
-    // Create two people with the same first name
-    const r1 = await request.post('/api/people', {
-        data: { firstName: 'RegTestOle', lastName: 'Hansen' }
-    });
-    expect(r1.ok()).toBe(true);
-    const p1 = (await r1.json()).person;
+    const cleanup = createCleanupStack();
+    try {
+        const r1 = await request.post('/api/people', {
+            data: { firstName: 'RegTestOle', lastName: 'Hansen' }
+        });
+        expect(r1.ok()).toBe(true);
+        const p1 = (await r1.json()).person;
+        cleanup.add(async () => { await request.delete(`/api/people/${p1.id}`); });
 
-    const r2 = await request.post('/api/people', {
-        data: { firstName: 'RegTestOle', lastName: 'Johansen' }
-    });
-    expect(r2.ok()).toBe(true);
-    const p2 = (await r2.json()).person;
+        const r2 = await request.post('/api/people', {
+            data: { firstName: 'RegTestOle', lastName: 'Johansen' }
+        });
+        expect(r2.ok()).toBe(true);
+        const p2 = (await r2.json()).person;
+        cleanup.add(async () => { await request.delete(`/api/people/${p2.id}`); });
 
-    // Keys must differ (uniqueness on create)
-    expect(p1.key).not.toBe(p2.key);
+        expect(p1.key).not.toBe(p2.key);
 
-    // Now edit p2 (change email) — this used to reset key to firstName.toLowerCase()
-    // causing a collision with p1
-    const upd = await request.put(`/api/people/${p2.id}`, {
-        data: { ...p2, email: 'ole.j@example.com' }
-    });
-    expect(upd.ok()).toBe(true);
-    const updated = (await upd.json()).person;
-
-    // Keys must still be distinct after edit
-    expect(updated.key).not.toBe(p1.key);
-
-    // Clean up
-    await request.delete(`/api/people/${p1.id}`);
-    await request.delete(`/api/people/${p2.id}`);
+        const upd = await request.put(`/api/people/${p2.id}`, {
+            data: { ...p2, email: 'ole.j@example.com' }
+        });
+        expect(upd.ok()).toBe(true);
+        const updated = (await upd.json()).person;
+        expect(updated.key).not.toBe(p1.key);
+    } finally {
+        await cleanup.run();
+    }
 });
 
 // Regression: inline-task rendered in a note must reflect live task.done status,
@@ -184,52 +167,48 @@ test('editing person with duplicate firstName preserves unique keys', async ({ r
 // task as checked when opened.
 test('inline-task in note reflects live done status ignoring stale open marker', async ({ page, request }) => {
     const week = '2099-W01';
-
-    // 1. Create a task
-    const createResp = await request.post('/api/tasks', {
-        data: { text: 'Regression inline-task state', week }
-    });
-    expect(createResp.ok()).toBe(true);
-    const tasks = await createResp.json();
-    const task = tasks.find(t => t.text === 'Regression inline-task state' && !t.done);
-    expect(task).toBeTruthy();
-    const taskId = task.id;
-
-    // 2. Mark the task done via the regular toggle (does NOT flip note markers)
-    const toggleResp = await request.put(`/api/tasks/${taskId}/toggle`, { data: {} });
-    expect(toggleResp.ok()).toBe(true);
-
-    // 3. Write a note with a stale {{?id}} open marker (as if the note was written
-    //    before the task was closed elsewhere)
+    const cleanup = createCleanupStack();
     const noteFile = 'inline-task-regression-test.md';
-    const saveResp = await request.post('/api/save', {
-        data: { folder: week, file: noteFile, content: `# Test\n\n{{?${taskId}}}\n` }
-    });
-    expect(saveResp.ok()).toBe(true);
 
-    // 4. Open the rendered note page
-    await page.goto(`/${week}/${noteFile}`, { waitUntil: 'domcontentloaded' });
-
-    // 5. Wait for inline-task to upgrade and fetch live task data
-    await page.waitForFunction(
-        () => !!document.querySelector('inline-task'),
-        { timeout: 5000 }
-    );
-    await page.waitForTimeout(2000); // allow task fetch + re-render
-
-    // 6. The checkbox inside the shadow DOM must be checked (done), not open
-    const isChecked = await page.evaluate(() => {
-        const el = document.querySelector('inline-task');
-        if (!el || !el.shadowRoot) return null;
-        const cb = el.shadowRoot.querySelector('input[type="checkbox"]');
-        return cb ? cb.checked : null;
-    });
-    expect(isChecked, 'inline-task should show as checked when task is done, even with stale open marker').toBe(true);
-
-    // Clean up
-    await request.delete(`/api/tasks/${taskId}`);
     try {
-        // Remove the test note
-        await request.delete(`/api/notes/${week}/${encodeURIComponent(noteFile)}`);
-    } catch {}
+        const createResp = await request.post('/api/tasks', {
+            data: { text: 'Regression inline-task state', week }
+        });
+        expect(createResp.ok()).toBe(true);
+        const tasks = await createResp.json();
+        const task = tasks.find(t => t.text === 'Regression inline-task state' && !t.done);
+        expect(task).toBeTruthy();
+        const taskId = task.id;
+        cleanup.add(async () => { await request.delete(`/api/tasks/${taskId}`); });
+
+        const toggleResp = await request.put(`/api/tasks/${taskId}/toggle`, { data: {} });
+        expect(toggleResp.ok()).toBe(true);
+
+        const saveResp = await request.post('/api/save', {
+            data: { folder: week, file: noteFile, content: `# Test\n\n{{?${taskId}}}\n` }
+        });
+        expect(saveResp.ok()).toBe(true);
+        cleanup.add(async () => {
+            try {
+                await request.delete(`/api/notes/${week}/${encodeURIComponent(noteFile)}`);
+            } catch {}
+        });
+
+        await page.goto(`/${week}/${noteFile}`, { waitUntil: 'domcontentloaded' });
+        await page.waitForFunction(
+            () => !!document.querySelector('inline-task'),
+            { timeout: 5000 }
+        );
+        await page.waitForTimeout(2000);
+
+        const isChecked = await page.evaluate(() => {
+            const el = document.querySelector('inline-task');
+            if (!el || !el.shadowRoot) return null;
+            const cb = el.shadowRoot.querySelector('input[type="checkbox"]');
+            return cb ? cb.checked : null;
+        });
+        expect(isChecked, 'inline-task should show as checked when task is done, even with stale open marker').toBe(true);
+    } finally {
+        await cleanup.run();
+    }
 });

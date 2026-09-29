@@ -22,7 +22,8 @@
  */
 import { WNElement, html, escapeHtml, modalZ } from './_shared.js';
 import { attachDateTrigger } from '/components/wn-date-trigger.js';
-import { attachAutocomplete, replaceRange, highlightMatch } from '/components/wn-autocomplete.js';
+import { attachAutocomplete } from '/components/wn-autocomplete.js';
+import { createMentionSource } from '/services/_shared/wn-mention-source.js';
 
 const STYLES = `
     :host { display: inline-block; font: inherit; }
@@ -118,6 +119,11 @@ class TaskNoteModal extends WNElement {
     }
 
     setData(d) {
+        this._mentionSource = null;
+        if (this._acHandle) {
+            try { this._acHandle.destroy(); } catch (_) {}
+            this._acHandle = null;
+        }
         this._data = d || {};
         this.requestRender();
         this._wire();
@@ -183,68 +189,11 @@ class TaskNoteModal extends WNElement {
     }
 
     _installMentionAutocomplete(ta) {
-        let people = null, companies = null, teams = null;
-        const ensurePeople = async () => {
-            if (people) return people;
-            try { const r = await fetch('/api/people'); people = (await r.json() || []).filter(p => !p.inactive); } catch (_) { people = []; }
-            return people;
-        };
-        const ensureCompanies = async () => {
-            if (companies) return companies;
-            try { const r = await fetch('/api/companies'); companies = (await r.json() || []).filter(c => !c.deleted); } catch (_) { companies = []; }
-            return companies;
-        };
-        const ensureTeams = async () => {
-            if (teams) return teams;
-            try { const r = await fetch('/api/teams'); teams = (await r.json() || []).filter(t => !t.deleted); } catch (_) { teams = []; }
-            return teams;
-        };
-
-        const mentionTrigger = {
-            detect: (text, caret, opts) => {
-                let i = caret - 1;
-                while (i >= 0 && /[a-zA-ZæøåÆØÅ0-9_-]/.test(text[i])) i--;
-                if (i < 0 || text[i] !== '@') return null;
-                if (i > 0 && !/[\s(\[,;]/.test(text[i - 1])) return null;
-                const frag = text.slice(i + 1, caret);
-                if (!frag && !(opts && opts.force)) return null;
-                return { query: frag, start: i, end: caret };
-            },
-            fetchItems: async () => {
-                const [pp, cc, tt] = await Promise.all([ensurePeople(), ensureCompanies(), ensureTeams()]);
-                const out = [];
-                const meKey = (typeof window !== 'undefined' && window.mePersonKey) || '';
-                if (meKey) {
-                    const me = pp.find(p => (p.key || (p.name || '').toLowerCase()) === meKey);
-                    const disp = me
-                        ? (me.firstName ? (me.lastName ? `${me.firstName} ${me.lastName}` : me.firstName) : (me.name || me.key))
-                        : meKey;
-                    out.push({ value: 'me', label: disp, hint: 'meg', kind: 'me' });
-                } else {
-                    out.push({ value: 'me', label: 'meg', hint: 'sett i Innstillinger', kind: 'me' });
-                }
-                for (const t of tt) out.push({ value: t.key || (t.name || '').toLowerCase(), label: t.name || t.key, hint: 'team', kind: 'team' });
-                for (const c of cc) out.push({ value: c.key || (c.name || '').toLowerCase(), label: c.name || c.key, hint: 'firma', kind: 'company' });
-                for (const p of pp) {
-                    const display = p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : p.name;
-                    out.push({ value: p.key || (p.name || '').toLowerCase(), label: display || p.name || p.key, hint: '', kind: 'person' });
-                }
-                return out;
-            },
-            filter: 'starts',
-            limit: 10,
-            renderItem: (item, query) => {
-                const tag = item.kind === 'team' ? '👥' : item.kind === 'company' ? '🏢' : (item.kind === 'me' ? '🙋' : '👤');
-                return `${tag} ${highlightMatch(item.label, query)}` +
-                    (item.hint ? `<span style="opacity:0.55;font-size:0.85em"> · ${item.hint}</span>` : '');
-            },
-            onSelect: (item, ctx) => {
-                replaceRange(ctx.textarea, ctx.range.start, ctx.range.end, `@${item.value} `);
-            },
-        };
-
+        this._mentionSource = this._mentionSource || createMentionSource({
+            serviceFor: (key) => this.serviceFor(key),
+        });
         this._acHandle = attachAutocomplete(ta, {
-            triggers: [mentionTrigger],
+            triggers: [this._mentionSource.createTrigger()],
             container: this.shadowRoot.querySelector('.card') || this.shadowRoot,
         });
     }
@@ -265,6 +214,8 @@ class TaskNoteModal extends WNElement {
     disconnectedCallback() {
         document.removeEventListener('keydown', this._onKey);
         if (this._acHandle) { this._acHandle.destroy(); this._acHandle = null; }
+        this._mentionSource = null;
+        this._keyWired = false;
     }
 
     _wire() {

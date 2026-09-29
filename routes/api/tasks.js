@@ -2,20 +2,16 @@
 module.exports = function(deps) {
     const fs = require('fs');
     const path = require('path');
-    const https = require('https');
-    const crypto = require('crypto');
-    const { execSync, execFileSync } = require('child_process');
-    const { marked } = require('marked');
     const _core = deps.core;
-    const __dirname = deps.rootDir;
-    const _bound = Object.assign({}, _core);
-    // Destructure lazily via getters so live bindings (e.g. embedState) work.
-    // For simplicity destructure all.
-    const { ACTIVE_FILE, APP_SETTINGS_FILE, CONTEXTS_DIR, CONTEXT_ICONS, CUSTOM_THEMES_DIR, DEFAULT_EMBED_MODEL, DEFAULT_MEETING_TYPES, DEFAULT_SUMMARIZE_MODEL, DISCONNECTED_FILE, EMBED_MODELS, PORT, SUMMARIZE_MODELS, THEMES, THEME_LABELS, THEME_VAR_NAMES, USER_FILE, WEEK_NOTES_MARKER, WEEK_NOTES_VERSION, _cacheGetCollection, _cacheInvalidateCollection, _cacheInvalidateContext, _cacheInvalidateNotesMeta, _cacheInvalidateSettings, _cacheSetCollection, _cloneArray, _ctxCache, _ctxCacheBucket, _ensureNotesMetaBucket, _loadWeekNotesMeta, _mdFilesCache, _noteContentCache, _statMtime, _weekDirsCache, buildEmbedDocs, checkExternalTools, clearTaskNoteRef, cloneContext, commentModalHtml, companiesFile, computeNoteReferences, contextSwitcherHtml, createContext, currentIsoWeek, currentReleaseTag, dataDir, dateToIsoWeek, deleteCustomTheme, deleteNoteMeta, disconnectContext, embedEmit, embedMeta, embedReady, embedReqSeq, embedSseClients, embedState, embedWorker, ensureAllContextsInitialised, entityDir, entityLegacyFile, escapeHtml, extractCloseMarkers, extractInlineTasks, extractMentions, extractNoteRelations, extractResults, extractTaskRefs, findTheme, forgetDisconnected, getActiveContext, getActiveTheme, getAppSettings, getCalendarActivity, getContextSettings, getContextThemes, getCurrentYearWeek, getDefaultMeetingMinutes, getGhToken, getMdFiles, getMePersonKey, getNoteMeta, getUpcomingMeetingsDays, getUser, getWeekDirs, getWorkHours, git, gitCommitAll, gitCurrentBranch, gitGetRemote, gitInitIfNeeded, gitIsDirty, gitIsRepo, gitLastCommit, gitPull, gitPullInitial, gitPush, gitRemoteHasFile, iconPickerHtml, isEmbedReady, isRemoteSummarizeModel, isValidThemeId, isoToLocalDateTime, isoWeekMonday, isoWeekToDateRange, itemStem, linkMentions, listAllThemes, listBuiltinThemes, listContexts, listCustomThemes, loadAllCompanies, loadAllPeople, loadAllPlaces, loadAllTasks, loadCollection, loadCompanies, loadDisconnected, loadMeetingTypes, loadMeetings, loadNotesMeta, loadPeople, loadPlaces, loadResults, loadTasks, meetingId, meetingTypeIcon, meetingTypeLabel, meetingTypesFile, meetingsFile, navLinksHtml, navbarHtml, noteModalHtml, noteSnippet, noteSnippetCached, notesMetaDir, notesMetaFile, notesMetaSidecarPath, pageHtml, parseThemeCss, pendingEmbed, pendingSearches, pendingSummarize, peopleFile, placesFile, preTaskMarkers, presentationPageHtml, presentationStyleCss, processInlineResults, pullContextRemote, readBody, readBuiltinTheme, readCustomTheme, readJsonDirAll, readMarker, readNoteCached, rebuildTaskNoteRefs, reindexEmbeddings, reindexSearch, restartEmbedWorker, restartSearchWorker, restartSummarizeWorker, resultsFile, safeName, safeThemeId, sanitizeItemFilename, saveCompanies, saveDisconnected, saveMeetingTypes, saveMeetings, saveNotesMeta, savePeople, savePlaces, saveResults, saveTasks, searchAll, searchMdFiles, searchReqSeq, searchSnippet, searchViaWorker, searchWorker, setActiveContext, setAppSettings, setContextSettings, setMePersonKey, setNoteMeta, shiftIsoWeek, startEmbedWorker, startSearchWorker, startSummarizeWorker, stopEmbedWorker, stopSearchWorker, stopSummarizeWorker, summarizeEmit, summarizeReady, summarizeReqSeq, summarizeSseClients, summarizeState, summarizeViaLocalWorker, summarizeWeek, summarizeWorker, syncCollection, syncMentions, syncTaskNote, syncTaskNoteRefs, tasksFile, themeCssFor, uniqueThemeId, vectorHitToSearchResult, vectorSearchViaWorker, writeCustomTheme, writeMarker } = _core;
+    const {
+        dataDir, extractMentions, getDataContext, getCurrentYearWeek, getMePersonKey, loadAllTasks,
+        loadResults, loadTasks, meetingId, processInlineResults, readJsonBody, saveResults, saveTasks,
+        setNoteMeta, syncMentions, syncTaskNote,
+    } = _core;
     return async function(req, res, ctx) {
         const { pathname, url } = ctx;
     if (pathname === '/api/tasks/merge' && req.method === 'POST') {
-        const body = JSON.parse(await readBody(req));
+        const body = await readJsonBody(req);
         const tasks = loadTasks();
         const src = tasks.find(t => t.id === body.srcId);
         const tgt = tasks.find(t => t.id === body.tgtId);
@@ -38,7 +34,7 @@ module.exports = function(deps) {
 
     // API: reorder tasks
     if (pathname === '/api/tasks/reorder' && req.method === 'POST') {
-        const body = JSON.parse(await readBody(req));
+        const body = await readJsonBody(req);
         const ids = body.ids;
         const tasks = loadTasks();
         const ordered = ids.map(id => tasks.find(t => t.id === id)).filter(Boolean);
@@ -59,9 +55,9 @@ module.exports = function(deps) {
 
     // API: add task
     if (pathname === '/api/tasks' && req.method === 'POST') {
-        const body = JSON.parse(await readBody(req));
+        const body = await readJsonBody(req);
         const tasks = loadTasks();
-        const meKey = getMePersonKey(getActiveContext()) || '';
+        const meKey = getMePersonKey(getDataContext()) || '';
         const task = {
             id: Date.now().toString(36),
             text: body.text,
@@ -91,6 +87,15 @@ module.exports = function(deps) {
         if (typeof body.goalId === 'string' && body.goalId.trim()) {
             task.goalId = body.goalId.trim();
         }
+        if (typeof body.meetingSeriesId === 'string' && body.meetingSeriesId.trim()) {
+            task.meetingSeriesId = body.meetingSeriesId.trim();
+        }
+        if (typeof body.meetingId === 'string' && body.meetingId.trim()) {
+            task.meetingId = body.meetingId.trim();
+        }
+        if (typeof body.agendaItemId === 'string' && body.agendaItemId.trim()) {
+            task.agendaItemId = body.agendaItemId.trim();
+        }
         // Participants: explicit array wins, otherwise remaining @mentions (after responsible)
         if (Array.isArray(body.participants)) {
             task.participants = [...new Set(body.participants.map(p => p.trim().toLowerCase()).filter(Boolean))];
@@ -110,7 +115,7 @@ module.exports = function(deps) {
     // API: edit task text / note / responsible / dueDate
     const editTaskMatch = pathname.match(/^\/api\/tasks\/([^/]+)$/);
     if (editTaskMatch && req.method === 'PUT') {
-        const body = JSON.parse(await readBody(req));
+        const body = await readJsonBody(req);
         const tasks = loadTasks();
         const task = tasks.find(t => t.id === editTaskMatch[1]);
         if (task) {
@@ -134,6 +139,21 @@ module.exports = function(deps) {
             } else if (typeof body.goalId === 'string' && body.goalId.trim()) {
                 task.goalId = body.goalId.trim();
             }
+            if (body.meetingSeriesId === null || body.meetingSeriesId === '') {
+                delete task.meetingSeriesId;
+            } else if (typeof body.meetingSeriesId === 'string' && body.meetingSeriesId.trim()) {
+                task.meetingSeriesId = body.meetingSeriesId.trim();
+            }
+            if (body.meetingId === null || body.meetingId === '') {
+                delete task.meetingId;
+            } else if (typeof body.meetingId === 'string' && body.meetingId.trim()) {
+                task.meetingId = body.meetingId.trim();
+            }
+            if (body.agendaItemId === null || body.agendaItemId === '') {
+                delete task.agendaItemId;
+            } else if (typeof body.agendaItemId === 'string' && body.agendaItemId.trim()) {
+                task.agendaItemId = body.agendaItemId.trim();
+            }
             // Participants: explicit array sets/replaces; null clears
             if (Array.isArray(body.participants)) {
                 const ps = [...new Set(body.participants.map(p => p.trim().toLowerCase()).filter(Boolean))];
@@ -152,12 +172,8 @@ module.exports = function(deps) {
     // API: toggle task
     const toggleMatch = pathname.match(/^\/api\/tasks\/([^/]+)\/toggle$/);
     if (toggleMatch && req.method === 'PUT') {
-        let comment = '';
-        try {
-            const body = JSON.parse(await readBody(req));
-            comment = (body.comment || '').trim();
-        } catch {}
-
+        const body = await readJsonBody(req);
+        const comment = (body.comment || '').trim();
         const tasks = loadTasks();
         const task = tasks.find(t => t.id === toggleMatch[1]);
         if (task) {
@@ -167,7 +183,7 @@ module.exports = function(deps) {
             if (task.done) {
                 task.completedAt = now.toISOString();
                 task.completedWeek = getCurrentYearWeek();
-                const meKey = getMePersonKey(getActiveContext());
+                const meKey = getMePersonKey(getDataContext());
                 if (meKey) task.completedBy = meKey;
             } else {
                 delete task.completedAt;
@@ -186,7 +202,7 @@ module.exports = function(deps) {
                 fs.writeFileSync(path.join(dataDir(), week, fileName),
                     `# ✅ ${task.text}\n\n${cleanComment}\n\n---\n*Fullført: ${dateStr}*\n`, 'utf-8');
                 task.commentFile = `${week}/${fileName}`;
-                const meTask = getMePersonKey(getActiveContext());
+                const meTask = getMePersonKey(getDataContext());
                 const taskMeta = { type: 'task', created: now.toISOString() };
                 if (meTask) { taskMeta.createdBy = meTask; taskMeta.lastSavedBy = meTask; }
                 setNoteMeta(week, fileName, taskMeta);
@@ -204,8 +220,7 @@ module.exports = function(deps) {
     const closeFromNoteMatch = pathname.match(/^\/api\/tasks\/([^/]+)\/close-from-note$/);
     if (closeFromNoteMatch && req.method === 'POST') {
         const id = closeFromNoteMatch[1];
-        let body = {};
-        try { body = JSON.parse(await readBody(req)); } catch {}
+        const body = await readJsonBody(req);
         const wantDone = body.done !== undefined ? !!body.done : true;
         const comment = (typeof body.comment === 'string') ? body.comment.trim() : '';
         const tasks = loadTasks();
@@ -219,7 +234,7 @@ module.exports = function(deps) {
         if (wantDone) {
             task.completedAt = new Date().toISOString();
             task.completedWeek = getCurrentYearWeek();
-            const meKey = getMePersonKey(getActiveContext());
+            const meKey = getMePersonKey(getDataContext());
             if (meKey) task.completedBy = meKey;
         } else {
             delete task.completedAt;
@@ -239,7 +254,7 @@ module.exports = function(deps) {
             fs.writeFileSync(path.join(dataDir(), week, fileName),
                 `# ✅ ${task.text}\n\n${cleanComment}\n\n---\n*Fullført: ${dateStr}*\n`, 'utf-8');
             task.commentFile = `${week}/${fileName}`;
-            const meKey = getMePersonKey(getActiveContext());
+            const meKey = getMePersonKey(getDataContext());
             const taskMeta = { type: 'task', created: new Date().toISOString() };
             if (meKey) { taskMeta.createdBy = meKey; taskMeta.lastSavedBy = meKey; }
             setNoteMeta(week, fileName, taskMeta);

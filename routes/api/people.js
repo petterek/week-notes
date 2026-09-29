@@ -1,17 +1,12 @@
 'use strict';
 module.exports = function(deps) {
     const fs = require('fs');
-    const path = require('path');
-    const https = require('https');
-    const crypto = require('crypto');
-    const { execSync, execFileSync } = require('child_process');
-    const { marked } = require('marked');
     const _core = deps.core;
-    const __dirname = deps.rootDir;
-    const _bound = Object.assign({}, _core);
-    // Destructure lazily via getters so live bindings (e.g. embedState) work.
-    // For simplicity destructure all.
-    const { ACTIVE_FILE, APP_SETTINGS_FILE, CONTEXTS_DIR, CONTEXT_ICONS, CUSTOM_THEMES_DIR, DEFAULT_EMBED_MODEL, DEFAULT_MEETING_TYPES, DEFAULT_SUMMARIZE_MODEL, DISCONNECTED_FILE, EMBED_MODELS, PORT, SUMMARIZE_MODELS, THEMES, THEME_LABELS, THEME_VAR_NAMES, USER_FILE, WEEK_NOTES_MARKER, WEEK_NOTES_VERSION, _cacheGetCollection, _cacheInvalidateCollection, _cacheInvalidateContext, _cacheInvalidateNotesMeta, _cacheInvalidateSettings, _cacheSetCollection, _cloneArray, _ctxCache, _ctxCacheBucket, _ensureNotesMetaBucket, _loadWeekNotesMeta, _mdFilesCache, _noteContentCache, _statMtime, _weekDirsCache, buildEmbedDocs, checkExternalTools, clearTaskNoteRef, cloneContext, commentModalHtml, companiesFile, computeNoteReferences, contextSwitcherHtml, createContext, currentIsoWeek, currentReleaseTag, dataDir, dateToIsoWeek, deleteCustomTheme, deleteNoteMeta, disconnectContext, embedEmit, embedMeta, embedReady, embedReqSeq, embedSseClients, embedState, embedWorker, ensureAllContextsInitialised, entityDir, entityLegacyFile, escapeHtml, extractCloseMarkers, extractInlineTasks, extractMentions, extractNoteRelations, extractResults, extractTaskRefs, findTheme, forgetDisconnected, getActiveContext, getActiveTheme, getAppSettings, getCalendarActivity, getContextSettings, getContextThemes, getCurrentYearWeek, getDefaultMeetingMinutes, getGhToken, getMdFiles, getMePersonKey, getNoteMeta, getUpcomingMeetingsDays, getUser, getWeekDirs, getWorkHours, git, gitCommitAll, gitCurrentBranch, gitGetRemote, gitInitIfNeeded, gitIsDirty, gitIsRepo, gitLastCommit, gitPull, gitPullInitial, gitPush, gitRemoteHasFile, iconPickerHtml, isEmbedReady, isRemoteSummarizeModel, isValidThemeId, isoToLocalDateTime, isoWeekMonday, isoWeekToDateRange, itemStem, linkMentions, listAllThemes, listBuiltinThemes, listContexts, listCustomThemes, loadAllCompanies, loadAllPeople, loadAllPlaces, loadAllTasks, loadCollection, loadCompanies, loadDisconnected, loadMeetingTypes, loadMeetings, loadNotesMeta, loadPeople, loadPlaces, loadResults, loadTasks, meetingId, meetingTypeIcon, meetingTypeLabel, meetingTypesFile, meetingsFile, navLinksHtml, navbarHtml, noteModalHtml, noteSnippet, noteSnippetCached, notesMetaDir, notesMetaFile, notesMetaSidecarPath, pageHtml, parseThemeCss, pendingEmbed, pendingSearches, pendingSummarize, peopleFile, placesFile, preTaskMarkers, presentationPageHtml, presentationStyleCss, processInlineResults, pullContextRemote, readBody, readBuiltinTheme, readCustomTheme, readJsonDirAll, readMarker, readNoteCached, rebuildTaskNoteRefs, reindexEmbeddings, reindexSearch, restartEmbedWorker, restartSearchWorker, restartSummarizeWorker, resultsFile, safeName, safeThemeId, sanitizeItemFilename, saveCompanies, saveDisconnected, saveMeetingTypes, saveMeetings, saveNotesMeta, savePeople, savePlaces, saveResults, saveTasks, searchAll, searchMdFiles, searchReqSeq, searchSnippet, searchViaWorker, searchWorker, setActiveContext, setAppSettings, setContextSettings, setMePersonKey, setNoteMeta, shiftIsoWeek, startEmbedWorker, startSearchWorker, startSummarizeWorker, stopEmbedWorker, stopSearchWorker, stopSummarizeWorker, summarizeEmit, summarizeReady, summarizeReqSeq, summarizeSseClients, summarizeState, summarizeViaLocalWorker, summarizeWeek, summarizeWorker, syncCollection, syncMentions, syncTaskNote, syncTaskNoteRefs, tasksFile, themeCssFor, uniqueThemeId, vectorHitToSearchResult, vectorSearchViaWorker, writeCustomTheme, writeMarker } = _core;
+    const {
+        _cacheInvalidateCollection, _cacheInvalidateNotesMeta, getMdFiles, getWeekDirs, loadAllPeople,
+        loadAllTasks, loadCollection, loadCompanies, loadMeetings, loadPeople, loadResults, readJsonBody,
+        saveMeetings, savePeople, saveResults, saveTasks, syncCollection, syncMentions,
+    } = _core;
     return async function(req, res, ctx) {
         const { pathname, url } = ctx;
     if (pathname === '/api/people' && req.method === 'GET') {
@@ -25,7 +20,7 @@ module.exports = function(deps) {
     // API: create person directly (without needing an @-mention first)
     if (pathname === '/api/people' && req.method === 'POST') {
         try {
-            const data = JSON.parse(await readBody(req) || '{}');
+            const data = await readJsonBody(req);
             const firstName = String(data.firstName || '').trim();
             if (!firstName) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'firstName is required' })); return; }
             const lastName = String(data.lastName || '').trim();
@@ -74,43 +69,43 @@ module.exports = function(deps) {
 
     const peopleUpdateMatch = pathname.match(/^\/api\/people\/([^/]+)$/);
     if (peopleUpdateMatch && req.method === 'PUT') {
-        let body = '';
-        req.on('data', d => body += d);
-        req.on('end', () => {
-            try {
-                const data = JSON.parse(body);
-                const people = loadAllPeople();
-                const idx = people.findIndex(p => p.id === peopleUpdateMatch[1]);
-                if (idx === -1) { res.writeHead(404); res.end(JSON.stringify({ ok: false })); return; }
-                const person = people[idx];
-                if (data.firstName) {
-                    const firstName = String(data.firstName).trim();
-                    const lastName  = String(data.lastName  || '').trim();
-                    person.firstName = firstName;
-                    person.lastName  = lastName;
-                    person.name      = firstName;
-                    // key is immutable after creation — never overwrite it
-                }
-                if (data.title !== undefined) person.title = data.title;
-                if (data.email !== undefined) person.email = data.email;
-                if (data.phone !== undefined) person.phone = data.phone;
-                if (data.notes !== undefined) person.notes = data.notes;
-                if (data.inactive !== undefined) person.inactive = !!data.inactive;
-                if (data.primaryCompanyKey !== undefined) {
-                    const v = String(data.primaryCompanyKey || '').trim().toLowerCase();
-                    person.primaryCompanyKey = v || undefined;
-                }
-                if (data.extraCompanyKeys !== undefined) {
-                    const primary = person.primaryCompanyKey;
-                    person.extraCompanyKeys = Array.isArray(data.extraCompanyKeys)
-                        ? [...new Set(data.extraCompanyKeys.map(k => String(k).trim().toLowerCase()).filter(k => k && k !== primary))]
-                        : [];
-                }
-                savePeople(people);
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: true, person }));
-            } catch { res.writeHead(400); res.end(JSON.stringify({ ok: false })); }
-        });
+        try {
+            const data = await readJsonBody(req);
+            const people = loadAllPeople();
+            const idx = people.findIndex(p => p.id === peopleUpdateMatch[1]);
+            if (idx === -1) { res.writeHead(404); res.end(JSON.stringify({ ok: false })); return; }
+            const person = people[idx];
+            if (data.firstName) {
+                const firstName = String(data.firstName).trim();
+                const lastName  = String(data.lastName  || '').trim();
+                person.firstName = firstName;
+                person.lastName  = lastName;
+                person.name      = firstName;
+                // key is immutable after creation — never overwrite it
+            }
+            if (data.title !== undefined) person.title = data.title;
+            if (data.email !== undefined) person.email = data.email;
+            if (data.phone !== undefined) person.phone = data.phone;
+            if (data.notes !== undefined) person.notes = data.notes;
+            if (data.inactive !== undefined) person.inactive = !!data.inactive;
+            if (data.primaryCompanyKey !== undefined) {
+                const v = String(data.primaryCompanyKey || '').trim().toLowerCase();
+                person.primaryCompanyKey = v || undefined;
+            }
+            if (data.extraCompanyKeys !== undefined) {
+                const primary = person.primaryCompanyKey;
+                person.extraCompanyKeys = Array.isArray(data.extraCompanyKeys)
+                    ? [...new Set(data.extraCompanyKeys.map(k => String(k).trim().toLowerCase()).filter(k => k && k !== primary))]
+                    : [];
+            }
+            savePeople(people);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, person }));
+        } catch (e) {
+            console.error('update person failed', e);
+            res.writeHead(400);
+            res.end(JSON.stringify({ ok: false, error: e.message }));
+        }
         return;
     }
 
@@ -154,7 +149,7 @@ module.exports = function(deps) {
     const peopleMergeMatch = pathname.match(/^\/api\/people\/([^/]+)\/merge$/);
     if (peopleMergeMatch && req.method === 'POST') {
         try {
-            const body = JSON.parse(await readBody(req) || '{}');
+            const body = await readJsonBody(req);
             const sourceId = peopleMergeMatch[1];
             const targetId = String(body.into || '').trim();
             if (!targetId) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'into is required' })); return; }
@@ -276,7 +271,7 @@ module.exports = function(deps) {
             res.end(JSON.stringify({ ok: true, target: tgt }));
         } catch (e) {
             console.error('merge error', e);
-            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: false, error: String(e.message || e) }));
         }
         return;

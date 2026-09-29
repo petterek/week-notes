@@ -55,6 +55,16 @@ the navbar; pushes go to a configured `origin`.
   doesn't pollute global config.
 - `LANG=C` is important — git's porcelain output is stable across
   locales only when forced.
+- Storage helpers now live in `lib/data-paths.js` and
+  `lib/collections-manifest.js`. `ROOT_DIR` is the repo root,
+  `CONTEXTS_DIR` resolves `process.env.DATA_DIR || <repo>/data`, and
+  `COLLECTIONS` is the canonical per-item manifest for
+  `tasks`, `people`, `meetings`, `meeting-series`, `companies`,
+  `places`, `results`, `teams`, and `goals`.
+- `scripts/migrate-context.js` now treats those collection dirs, their
+  legacy `*.json` roots, `notes-meta/`, `.cache/`, and draft/autosave
+  scratch files as supported storage during inventory. Unknown root
+  entries still quarantine as before.
 
 ## Related
 

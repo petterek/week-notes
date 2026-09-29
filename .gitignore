@@ -55,6 +55,7 @@ out
 .tern-port
 
 # Playwright
+.playwright-data/
 test-results/
 playwright-report/
 tests/.last-run.json

@@ -10,13 +10,16 @@ single source of truth for both runners.
 
 ```
 tests/
+├── helpers/
+│   └── playwright-fixtures.js   # isolated server seeds + cleanup helpers
+├── server.js                    # Playwright webServer wrapper (isolated DATA_DIR)
 ├── scenarios.js                # shared scenario definitions (UMD-ish)
 ├── playwright/
 │   ├── pages.spec.js          # page-level smoke (real server, no mocks)
 │   └── scenarios.spec.js      # one Playwright test per scenario
 └── .last-run.json             # JSON reporter output (gitignored)
 
-playwright.config.js            # baseURL :3001, no webServer
+playwright.config.js            # baseURL :TEST_PORT, spawns tests/server.js
 ```
 
 Server-side wiring:
@@ -24,6 +27,34 @@ Server-side wiring:
 - `GET /debug/tests/scenarios.js` → serves `tests/scenarios.js`
 - `GET /debug/tests/last-run.json`→ serves `tests/.last-run.json`
 - Sidebar link added to all `/debug` pages under "Other".
+
+The Playwright runner starts `tests/server.js`, which:
+- creates a unique repo-local `.playwright-data/run-*` directory,
+- seeds a deterministic throwaway context (`playwright`) plus
+  `app-settings.json` with search / embedding / summarization disabled,
+- launches `server.js` with `PORT=$TEST_PORT` and `DATA_DIR=<isolated root>`,
+- shuts the child down on SIGINT/SIGTERM and removes only its own data dir.
+
+Port selection is deterministic: `playwright.config.js` picks the first
+free port from `TEST_PORT` (default `3101`) plus local fallback ports
+(`TEST_PORT_ALT`, `TEST_PORT_FALLBACK`, then `3102-3104`). `3001` is
+never considered. If no candidate is free, Playwright fails fast with a
+clear error instead of reusing an existing server.
+The selected port is carried to Playwright workers in `WN_PLAYWRIGHT_PORT`;
+worker config reloads must not choose a different port once the server is
+running. The wrapper starts the real `server.js` without module-resolution
+shims or production-only patches.
+`webServer.gracefulShutdown` must send SIGTERM before a forced kill, so
+the wrapper can remove its fixture directory. The default immediate kill
+leaves `.playwright-data/run-*` behind.
+
+Some restricted CLI environments prevent Chromium's zygote/GPU children
+from reading `/proc`, failing before a page can open. A temporary local
+config with `launchOptions.args: ['--no-zygote', '--in-process-gpu',
+'--disable-gpu']` can run the same suite without changing shared defaults.
+Do not use `--single-process`: the first browser context can work while
+later contexts crash. Keep environment diagnostics separate from app
+failures; do not skip scenarios or patch module resolution to hide them.
 
 ---
 
@@ -69,11 +100,12 @@ pattern in that file (delay + uid + an in-memory array).
 ## Running
 
 ```bash
-# CI / CLI: assumes server is already up on :3001 (run `./run.sh`)
+# CI / CLI: Playwright manages its own isolated server on TEST_PORT
 npm test
 
-# In-browser
-open http://localhost:3001/debug/tests   # then click "Run all"
+# In-browser: start the isolated server in another terminal first
+TEST_PORT=3101 node tests/server.js
+# Visit http://localhost:3101/debug/tests and click "Run all".
 ```
 
 Exit codes from `npm test` are real (good for CI). Playwright writes
@@ -104,8 +136,10 @@ page reads to render the "Last Playwright run" panel.
   overwriting (`await waitFor(() => el._data.length > 0)`).
 - **Duplicate rows**: `<json-table>` renders the table twice (inline
   + overlay for fullscreen). Scope counts to `.inline tbody tr`.
-- **Page-level smoke** in `pages.spec.js` hits the real server, not
-  mocks. Keep those checks coarse (status + page title).
+- **Page-level smoke** in `pages.spec.js` hits the isolated real
+  server, not mocks. Keep those checks coarse (status + page title)
+  and use the seeded synthetic fixtures from
+  `tests/helpers/playwright-fixtures.js`.
 
 ---
 

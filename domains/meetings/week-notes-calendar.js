@@ -455,6 +455,13 @@ class WeekNotesCalendar extends WNElement {
     _openEdit(id) {
         const meeting = (this._meetingsById && this._meetingsById[id]) || null;
         if (!meeting) return;
+        if (meeting.seriesId) {
+            // Series occurrences own a dedicated workspace page (agenda,
+            // decisions, lifecycle, minutes) instead of the quick-edit modal.
+            window.history.pushState(null, '', `/meeting-occurrence/${encodeURIComponent(id)}`);
+            window.dispatchEvent(new PopStateEvent('popstate'));
+            return;
+        }
         const overlay = this.shadowRoot.querySelector('[data-edit-panel]');
         const form = this.shadowRoot.querySelector('meeting-edit');
         if (!overlay || !form) return;
