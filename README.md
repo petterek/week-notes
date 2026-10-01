@@ -210,6 +210,9 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-10-01 (v5.4 — møteserier fra kalenderen)
+- **Møtevindu fra kalenderen:** et møte i en møteserie åpnes i samme popup-vindu som på møteseriesiden, med lagret vindusstørrelse. Kalenderen lastes på nytt når vinduet lukkes.
+
 ### 2026-10-01 (v5.3 — kalenderimport)
 - **Importer kalenderfiler:** forhåndsvis og importer UTF-8 `.ics`- og `.vcs`-møter i aktiv kontekst. Importen hopper over kjente UID-er, viser konkrete valideringsfeil og utvider ikke gjentakelser.
 - **Teams-lenker:** Outlook-tidssonen `W. Europe Standard Time` støttes, og gyldige Teams-join-lenker vises i forhåndsvisning og møteredigerer uten å fjerne invitasjonsteksten.

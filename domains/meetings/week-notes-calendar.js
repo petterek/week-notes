@@ -13,6 +13,7 @@
  * Property: element.settings = {...}
  */
 import { WNElement, html } from './_shared.js';
+import { meetingPopupFeatures } from '/components/meeting-popup.js';
 import './meeting-edit.js';
 
 const MONTH_NAMES = ['januar', 'februar', 'mars', 'april', 'mai', 'juni', 'juli', 'august', 'september', 'oktober', 'november', 'desember'];
@@ -567,10 +568,24 @@ class WeekNotesCalendar extends WNElement {
         const meeting = (this._meetingsById && this._meetingsById[id]) || null;
         if (!meeting) return;
         if (meeting.seriesId) {
-            // Series occurrences own a dedicated workspace page (agenda,
-            // decisions, lifecycle, minutes) instead of the quick-edit modal.
-            window.history.pushState(null, '', `/meeting-occurrence/${encodeURIComponent(id)}`);
-            window.dispatchEvent(new PopStateEvent('popstate'));
+            // Series occurrences own a dedicated workspace; open it like the
+            // meeting-series page does, then refresh when the popup closes.
+            const popup = window.open(
+                `/meeting-occurrence/${encodeURIComponent(id)}?popup=1`,
+                '_blank',
+                meetingPopupFeatures(900, 750)
+            );
+            if (!popup) {
+                alert('Tillat popup-vinduer for å åpne møtet i eget vindu.');
+                return;
+            }
+            popup.focus();
+            const page = location.pathname;
+            const watch = setInterval(() => {
+                if (!popup.closed) return;
+                clearInterval(watch);
+                if (location.pathname === page) location.reload();
+            }, 300);
             return;
         }
         const overlay = this.shadowRoot.querySelector('[data-edit-panel]');

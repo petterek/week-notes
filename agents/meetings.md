@@ -360,11 +360,10 @@ Attributes: `meetings_service`, `tasks_service`, `people_service`.
 - **Calendar click routing**: clicking a meeting block in
   `<week-notes-calendar>` normally opens the `<meeting-edit>` overlay
   (`_openEdit(id)`). If the clicked meeting has a `seriesId`,
-  `_openEdit` instead does a client-side navigation to
-  `/meeting-occurrence/:id` (the overlay/`<meeting-edit>` path is
-  skipped entirely for series occurrences — they're edited from the
-  workspace page instead, which is where the lifecycle/agenda/decisions
-  actually live).
+  `_openEdit` instead opens `/meeting-occurrence/:id?popup=1`
+  synchronously in the same saved-size popup as meeting-series history
+  (the overlay/`<meeting-edit>` path is skipped for series occurrences).
+  The calendar stays on its week and reloads when that popup closes.
 - **Starting an occurrence**: "Ny forekomst" opens
   `/meeting-series?startSeries=:id&popup=1` in a minimal-chrome popup.
   The date/time form and optional overrides live in that popup; Start
