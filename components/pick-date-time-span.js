@@ -53,6 +53,7 @@ const STYLES = `
     .picker-wrap date-time-picker {
         position: absolute; top: 0; left: 0; z-index: 100;
     }
+    .span-col:last-child .picker-wrap date-time-picker { left: auto; right: 0; }
     .err {
         color: var(--danger, #c53030); font-size: 0.82em; margin-top: 6px;
         min-height: 1em;

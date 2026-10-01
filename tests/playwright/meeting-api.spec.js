@@ -10,6 +10,7 @@ test('plain meetings reject lifecycle decision endpoints', async ({ request }) =
             end: '11:00',
         }
     });
+
     expect(createResp.ok()).toBe(true);
     const created = await createResp.json();
 
@@ -25,6 +26,41 @@ test('plain meetings reject lifecycle decision endpoints', async ({ request }) =
         expect((await deleteDecisionResp.json()).error).toContain('not a series occurrence');
     } finally {
         await request.delete(`/api/meetings/${created.meeting.id}`);
+    }
+});
+
+test('decision can link to an agenda item in its meeting and unlink again', async ({ request }) => {
+    const created = await request.post('/api/meeting-series', { data: { title: 'Agenda decision links' } });
+    const series = (await created.json()).series;
+    let meeting;
+    try {
+        const item = (await (await request.post(`/api/meeting-series/${series.id}/agenda`, { data: { title: 'Item A' } })).json()).item;
+        meeting = (await (await request.post('/api/meetings', { data: { seriesId: series.id, date: '2099-07-01' } })).json()).meeting;
+        expect((await request.post(`/api/meetings/${meeting.id}/decisions`, { data: { text: 'Invalid', agendaItemId: 'ai_missing' } })).status()).toBe(400);
+        expect((await (await request.get(`/api/meetings/${meeting.id}`)).json()).decisions).toHaveLength(0);
+        const linked = await request.post(`/api/meetings/${meeting.id}/decisions`, { data: { text: 'Linked on creation', agendaItemId: item.id } });
+        expect(linked.ok()).toBe(true);
+        expect((await linked.json()).decision.agendaItemId).toBe(item.id);
+        const decision = (await (await request.post(`/api/meetings/${meeting.id}/decisions`, { data: { text: 'Agreed' } })).json()).decision;
+        const url = `/api/meetings/${meeting.id}/decisions/${decision.id}`;
+        const invalid = await request.put(url, { data: { agendaItemId: 'ai_missing' } });
+        expect(invalid.status()).toBe(400);
+        expect((await request.put(url, { data: {} })).status()).toBe(400);
+        expect((await request.put(url, { data: null })).status()).toBe(400);
+        expect((await (await request.get(`/api/meetings/${meeting.id}`)).json()).decisions[1].agendaItemId).toBeUndefined();
+        expect((await request.put(url, { data: { agendaItemId: item.id } })).ok()).toBe(true);
+        expect((await (await request.get(`/api/meetings/${meeting.id}`)).json()).decisions[1].agendaItemId).toBe(item.id);
+        const minutes = await (await request.get(`/meetings/${meeting.id}/minutes`)).text();
+        expect(minutes).toContain('Agreed');
+        expect(minutes).toContain('(Item A)');
+        expect((await (await request.post(`/api/meetings/${meeting.id}/close`)).json()).ok).toBe(true);
+        expect((await request.put(url, { data: { agendaItemId: null } })).status()).toBe(400);
+        await request.post(`/api/meetings/${meeting.id}/reopen`);
+        expect((await request.put(url, { data: { agendaItemId: null } })).ok()).toBe(true);
+        expect((await (await request.get(`/api/meetings/${meeting.id}`)).json()).decisions[1].agendaItemId).toBeUndefined();
+    } finally {
+        if (meeting) await request.delete(`/api/meetings/${meeting.id}`);
+        await request.delete(`/api/meeting-series/${series.id}`);
     }
 });
 

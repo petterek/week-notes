@@ -10,12 +10,15 @@
  *
  * Service contract (MeetingsService): get, update, start, close, reopen,
  * addOccurrenceAgendaItem, updateOccurrenceAgendaItem, addDecision,
- * removeDecision, getSeries, listTypes.
+ * updateDecision, removeDecision, getSeries, listTypes.
  */
 import { WNElement, html, unsafeHTML } from './_shared.js';
 import '/components/pick-date-time-span.js';
 import '/components/person-multi-picker.js';
 import '/components/pick-place.js';
+import { meetingPopupFeatures, rememberMeetingPopupSize } from '/components/meeting-popup.js';
+import { attachAutocomplete } from '/components/wn-autocomplete.js';
+import { createMentionSource } from '/services/_shared/wn-mention-source.js';
 
 const STATUS_LABEL = { planned: 'Planlagt', 'in-progress': 'Pågår', closed: 'Avsluttet' };
 const STATUS_ICON  = { planned: '📝', 'in-progress': '▶️', closed: '✅' };
@@ -55,6 +58,8 @@ const STYLES = `
     .mo-decision .text { flex: 1; }
     .mo-decision .rm { background: none; border: none; color: var(--text-subtle); cursor: pointer; font-family: inherit; }
     .mo-decision .rm:hover { color: var(--danger, #c53030); }
+    .mo-decision select { max-width: 210px; min-width: 0; background: var(--bg); color: var(--text-strong); border: 1px solid var(--border); border-radius: 6px; }
+    .mo-agenda-decisions { margin: 8px 0 0; padding-left: 18px; font-size: 0.88em; color: var(--text-muted); }
     .mo-decision-add { display: flex; gap: 8px; margin-top: 8px; }
     .mo-decision-add input { flex: 1; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text-strong); font: inherit; }
     .mo-decision-add button { padding: 7px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text-strong); cursor: pointer; font: inherit; }
@@ -83,6 +88,7 @@ const STYLES = `
     .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
     .modal-btn { padding: 8px 16px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text-strong); font: inherit; cursor: pointer; }
     .modal-btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+    .mo-decision-prompt .modal-card { max-width: 440px; }
 `;
 
 class MeetingOccurrencePage extends WNElement {
@@ -93,7 +99,13 @@ class MeetingOccurrencePage extends WNElement {
         this._id = this._extractId();
         this._headerModal = null;
         super.connectedCallback();
+        rememberMeetingPopupSize();
         this._wire();
+    }
+
+    disconnectedCallback() {
+        this._minutesAutocomplete?.destroy();
+        this._minutesAutocomplete = null;
     }
 
     _extractId() {
@@ -136,10 +148,25 @@ class MeetingOccurrencePage extends WNElement {
             const el = e.target;
             if (el && el.dataset && el.dataset.el === 'agenda-add') { e.preventDefault(); this._addAgendaItem(); }
             if (el && el.dataset && el.dataset.el === 'decision-add') { e.preventDefault(); this._addDecision(); }
+            if (el && el.dataset && el.dataset.el === 'resolved-decision') { e.preventDefault(); this._saveResolvedDecision(); }
         });
     }
 
     _onChange(e) {
+        const decisionSelect = e.target.closest('select[data-act="agenda-decision-link"]');
+        if (decisionSelect) {
+            const previous = decisionSelect.dataset.current || '';
+            const agendaItemId = decisionSelect.value;
+            decisionSelect.disabled = true;
+            this.service.updateDecision(this._id, decisionSelect.dataset.decisionId, { agendaItemId: agendaItemId || null })
+                .then(() => this._refresh())
+                .catch(error => {
+                    decisionSelect.value = previous;
+                    alert((error && error.message) || 'Feil');
+                })
+                .finally(() => { decisionSelect.disabled = false; });
+            return;
+        }
         const cb = e.target.closest('input[data-act="toggle"]');
         if (!cb) return;
         const id = cb.dataset.taskid;
@@ -167,7 +194,7 @@ class MeetingOccurrencePage extends WNElement {
         const path = e.composedPath();
         const act = (cls) => path.find(n => n.classList && n.classList.contains(cls));
 
-        if (act('mo-start')) { await this._call(() => this.service.start(this._id)); return; }
+        if (act('mo-start')) { this._startMeeting(); return; }
         if (act('mo-close')) {
             const meeting = this._meeting;
             const undecided = (meeting && Array.isArray(meeting.agenda)) ? meeting.agenda.filter(a => !a.outcome).length : 0;
@@ -175,7 +202,13 @@ class MeetingOccurrencePage extends WNElement {
                 ? `${undecided} saklistepunkt(er) har ingen utfall og vil bli utsatt automatisk. Avslutte møtet?`
                 : 'Avslutte møtet?';
             if (!confirm(msg)) return;
-            await this._call(() => this.service.close(this._id));
+            try {
+                await this.service.close(this._id);
+                if (new URLSearchParams(location.search).get('popup') === '1' && window.opener) window.close();
+                else this._refresh();
+            } catch (error) {
+                alert((error && error.message) || 'Feil');
+            }
             return;
         }
         if (act('mo-reopen')) { await this._call(() => this.service.reopen(this._id)); return; }
@@ -186,7 +219,15 @@ class MeetingOccurrencePage extends WNElement {
             const outcome = outcomeBtn.dataset.outcome;
             const current = outcomeBtn.dataset.current;
             const next = current === outcome ? null : outcome; // click again to clear
-            await this._call(() => this.service.updateOccurrenceAgendaItem(this._id, agendaItemId, { outcome: next }));
+            if (next === 'resolved') {
+                try {
+                    await this.service.updateOccurrenceAgendaItem(this._id, agendaItemId, { outcome: next });
+                    this._decisionAgendaItemId = agendaItemId;
+                    this._refresh();
+                } catch (error) { alert((error && error.message) || 'Feil'); }
+            } else {
+                await this._call(() => this.service.updateOccurrenceAgendaItem(this._id, agendaItemId, { outcome: next }));
+            }
             return;
         }
 
@@ -202,6 +243,12 @@ class MeetingOccurrencePage extends WNElement {
         }
 
         if (act('mo-edit-head')) { this._openHeaderModal(); return; }
+        if (act('mo-save-resolved-decision')) { this._saveResolvedDecision(); return; }
+        if (act('mo-skip-resolved-decision')) { this._dismissResolvedDecision(); return; }
+        if (act('mo-decision-prompt')) {
+            if (e.target === act('mo-decision-prompt')) this._dismissResolvedDecision();
+            return;
+        }
         const backdrop = act('modal');
         if (backdrop && e.target === backdrop) { this._headerModal = false; this.requestRender(); return; }
         if (act('modal-close') || (path.find(n => n.dataset && n.dataset.act === 'cancel'))) { this._headerModal = false; this.requestRender(); return; }
@@ -211,6 +258,35 @@ class MeetingOccurrencePage extends WNElement {
     async _call(fn) {
         try { await fn(); this._refresh(); }
         catch (e) { alert((e && e.message) || 'Feil'); }
+    }
+
+    _startMeeting() {
+        if (new URLSearchParams(location.search).get('popup') === '1') {
+            this._call(() => this.service.start(this._id));
+            return;
+        }
+        const popup = window.open(
+            'about:blank',
+            `meeting-${this._id}`,
+            meetingPopupFeatures(1200, 850)
+        );
+        if (!popup) {
+            alert('Tillat popup-vinduer for å åpne møtet i eget vindu.');
+            return;
+        }
+
+        popup.document.title = 'Starter møte…';
+        popup.document.body.textContent = 'Starter møte…';
+        this._call(async () => {
+            try {
+                await this.service.start(this._id);
+                popup.location.href = new URL(`/meeting-occurrence/${encodeURIComponent(this._id)}?popup=1`, location.origin).href;
+                popup.focus();
+            } catch (error) {
+                popup.close();
+                throw error;
+            }
+        });
     }
 
     async _addAgendaItem() {
@@ -227,6 +303,34 @@ class MeetingOccurrencePage extends WNElement {
         const text = (input.value || '').trim();
         if (!text) return;
         await this._call(() => this.service.addDecision(this._id, text));
+    }
+
+    _dismissResolvedDecision() {
+        this._decisionAgendaItemId = null;
+        this.shadowRoot.querySelector('.mo-decision-prompt')?.remove();
+    }
+
+    async _saveResolvedDecision() {
+        if (this._savingResolvedDecision) return;
+        const input = this.shadowRoot.querySelector('[data-el="resolved-decision"]');
+        const text = input?.value.trim();
+        if (!text || !this._decisionAgendaItemId) {
+            input?.focus();
+            return;
+        }
+        const button = this.shadowRoot.querySelector('.mo-save-resolved-decision');
+        this._savingResolvedDecision = true;
+        button.disabled = true;
+        try {
+            await this.service.addDecision(this._id, text, this._decisionAgendaItemId);
+            this._decisionAgendaItemId = null;
+            this._refresh();
+        } catch (error) {
+            alert((error && error.message) || 'Feil');
+            button.disabled = false;
+        } finally {
+            this._savingResolvedDecision = false;
+        }
     }
 
     async _saveAgendaNotes(agendaItemId, notes) {
@@ -274,7 +378,7 @@ class MeetingOccurrencePage extends WNElement {
         } catch (e) { alert((e && e.message) || 'Feil'); }
     }
 
-    _renderAgendaItem(a, closed = false) {
+    _renderAgendaItem(a, decisions, closed = false) {
         const outcomes = ['resolved', 'deferred', 'cancelled'];
         return html`
             <div class="mo-agenda-item">
@@ -285,6 +389,9 @@ class MeetingOccurrencePage extends WNElement {
                         <button type="button" class="mo-outcome-btn ${a.outcome === o ? 'on' : ''}" data-item="${a.agendaItemId}" data-outcome="${o}" data-current="${a.outcome || ''}" ${closed ? 'disabled' : ''}>${OUTCOME_LABEL[o]}</button>
                     `)}
                 </div>
+                ${decisions.some(d => d.agendaItemId === a.agendaItemId) ? html`
+                    <ul class="mo-agenda-decisions">${decisions.filter(d => d.agendaItemId === a.agendaItemId).map(d => html`<li>💡 ${d.text}</li>`)}</ul>
+                ` : ''}
             </div>
         `;
     }
@@ -328,7 +435,7 @@ class MeetingOccurrencePage extends WNElement {
 
         return html`
             <div class="mo">
-                ${series ? html`<a class="mo-back" href="/meeting-series#ms-${encodeURIComponent(series.id)}">← ${series.title}</a>` : ''}
+                ${series && new URLSearchParams(location.search).get('popup') !== '1' ? html`<a class="mo-back" href="/meeting-series#ms-${encodeURIComponent(series.id)}">← ${series.title}</a>` : ''}
                 <div class="mo-head">
                     <h1>${meeting.title || 'Møte'}</h1>
                     ${isSeriesOccurrence ? html`<span class="mo-status">${STATUS_ICON[meeting.status] || ''} ${STATUS_LABEL[meeting.status] || ''}</span>` : ''}
@@ -350,7 +457,7 @@ class MeetingOccurrencePage extends WNElement {
 
                     <div class="mo-section">
                         <h2>📋 Saksliste <span class="c">${agenda.length}</span></h2>
-                        ${agenda.length === 0 ? html`<p class="mo-empty">Ingen saklistepunkter i dette møtet.</p>` : agenda.map(a => this._renderAgendaItem(a, isClosed))}
+                        ${agenda.length === 0 ? html`<p class="mo-empty">Ingen saklistepunkter i dette møtet.</p>` : agenda.map(a => this._renderAgendaItem(a, decisions, isClosed))}
                         ${!isClosed ? html`
                             <div class="mo-agenda-add">
                                 <input type="text" data-el="agenda-add" placeholder="➕ Legg til saklistepunkt (også til serien)…" />
@@ -364,6 +471,10 @@ class MeetingOccurrencePage extends WNElement {
                         ${decisions.length === 0 ? html`<p class="mo-empty">Ingen beslutninger registrert.</p>` : decisions.map(d => html`
                             <div class="mo-decision">
                                 <span class="text">${d.text}</span>
+                                ${agenda.length ? html`<select data-act="agenda-decision-link" data-decision-id="${d.id}" data-current="${d.agendaItemId || ''}" aria-label="Saklistepunkt for ${d.text}" ${isClosed ? 'disabled' : ''}>
+                                    <option value="">Uten saklistepunkt</option>
+                                    ${agenda.map(a => html`<option value="${a.agendaItemId}" ${d.agendaItemId === a.agendaItemId ? 'selected' : ''}>${a.title}</option>`)}
+                                </select>` : ''}
                                 ${!isClosed ? html`<button type="button" class="rm mo-decision-rm" data-id="${d.id}" title="Fjern (korriger feilregistrering)">✕</button>` : ''}
                             </div>
                         `)}
@@ -402,20 +513,45 @@ class MeetingOccurrencePage extends WNElement {
                 </div>
 
                 ${this._headerModal ? this._renderModal() : ''}
+                ${this._decisionAgendaItemId ? html`
+                    <div class="modal open mo-decision-prompt" role="dialog" aria-modal="true" aria-labelledby="moDecisionPromptTitle">
+                        <div class="modal-card">
+                            <div class="modal-head"><h3 id="moDecisionPromptTitle">Opprett beslutning</h3></div>
+                            <div class="modal-form">
+                                <label>Beslutning<input type="text" data-el="resolved-decision" placeholder="Hva ble besluttet?" /></label>
+                            </div>
+                            <div class="modal-actions">
+                                <button type="button" class="modal-btn mo-skip-resolved-decision">Uten beslutning</button>
+                                <button type="button" class="modal-btn primary mo-save-resolved-decision">Lagre beslutning</button>
+                            </div>
+                        </div>
+                    </div>
+                ` : ''}
             </div>
         `;
     }
 
     afterRender(data) {
+        this._minutesAutocomplete?.destroy();
+        this._minutesAutocomplete = null;
         if (!data || data._loading) return;
         // Wire per-item agenda notes autosave on blur (declarative render()
         // can't attach listeners directly; do it here where the DOM exists).
         const root = this.shadowRoot;
+        root.querySelector('[data-el="resolved-decision"]')?.focus();
         root.querySelectorAll('textarea[data-agenda]').forEach(ta => {
             if (ta._wired) return;
             ta._wired = true;
             ta.addEventListener('blur', () => this._saveAgendaNotes(ta.dataset.agenda, ta.value));
         });
+        const minutes = root.querySelector('[data-el="minutes"]:not([disabled])');
+        if (minutes) {
+            this._mentionSource ||= createMentionSource({ serviceFor: key => this.serviceFor(key) });
+            this._minutesAutocomplete = attachAutocomplete(minutes, {
+                triggers: [this._mentionSource.createTrigger()],
+                container: root,
+            });
+        }
     }
 }
 

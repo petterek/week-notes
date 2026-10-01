@@ -9,6 +9,8 @@ module.exports = function(deps) {
         if (!route || route.serverShell === false) return;
         const ctxCookie = _core.activeContextCookie(_core.getActiveContextFromReq(req));
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Set-Cookie': ctxCookie });
-        res.end(pageHtml(route.shellTitle, ''));
+        const popup = ctx.url.searchParams.get('popup') === '1'
+            && (ctx.pathname === '/meeting-series' || ctx.pathname.startsWith('/meeting-occurrence/'));
+        res.end(pageHtml(route.shellTitle, '', null, { popup }));
     };
 };

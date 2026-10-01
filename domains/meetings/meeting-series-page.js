@@ -29,6 +29,7 @@ import { WNElement, html, unsafeHTML, escapeHtml } from './_shared.js';
 import '/components/pick-date-time-span.js';
 import '/components/person-multi-picker.js';
 import '/components/pick-place.js';
+import { meetingPopupFeatures, rememberMeetingPopupSize } from '/components/meeting-popup.js';
 
 const STATUS_LABEL = { active: 'Aktiv', archived: 'Arkivert' };
 const STATUS_ICON  = { active: '📚', archived: '🗄️' };
@@ -117,7 +118,9 @@ const STYLES = `
 
     .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 1000; }
     .modal.open { display: flex; }
+    .mp-setup { display: flex; justify-content: center; padding: 24px; }
     .modal-card { background: var(--surface, #fff); color: var(--text-strong); border-radius: 10px; padding: 22px; width: min(560px, 92vw); max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.25); }
+    .mp-setup .modal-card { box-sizing: border-box; width: min(610px, 100%); max-height: none; overflow: visible; }
     .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
     .modal-head h3 { margin: 0; }
     .modal-close { background: none; border: none; font-size: 1.3em; cursor: pointer; color: var(--text-subtle); font-family: inherit; }
@@ -146,7 +149,9 @@ class MeetingSeriesPage extends WNElement {
     constructor() {
         super();
         this._state = null;
-        this._modal = null;
+        this._setupSeriesId = new URLSearchParams(location.search).get('popup') === '1'
+            ? new URLSearchParams(location.search).get('startSeries') : null;
+        this._modal = this._setupSeriesId ? { kind: 'occurrence', seriesId: this._setupSeriesId } : null;
         this._selectedId = null;
     }
 
@@ -154,6 +159,7 @@ class MeetingSeriesPage extends WNElement {
 
     connectedCallback() {
         super.connectedCallback();
+        rememberMeetingPopupSize();
         this._wire();
         const m = (location.hash || '').match(/^#ms-(.+)$/);
         if (m) this._selectedId = decodeURIComponent(m[1]);
@@ -257,7 +263,10 @@ class MeetingSeriesPage extends WNElement {
             }
         }
         const occRow = path.find(n => n.classList && n.classList.contains('mp-occ-row'));
-        if (occRow && occRow.dataset.id) { location.href = '/meeting-occurrence/' + encodeURIComponent(occRow.dataset.id); return; }
+        if (occRow && occRow.dataset.id) {
+            this._openMeetingPopup(`/meeting-occurrence/${encodeURIComponent(occRow.dataset.id)}?popup=1`);
+            return;
+        }
 
         const editBtn = path.find(n => n.classList && n.classList.contains('mp-edit'));
         if (editBtn) {
@@ -318,7 +327,11 @@ class MeetingSeriesPage extends WNElement {
         }, 30);
     }
 
-    _closeModal() { this._modal = null; this.requestRender(); }
+    _closeModal() {
+        if (this._setupSeriesId) { window.close(); return; }
+        this._modal = null;
+        this.requestRender();
+    }
 
     _focusModalInput(id) {
         setTimeout(() => { const inp = this.shadowRoot.getElementById(id); if (inp) inp.focus(); }, 30);
@@ -400,8 +413,25 @@ class MeetingSeriesPage extends WNElement {
     // --- New occurrence ---
 
     _openNewOccurrence(seriesId) {
-        this._modal = { kind: 'occurrence', seriesId };
-        this.requestRender();
+        this._openMeetingPopup(`/meeting-series?startSeries=${encodeURIComponent(seriesId)}&popup=1`);
+    }
+
+    _openMeetingPopup(url) {
+        const popup = window.open(
+            url,
+            '_blank',
+            meetingPopupFeatures(900, 750)
+        );
+        if (!popup) {
+            alert('Tillat popup-vinduer for å åpne møtet i eget vindu.');
+            return;
+        }
+        popup.focus();
+        const watch = setInterval(() => {
+            if (!popup.closed) return;
+            clearInterval(watch);
+            if (location.pathname === '/meeting-series') location.reload();
+        }, 300);
     }
 
     async _saveOccurrence() {
@@ -428,13 +458,17 @@ class MeetingSeriesPage extends WNElement {
         const placeVal = placePicker ? placePicker.value : null;
         if (placeVal && placeVal.name) { data.location = placeVal.name; data.placeKey = placeVal.key || ''; }
         if (!data.date) { alert('Dato/tid er påkrevd'); return; }
+        let meeting;
         try {
             const r = await this.service.create(data);
-            const meeting = (r && r.meeting) || r;
-            this._modal = null;
-            if (meeting && meeting.id) { location.href = '/meeting-occurrence/' + encodeURIComponent(meeting.id); return; }
-            this._refresh();
-        } catch (e) { alert((e && e.message) || 'Feil'); }
+            meeting = (r && r.meeting) || r;
+            if (!meeting || !meeting.id) throw new Error('Møtet ble opprettet uten en id');
+            await this.service.start(meeting.id);
+            location.href = `/meeting-occurrence/${encodeURIComponent(meeting.id)}?popup=1`;
+        } catch (e) {
+            alert((e && e.message) || 'Feil');
+            if (meeting && meeting.id) location.href = `/meeting-occurrence/${encodeURIComponent(meeting.id)}?popup=1`;
+        }
     }
 
     // --- Rendering ---
@@ -606,7 +640,7 @@ class MeetingSeriesPage extends WNElement {
     _renderOccurrenceModal() {
         const types = this._state.types || [];
         return html`
-            <div class="modal open">
+            <div class="${this._setupSeriesId ? 'mp-setup' : 'modal open'}">
                 <div class="modal-card">
                     <div class="modal-head">
                         <h3>▶️ Ny møteforekomst</h3>
@@ -647,6 +681,10 @@ class MeetingSeriesPage extends WNElement {
             series: data.series, occurrences: data.occurrences || [],
             tasks: data.tasks || [], people: data.people || [], types: data.types || [],
         };
+        if (this._setupSeriesId) {
+            if (!data.series.some(s => s.id === this._setupSeriesId)) return html`<div class="mp-error">Fant ikke møteserien</div>`;
+            return this._renderOccurrenceModal();
+        }
         const series = data.series;
         const byStatus = { active: [], archived: [] };
         series.forEach(s => { (byStatus[s.status] || byStatus.active).push(s); });

@@ -318,7 +318,7 @@ module.exports = function(deps) {
         return;
     }
 
-    // Decisions: immutable per-occurrence log (add + correction-delete only).
+    // Decisions: immutable text; the optional link to an agenda item is editable.
     const decisionsCollMatch = pathname.match(/^\/api\/meetings\/([^/]+)\/decisions$/);
     if (decisionsCollMatch && req.method === 'POST') {
         const data = await readJsonBody(req, {});
@@ -329,8 +329,15 @@ module.exports = function(deps) {
         if (!m) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'not found' })); return; }
         const guard = validateOpenSeriesOccurrence(m);
         if (guard) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: guard })); return; }
+        if (data.agendaItemId !== undefined && (typeof data.agendaItemId !== 'string'
+            || !Array.isArray(m.agenda) || !m.agenda.some(a => a.agendaItemId === data.agendaItemId))) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'invalid agendaItemId' }));
+            return;
+        }
         if (!Array.isArray(m.decisions)) m.decisions = [];
         const d = { id: decisionId(), text, createdAt: new Date().toISOString() };
+        if (data.agendaItemId !== undefined) d.agendaItemId = data.agendaItemId;
         m.decisions.push(d);
         m.updated = new Date().toISOString();
         saveMeetings(meetings);
@@ -340,6 +347,35 @@ module.exports = function(deps) {
     }
 
     const decisionItemMatch = pathname.match(/^\/api\/meetings\/([^/]+)\/decisions\/([^/]+)$/);
+    if (decisionItemMatch && req.method === 'PUT') {
+        const data = await readJsonBody(req, {});
+        if (!data || typeof data !== 'object' || Array.isArray(data) || !Object.hasOwn(data, 'agendaItemId')) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'agendaItemId required' }));
+            return;
+        }
+        const meetings = loadMeetings();
+        const m = meetings.find(x => x.id === decisionItemMatch[1]);
+        if (!m) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'not found' })); return; }
+        const guard = validateOpenSeriesOccurrence(m);
+        if (guard) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: guard })); return; }
+        const decision = (m.decisions || []).find(d => d.id === decisionItemMatch[2]);
+        if (!decision) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'decision not found' })); return; }
+        const itemId = data.agendaItemId;
+        if (itemId !== null && itemId !== '' && (typeof itemId !== 'string'
+            || !Array.isArray(m.agenda) || !m.agenda.some(a => a.agendaItemId === itemId))) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'invalid agendaItemId' }));
+            return;
+        }
+        if (itemId) decision.agendaItemId = itemId;
+        else delete decision.agendaItemId;
+        m.updated = new Date().toISOString();
+        saveMeetings(meetings);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, decision, meeting: m }));
+        return;
+    }
     if (decisionItemMatch && req.method === 'DELETE') {
         const meetings = loadMeetings();
         const m = meetings.find(x => x.id === decisionItemMatch[1]);
@@ -427,7 +463,7 @@ module.exports = function(deps) {
         if (data.minutes !== undefined) m.minutes = String(data.minutes || '');
         m.updated = new Date().toISOString();
         saveMeetings(meetings);
-        try { syncMentions(m.title, m.notes); } catch {}
+        try { syncMentions(m.title, m.notes, m.minutes); } catch {}
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, meeting: m }));
         return;

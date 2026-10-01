@@ -27,6 +27,7 @@
  * PUT    /api/meetings/:id/agenda/:agendaItemId  → updateOccurrenceAgendaItem(id, agendaItemId, patch)
  * POST   /api/meetings/:id/decisions {text}      → addDecision(id, text)
  * DELETE /api/meetings/:id/decisions/:decisionId → removeDecision(id, decisionId)
+ * PUT    /api/meetings/:id/decisions/:decisionId → updateDecision(id, decisionId, patch)
  *
  * Exposed as named export `MeetingsService` and via `window["week-note-services"].MeetingsService`.
  */
@@ -69,6 +70,7 @@ export const MeetingsService = {
     reopen: (id) => req('POST', `${BASE}/${encodeURIComponent(id)}/reopen`),
     addOccurrenceAgendaItem: (id, title) => req('POST', `${BASE}/${encodeURIComponent(id)}/agenda`, { title }),
     updateOccurrenceAgendaItem: (id, agendaItemId, patch) => req('PUT', `${BASE}/${encodeURIComponent(id)}/agenda/${encodeURIComponent(agendaItemId)}`, patch),
-    addDecision: (id, text) => req('POST', `${BASE}/${encodeURIComponent(id)}/decisions`, { text }),
+    addDecision: (id, text, agendaItemId) => req('POST', `${BASE}/${encodeURIComponent(id)}/decisions`, { text, ...(agendaItemId ? { agendaItemId } : {}) }),
+    updateDecision: (id, decisionId, patch) => req('PUT', `${BASE}/${encodeURIComponent(id)}/decisions/${encodeURIComponent(decisionId)}`, patch),
     removeDecision: (id, decisionId) => req('DELETE', `${BASE}/${encodeURIComponent(id)}/decisions/${encodeURIComponent(decisionId)}`),
 };

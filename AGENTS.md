@@ -160,6 +160,26 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3001/settings
 | `/meetings/:id/minutes` | Printable/PDF meeting minutes export |
 | `/api/...` | JSON APIs (people, tasks, meetings, meeting-series, contexts/:id/settings, contexts/:id/meeting-types, contexts/switch, …) |
 
+"Ny forekomst" opens `/meeting-series?startSeries=:id&popup=1` in a
+minimal-chrome popup with the date/time setup form. Start creates and
+starts the occurrence, navigating that popup to its workspace. A planned
+occurrence started from a regular workspace also opens a popup
+synchronously before the API request to avoid popup blockers. Only
+popup routes omit the app header and shortcuts footer. Keep the setup
+card overflow visible so date pickers do not get clipped. Both meeting
+popup entry points and history rows share the saved window size in
+`localStorage`; opening history does not change occurrence status.
+Ending a meeting closes its popup only after the close API succeeds;
+regular occurrence tabs stay open. The meeting-series dashboard reloads when
+a popup it opened closes (including setup/history), preserving its URL hash;
+watch the popup handle rather than `pagehide`, which also fires when setup
+navigates into the occurrence.
+An occurrence decision may link to an existing item in that occurrence's
+agenda via `agendaItemId`. The decision link is editable while the occurrence
+is open; follow-up tasks remain separate. Resolving an agenda item prompts
+for an optional decision, created with its `agendaItemId` in the same POST;
+skipping the prompt must not undo the resolved outcome.
+
 ### Adding/moving a route
 
 Routes live in `routes/` modules grouped by URL prefix or domain. Each
@@ -468,7 +488,7 @@ do not retain a read-modify-write snapshot across another `await`.
   `scripts/migrate-context.js` should use the `appliesBeforeTag('vN')`
   helper so contexts whose `.week-notes` marker pre-dates the tag get
   migrated; never hard-code arbitrary commit SHAs in `appliesTo`.
-  Current tags: `v1` → `fc809ad`, `v2` → `1d083d8`, `v3` → `c93b3cf`, `v4` → `83bbea3`, `v4.1` → `686d485`, `v4.2` → `080a9a5`, `v4.3` → `4a6c697`, `v4.4` → `3969f59`, `v4.5` → `f17a9e5`, `v4.6` → `b065c1d`, `v4.7` → `afc8c47`, `v4.8` → `fa309a7`, `v4.9` → `7936505`, `v4.10` → `5ed4687`, `v4.11` → `7ace181`, `v4.12` → `e180949`, `v4.13` → `294a756`, `v4.14` → `05ad649`, `v4.15` → `851ce50`, `v4.16` → `f0d0bdb`, `v4.17` → `985e1f3`, `v4.18` → `f8b723e`, `v4.19` → `649aedf`, `v4.20` → `67cd30e`, `v4.21` → `0e3cc76`, `v4.22` → `462ebb3`, `v4.23` → `f5270ba`, `v4.24` → `ecb2d39`, `v4.25` → `652c247`, `v5.0` → `c8a23b5`.
+  Current tags: `v1` → `fc809ad`, `v2` → `1d083d8`, `v3` → `c93b3cf`, `v4` → `83bbea3`, `v4.1` → `686d485`, `v4.2` → `080a9a5`, `v4.3` → `4a6c697`, `v4.4` → `3969f59`, `v4.5` → `f17a9e5`, `v4.6` → `b065c1d`, `v4.7` → `afc8c47`, `v4.8` → `fa309a7`, `v4.9` → `7936505`, `v4.10` → `5ed4687`, `v4.11` → `7ace181`, `v4.12` → `e180949`, `v4.13` → `294a756`, `v4.14` → `05ad649`, `v4.15` → `851ce50`, `v4.16` → `f0d0bdb`, `v4.17` → `985e1f3`, `v4.18` → `f8b723e`, `v4.19` → `649aedf`, `v4.20` → `67cd30e`, `v4.21` → `0e3cc76`, `v4.22` → `462ebb3`, `v4.23` → `f5270ba`, `v4.24` → `ecb2d39`, `v4.25` → `652c247`, `v5.0` → `6f696a1`.
 
 ---
 
