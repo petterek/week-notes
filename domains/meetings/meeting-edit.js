@@ -70,6 +70,7 @@ const STYLES = `
     .note-ref-rm:hover { opacity: 0.7; }
     .note-pick-btn { padding: 5px 11px; border-radius: 5px; border: 1px dashed var(--border); background: var(--bg); color: var(--text-muted); cursor: pointer; font: inherit; font-size: 0.85em; margin-top: 6px; }
     .note-pick-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .teams-link { color: var(--accent); font-size: 0.9em; }
 `;
 
 function pad2(n) { return String(n).padStart(2, '0'); }
@@ -202,6 +203,7 @@ class MeetingEdit extends WNElement {
                     <pick-place data-el="place" placeholder="Velg eller opprett sted…"></pick-place>
                 </label>
                 <label for="${id('notes')}">Notater<textarea id="${id('notes')}" name="notes" rows="4" placeholder="Agenda, lenker, …">${m.notes || ''}</textarea></label>
+                ${m.joinUrl ? html`<a class="teams-link" href="${m.joinUrl}" target="_blank" rel="noopener noreferrer">Bli med i Teams-møtet</a>` : ''}
                 <label>Lenket notat <span class="hint">Knytt en eksisterende notatfil til møtet</span>
                     <div data-note-ref-row>${unsafeHTML(this._renderNoteRefHtml())}</div>
                 </label>

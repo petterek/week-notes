@@ -34,6 +34,7 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 - Per-context **default meeting length** prefills the end time when creating new meetings
 - Click an upcoming-meeting card on the home page to jump to that week and pulse-highlight the meeting
 - **Meeting series** (`/meeting-series`): recurring meetings with a persistent agenda queue — start/close occurrences, record decisions, auto-defer unresolved agenda items to the next occurrence, link follow-up tasks, and export minutes to PDF
+- Import UTF-8 `.ics` (iCalendar) and `.vcs` (vCalendar) files into the active context from the calendar toolbar; existing UIDs are skipped on re-import, recurrence rules are not expanded, and Teams meeting links are shown separately when present
 
 ### People & results
 - Lightweight CRM: name, title, email, phone, freeform notes
@@ -208,6 +209,10 @@ No build step or bundler. Framework-free HTTP handlers and browser ES modules.
 MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
+
+### 2026-10-01 (v5.3 — kalenderimport)
+- **Importer kalenderfiler:** forhåndsvis og importer UTF-8 `.ics`- og `.vcs`-møter i aktiv kontekst. Importen hopper over kjente UID-er, viser konkrete valideringsfeil og utvider ikke gjentakelser.
+- **Teams-lenker:** Outlook-tidssonen `W. Europe Standard Time` støttes, og gyldige Teams-join-lenker vises i forhåndsvisning og møteredigerer uten å fjerne invitasjonsteksten.
 
 ### 2026-10-01 (v5.2 — kalenderens møteredigerer)
 - **Rettet møteredigering:** lenkede notater vises som kontroller i stedet for synlig HTML, og tittel og notater vises uten dobbel HTML-escaping.

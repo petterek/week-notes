@@ -127,6 +127,9 @@ I møte-modalen i kalenderen er det to felt for sted: **Sted (fritekst)** for ad
 
 Kalenderen på `/calendar` viser møter i en uke-grid. Klikk på et tidspunkt for å lage et møte; klikk på et møte for å redigere.
 
+Bruk **Importer kalenderfil** for å forhåndsvise møter fra en UTF-8 `.ics`- eller `.vcs`-fil. Kontroller tittel, tid og sted i listen, og velg **Importer** for å lagre i aktiv kontekst eller **Avbryt** for å la kalenderen være uendret. Tidspunkt med tidssone tilpasses din lokale tidssone; møter uten tidssone beholder klokkeslettet. Importen hopper over allerede importerte UID-er og viser antall importerte og hoppede møter. Gjentakelsesregler utvides ikke; bare hendelser som er oppført i filen importeres.
+Hvis filen inneholder en Teams-møtelenke, vises **Bli med i Teams-møtet** både i forhåndsvisningen og når du redigerer det importerte møtet. Invitasjonsteksten beholdes i Notater.
+
 Bruk **✏️ Typer** for å justere møtetypene tilgjengelig i den aktive konteksten.
 
 ## Innstillinger

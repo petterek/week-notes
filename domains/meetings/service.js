@@ -49,6 +49,8 @@ export const MeetingsService = {
     },
     get:     (id)           => req('GET',    `${BASE}/${encodeURIComponent(id)}`),
     create:  (data)        => req('POST',   BASE, data),
+    importCalendar: (content, timeZone) => req('POST', `${BASE}/import`, { content, timeZone }),
+    previewCalendar: (content, timeZone) => req('POST', `${BASE}/import/preview`, { content, timeZone }),
     update:  (id, patch)   => req('PUT',    `${BASE}/${encodeURIComponent(id)}`, patch),
     remove:  (id)          => req('DELETE', `${BASE}/${encodeURIComponent(id)}`),
     listTypes: ()          => req('GET',    TYPES),

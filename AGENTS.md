@@ -150,6 +150,7 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3001/settings
 | `/` | Home: weekly notes, task sidebar, upcoming meetings sidebar |
 | `/tasks` | Full tasks page |
 | `/calendar` (or `/calendar/YYYY-WNN`) | Week-view calendar, full width |
+| `/api/meetings/import` | Import UTF-8 iCalendar/vCalendar into the selected context; only explicit VEVENTs, skip duplicate UIDs |
 | `/people` | People directory (CRM-lite) |
 | `/results` | Result/outcome log |
 | `/settings` | Master/detail context settings (full width) |
@@ -436,6 +437,9 @@ do not retain a read-modify-write snapshot across another `await`.
   — Chrome ignores `step` for the spinner UI.
 - Meeting blocks render with `id="m-<meetingId>"` so deep links from
   the home sidebar (`/calendar/<week>#m-<id>`) can scroll + pulse.
+- Imported meetings may have a validated `joinUrl` for a Teams meeting.
+  Preview and the meeting editor link to it; preserve it on edits and
+  keep the original invitation text in `notes`.
 - Right-click a column body → meeting-type menu. The menu reads
   `MEETING_TYPES`, which **must be injected** into the calendar IIFE
   separately (it lives in another scope by default).

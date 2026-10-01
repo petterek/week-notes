@@ -43,8 +43,16 @@ export async function apiRequest(method, path, body, accept) {
             opts.body = JSON.stringify(body);
         }
         const r = await fetch(path, opts);
-        if (!r.ok) throw new Error(method + ' ' + path + ' ' + r.status);
         const ct = r.headers.get('Content-Type') || '';
+        if (!r.ok) {
+            let detail;
+            if (ct.includes('json')) {
+                try { detail = (await r.json()).error; }
+                catch (error) { /* Keep the HTTP status if the error body is invalid. */ }
+            }
+            const status = method + ' ' + path + ' ' + r.status;
+            throw new Error(typeof detail === 'string' && detail ? `${status}: ${detail}` : status);
+        }
         if (accept === 'text/plain' || ct.startsWith('text/')) return r.text();
         return ct.includes('json') ? r.json() : r.text();
     })();
