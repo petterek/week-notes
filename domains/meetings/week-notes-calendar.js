@@ -103,6 +103,11 @@ const STYLES = `
     .nav button:hover { background: var(--surface-alt); }
     .new-btn { padding: 3px 12px; border: 1px solid var(--accent); background: var(--accent); color: var(--text-on-accent); border-radius: 5px; cursor: pointer; font: inherit; font-size: 0.9em; }
     .new-btn:hover { background: var(--accent-strong); }
+    .nav-import { padding: 3px 12px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--text-strong); cursor: pointer; font: inherit; font-size: 0.9em; }
+    .nav-import:hover { background: var(--surface-alt); }
+    .import-status { color: var(--text-muted); font-size: 0.85em; }
+    .import-status.error { color: var(--danger); }
+    .teams-link { display: inline-block; margin-top: 4px; color: var(--accent); }
     .all-ctx-link { display: inline-flex; align-items: center; justify-content: center; padding: 3px 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text-strong); border-radius: 5px; cursor: pointer; font: inherit; font-size: 0.9em; text-decoration: none; }
     .all-ctx-link:hover { background: var(--surface-alt); }
     .overlay { display: none; position: fixed; inset: 0; background: var(--overlay); z-index: 2000; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; overflow-y: auto; }
@@ -112,6 +117,13 @@ const STYLES = `
     .overlay-head h2 { margin: 0; font-family: var(--font-heading); font-weight: 400; color: var(--accent); font-size: 1.1em; flex: 1; }
     .overlay-head button { background: none; border: none; font-size: 1.3em; cursor: pointer; color: var(--text-muted); padding: 0; }
     .overlay-head button:hover { color: var(--text-strong); }
+    .import-card { max-height: 90vh; display: flex; flex-direction: column; gap: 10px; }
+    .import-list { overflow-y: auto; min-height: 0; margin: 0; padding-left: 24px; }
+    .import-list li { padding: 7px 0; border-bottom: 1px solid var(--border); }
+    .import-list li.duplicate { color: var(--text-muted); }
+    .import-list small { display: block; color: var(--text-muted); white-space: pre-wrap; }
+    .import-actions { display: flex; justify-content: flex-end; gap: 8px; }
+    .import-actions button { padding: 7px 12px; cursor: pointer; }
 `;
 
 class WeekNotesCalendar extends WNElement {
@@ -209,6 +221,9 @@ class WeekNotesCalendar extends WNElement {
                         <button type="button" class="filter-pill on" data-kind="result">🏁 Resultater</button>
                     </div>
                     <button type="button" class="new-btn" data-new>+ Nytt møte</button>
+                    <button type="button" class="nav-import" data-import>Importer kalenderfil</button>
+                    <input type="file" data-import-file accept=".ics,.vcs,text/calendar" hidden>
+                    <span role="status" class="import-status ${this._importError ? 'error' : ''}">${this._importStatus || ''}</span>
                     <div class="nav">
                         <button type="button" data-nav="prev" title="Forrige uke">‹</button>
                         <button type="button" data-nav="today">I dag</button>
@@ -234,6 +249,27 @@ class WeekNotesCalendar extends WNElement {
                         ${html`<meeting-edit meetings_service="${svcAttr}" settings_service="${setAttr}" context="${ctxAttr}"></meeting-edit>`}
                     </div>
                 </div>
+                ${this._preview ? html`
+                    <div class="overlay open" data-import-panel role="dialog" aria-modal="true" aria-label="Forhåndsvis kalenderimport">
+                        <div class="overlay-card import-card">
+                            <h2>Forhåndsvis kalenderimport</h2>
+                            <p>${this._preview.events.filter(e => !e.duplicate).length} nye møter, ${this._preview.events.filter(e => e.duplicate).length} allerede importert.</p>
+                            ${this._preview.recurring ? html`<p>${this._preview.recurring} gjentakende hendelser: bare oppførte starter importeres.</p>` : ''}
+                            <ul class="import-list">${this._preview.events.map(e => html`
+                                <li class="${e.duplicate ? 'duplicate' : ''}">
+                                    <strong>${e.title}</strong>${e.duplicate ? ' — Allerede importert' : ''}
+                                    <small>${e.date}${e.start ? ` ${e.start}${e.end ? `–${e.end}` : ''}` : ' (hele dagen)'}${e.endDate ? ` – ${e.endDate}` : ''}${e.location ? ` · ${e.location}` : ''}</small>
+                                    ${e.joinUrl ? html`<a class="teams-link" href="${e.joinUrl}" target="_blank" rel="noopener noreferrer">Bli med i Teams-møtet</a>` : ''}
+                                    ${e.notes ? html`<small>${e.notes}</small>` : ''}
+                                </li>
+                            `)}</ul>
+                            <div class="import-actions">
+                                <button type="button" data-import-cancel ${this._importBusy ? 'disabled' : ''}>Avbryt</button>
+                                <button type="button" data-import-confirm ${this._preview.events.every(e => e.duplicate) ? 'disabled' : ''}>Importer ${this._preview.events.filter(e => !e.duplicate).length} møter</button>
+                            </div>
+                        </div>
+                    </div>
+                ` : ''}
                 ${html`<week-calendar></week-calendar>`}
             </div>
         `;
@@ -298,6 +334,12 @@ class WeekNotesCalendar extends WNElement {
             if (navBtn) { this._onNav(navBtn.dataset.nav); return; }
 
             if (ev.target.closest('[data-new]')) { this._openCreate({}); return; }
+            if (ev.target.closest('[data-import]')) { root.querySelector('[data-import-file]')?.click(); return; }
+            if (ev.target.closest('[data-import-cancel]') || (ev.target.matches('[data-import-panel]'))) {
+                this._cancelImport();
+                return;
+            }
+            if (ev.target.closest('[data-import-confirm]')) { this._confirmImport(); return; }
 
             const spaLink = ev.target.closest('[data-link]');
             if (spaLink) {
@@ -334,10 +376,38 @@ class WeekNotesCalendar extends WNElement {
                 return;
             }
         });
+        root.addEventListener('change', async (ev) => {
+            if (!ev.target.matches('[data-import-file]')) return;
+            const file = ev.target.files?.[0];
+            ev.target.value = '';
+            if (!file) return;
+            if (!/\.(ics|vcs)$/i.test(file.name) || file.size > 512 * 1024) {
+                this._setImportStatus('Velg en .ics- eller .vcs-fil på maks 512 KB.', true);
+                return;
+            }
+            if (this._importBusy) return;
+            this._importBusy = true;
+            this._setImportStatus('Leser kalenderfil…');
+            try {
+                const pending = { content: await file.text(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+                this._preview = await this.service.previewCalendar(pending.content, pending.timeZone);
+                this._pendingImport = pending;
+                this._setImportStatus('Kontroller møtene før import.');
+                this.requestRender();
+            } catch (error) {
+                this._setImportStatus(`Import mislyktes: ${error.message}`, true);
+            } finally {
+                this._importBusy = false;
+            }
+        });
 
         // Escape key for overlays (document-level, wired once)
         document.addEventListener('keydown', (ev) => {
             if (ev.key !== 'Escape') return;
+            if (this._preview) {
+                this._cancelImport();
+                return;
+            }
             const createPanel = root.querySelector('[data-create-panel]');
             if (createPanel && createPanel.classList.contains('open')) { createPanel.classList.remove('open'); return; }
             const editPanel = root.querySelector('[data-edit-panel]');
@@ -377,6 +447,47 @@ class WeekNotesCalendar extends WNElement {
             const overlay = root.querySelector('[data-edit-panel]');
             if (overlay) overlay.classList.remove('open');
         });
+    }
+
+    _cancelImport() {
+        if (this._importBusy) return;
+        this._preview = null;
+        this._pendingImport = null;
+        this._setImportStatus('Import avbrutt.');
+        this.requestRender();
+    }
+
+    async _confirmImport() {
+        if (!this._pendingImport || this._importBusy) return;
+        this._importBusy = true;
+        const button = this.shadowRoot.querySelector('[data-import-confirm]');
+        if (button) button.disabled = true;
+        const cancel = this.shadowRoot.querySelector('[data-import-cancel]');
+        if (cancel) cancel.disabled = true;
+        try {
+            const { content, timeZone } = this._pendingImport;
+            const result = await this.service.importCalendar(content, timeZone);
+            this._pendingImport = null;
+            this._preview = null;
+            this._setImportStatus(`${result.imported} importert, ${result.skipped} allerede importert.${result.recurring ? ` ${result.recurring} gjentakende hendelser: bare oppførte starter er importert.` : ''}`);
+            this._refresh();
+        } catch (error) {
+            this._setImportStatus(`Import mislyktes: ${error.message}`, true);
+            if (button) button.disabled = false;
+            if (cancel) cancel.disabled = false;
+        } finally {
+            this._importBusy = false;
+        }
+    }
+
+    _setImportStatus(message, error = false) {
+        this._importStatus = message;
+        this._importError = error;
+        const status = this.shadowRoot.querySelector('[role=status]');
+        if (status) {
+            status.textContent = message;
+            status.classList.toggle('error', error);
+        }
     }
 
     _wireFilters() {

@@ -9,8 +9,56 @@ module.exports = function(deps) {
         saveTasks, syncMentions,
     } = _core;
     const { validateOpenSeriesOccurrence, syncOccurrenceOutcomesToSeries } = require('../../lib/meeting-lifecycle');
+    const { parseCalendar, MAX_FILE_BYTES } = require('../../lib/calendar-import');
     return async function(req, res, ctx) {
         const { pathname, url } = ctx;
+    if ((pathname === '/api/meetings/import' || pathname === '/api/meetings/import/preview') && req.method === 'POST') {
+        let parsed;
+        try {
+            const data = await readJsonBody(req, {}, MAX_FILE_BYTES * 2);
+            if (!data || typeof data !== 'object' || Array.isArray(data)) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: 'Ugyldig importforespørsel' }));
+                return;
+            }
+            parsed = parseCalendar(data.content, data.timeZone);
+        } catch (error) {
+            if (error.status !== 400 && error.status !== 413) throw error;
+            res.writeHead(error.status, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: error.message }));
+            return;
+        }
+        const meetings = loadMeetings();
+        const existing = new Set(meetings.map(m => m.calendarUid).filter(Boolean));
+        if (pathname.endsWith('/preview')) {
+            const events = parsed.events.map(event => {
+                const duplicate = existing.has(event.calendarUid);
+                existing.add(event.calendarUid);
+                return { ...event, duplicate };
+            });
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, events, recurring: parsed.recurring }));
+            return;
+        }
+        const added = [];
+        let skipped = 0;
+        for (const event of parsed.events) {
+            if (existing.has(event.calendarUid)) { skipped++; continue; }
+            existing.add(event.calendarUid);
+            added.push({ ...event, id: meetingId(), created: new Date().toISOString() });
+        }
+        if (added.length) {
+            saveMeetings([...meetings, ...added]);
+            try {
+                for (const meeting of added) syncMentions(meeting.title, meeting.notes);
+            } catch (error) {
+                console.error('calendar import: mention sync failed', error);
+            }
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, imported: added.length, skipped, recurring: parsed.recurring }));
+        return;
+    }
     if (pathname === '/api/meeting-types' && req.method === 'GET') {
         const ctx = _core.getActiveContextFromReq(req);
         res.writeHead(200, { 'Content-Type': 'application/json' });

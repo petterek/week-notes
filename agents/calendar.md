@@ -7,6 +7,10 @@ working-hour overlays, and per-meeting notes.
 
 - Meetings: `data/<ctx>/meetings.json` — array of
   `{ id, date (YYYY-MM-DD), start (HH:MM), end?, title, type, attendees?, location?, notes? }`.
+- Imported calendar events additionally carry `calendarUid` (UID plus
+  `#RECURRENCE-ID` for explicitly listed exceptions). Re-import skips
+  matching UIDs in the active context; deleting one permits re-import.
+  A validated Teams URL is stored as `joinUrl` when available.
 - Meeting types: `data/<ctx>/meeting-types.json` — array of
   `{ key, label, icon }`. Falls back to defaults if missing.
 - Per-context calendar settings (in `settings.json`):
@@ -23,6 +27,7 @@ working-hour overlays, and per-meeting notes.
 | GET | `/api/meetings?week=YYYY-WNN` | Meetings in a week |
 | GET | `/api/meetings?upcoming=N` | Next N days (used by home sidebar) |
 | POST | `/api/meetings` | Create |
+| POST | `/api/meetings/import` | Import UTF-8 `.ics` or `.vcs` events from `{content,timeZone}` into the active context |
 | PUT | `/api/meetings/:id` | Update |
 | DELETE | `/api/meetings/:id` | Delete |
 | GET/PUT | `/api/contexts/:id/meeting-types` | Per-context types |
@@ -33,7 +38,7 @@ working-hour overlays, and per-meeting notes.
 - `.cal-page` wrapper enables full-width via
   `body:has(.cal-page) { max-width: none; }`.
 - `.cal-toolbar`: title, date range, `+ Nytt møte`, `✏️ Typer`,
-  prev/today/next nav.
+  **Importer kalenderfil**, prev/today/next nav.
 - `.cal-grid`: 8-column grid (hours column + 7 day columns), 1px gap
   background.
 - `.cal-col-body`: column body, 24h × 36px = 864px tall.
@@ -152,6 +157,30 @@ const DEFAULT_MTG_MIN = ${getDefaultMeetingMinutes()};
   the meeting note still works normally.
 
 ## Gotchas
+
+- Calendar import is handled in `lib/calendar-import.js` and wired to
+  the calendar toolbar through `MeetingsService.previewCalendar` and
+  `MeetingsService.importCalendar`. The preview endpoint parses and
+  marks duplicate UIDs without writing; selecting a file opens a list
+  of meetings with date/time, location, description and duplicate
+  status. Only confirming the dialog calls the import endpoint.
+  Cancel/escape/backdrop writes nothing. The
+  client supplies its IANA timezone; UTC and TZID event times become
+  local wall times (including Outlook's `W. Europe Standard Time` TZID,
+  mapped to `Europe/Berlin`), while floating times are kept as written. DATE
+  DTEND is exclusive; imported all-day meetings use blank times and
+  an inclusive `endDate`. Description and location are included;
+  attendee addresses are not mapped to people. Import validates the
+  entire file before saving; limit 512 KB/500 VEVENTs. Cancelled
+  events are ignored. RRULE is **not** expanded; only explicitly
+  listed VEVENTs are imported, and the UI reports recurring events.
+  Teams join links are taken first from
+  `X-MICROSOFT-SKYPETEAMSMEETINGURL`, then from DESCRIPTION when needed;
+  only HTTPS links on `teams.microsoft.com` or `teams.live.com` with
+  a join path are accepted. The original description stays intact.
+  Preview and the meeting editor show the validated link separately.
+- Legacy `.vcs` support covers vCalendar 1.0 VEVENTs with unencoded
+  UTF-8 text. Unsupported `ENCODING` values produce an explicit error.
 
 - `MEETING_TYPES` is in a different scope than `currentTypes` (which
   belongs to the types-modal IIFE). Don't reference one from the
