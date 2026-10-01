@@ -37,6 +37,41 @@ test('calendar meeting edit renders the linked note and original form values, no
     }
 });
 
+test('calendar opens a series occurrence in the saved-size meeting popup', async ({ page, request }) => {
+    const series = (await (await request.post('/api/meeting-series', { data: { title: 'Calendar popup series' } })).json()).series;
+    let occurrence;
+    try {
+        const created = await request.post('/api/meetings', { data: { date: '2099-06-01', start: '10:00', end: '11:00', seriesId: series.id } });
+        expect(created.ok()).toBe(true);
+        occurrence = (await created.json()).meeting;
+        await page.goto('/calendar/2099-W23');
+        const calendar = page.locator('week-notes-calendar');
+        await expect.poll(() => calendar.evaluate((el, id) => !!el._meetingsById?.[id], occurrence.id)).toBe(true);
+        await page.evaluate(() => {
+            localStorage.setItem('meeting-popup-size', JSON.stringify({ width: 760, height: 620 }));
+            const nativeOpen = window.open;
+            window.open = function(...args) {
+                window.__calendarPopupFeatures = args[2];
+                return nativeOpen.apply(this, args);
+            };
+        });
+        const popupPromise = page.waitForEvent('popup');
+        await calendar.evaluate((el, id) => el._openEdit(id), occurrence.id);
+        const popup = await popupPromise;
+        await expect(popup).toHaveURL(new RegExp(`/meeting-occurrence/${occurrence.id}\\?popup=1$`));
+        expect(await popup.locator('#appHeader').count()).toBe(0);
+        expect(await page.evaluate(() => window.__calendarPopupFeatures)).toContain('width=760,height=620');
+        await expect(page).toHaveURL(/\/calendar\/2099-W23$/);
+        const reload = page.waitForEvent('load');
+        await popup.close();
+        await reload;
+        await expect(page).toHaveURL(/\/calendar\/2099-W23$/);
+    } finally {
+        if (occurrence) await request.delete(`/api/meetings/${occurrence.id}`);
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
 test('meeting-series page smoke: loads with correct title', async ({ page }) => {
     const resp = await page.goto('/meeting-series', { waitUntil: 'domcontentloaded' });
     expect(resp.ok(), '/meeting-series should return 2xx').toBe(true);

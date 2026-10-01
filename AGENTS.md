@@ -174,7 +174,8 @@ Ending a meeting closes its popup only after the close API succeeds;
 regular occurrence tabs stay open. The meeting-series dashboard reloads when
 a popup it opened closes (including setup/history), preserving its URL hash;
 watch the popup handle rather than `pagehide`, which also fires when setup
-navigates into the occurrence.
+navigates into the occurrence. Calendar clicks on series occurrences use
+the same saved-size popup and reload the calendar when it closes.
 An occurrence decision may link to an existing item in that occurrence's
 agenda via `agendaItemId`. The decision link is editable while the occurrence
 is open; follow-up tasks remain separate. Resolving an agenda item prompts
