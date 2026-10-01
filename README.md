@@ -209,6 +209,12 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-10-01 (v5.1 — møteserier i eget vindu)
+- **Fokusert møtearbeidsflate:** start en forekomst i et eget popup-vindu med dato- og tidsvalg, uten navigasjon og snarveilinje. Vinduet husker størrelsen og åpnes også fra møtehistorikken; når det lukkes, oppdateres møteseriesiden. Avslutt møte lukker vinduet etter vellykket lagring.
+- **Beslutninger på sakslistepunkter:** knytt eksisterende beslutninger til punkter i den aktuelle forekomstens saksliste. Når et punkt merkes som løst, kan du legge til en tilknyttet beslutning eller fortsette uten; koblingen vises i arbeidsflaten og PDF-referatet.
+- **Omtaler i referat:** referatfeltet har autofullføring for `@`-omtaler av personer, team, firma og `@me`.
+- **Oppdaterte AI-avhengigheter:** `@huggingface/transformers` og underavhengighetene er oppdatert for å fjerne kjente sikkerhetsvarsler i den lokale AI-kjøringen.
+
 ### 2026-09-29 (teknisk opprydding)
 - **Tryggere lagring:** delte lagringshjelpere avviser korrupt JSON i stedet for å lagre ufullstendige samlinger; atomisk utskifting per fil og uavhengige cache-kopier beskytter mot delvise filer og utilsiktede endringer.
 - **Kontekstisolasjon:** hver forespørsel beholder valgt kontekst gjennom asynkront arbeid. Søk bruker riktig kontekst, og kontekstbytte sletter ikke andre editorers autosave-filer.

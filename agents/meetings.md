@@ -174,7 +174,8 @@ extra fields when linked to a series:
     { "agendaItemId": "ai_...", "title": "string (snapshot at creation time)",
       "order": 0, "notes": "string", "outcome": "null | resolved | deferred | cancelled" }
   ],
-  "decisions": [{ "id": "d_...", "text": "string", "createdAt": "ISO" }],
+  "decisions": [{ "id": "d_...", "text": "string", "createdAt": "ISO",
+    "agendaItemId": "optional ai_... from this occurrence's agenda" }],
   "minutes": "freeform markdown string",
   "closedAt": "ISO (set on close, cleared on reopen)"
 }
@@ -197,12 +198,19 @@ occurrences' minutes.
    with `{ notes?, outcome? }`. `outcome` is one of
    `resolved | deferred | cancelled | null` (null clears it — no guard
    against re-deciding after reopen, intentionally permissive).
+   Selecting "Løst" from another outcome saves the outcome and prompts
+   for an optional decision. Saving a decision links it directly to that
+   occurrence's agenda item; skipping leaves the item resolved.
    Ad-hoc items can be added mid-meeting with
    `POST /api/meetings/:id/agenda {title}` — this **also** appends a
    new `queued` item to the parent series (so it becomes durable, not
    just a one-off note).
-4. **Decisions** — flat list, `POST /api/meetings/:id/decisions {text}`
-   / `DELETE /api/meetings/:id/decisions/:decisionId` (delete exists
+4. **Decisions** — flat list, `POST /api/meetings/:id/decisions {text,
+   agendaItemId?}`. A supplied agenda item id must belong to the same
+   occurrence.
+   Link or unlink an existing decision to an agenda item using
+   `PUT /api/meetings/:id/decisions/:decisionId {agendaItemId: id | null}`.
+   `DELETE /api/meetings/:id/decisions/:decisionId` exists
    only to correct mis-entries, not as a "revert" workflow).
 5. **Close** — `POST /api/meetings/:id/close` → `status: closed`,
    `closedAt` set. Any agenda entry with no `outcome` yet is
@@ -214,6 +222,8 @@ occurrences' minutes.
    which is exactly what makes it reappear on the *next* occurrence
    created for the series. Closed occurrences render read-only in the
    workspace; only existing follow-up task completion stays actionable.
+   Closing successfully from a popup also closes that popup; a failed or
+   cancelled close leaves it open. Regular tabs remain on the closed workspace.
 6. **Reopen** — `POST /api/meetings/:id/reopen` → `status:
    in-progress`, clears `closedAt`. Does **not** revert the series
    sync from step 5 — editing agenda outcomes again after reopening
@@ -255,6 +265,7 @@ two new route files since there's no repo precedent either way).
 | POST | `/api/meetings/:id/agenda` | Add an ad-hoc agenda item `{title}` (also queues it on the series) |
 | PUT | `/api/meetings/:id/agenda/:agendaItemId` | Update notes/outcome for one entry |
 | POST | `/api/meetings/:id/decisions` | Add a decision `{text}` |
+| PUT | `/api/meetings/:id/decisions/:decisionId` | Link/unlink to this occurrence's agenda item `{agendaItemId: id \| null}` |
 | DELETE | `/api/meetings/:id/decisions/:decisionId` | Remove a decision |
 | PUT | `/api/meetings/:id` | Also accepts `{minutes}` for the freeform recap field |
 | GET | `/meetings/:id/minutes` | Print/PDF export page (see below) — server-rendered, not JSON |
@@ -264,7 +275,7 @@ same object used for plain meetings, extended with `listSeries`,
 `createSeries`, `getSeries`, `updateSeries`, `removeSeries`,
 `addAgendaItem`/`updateAgendaItem`/`removeAgendaItem` (series-level),
 `start`/`close`/`reopen`, `addOccurrenceAgendaItem`/
-`updateOccurrenceAgendaItem`, `addDecision`/`removeDecision`
+`updateOccurrenceAgendaItem`, `addDecision`/`updateDecision`/`removeDecision`
 (occurrence-level).
 
 ### PDF / minutes export
@@ -321,8 +332,10 @@ its parent series once the meeting resolves. Renders:
 - Agenda list: per-item notes (autosaved on blur) + outcome buttons
   (✅ Løst / ⏭️ Utsatt / 🚫 Avlyst — click the active one again to
   clear it back to undecided), plus an ad-hoc add row.
-- Decisions add/list.
-- Freeform minutes textarea (plain, no live markdown preview).
+- Decisions add/list, with a selector linking each decision to an existing
+  occurrence agenda item; linked decisions also appear beneath that item.
+- Freeform minutes textarea (plain, no live markdown preview), with the
+  shared `@mention` picker for people, teams, companies and `@me`.
 - Follow-up tasks scoped to **this occurrence** (`t.meetingId ===
   this._id`; the series dashboard instead shows every task tagged with
   the series regardless of which occurrence). Quick-add via
@@ -340,9 +353,8 @@ Attributes: `meetings_service`, `tasks_service`, `people_service`.
   `pages/meeting-series.html`, `pages/meeting-occurrence.html`
   (title + custom element with service attributes, same shape as
   `pages/goals.html`).
-  Server stubs (empty-body shell + title, hydrated client-side) in
-  `routes/spa.js`'s `SPA_STUBS` map (`/meeting-series`) and a regex
-  block (`/meeting-occurrence/:id`).
+  Server shells (empty body + title, hydrated client-side) come from
+  `routes/spa.js` via `lib/page-routes.js`.
 - Nav: "🔁 Møteserier" in both `navbarHtml()` and `navLinksHtml()` in
   `lib/core.js` — no keyboard shortcut assigned.
 - **Calendar click routing**: clicking a meeting block in
@@ -353,6 +365,26 @@ Attributes: `meetings_service`, `tasks_service`, `people_service`.
   skipped entirely for series occurrences — they're edited from the
   workspace page instead, which is where the lifecycle/agenda/decisions
   actually live).
+- **Starting an occurrence**: "Ny forekomst" opens
+  `/meeting-series?startSeries=:id&popup=1` in a minimal-chrome popup.
+  The date/time form and optional overrides live in that popup; Start
+  creates the occurrence, starts it and navigates the same window to
+  `/meeting-occurrence/:id?popup=1`. Closing setup creates nothing.
+  Starting a planned occurrence from the regular workspace opens a popup
+  synchronously before the API call; if already in a popup, it stays
+  in that window. Only popup routes omit the app header and shortcuts footer.
+  The popup setup card must allow picker overflow; the end-date calendar
+  aligns to the right edge of its date input to stay within narrow windows.
+  Both entry points reuse the last resized popup dimensions from
+  `localStorage` (`meeting-popup-size`), saved on resize and page exit.
+  Clicking an existing occurrence in the series dashboard's meeting
+  history opens its workspace in the same popup style, without changing
+  its status or navigating away from the dashboard. The popup workspace
+  omits the back link to the series; the regular workspace keeps it.
+  The dashboard watches the popup handle and reloads `/meeting-series`
+  when it closes (including a manual close or closing after ending the
+  meeting), preserving the selected series in the URL hash. Closing the
+  setup popup without starting a meeting also reloads the dashboard.
 
 ### Follow-up tasks
 
@@ -360,6 +392,9 @@ Tasks can carry `meetingSeriesId` / `meetingId` / `agendaItemId` —
 see `agents/tasks.md`. Created via `<task-create>`'s
 `meeting-id`/`meeting-series-id`/`agenda-item-id` attributes, mirroring
 the pre-existing `goal-id` attribute exactly.
+Follow-up tasks are independent of decisions. A decision may instead link
+to an existing occurrence agenda item; the PDF export labels linked
+decisions with their agenda item.
 
 ---
 
@@ -371,8 +406,8 @@ the pre-existing `goal-id` attribute exactly.
 - **Attendees**: stored as person keys (not display names). Components
   use `<person-multi-picker>` for selection.
 - **syncMentions**: after create/update, the server calls
-  `syncMentions(title, notes)` to auto-create people entries for any
-  free-text @mentions in the title or notes. Attendees are NOT passed
+  `syncMentions(title, notes, minutes)` to auto-create people entries for any
+  free-text @mentions (except `@me`). Attendees are NOT passed
   to `syncMentions` — they are already structured person keys (enforced
   by the picker) and passing them would cause `extractMentions` to
   truncate keys containing spaces (e.g. `'per jørgen'` → extracts `'per'`
