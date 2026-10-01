@@ -7,6 +7,36 @@
 // regression exercised through the real API + real UI (no mocks).
 const { test, expect } = require('@playwright/test');
 
+test('calendar meeting edit renders the linked note and original form values, not HTML source', async ({ page, request }) => {
+    const created = await request.post('/api/meetings', {
+        data: {
+            date: '2099-06-01', start: '10:00', end: '11:00',
+            title: 'Review <draft> & notes', notes: 'Agenda <final> & follow-up',
+            noteRef: '2099-W23/plan.md',
+        },
+    });
+    expect(created.ok()).toBe(true);
+    const { meeting } = await created.json();
+    try {
+        await page.goto('/calendar/2099-W23');
+        const calendar = page.locator('week-notes-calendar');
+        await expect(calendar.locator('week-calendar')).toBeVisible();
+        await expect.poll(() => calendar.evaluate((el, id) => !!el._meetingsById?.[id], meeting.id)).toBe(true);
+        await calendar.evaluate((el, id) => el._openEdit(id), meeting.id);
+        const editor = calendar.locator('meeting-edit');
+        await expect(editor.locator('[data-note-ref-row] .note-ref-pill')).toContainText('plan');
+        await expect(editor.locator('input[name="title"]')).toHaveValue('Review <draft> & notes');
+        await expect(editor.locator('textarea[name="notes"]')).toHaveValue('Agenda <final> & follow-up');
+        await expect(editor.locator('[data-note-ref-row]')).not.toContainText('<div');
+        await editor.evaluate(el => el._setNoteRef(''));
+        await expect(editor.locator('[data-note-ref-row] button[data-pick-note]')).toHaveText(/Velg notat/);
+        await editor.evaluate(el => el._setNoteRef('2099-W23/plan.md'));
+        await expect(editor.locator('[data-note-ref-row] button[data-clear-note]')).toBeVisible();
+    } finally {
+        await request.delete(`/api/meetings/${meeting.id}`);
+    }
+});
+
 test('meeting-series page smoke: loads with correct title', async ({ page }) => {
     const resp = await page.goto('/meeting-series', { waitUntil: 'domcontentloaded' });
     expect(resp.ok(), '/meeting-series should return 2xx').toBe(true);
