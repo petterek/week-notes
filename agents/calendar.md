@@ -53,6 +53,11 @@ working-hour overlays, and per-meeting notes.
 - Right-click menu: `#calCtxMenu` listing meeting types.
 - Meeting modal: `#mtgModal` with title, type, date, time selects,
   attendees (mention autocomplete), location, notes.
+- The current calendar edit overlay hosts `<meeting-edit>` in
+  `domains/meetings/meeting-edit.js`. Its `html` tagged template escapes
+  interpolated text automatically. The linked-note row is a pre-escaped
+  HTML fragment from `_renderNoteRefHtml()` and must be inserted with
+  `unsafeHTML`; do not also `escapeHtml` the form fields in that template.
 - Types modal: `#typesModal` with grouped icon picker.
 
 ## Scoped scripts

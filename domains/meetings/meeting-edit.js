@@ -16,7 +16,7 @@
  *   meeting-edit:deleted  detail: { id }         — after successful DELETE
  *   meeting-edit:error    detail: { error }      — on submit/delete failure
  */
-import { WNElement, html, escapeHtml } from './_shared.js';
+import { WNElement, html, escapeHtml, unsafeHTML } from './_shared.js';
 import '/components/date-time-picker.js';
 import '/components/person-multi-picker.js';
 import '/components/pick-place.js';
@@ -178,32 +178,32 @@ class MeetingEdit extends WNElement {
         const tmpl = html`
             <form data-form>
                 <label for="${id('title')}">Tittel
-                    <input type="text" id="${id('title')}" name="title" required value="${escapeHtml(m.title || '')}" placeholder="Hva handler møtet om?" autofocus>
+                    <input type="text" id="${id('title')}" name="title" required value="${m.title || ''}" placeholder="Hva handler møtet om?" autofocus>
                 </label>
                 <label for="${id('type')}">Type
                     <select id="${id('type')}" name="type">
                         ${types.length
                             ? types.map(t => html`<option value="${t.typeId}" ${t.typeId === presetType ? 'selected' : ''}>${(t.icon || '') + ' ' + t.name}</option>`)
-                            : html`<option value="${escapeHtml(presetType)}">${escapeHtml(presetType)}</option>`}
+                            : html`<option value="${presetType}">${presetType}</option>`}
                     </select>
                 </label>
                 <div class="row">
                     <label>Fra
-                        <button type="button" class="${startCls}" data-dt-trigger="start">${escapeHtml(startLabel)}</button>
+                        <button type="button" class="${startCls}" data-dt-trigger="start">${startLabel}</button>
                     </label>
                     <label>Til
-                        <button type="button" class="${endCls}" data-dt-trigger="end">${escapeHtml(endLabel)}</button>
+                        <button type="button" class="${endCls}" data-dt-trigger="end">${endLabel}</button>
                     </label>
                 </div>
                 <label>Deltakere
-                    <person-multi-picker data-el="attendees" value="${escapeHtml(attInitial)}"></person-multi-picker>
+                    <person-multi-picker data-el="attendees" value="${attInitial}"></person-multi-picker>
                 </label>
                 <label>Sted
                     <pick-place data-el="place" placeholder="Velg eller opprett sted…"></pick-place>
                 </label>
-                <label for="${id('notes')}">Notater<textarea id="${id('notes')}" name="notes" rows="4" placeholder="Agenda, lenker, …">${escapeHtml(m.notes || '')}</textarea></label>
+                <label for="${id('notes')}">Notater<textarea id="${id('notes')}" name="notes" rows="4" placeholder="Agenda, lenker, …">${m.notes || ''}</textarea></label>
                 <label>Lenket notat <span class="hint">Knytt en eksisterende notatfil til møtet</span>
-                    <div data-note-ref-row>${this._renderNoteRefHtml()}</div>
+                    <div data-note-ref-row>${unsafeHTML(this._renderNoteRefHtml())}</div>
                 </label>
                 <div class="err" data-err></div>
                 <div class="actions">

@@ -209,6 +209,9 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-10-01 (v5.2 — kalenderens møteredigerer)
+- **Rettet møteredigering:** lenkede notater vises som kontroller i stedet for synlig HTML, og tittel og notater vises uten dobbel HTML-escaping.
+
 ### 2026-10-01 (v5.1 — møteserier i eget vindu)
 - **Fokusert møtearbeidsflate:** start en forekomst i et eget popup-vindu med dato- og tidsvalg, uten navigasjon og snarveilinje. Vinduet husker størrelsen og åpnes også fra møtehistorikken; når det lukkes, oppdateres møteseriesiden. Avslutt møte lukker vinduet etter vellykket lagring.
 - **Beslutninger på sakslistepunkter:** knytt eksisterende beslutninger til punkter i den aktuelle forekomstens saksliste. Når et punkt merkes som løst, kan du legge til en tilknyttet beslutning eller fortsette uten; koblingen vises i arbeidsflaten og PDF-referatet.
