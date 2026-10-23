@@ -46,6 +46,7 @@ Stack:
 │   ├── page-routes.js # shared SPA route, fragment and title manifest
 │   ├── page-shell.js  # full HTML shell + safely serialized browser bootstrap
 │   ├── dates.js       # ISO-week / date math (pure, no deps)
+│   ├── summarize-models.js # summarize model list + Ollama auto-select (pure)
 │   └── meeting-lifecycle.js # pure meeting-series/occurrence lifecycle helpers
 ├── routes/            # per-domain route modules. Each exports `(deps) => async (req, res, ctx) => void`
 │   ├── static-early.js  # /welcome, themes/help/fragments, /app-shell.js, /service-registry.js

@@ -607,3 +607,259 @@ test('meeting minutes support mention autocomplete and save the selected mention
         await request.delete(`/api/meeting-series/${series.id}`);
     }
 });
+
+test('meeting minutes text input opens the date picker with Ctrl+D', async ({ page, request }) => {
+    const series = (await (await request.post('/api/meeting-series', {
+        data: { title: 'Minutes date trigger workspace' },
+    })).json()).series;
+    let meeting;
+    try {
+        meeting = (await (await request.post('/api/meetings', {
+            data: { seriesId: series.id, date: '2099-06-01' },
+        })).json()).meeting;
+        await page.goto(`/meeting-occurrence/${meeting.id}`);
+        const minutes = page.locator('meeting-occurrence-page [data-el="minutes"]');
+        await expect(minutes).toBeVisible();
+        await minutes.fill('Follow up on ');
+        await minutes.press('Control+d');
+
+        const picker = page.locator('date-time-picker');
+        await expect(picker).toBeVisible();
+        await expect.poll(() => picker.evaluate(el => el.getAttribute('mode'))).toBe('date');
+        const selectedDate = await picker.evaluate(el => el.value);
+        await picker.evaluate(el => el.shadowRoot.querySelector('.ok').click());
+        await expect(minutes).toHaveValue(`Follow up on ${selectedDate}`);
+    } finally {
+        if (meeting) await request.delete(`/api/meetings/${meeting.id}`);
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
+test('meeting-series agenda queue inputs support mentions and date insertion', async ({ page, request }) => {
+    const series = (await (await request.post('/api/meeting-series', {
+        data: { title: 'Agenda queue input helpers' },
+    })).json()).series;
+    try {
+        await page.goto(`/meeting-series#ms-${series.id}`);
+        const dashboard = page.locator('meeting-series-page');
+        const addInput = dashboard.locator('[data-el="agenda-add"]');
+        await expect(addInput).toBeVisible();
+        await addInput.fill('Discuss with @me');
+        await addInput.press('ArrowDown');
+        await addInput.press('Enter');
+        await expect(addInput).toHaveValue(/@me /);
+        await addInput.press('End');
+        await addInput.press('Control+d');
+
+        const picker = page.locator('date-time-picker');
+        await expect(picker).toBeVisible();
+        const selectedDate = await picker.evaluate(el => el.value);
+        await picker.evaluate(el => el.shadowRoot.querySelector('.ok').click());
+        await expect(addInput).toHaveValue(`Discuss with @me ${selectedDate}`);
+        await dashboard.locator('.mp-agenda-add-btn').click();
+
+        const editButton = dashboard.locator('.mp-agenda-edit').first();
+        await expect(editButton).toBeVisible();
+        await editButton.click();
+        const editInput = dashboard.locator('.mp-agenda-edit-input');
+        await expect(editInput).toHaveValue(`Discuss with @me ${selectedDate}`);
+        await editInput.fill('Updated for @me');
+        await editInput.press('ArrowDown');
+        await editInput.press('Enter');
+        await expect(editInput).toHaveValue(/@me /);
+        await editInput.press('End');
+        await editInput.press('Control+d');
+        await expect(picker).toBeVisible();
+        const editDate = await picker.evaluate(el => el.value);
+        await picker.evaluate(el => el.shadowRoot.querySelector('.ok').click());
+        await expect(editInput).toHaveValue(`Updated for @me ${editDate}`);
+        await dashboard.locator('.mp-agenda-edit-save').click();
+
+        await expect.poll(async () => {
+            const updated = await (await request.get(`/api/meeting-series/${series.id}`)).json();
+            return updated.agendaItems.find(item => item.state === 'queued')?.title;
+        }).toBe(`Updated for @me ${editDate}`);
+    } finally {
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
+test('meeting-series agenda queue shows each item and its added date', async ({ page, request }) => {
+    const series = (await (await request.post('/api/meeting-series', {
+        data: { title: 'Agenda queue added date' },
+    })).json()).series;
+    try {
+        const item = (await (await request.post(`/api/meeting-series/${series.id}/agenda`, {
+            data: { title: 'Review the migration plan' },
+        })).json()).item;
+        const addedDate = new Date(item.createdAt).toLocaleDateString('nb-NO');
+
+        await page.goto(`/meeting-series#ms-${series.id}`);
+        const row = page.locator('meeting-series-page .mp-agenda-row').filter({ hasText: item.title });
+        await expect(row).toContainText(item.title);
+        await expect(row).toContainText(`Lagt til ${addedDate}`);
+    } finally {
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
+test('meeting-series agenda queue shows notes added to an item in occurrences', async ({ page, request }) => {
+    const series = (await (await request.post('/api/meeting-series', {
+        data: { title: 'Agenda queue item notes' },
+    })).json()).series;
+    let meeting;
+    try {
+        const item = (await (await request.post(`/api/meeting-series/${series.id}/agenda`, {
+            data: { title: 'Budget follow-up' },
+        })).json()).item;
+        meeting = (await (await request.post('/api/meetings', {
+            data: { seriesId: series.id, date: '2099-06-01' },
+        })).json()).meeting;
+        await request.post(`/api/meetings/${meeting.id}/start`);
+        await request.put(`/api/meetings/${meeting.id}/agenda/${item.id}`, {
+            data: { notes: 'Need <numbers> from finance' },
+        });
+        await request.post(`/api/meetings/${meeting.id}/close`);
+
+        await page.goto(`/meeting-series#ms-${series.id}`);
+        const row = page.locator('meeting-series-page .mp-agenda-row').filter({ hasText: item.title });
+        await expect(row.locator('.mp-agenda-note')).toContainText('2099-06-01');
+        await expect(row.locator('.mp-agenda-note')).toContainText('Need <numbers> from finance');
+    } finally {
+        if (meeting) await request.delete(`/api/meetings/${meeting.id}`);
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
+test('meeting-series separates resolved agenda items from the running queue', async ({ page, request }) => {
+    const series = (await (await request.post('/api/meeting-series', {
+        data: { title: 'Agenda resolved split' },
+    })).json()).series;
+    let meeting;
+    try {
+        const solved = (await (await request.post(`/api/meeting-series/${series.id}/agenda`, {
+            data: { title: 'Solved topic' },
+        })).json()).item;
+        const running = (await (await request.post(`/api/meeting-series/${series.id}/agenda`, {
+            data: { title: 'Running topic' },
+        })).json()).item;
+        meeting = (await (await request.post('/api/meetings', {
+            data: { seriesId: series.id, date: '2099-06-02' },
+        })).json()).meeting;
+        await request.post(`/api/meetings/${meeting.id}/start`);
+        await request.put(`/api/meetings/${meeting.id}/agenda/${solved.id}`, {
+            data: { outcome: 'resolved', notes: 'Agreed on plan' },
+        });
+        await request.post(`/api/meetings/${meeting.id}/close`);
+
+        await page.goto(`/meeting-series#ms-${series.id}`);
+        const host = page.locator('meeting-series-page');
+        const resolvedSection = host.locator('.mp-resolved');
+        await expect(resolvedSection.locator('.mp-agenda-row')).toHaveCount(1);
+        await expect(host.locator('.mp-detail > div').last()).toHaveClass(/mp-resolved/);
+        await expect(resolvedSection).toContainText(solved.title);
+        await expect(resolvedSection).toContainText('Agreed on plan');
+        await expect(resolvedSection).not.toContainText(running.title);
+        const queueRows = host.locator('.mp-agenda-row:not(.mp-agenda-resolved)');
+        await expect(queueRows).toHaveCount(1);
+        await expect(queueRows).toContainText(running.title);
+    } finally {
+        if (meeting) await request.delete(`/api/meetings/${meeting.id}`);
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
+test('meeting occurrence shows notes from earlier occurrences on agenda items', async ({ page, request }) => {
+    const series = (await (await request.post('/api/meeting-series', {
+        data: { title: 'Agenda earlier notes in workspace' },
+    })).json()).series;
+    const meetings = [];
+    try {
+        const item = (await (await request.post(`/api/meeting-series/${series.id}/agenda`, {
+            data: { title: 'Carry-over topic' },
+        })).json()).item;
+        const first = (await (await request.post('/api/meetings', {
+            data: { seriesId: series.id, date: '2099-06-03' },
+        })).json()).meeting;
+        meetings.push(first);
+        await request.post(`/api/meetings/${first.id}/start`);
+        await request.put(`/api/meetings/${first.id}/agenda/${item.id}`, {
+            data: { outcome: 'deferred', notes: 'Waiting for <vendor> reply' },
+        });
+        await request.post(`/api/meetings/${first.id}/close`);
+
+        const second = (await (await request.post('/api/meetings', {
+            data: { seriesId: series.id, date: '2099-06-10' },
+        })).json()).meeting;
+        meetings.push(second);
+        await request.post(`/api/meetings/${second.id}/start`);
+
+        await page.goto(`/meeting-occurrence/${second.id}`);
+        const agendaItem = page.locator('meeting-occurrence-page .mo-agenda-item').filter({ hasText: item.title });
+        await expect(agendaItem.locator('.mo-prev-note')).toHaveCount(1);
+        await expect(agendaItem.locator('.mo-prev-note')).toContainText('2099-06-03');
+        await expect(agendaItem.locator('.mo-prev-note')).toContainText('Waiting for <vendor> reply');
+        await expect(agendaItem.locator('textarea')).toHaveValue('');
+    } finally {
+        for (const m of meetings) await request.delete(`/api/meetings/${m.id}`);
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
+test('meeting occurrence agenda inputs support mentions and date insertion', async ({ page, request }) => {
+    const series = (await (await request.post('/api/meeting-series', {
+        data: { title: 'Occurrence agenda input helpers' },
+    })).json()).series;
+    let meeting;
+    try {
+        const item = (await (await request.post(`/api/meeting-series/${series.id}/agenda`, {
+            data: { title: 'Helper topic' },
+        })).json()).item;
+        meeting = (await (await request.post('/api/meetings', {
+            data: { seriesId: series.id, date: '2099-06-04' },
+        })).json()).meeting;
+        await request.post(`/api/meetings/${meeting.id}/start`);
+
+        await page.goto(`/meeting-occurrence/${meeting.id}`);
+        const host = page.locator('meeting-occurrence-page');
+        const picker = page.locator('date-time-picker');
+
+        const notes = host.locator(`textarea[data-agenda="${item.id}"]`);
+        await expect(notes).toBeVisible();
+        await notes.fill('Ask @me');
+        await notes.press('ArrowDown');
+        await notes.press('Enter');
+        await expect(notes).toHaveValue(/@me /);
+        await notes.press('End');
+        await notes.press('Control+d');
+        await expect(picker).toBeVisible();
+        const notesDate = await picker.evaluate(el => el.value);
+        await picker.evaluate(el => el.shadowRoot.querySelector('.ok').click());
+        await expect(notes).toHaveValue(`Ask @me ${notesDate}`);
+
+        const addInput = host.locator('[data-el="agenda-add"]');
+        await addInput.fill('New for @me');
+        await addInput.press('ArrowDown');
+        await addInput.press('Enter');
+        await expect(addInput).toHaveValue(/@me /);
+        await addInput.press('End');
+        await addInput.press('Control+d');
+        await expect(picker).toBeVisible();
+        const addDate = await picker.evaluate(el => el.value);
+        await picker.evaluate(el => el.shadowRoot.querySelector('.ok').click());
+        await expect(addInput).toHaveValue(`New for @me ${addDate}`);
+        await host.locator('.mo-agenda-add-btn').click();
+
+        await expect.poll(async () => {
+            const updated = await (await request.get(`/api/meetings/${meeting.id}`)).json();
+            const m = updated.meeting || updated;
+            return {
+                notes: m.agenda.find(a => a.agendaItemId === item.id)?.notes,
+                added: m.agenda.some(a => a.title === `New for @me ${addDate}`),
+            };
+        }).toEqual({ notes: `Ask @me ${notesDate}`, added: true });
+    } finally {
+        if (meeting) await request.delete(`/api/meetings/${meeting.id}`);
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});

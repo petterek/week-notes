@@ -30,6 +30,9 @@ import '/components/pick-date-time-span.js';
 import '/components/person-multi-picker.js';
 import '/components/pick-place.js';
 import { meetingPopupFeatures, rememberMeetingPopupSize } from '/components/meeting-popup.js';
+import { attachDateTrigger } from '/components/wn-date-trigger.js';
+import { attachAutocomplete } from '/components/wn-autocomplete.js';
+import { createMentionSource } from '/services/_shared/wn-mention-source.js';
 
 const STATUS_LABEL = { active: 'Aktiv', archived: 'Arkivert' };
 const STATUS_ICON  = { active: '📚', archived: '🗄️' };
@@ -98,9 +101,15 @@ const STYLES = `
     .mp-quickadd { margin-top: 8px; }
 
     .mp-agenda-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border-faint, var(--border-soft)); }
-    .mp-agenda-row .text { flex: 1; font-size: 0.92em; }
+    .mp-agenda-content { flex: 1; min-width: 0; }
+    .mp-agenda-row .text { display: block; font-size: 0.92em; word-break: break-word; }
+    .mp-agenda-added { display: block; margin-top: 2px; color: var(--text-subtle); font-size: 0.76em; }
+    .mp-agenda-note { margin-top: 4px; padding: 4px 8px; border-left: 2px solid var(--border); color: var(--text-muted); font-size: 0.85em; white-space: pre-wrap; word-break: break-word; }
+    .mp-agenda-note-date { display: block; color: var(--text-subtle); font-size: 0.85em; }
+    .mp-agenda-resolved .text { color: var(--text-muted); }
     .mp-agenda-add { display: flex; gap: 8px; margin-top: 8px; }
-    .mp-agenda-add input { flex: 1; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text-strong); font: inherit; }
+    .mp-agenda-add input, .mp-agenda-edit-input { flex: 1; min-width: 0; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text-strong); font: inherit; }
+    .mp-agenda-edit-input { width: 100%; box-sizing: border-box; }
     .mp-agenda-add button { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text-strong); cursor: pointer; font: inherit; }
     .mp-agenda-add button:hover { background: var(--surface-alt); }
 
@@ -172,6 +181,7 @@ class MeetingSeriesPage extends WNElement {
 
     disconnectedCallback() {
         super.disconnectedCallback && super.disconnectedCallback();
+        this._destroyAgendaInputHelpers();
         if (this._kbWired) {
             document.removeEventListener('keydown', this._onKey);
             this._kbWired = false;
@@ -212,9 +222,21 @@ class MeetingSeriesPage extends WNElement {
     }
 
     _onFormKey(e) {
+        if (e.defaultPrevented) return;
+        if (e.key === 'Escape' && e.target?.classList?.contains('mp-agenda-edit-input')) {
+            e.preventDefault();
+            this._editingAgendaItem = null;
+            this.requestRender();
+            return;
+        }
         if (e.key === 'Enter' && e.target && e.target.dataset && e.target.dataset.el === 'agenda-add') {
             e.preventDefault();
             this._addAgendaItem();
+            return;
+        }
+        if (e.key === 'Enter' && e.target?.classList?.contains('mp-agenda-edit-input')) {
+            e.preventDefault();
+            this._saveAgendaItemEdit();
         }
     }
 
@@ -285,7 +307,13 @@ class MeetingSeriesPage extends WNElement {
         const agendaRm = path.find(n => n.classList && n.classList.contains('mp-agenda-rm'));
         if (agendaRm) { this._removeAgendaItem(agendaRm.dataset.item); return; }
         const agendaEdit = path.find(n => n.classList && n.classList.contains('mp-agenda-edit'));
-        if (agendaEdit) { this._renameAgendaItem(agendaEdit.dataset.item, agendaEdit.dataset.title); return; }
+        if (agendaEdit) { this._editAgendaItem(agendaEdit.dataset.item, agendaEdit.dataset.title); return; }
+        if (path.find(n => n.classList && n.classList.contains('mp-agenda-edit-save'))) { this._saveAgendaItemEdit(); return; }
+        if (path.find(n => n.classList && n.classList.contains('mp-agenda-edit-cancel'))) {
+            this._editingAgendaItem = null;
+            this.requestRender();
+            return;
+        }
 
         const backdrop = path.find(n => n.classList && n.classList.contains('modal'));
         if (backdrop && e.target === backdrop) { this._closeModal(); return; }
@@ -400,14 +428,32 @@ class MeetingSeriesPage extends WNElement {
         catch (e) { alert((e && e.message) || 'Feil'); }
     }
 
-    async _renameAgendaItem(itemId, currentTitle) {
+    _editAgendaItem(itemId, currentTitle) {
         if (!this._selectedId || !itemId) return;
-        const next = prompt('Nytt saklistepunkt-navn:', currentTitle || '');
-        if (next == null) return;
-        const title = next.trim();
+        this._editingAgendaItem = { id: itemId, title: currentTitle || '' };
+        this.requestRender();
+        setTimeout(() => this.shadowRoot.querySelector('.mp-agenda-edit-input')?.focus(), 0);
+    }
+
+    async _saveAgendaItemEdit() {
+        const editing = this._editingAgendaItem;
+        if (!this._selectedId || !editing) return;
+        const input = this.shadowRoot.querySelector('.mp-agenda-edit-input');
+        const title = (input?.value || '').trim();
         if (!title) return;
-        try { await this.service.updateAgendaItem(this._selectedId, itemId, { title }); this._refresh(); }
+        try {
+            await this.service.updateAgendaItem(this._selectedId, editing.id, { title });
+            this._editingAgendaItem = null;
+            this._refresh();
+        }
         catch (e) { alert((e && e.message) || 'Feil'); }
+    }
+
+    _destroyAgendaInputHelpers() {
+        for (const handle of this._agendaAutocompleteHandles || []) handle.destroy();
+        for (const handle of this._agendaDateHandles || []) handle.destroy();
+        this._agendaAutocompleteHandles = [];
+        this._agendaDateHandles = [];
     }
 
     // --- New occurrence ---
@@ -498,6 +544,16 @@ class MeetingSeriesPage extends WNElement {
         const nextStatus = s.status === 'active' ? 'archived' : 'active';
         const statusBtnTitle = s.status === 'active' ? 'Arkiver serien' : 'Reaktiver serien';
         const queued = (s.agendaItems || []).filter(a => a.state === 'queued').slice().sort((a, b) => (a.order || 0) - (b.order || 0));
+        const addedDate = (value) => {
+            if (!value) return '';
+            const date = new Date(value);
+            return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('nb-NO');
+        };
+        const itemNotes = (itemId) => occurrences.slice().reverse().flatMap(m => (m.agenda || [])
+            .filter(e => e.agendaItemId === itemId && (e.notes || '').trim())
+            .map(e => ({ date: m.date, notes: e.notes.trim() })));
+        const resolved = (s.agendaItems || []).filter(a => a.state === 'resolved').slice()
+            .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
 
         return html`
             <div class="mp-dp-head">
@@ -519,9 +575,24 @@ class MeetingSeriesPage extends WNElement {
                         ? html`<p class="empty">Ingen ventende saklistepunkter.</p>`
                         : html`${queued.map(a => html`
                             <div class="mp-agenda-row">
-                                <span class="text">${a.title}</span>
-                                <button class="mp-act mp-agenda-edit" data-item="${a.id}" data-title="${escapeHtml(a.title || '')}" title="Endre navn">✏️</button>
-                                <button class="mp-act mp-del mp-agenda-rm" data-item="${a.id}" title="Fjern">✕</button>
+                                <div class="mp-agenda-content">
+                                ${this._editingAgendaItem?.id === a.id ? html`
+                                    <input type="text" class="mp-agenda-edit-input" data-item="${a.id}" value="${escapeHtml(this._editingAgendaItem.title)}" aria-label="Endre saklistepunkt" />
+                                ` : html`
+                                    <span class="text">${a.title}</span>
+                                `}
+                                ${addedDate(a.createdAt) ? html`<span class="mp-agenda-added">Lagt til ${addedDate(a.createdAt)}</span>` : ''}
+                                ${itemNotes(a.id).map(n => html`
+                                    <div class="mp-agenda-note"><span class="mp-agenda-note-date">${n.date}</span>${n.notes}</div>
+                                `)}
+                                </div>
+                                ${this._editingAgendaItem?.id === a.id ? html`
+                                    <button type="button" class="mp-act mp-agenda-edit-save" title="Lagre navn">💾</button>
+                                    <button type="button" class="mp-act mp-agenda-edit-cancel" title="Avbryt endring">✕</button>
+                                ` : html`
+                                    <button class="mp-act mp-agenda-edit" data-item="${a.id}" data-title="${escapeHtml(a.title || '')}" title="Endre navn">✏️</button>
+                                    <button class="mp-act mp-del mp-agenda-rm" data-item="${a.id}" title="Fjern">✕</button>
+                                `}
                             </div>
                         `)}`}
                     <div class="mp-agenda-add">
@@ -558,6 +629,23 @@ class MeetingSeriesPage extends WNElement {
                 <div>
                     <h4>💡 Beslutningslogg</h4>
                     ${this._renderDecisionsLog(occurrences)}
+                </div>
+
+                <div class="mp-resolved">
+                    <h4>✔️ Løste saker <span class="c">${resolved.length}</span></h4>
+                    ${resolved.length === 0
+                        ? html`<p class="empty">Ingen løste saker ennå.</p>`
+                        : html`${resolved.map(a => html`
+                            <div class="mp-agenda-row mp-agenda-resolved">
+                                <div class="mp-agenda-content">
+                                    <span class="text">${a.title}</span>
+                                    ${addedDate(a.createdAt) ? html`<span class="mp-agenda-added">Lagt til ${addedDate(a.createdAt)}${addedDate(a.updatedAt) ? ` · Løst ${addedDate(a.updatedAt)}` : ''}</span>` : ''}
+                                    ${itemNotes(a.id).map(n => html`
+                                        <div class="mp-agenda-note"><span class="mp-agenda-note-date">${n.date}</span>${n.notes}</div>
+                                    `)}
+                                </div>
+                            </div>
+                        `)}`}
                 </div>
             </div>
             ${this._renderModal()}
@@ -723,6 +811,22 @@ class MeetingSeriesPage extends WNElement {
                 ${!selected ? this._renderModal() : ''}
             </div>
         `;
+    }
+
+    afterRender(data) {
+        this._destroyAgendaInputHelpers();
+        if (!data || data._loading) return;
+        const root = this.shadowRoot;
+        const inputs = root.querySelectorAll('[data-el="agenda-add"], .mp-agenda-edit-input');
+        if (!inputs.length) return;
+        this._mentionSource ||= createMentionSource({ serviceFor: key => this.serviceFor(key) });
+        for (const input of inputs) {
+            this._agendaDateHandles.push(attachDateTrigger(input));
+            this._agendaAutocompleteHandles.push(attachAutocomplete(input, {
+                triggers: [this._mentionSource.createTrigger()],
+                container: root,
+            }));
+        }
     }
 }
 

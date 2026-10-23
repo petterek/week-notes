@@ -11,7 +11,7 @@ module.exports = function(deps) {
         embedEmit, embedSseClients, getEmbedState, extractInlineTasks, extractMentions, getDataContext,
         getAppSettings, getCalendarActivity, getCurrentYearWeek, getDefaultMeetingMinutes,
         getMePersonKey, getNoteMeta, git, gitCommitAll, gitInitIfNeeded, gitIsRepo, isEmbedReady,
-        isRemoteSummarizeModel, listContexts, loadMeetings, loadTasks, meetingId, noteSnippet,
+        listContexts, loadMeetings, loadTasks, meetingId, noteSnippet,
         processInlineResults, readJsonBody, restartEmbedWorker, restartSearchWorker, restartSummarizeWorker,
         saveMeetings, saveTasks, searchAll, searchViaWorker, setAppSettings, setMePersonKey, setNoteMeta,
         stopEmbedWorker, stopSearchWorker, stopSummarizeWorker, summarizeEmit, summarizeSseClients,
@@ -144,9 +144,9 @@ module.exports = function(deps) {
             return Object.assign({}, m, { downloaded });
         };
         const modelsAnnotated = EMBED_MODELS.map(annotateLocal);
-        // Remote summarize entries are always "downloaded:true" (no-op).
+        // Ollama manages its own model files; only Xenova models are downloaded here.
         const summarizeModelsAnnotated = SUMMARIZE_MODELS.map(m =>
-            m.remote ? Object.assign({}, m, { downloaded: true }) : annotateLocal(m)
+            m.ollama ? Object.assign({}, m, { downloaded: true }) : annotateLocal(m)
         );
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
@@ -167,9 +167,9 @@ module.exports = function(deps) {
                 res.end(JSON.stringify({ ok: false, error: 'Ukjent modell' }));
                 return;
             }
-            if (isRemoteSummarizeModel(modelId)) {
+            if (SUMMARIZE_MODELS.some(m => m.id === modelId && m.ollama)) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: false, error: 'Ekstern modell kan ikke slettes.' }));
+                res.end(JSON.stringify({ ok: false, error: 'Ollama-modeller slettes med `ollama rm`.' }));
                 return;
             }
             const settings = getAppSettings();
