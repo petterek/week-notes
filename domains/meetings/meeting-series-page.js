@@ -25,7 +25,7 @@
  *   defaultDurationMins, agendaItems:[{id,title,state,order}],
  *   occurrenceCount, queuedAgendaCount, nextOccurrence, lastOccurrence}
  */
-import { WNElement, html, unsafeHTML, escapeHtml } from './_shared.js';
+import { WNElement, html, unsafeHTML, escapeHtml, linkMentions } from './_shared.js';
 import '/components/pick-date-time-span.js';
 import '/components/person-multi-picker.js';
 import '/components/pick-place.js';
@@ -197,6 +197,8 @@ class MeetingSeriesPage extends WNElement {
         if (!this.service) return {};
         const tasksSvc = this.serviceFor('tasks');
         const peopleSvc = this.serviceFor('people');
+        const companiesSvc = this.serviceFor('companies');
+        const teamsSvc = this.serviceFor('teams');
         return {
             series: async () => {
                 const s = await this.service.listSeries();
@@ -205,6 +207,8 @@ class MeetingSeriesPage extends WNElement {
             occurrences: () => this.service.list(),
             tasks:   () => tasksSvc ? tasksSvc.list() : Promise.resolve([]),
             people:  () => peopleSvc ? peopleSvc.list() : Promise.resolve([]),
+            companies: () => companiesSvc ? companiesSvc.list() : Promise.resolve([]),
+            teams:   () => teamsSvc ? teamsSvc.list() : Promise.resolve([]),
             types:   () => this.service.listTypes ? this.service.listTypes() : Promise.resolve([]),
         };
     }
@@ -549,6 +553,12 @@ class MeetingSeriesPage extends WNElement {
             const date = new Date(value);
             return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('nb-NO');
         };
+        const renderMentions = (text) => unsafeHTML(linkMentions(
+            escapeHtml(text || ''),
+            this._state.people,
+            this._state.companies,
+            this._state.teams,
+        ));
         const itemNotes = (itemId) => occurrences.slice().reverse().flatMap(m => (m.agenda || [])
             .filter(e => e.agendaItemId === itemId && (e.notes || '').trim())
             .map(e => ({ date: m.date, notes: e.notes.trim() })));
@@ -579,11 +589,11 @@ class MeetingSeriesPage extends WNElement {
                                 ${this._editingAgendaItem?.id === a.id ? html`
                                     <input type="text" class="mp-agenda-edit-input" data-item="${a.id}" value="${escapeHtml(this._editingAgendaItem.title)}" aria-label="Endre saklistepunkt" />
                                 ` : html`
-                                    <span class="text">${a.title}</span>
+                                    <span class="text">${renderMentions(a.title)}</span>
                                 `}
                                 ${addedDate(a.createdAt) ? html`<span class="mp-agenda-added">Lagt til ${addedDate(a.createdAt)}</span>` : ''}
                                 ${itemNotes(a.id).map(n => html`
-                                    <div class="mp-agenda-note"><span class="mp-agenda-note-date">${n.date}</span>${n.notes}</div>
+                                    <div class="mp-agenda-note"><span class="mp-agenda-note-date">${n.date}</span>${renderMentions(n.notes)}</div>
                                 `)}
                                 </div>
                                 ${this._editingAgendaItem?.id === a.id ? html`
@@ -638,10 +648,10 @@ class MeetingSeriesPage extends WNElement {
                         : html`${resolved.map(a => html`
                             <div class="mp-agenda-row mp-agenda-resolved">
                                 <div class="mp-agenda-content">
-                                    <span class="text">${a.title}</span>
+                                    <span class="text">${renderMentions(a.title)}</span>
                                     ${addedDate(a.createdAt) ? html`<span class="mp-agenda-added">Lagt til ${addedDate(a.createdAt)}${addedDate(a.updatedAt) ? ` · Løst ${addedDate(a.updatedAt)}` : ''}</span>` : ''}
                                     ${itemNotes(a.id).map(n => html`
-                                        <div class="mp-agenda-note"><span class="mp-agenda-note-date">${n.date}</span>${n.notes}</div>
+                                        <div class="mp-agenda-note"><span class="mp-agenda-note-date">${n.date}</span>${renderMentions(n.notes)}</div>
                                     `)}
                                 </div>
                             </div>
@@ -767,7 +777,9 @@ class MeetingSeriesPage extends WNElement {
 
         this._state = {
             series: data.series, occurrences: data.occurrences || [],
-            tasks: data.tasks || [], people: data.people || [], types: data.types || [],
+            tasks: data.tasks || [], people: data.people || [],
+            companies: data.companies || [], teams: data.teams || [],
+            types: data.types || [],
         };
         if (this._setupSeriesId) {
             if (!data.series.some(s => s.id === this._setupSeriesId)) return html`<div class="mp-error">Fant ikke møteserien</div>`;

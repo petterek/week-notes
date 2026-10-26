@@ -635,7 +635,7 @@ test('meeting minutes text input opens the date picker with Ctrl+D', async ({ pa
     }
 });
 
-test('meeting-series agenda queue inputs support mentions and date insertion', async ({ page, request }) => {
+test('meeting-series agenda queue inputs support person mentions and date insertion', async ({ page, request }) => {
     const series = (await (await request.post('/api/meeting-series', {
         data: { title: 'Agenda queue input helpers' },
     })).json()).series;
@@ -644,10 +644,12 @@ test('meeting-series agenda queue inputs support mentions and date insertion', a
         const dashboard = page.locator('meeting-series-page');
         const addInput = dashboard.locator('[data-el="agenda-add"]');
         await expect(addInput).toBeVisible();
-        await addInput.fill('Discuss with @me');
+        await addInput.fill('Discuss with @Ada');
+        const mentionOptions = page.getByRole('listbox').getByRole('option');
+        await expect(mentionOptions.filter({ hasText: 'Ada Test' })).toBeVisible();
         await addInput.press('ArrowDown');
         await addInput.press('Enter');
-        await expect(addInput).toHaveValue(/@me /);
+        await expect(addInput).toHaveValue('Discuss with @ada ');
         await addInput.press('End');
         await addInput.press('Control+d');
 
@@ -655,30 +657,31 @@ test('meeting-series agenda queue inputs support mentions and date insertion', a
         await expect(picker).toBeVisible();
         const selectedDate = await picker.evaluate(el => el.value);
         await picker.evaluate(el => el.shadowRoot.querySelector('.ok').click());
-        await expect(addInput).toHaveValue(`Discuss with @me ${selectedDate}`);
+        await expect(addInput).toHaveValue(`Discuss with @ada ${selectedDate}`);
         await dashboard.locator('.mp-agenda-add-btn').click();
 
         const editButton = dashboard.locator('.mp-agenda-edit').first();
         await expect(editButton).toBeVisible();
         await editButton.click();
         const editInput = dashboard.locator('.mp-agenda-edit-input');
-        await expect(editInput).toHaveValue(`Discuss with @me ${selectedDate}`);
-        await editInput.fill('Updated for @me');
+        await expect(editInput).toHaveValue(`Discuss with @ada ${selectedDate}`);
+        await editInput.fill('Updated for @Ada');
+        await expect(page.getByRole('listbox').getByRole('option').filter({ hasText: 'Ada Test' })).toBeVisible();
         await editInput.press('ArrowDown');
         await editInput.press('Enter');
-        await expect(editInput).toHaveValue(/@me /);
+        await expect(editInput).toHaveValue('Updated for @ada ');
         await editInput.press('End');
         await editInput.press('Control+d');
         await expect(picker).toBeVisible();
         const editDate = await picker.evaluate(el => el.value);
         await picker.evaluate(el => el.shadowRoot.querySelector('.ok').click());
-        await expect(editInput).toHaveValue(`Updated for @me ${editDate}`);
+        await expect(editInput).toHaveValue(`Updated for @ada ${editDate}`);
         await dashboard.locator('.mp-agenda-edit-save').click();
 
         await expect.poll(async () => {
             const updated = await (await request.get(`/api/meeting-series/${series.id}`)).json();
             return updated.agendaItems.find(item => item.state === 'queued')?.title;
-        }).toBe(`Updated for @me ${editDate}`);
+        }).toBe(`Updated for @ada ${editDate}`);
     } finally {
         await request.delete(`/api/meeting-series/${series.id}`);
     }
@@ -690,14 +693,26 @@ test('meeting-series agenda queue shows each item and its added date', async ({ 
     })).json()).series;
     try {
         const item = (await (await request.post(`/api/meeting-series/${series.id}/agenda`, {
-            data: { title: 'Review the migration plan' },
+            data: { title: 'Review with @ada <draft> & details' },
         })).json()).item;
+        const resolvedItem = (await (await request.post(`/api/meeting-series/${series.id}/agenda`, {
+            data: { title: 'Confirm with @ada' },
+        })).json()).item;
+        await request.put(`/api/meeting-series/${series.id}/agenda/${resolvedItem.id}`, {
+            data: { state: 'resolved' },
+        });
         const addedDate = new Date(item.createdAt).toLocaleDateString('nb-NO');
 
         await page.goto(`/meeting-series#ms-${series.id}`);
-        const row = page.locator('meeting-series-page .mp-agenda-row').filter({ hasText: item.title });
-        await expect(row).toContainText(item.title);
+        const row = page.locator('meeting-series-page .mp-agenda-row')
+            .filter({ hasText: '<draft>' });
+        await expect(row.locator('.text')).toContainText('Review with');
+        await expect(row.locator('.text')).toContainText('<draft> & details');
+        await expect(row.locator('.text entity-mention[kind="person"][key="ada"][label="Ada Test"]')).toHaveCount(1);
         await expect(row).toContainText(`Lagt til ${addedDate}`);
+        const resolvedRow = page.locator('meeting-series-page .mp-agenda-row.mp-agenda-resolved')
+            .filter({ hasText: 'Confirm with' });
+        await expect(resolvedRow.locator('.text entity-mention[kind="person"][key="ada"][label="Ada Test"]')).toHaveCount(1);
     } finally {
         await request.delete(`/api/meeting-series/${series.id}`);
     }
@@ -717,14 +732,16 @@ test('meeting-series agenda queue shows notes added to an item in occurrences', 
         })).json()).meeting;
         await request.post(`/api/meetings/${meeting.id}/start`);
         await request.put(`/api/meetings/${meeting.id}/agenda/${item.id}`, {
-            data: { notes: 'Need <numbers> from finance' },
+            data: { notes: 'Ask @ada about <numbers> from finance' },
         });
         await request.post(`/api/meetings/${meeting.id}/close`);
 
         await page.goto(`/meeting-series#ms-${series.id}`);
         const row = page.locator('meeting-series-page .mp-agenda-row').filter({ hasText: item.title });
         await expect(row.locator('.mp-agenda-note')).toContainText('2099-06-01');
-        await expect(row.locator('.mp-agenda-note')).toContainText('Need <numbers> from finance');
+        await expect(row.locator('.mp-agenda-note')).toContainText('Ask');
+        await expect(row.locator('.mp-agenda-note')).toContainText('<numbers> from finance');
+        await expect(row.locator('.mp-agenda-note entity-mention[kind="person"][key="ada"][label="Ada Test"]')).toHaveCount(1);
     } finally {
         if (meeting) await request.delete(`/api/meetings/${meeting.id}`);
         await request.delete(`/api/meeting-series/${series.id}`);
