@@ -82,7 +82,7 @@ Push remains manual — pull happens automatically on switch.
 |------------|-----------|--------------------------------------------------------------|
 | **Node.js** ≥ 18 | ✅ yes | Runs the server                                              |
 | **git**          | ✅ yes | Each context is a git repo (init / commit / push / pull)     |
-| **gh** ([GitHub CLI](https://cli.github.com/)) | ⚪ optional | Used to fetch a GitHub token for week summaries; falls back to `GH_TOKEN` env var if missing |
+| **ollama** ([Ollama](https://ollama.com/)) | ⚪ optional | Runs local LLMs for week summaries (e.g. `ollama pull qwen3.5:9b`) |
 
 The server checks for these on startup and refuses to start if `git` is missing.
 
@@ -209,6 +209,11 @@ No build step or bundler. Framework-free HTTP handlers and browser ES modules.
 MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
+
+### 2026-10-23 (oppsummering: nyere Ollama-modeller)
+- **Nye modeller:** `qwen3.5:9b` (anbefalt), `gemma4:12b` og `gpt-oss:20b` kan velges for «✨ Oppsummer» via Ollama.
+- **GitHub Models fjernet:** tjenesten ble lagt ned 30. juli 2026. Når oppsummering er slått av, får du nå beskjed om å aktivere en modell i stedet for et kall mot den nedlagte tjenesten.
+- Valgt Ollama-modell beholdes ved oppstart hvis den er installert; ellers velges den beste installerte modellen automatisk.
 
 ### 2026-10-01 (v5.4 — møteserier fra kalenderen)
 - **Møtevindu fra kalenderen:** et møte i en møteserie åpnes i samme popup-vindu som på møteseriesiden, med lagret vindusstørrelse. Kalenderen lastes på nytt når vinduet lukkes.

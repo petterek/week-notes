@@ -17,6 +17,7 @@ import '/components/pick-date-time-span.js';
 import '/components/person-multi-picker.js';
 import '/components/pick-place.js';
 import { meetingPopupFeatures, rememberMeetingPopupSize } from '/components/meeting-popup.js';
+import { attachDateTrigger } from '/components/wn-date-trigger.js';
 import { attachAutocomplete } from '/components/wn-autocomplete.js';
 import { createMentionSource } from '/services/_shared/wn-mention-source.js';
 
@@ -60,6 +61,9 @@ const STYLES = `
     .mo-decision .rm:hover { color: var(--danger, #c53030); }
     .mo-decision select { max-width: 210px; min-width: 0; background: var(--bg); color: var(--text-strong); border: 1px solid var(--border); border-radius: 6px; }
     .mo-agenda-decisions { margin: 8px 0 0; padding-left: 18px; font-size: 0.88em; color: var(--text-muted); }
+    .mo-prev-notes { margin: 4px 0 6px; }
+    .mo-prev-note { margin-top: 4px; padding: 4px 8px; border-left: 2px solid var(--border); color: var(--text-muted); font-size: 0.85em; white-space: pre-wrap; word-break: break-word; }
+    .mo-prev-note-date { display: block; color: var(--text-subtle); font-size: 0.85em; }
     .mo-decision-add { display: flex; gap: 8px; margin-top: 8px; }
     .mo-decision-add input { flex: 1; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text-strong); font: inherit; }
     .mo-decision-add button { padding: 7px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text-strong); cursor: pointer; font: inherit; }
@@ -104,8 +108,12 @@ class MeetingOccurrencePage extends WNElement {
     }
 
     disconnectedCallback() {
-        this._minutesAutocomplete?.destroy();
-        this._minutesAutocomplete = null;
+        this._destroyInputHelpers();
+    }
+
+    _destroyInputHelpers() {
+        (this._inputHelpers || []).forEach(h => h?.destroy());
+        this._inputHelpers = [];
     }
 
     _extractId() {
@@ -129,6 +137,9 @@ class MeetingOccurrencePage extends WNElement {
         return {
             meeting: () => meetingPromise,
             series: () => meetingPromise.then(m => (m && m.seriesId) ? svc.getSeries(m.seriesId).catch(() => null) : null),
+            previous: () => meetingPromise.then(m => (m && m.seriesId)
+                ? svc.list().then(list => (list || []).filter(o => o.seriesId === m.seriesId && o.id !== m.id)).catch(() => [])
+                : []),
             tasks: () => tasksSvc ? tasksSvc.list() : Promise.resolve([]),
             types: () => svc.listTypes ? svc.listTypes() : Promise.resolve([]),
         };
@@ -144,7 +155,7 @@ class MeetingOccurrencePage extends WNElement {
         this.shadowRoot.addEventListener('task:created', () => this._refresh());
         this.shadowRoot.addEventListener('task:completed', () => this._refresh());
         this.shadowRoot.addEventListener('keydown', (e) => {
-            if (e.key !== 'Enter') return;
+            if (e.key !== 'Enter' || e.defaultPrevented) return;
             const el = e.target;
             if (el && el.dataset && el.dataset.el === 'agenda-add') { e.preventDefault(); this._addAgendaItem(); }
             if (el && el.dataset && el.dataset.el === 'decision-add') { e.preventDefault(); this._addDecision(); }
@@ -378,11 +389,16 @@ class MeetingOccurrencePage extends WNElement {
         } catch (e) { alert((e && e.message) || 'Feil'); }
     }
 
-    _renderAgendaItem(a, decisions, closed = false) {
+    _renderAgendaItem(a, decisions, closed = false, previousNotes = []) {
         const outcomes = ['resolved', 'deferred', 'cancelled'];
         return html`
             <div class="mo-agenda-item">
                 <div class="row1"><span class="title">${a.title}</span></div>
+                ${previousNotes.length ? html`
+                    <div class="mo-prev-notes">${previousNotes.map(n => html`
+                        <div class="mo-prev-note"><span class="mo-prev-note-date">${n.date}</span>${n.notes}</div>
+                    `)}</div>
+                ` : ''}
                 <textarea placeholder="Notater…" data-agenda="${a.agendaItemId}" ${closed ? 'readonly disabled' : ''}>${a.notes || ''}</textarea>
                 <div class="mo-outcome-btns">
                     ${outcomes.map(o => html`
@@ -432,6 +448,12 @@ class MeetingOccurrencePage extends WNElement {
         const isSeriesOccurrence = !!meeting.seriesId;
         const isClosed = meeting.status === 'closed';
         const timeRange = [meeting.start, meeting.end].filter(Boolean).join('–');
+        const previous = (data.previous || []).slice()
+            .filter(o => (o.date + (o.start || '')) <= (meeting.date + (meeting.start || '')))
+            .sort((a, b) => (a.date + (a.start || '')).localeCompare(b.date + (b.start || '')));
+        const previousNotes = (itemId) => previous.flatMap(o => (o.agenda || [])
+            .filter(e => e.agendaItemId === itemId && (e.notes || '').trim())
+            .map(e => ({ date: o.date, notes: e.notes.trim() })));
 
         return html`
             <div class="mo">
@@ -457,7 +479,7 @@ class MeetingOccurrencePage extends WNElement {
 
                     <div class="mo-section">
                         <h2>📋 Saksliste <span class="c">${agenda.length}</span></h2>
-                        ${agenda.length === 0 ? html`<p class="mo-empty">Ingen saklistepunkter i dette møtet.</p>` : agenda.map(a => this._renderAgendaItem(a, decisions, isClosed))}
+                        ${agenda.length === 0 ? html`<p class="mo-empty">Ingen saklistepunkter i dette møtet.</p>` : agenda.map(a => this._renderAgendaItem(a, decisions, isClosed, previousNotes(a.agendaItemId)))}
                         ${!isClosed ? html`
                             <div class="mo-agenda-add">
                                 <input type="text" data-el="agenda-add" placeholder="➕ Legg til saklistepunkt (også til serien)…" />
@@ -532,8 +554,7 @@ class MeetingOccurrencePage extends WNElement {
     }
 
     afterRender(data) {
-        this._minutesAutocomplete?.destroy();
-        this._minutesAutocomplete = null;
+        this._destroyInputHelpers();
         if (!data || data._loading) return;
         // Wire per-item agenda notes autosave on blur (declarative render()
         // can't attach listeners directly; do it here where the DOM exists).
@@ -544,12 +565,20 @@ class MeetingOccurrencePage extends WNElement {
             ta._wired = true;
             ta.addEventListener('blur', () => this._saveAgendaNotes(ta.dataset.agenda, ta.value));
         });
-        const minutes = root.querySelector('[data-el="minutes"]:not([disabled])');
-        if (minutes) {
+        const textInputs = root.querySelectorAll([
+            '[data-el="minutes"]:not([disabled])',
+            'textarea[data-agenda]:not([disabled])',
+            '[data-el="agenda-add"]',
+            '[data-el="decision-add"]',
+        ].join(','));
+        if (textInputs.length) {
             this._mentionSource ||= createMentionSource({ serviceFor: key => this.serviceFor(key) });
-            this._minutesAutocomplete = attachAutocomplete(minutes, {
-                triggers: [this._mentionSource.createTrigger()],
-                container: root,
+            textInputs.forEach(input => {
+                this._inputHelpers.push(attachDateTrigger(input));
+                this._inputHelpers.push(attachAutocomplete(input, {
+                    triggers: [this._mentionSource.createTrigger()],
+                    container: root,
+                }));
             });
         }
     }

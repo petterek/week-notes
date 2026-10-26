@@ -130,21 +130,27 @@ the `href` builder in `searchAll` accordingly.
 
 ### Model types
 
-Three flavours, selected in App-settings → Oppsummering:
+Two flavours, selected in App-settings → Oppsummering. The list, auto-select
+priority and `pickOllamaSummarizeModel` live in `lib/summarize-models.js`.
+Summarization must be enabled: `/api/summarize` returns 409 otherwise
+(there is no remote fallback; GitHub Models was retired 2026-07-30).
 
 | Flag | Examples | How it runs |
 |---|---|---|
-| `remote: true` | `remote:github-models/gpt-4o-mini` | HTTPS to GitHub Models API; needs `gh auth` token |
-| `ollama: true` | `ollama:gemma3`, `ollama:gemma3:1b`, `ollama:llama3.2` | HTTP to `localhost:11434` (Ollama); no token, no download |
+| `ollama: true` | `ollama:qwen3.5:9b`, `ollama:gemma4:12b`, `ollama:gpt-oss:20b`, `ollama:gemma3`, … | HTTP to `localhost:11434` (Ollama); no token, no download |
 | _(neither)_ | `Xenova/distilbart-cnn-6-6`, etc. | `@huggingface/transformers` via Worker thread; model files cached in `models/` |
 
 **Ollama path** (`isOllamaSummarizeModel`):
-- Uses the same richly-instructed Norwegian prompt as the remote path
-  (chat models understand instructions; seq2seq models do not).
+- Uses a richly-instructed Norwegian prompt (chat models understand
+  instructions; seq2seq models do not).
 - Calls `http://127.0.0.1:11434/v1/chat/completions` with `stream: false`.
 - The `ollama:` prefix is stripped to get the model name passed to Ollama.
 - If Ollama isn't running the error is `"Ollama ikke tilgjengelig — er Ollama startet?"`.
-- To use: `ollama pull gemma3` then activate in Settings.
+- To use: `ollama pull qwen3.5:9b` then activate in Settings.
+- Startup (`autoSelectSummarizeModel`) keeps the configured Ollama model if it
+  is installed (exact tag; untagged ids match `:latest`), otherwise switches to
+  the first installed id in `OLLAMA_AUTO_PRIORITY`. It never switches away
+  from a missing Ollama; summaries then fail with the Ollama error.
 - Settings UI shows `🦙 Ollama` status cell; size column shows `—`.
 
 ## Code map

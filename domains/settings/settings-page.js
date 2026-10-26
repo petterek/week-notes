@@ -794,9 +794,7 @@ class SettingsPage extends WNElement {
                 const isLoading = m.id === loadingId;
                 const downloaded = m.downloaded || isActive;
                 let statusCell;
-                if (m.remote) {
-                    statusCell = `<span class="vs-status-ok">☁ Ekstern</span>`;
-                } else if (m.ollama) {
+                if (m.ollama) {
                     statusCell = `<span class="vs-status-ok">🦙 Ollama</span>`;
                 } else if (isLoading) {
                     const pctTxt = loadingPct != null ? (loadingPct + '%') : '…';
@@ -814,7 +812,7 @@ class SettingsPage extends WNElement {
                     actions = `<button class="vs-action" disabled>Laster…</button>`;
                 } else if (isActive) {
                     actions = `<button class="vs-action is-active-btn" disabled>Aktiv</button>`;
-                } else if (m.remote || m.ollama) {
+                } else if (m.ollama) {
                     actions = `<button class="vs-action" data-sm-act="${escapeHtml(m.id)}">Aktiver</button>`;
                 } else if (downloaded) {
                     actions = `<button class="vs-action" data-sm-act="${escapeHtml(m.id)}">Aktiver</button>
@@ -822,7 +820,7 @@ class SettingsPage extends WNElement {
                 } else {
                     actions = `<button class="vs-action" data-sm-act="${escapeHtml(m.id)}">⬇ Last ned</button>`;
                 }
-                const sizeTxt = (m.remote || m.ollama) ? '—' : ('~' + m.sizeMb + 'MB');
+                const sizeTxt = m.ollama ? '—' : ('~' + m.sizeMb + 'MB');
                 return `<tr class="${isActive ? 'is-active' : ''}${isLoading ? ' is-loading' : ''}">
                     <td><div class="vs-name">${escapeHtml(m.label)}${m.recommended ? ' <small style="display:inline;color:var(--accent);font-weight:600;margin-left:4px">Anbefalt</small>' : ''}<small>${escapeHtml(m.id)}</small></div></td>
                     <td>${sizeTxt}</td>
@@ -845,7 +843,7 @@ class SettingsPage extends WNElement {
             if (appSettings.summarization.enabled) setPill('ready', 'Aktiv');
             else {
                 const cur = models.find(m => m.id === appSettings.summarization.model);
-                if (cur && !cur.remote && !cur.downloaded) setPill('disabled', '⬇ Last ned og aktiver');
+                if (cur && !cur.ollama && !cur.downloaded) setPill('disabled', '⬇ Last ned og aktiver');
                 else setPill('disabled', 'Stoppet');
             }
         };
@@ -1062,7 +1060,7 @@ class SettingsPage extends WNElement {
                                     <span class="vs-save-status" data-sm="saveStatus"></span>
                                 </div>
                             </div>
-                            <p class="app-help">Velg modell for &laquo;✨ Oppsummer&raquo;-knappen på uke-visningen. <strong>Ekstern</strong> bruker GitHub Models (gpt-4o-mini, krever <code>gh auth login</code>) — best kvalitet og eneste reelle alternativ for norske notater. <strong>Lokale</strong> modeller kjøres i en worker-tråd og lastes ned til <code>models/</code> første gang. Alle Xenovas oppsummerings-modeller er trent på engelsk (CNN/DailyMail) — norsk vil bli oversatt eller produsere dårlige resultater.</p>
+                            <p class="app-help">Velg modell for &laquo;✨ Oppsummer&raquo;-knappen på uke-visningen. <strong>Ollama</strong>-modeller kjøres lokalt via <a href="https://ollama.com" target="_blank" rel="noopener">Ollama</a> (installer med f.eks. <code>ollama pull qwen3.5:9b</code>) og er det reelle alternativet for norske notater. <strong>Xenova</strong>-modeller kjøres i en worker-tråd og lastes ned til <code>models/</code> første gang. Alle Xenovas oppsummerings-modeller er trent på engelsk (CNN/DailyMail) — norsk vil bli oversatt eller produsere dårlige resultater.</p>
                             <table class="vs-table" data-sm="table">
                                 <thead>
                                     <tr><th>Navn</th><th>Størrelse</th><th>Språk</th><th>Beskrivelse</th><th>Status</th><th></th></tr>
