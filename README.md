@@ -210,6 +210,9 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-10-26 (omtaler i møteserier)
+- **Omtaler i sakslister:** `@`-omtaler i møteseriens køpunkter og møtenotater vises nå som person-, team- og firmaomtaler, også etter at et punkt er løst.
+
 ### 2026-10-23 (oppsummering: nyere Ollama-modeller)
 - **Nye modeller:** `qwen3.5:9b` (anbefalt), `gemma4:12b` og `gpt-oss:20b` kan velges for «✨ Oppsummer» via Ollama.
 - **GitHub Models fjernet:** tjenesten ble lagt ned 30. juli 2026. Når oppsummering er slått av, får du nå beskjed om å aktivere en modell i stedet for et kall mot den nedlagte tjenesten.

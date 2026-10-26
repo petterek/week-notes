@@ -314,6 +314,12 @@ leaving fields untouched means the server fills them from the series
 defaults, so the modal must send `undefined`/omitted rather than
 empty-string overrides).
 
+Adding or renaming a queued agenda item supports the shared `@mention`
+autocomplete for people, teams, companies and `@me`; the selected mention
+key is saved as part of the agenda title. Agenda titles and notes render
+those references as the shared `entity-mention` chips in both the running
+queue and resolved-item list.
+
 Attributes: `meetings_service`, `tasks_service`, `people_service`
 (all dot-path service references, e.g.
 `week-note-services.meetings_service`).
