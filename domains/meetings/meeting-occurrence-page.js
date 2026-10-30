@@ -249,7 +249,10 @@ class MeetingOccurrencePage extends WNElement {
 
         if (act('mo-save-minutes')) {
             const ta = this.shadowRoot.querySelector('[data-el="minutes"]');
-            if (ta) await this._call(() => this.service.update(this._id, { minutes: ta.value }));
+            if (ta) await this._call(async () => {
+                await this.service.update(this._id, { minutes: ta.value });
+                this._minutesDraft = undefined;
+            });
             return;
         }
 
@@ -511,7 +514,7 @@ class MeetingOccurrencePage extends WNElement {
 
                 <div class="mo-section mo-minutes">
                     <h2>📝 Referat (fritekst)</h2>
-                    <textarea data-el="minutes" placeholder="Skriv referat i markdown…" ${isClosed ? 'readonly disabled' : ''}>${meeting.minutes || ''}</textarea>
+                    <textarea data-el="minutes" placeholder="Skriv referat i markdown…" ${isClosed ? 'readonly disabled' : ''}>${this._minutesDraft !== undefined ? this._minutesDraft : (meeting.minutes || '')}</textarea>
                     <div class="hint">Støtter markdown. Vises i PDF-eksporten.</div>
                     ${!isClosed ? html`<div class="save-row"><button type="button" class="mo-act mo-save-minutes">💾 Lagre referat</button></div>` : ''}
                 </div>
@@ -560,6 +563,10 @@ class MeetingOccurrencePage extends WNElement {
         // can't attach listeners directly; do it here where the DOM exists).
         const root = this.shadowRoot;
         root.querySelector('[data-el="resolved-decision"]')?.focus();
+        const minutesInput = root.querySelector('[data-el="minutes"]:not([disabled])');
+        if (minutesInput) {
+            minutesInput.addEventListener('input', () => { this._minutesDraft = minutesInput.value; });
+        }
         root.querySelectorAll('textarea[data-agenda]').forEach(ta => {
             if (ta._wired) return;
             ta._wired = true;

@@ -496,6 +496,31 @@ test('meeting occurrence workspace: full lifecycle via UI', async ({ page, reque
     }
 });
 
+test('adding an agenda item preserves an unsaved meeting-minutes draft', async ({ page, request }) => {
+    const series = (await (await request.post('/api/meeting-series', {
+        data: { title: 'Minutes draft preservation' },
+    })).json()).series;
+    let meeting;
+    try {
+        meeting = (await (await request.post('/api/meetings', {
+            data: { seriesId: series.id, date: '2099-07-01' },
+        })).json()).meeting;
+        await request.post(`/api/meetings/${meeting.id}/start`);
+        await page.goto(`/meeting-occurrence/${meeting.id}`);
+        const host = page.locator('meeting-occurrence-page');
+        const minutes = host.locator('[data-el="minutes"]');
+        await expect(minutes).toBeVisible();
+        await minutes.fill('Draft notes that are not saved yet');
+        await host.locator('[data-el="agenda-add"]').fill('A new discussion point');
+        await host.locator('.mo-agenda-add-btn').click();
+        await expect(host.locator('.mo-agenda-item')).toContainText('A new discussion point');
+        await expect(minutes).toHaveValue('Draft notes that are not saved yet');
+    } finally {
+        if (meeting) await request.delete(`/api/meetings/${meeting.id}`);
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
 // Regression: a follow-up task created from the occurrence workspace must
 // be linked to both the occurrence and its series so it also surfaces on
 // the series dashboard.

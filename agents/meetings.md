@@ -342,6 +342,8 @@ its parent series once the meeting resolves. Renders:
   occurrence agenda item; linked decisions also appear beneath that item.
 - Freeform minutes textarea (plain, no live markdown preview), with the
   shared `@mention` picker for people, teams, companies and `@me`.
+  Unsaved text is preserved across workspace refreshes (such as adding an
+  agenda item) and cleared from the client draft only after a successful save.
 - Follow-up tasks scoped to **this occurrence** (`t.meetingId ===
   this._id`; the series dashboard instead shows every task tagged with
   the series regardless of which occurrence). Quick-add via
