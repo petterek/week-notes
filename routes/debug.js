@@ -1498,7 +1498,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             ['Shared',    ['help-modal', 'icon-picker', 'json-table', 'modal-container', 'nav-button', 'nav-meta', 'time-picker', 'date-time-picker', 'pick-date-time-span', 'week-calendar', 'week-pill']],
             ['Context',   ['ctx-switcher']],
             ['Search',    ['global-search']],
-            ['Notes',     ['markdown-preview', 'note-card', 'note-editor', 'note-meta-view', 'note-meta-panel', 'note-view']],
+            ['Notes',     ['feature-rich-markdown', 'feature-rich-text-area', 'markdown-preview', 'note-card', 'note-editor', 'note-meta-view', 'note-meta-panel', 'note-view']],
             ['Tasks',     ['task-add-modal', 'task-complete-modal', 'task-note', 'task-note-modal', 'task-open-list', 'task-completed', 'task-create', 'task-create-full', 'task-view']],
             ['Meetings',  ['meeting-create', 'meeting-create-modal', 'upcoming-meetings', 'today-calendar', 'week-notes-calendar']],
             ['People',    ['company-card', 'entity-callout', 'entity-mention', 'people-page', 'person-card', 'person-picker', 'place-card']],
@@ -2723,18 +2723,44 @@ modal.open();</pre>
                     })();</script>`,
             },
             'note-editor': {
-                desc: `<p><strong>&lt;note-editor&gt;</strong> is the standalone note authoring component used on <code>/editor/&hellip;</code> routes. Form layout: week selector, filename input, themes input, a markdown textarea on the left and a live <code>&lt;markdown-preview&gt;</code> on the right with synchronized scrolling.</p>
-                    <p><strong>Domain:</strong> <code>notes</code> &mdash; from <code>notes_service</code>. The optional <code>preview_service</code> is forwarded to the embedded preview for relative-link resolution.</p>
-                    <p><strong>Lifecycle.</strong> Loads existing content via <code>service.raw(week, file)</code> when both are present, otherwise starts blank. Save is via <code>service.save({ folder, file, content, tags, type, presentationStyle? })</code>; cancel emits an event. The textarea is wired to a shared <code>&lt;wn-autocomplete&gt;</code> popover for <code>@</code> (people), <code>#</code> (themes) and <code>{{</code> (templates) triggers, and the live preview runs <code>linkMentions</code> so <code>@person</code> / <code>@company</code> chips render the same way as on read pages.</p>
-                    <p><strong>Scroll-sync.</strong> Listens for <code>markdown-preview:scroll</code> from the preview and reflects scroll position back to the textarea (and vice versa).</p>
+                desc: `<p><strong>&lt;note-editor&gt;</strong> is the standalone note authoring component used on <code>/editor/&hellip;</code> routes. Form layout: week selector, filename input, themes input, a <code>&lt;feature-rich-text-area&gt;</code> on the left and a live <code>&lt;feature-rich-markdown&gt;</code> on the right with synchronized scrolling.</p>
+                    <p><strong>Domain:</strong> <code>notes</code> &mdash; from <code>notes_service</code>. Optional task, people, company and team services are forwarded to the feature-aware Markdown renderer.</p>
+                    <p><strong>Lifecycle.</strong> Loads existing content via <code>service.raw(week, file)</code> when both are present, otherwise starts blank. Save is via <code>service.save({ folder, file, content, tags, type, presentationStyle? })</code>; cancel emits an event. The editor keeps raw Markdown as its value, supports smart list continuation and emoji insertion, and remains wired to the note editor's existing autocomplete and shortcuts.</p>
+                    <p><strong>Scroll-sync.</strong> Listens for <code>feature-rich-markdown:scroll</code> from the preview and reflects scroll position back to the textarea (and vice versa).</p>
                     <p><strong>Events</strong> (cancelable, bubbling, composed):</p>
                     <ul>
                         <li><code>note-editor:saved</code> with <code>{ folder, file, path, closeAfter }</code></li>
                         <li><code>note-editor:cancel</code></li>
                     </ul>`,
-                rawHtml: `<note-editor notes_service="MockNotesService" preview_service="MockNotesService"
-                    people_service="MockPeopleService" companies_service="MockCompaniesService"
+                rawHtml: `<note-editor notes_service="MockNotesService"
+                    tasks_service="MockTaskService" people_service="MockPeopleService" companies_service="MockCompaniesService"
                     teams_service="MockTeamsService"></note-editor>`,
+            },
+            'feature-rich-text-area': {
+                desc: `<p><strong>&lt;feature-rich-text-area&gt;</strong> is a Markdown input with raw Markdown as its value. It continues unordered, numbered and checkbox lists on Enter, exits an empty list, indents/outdents selected lines with Tab/Shift+Tab, and opens a searchable emoji selector when you type <code>::</code> (arrows navigate, Enter selects, Esc cancels), inserting a shortcode such as <code>:grinning:</code>. It also owns the note editor's <code>@mention</code> autocomplete (people, teams, companies and <code>@me</code>), task autocomplete (<code>{{?</code> / <code>{{!</code>), date shortcuts (<code>Ctrl+D</code> / <code>Ctrl+Shift+D</code>) and meeting shortcut (<code>Ctrl+M</code>).</p>
+                    <p>The editor is paired with <code>&lt;feature-rich-markdown&gt;</code> below; edits appear in the renderer immediately, including task markers and mentions. It emits <code>feature-rich-text-area:input</code> with <code>{ value }</code> whenever the Markdown changes, so hosts can sync another preview. <strong>API:</strong> read or set <code>el.value</code>; the native input remains available as <code>el.textarea</code>.</p>`,
+                rawHtml: `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;align-items:stretch;max-width:1100px">
+                        <div style="height:440px;min-width:0"><feature-rich-text-area id="dbg-rich-text" tasks_service="MockTaskService" people_service="MockPeopleService" companies_service="MockCompaniesService" teams_service="MockTeamsService" placeholder="Skriv Markdown her…" value="# Smart Markdown&#10;&#10;- Fortsett listen med Enter&#10;- [ ] Nye oppgaver starter ikke avkrysset&#10;&#10;Task: {{?t1}}&#10;&#10;Mention: @astrid"></feature-rich-text-area></div>
+                        <feature-rich-markdown id="dbg-rich-text-preview" tasks_service="MockTaskService" people_service="MockPeopleService" companies_service="MockCompaniesService" teams_service="MockTeamsService" style="height:440px;min-width:0" placeholder="Forhåndsvisning vises her…"></feature-rich-markdown>
+                    </div>
+                    <script>
+                        Promise.all([
+                            customElements.whenDefined('feature-rich-text-area'),
+                            customElements.whenDefined('feature-rich-markdown')
+                        ]).then(function(){
+                            var editor = document.getElementById('dbg-rich-text');
+                            var preview = document.getElementById('dbg-rich-text-preview');
+                            if (!editor || !preview) return;
+                            function sync(){ preview.value = editor.value; }
+                            editor.addEventListener('input', sync);
+                            sync();
+                        });
+                    <\/script>`,
+            },
+            'feature-rich-markdown': {
+                desc: `<p><strong>&lt;feature-rich-markdown&gt;</strong> renders Markdown plus the note editor's task markers and entity mentions. Set <code>value</code> as a property or attribute; it emits <code>feature-rich-markdown:scroll</code> with scroll metrics and reports service-load failures as <code>feature-rich-markdown:error</code>.</p>
+                    <p>The demo uses mock task and entity services. For example, <code>{{?t1}}</code> renders the seeded task as an unchecked item, <code>{{!t3}}</code> renders a completed task, and <code>@astrid</code> renders as a person mention.</p>`,
+                rawHtml: `<feature-rich-markdown id="dbg-rich-markdown" tasks_service="MockTaskService" people_service="MockPeopleService" companies_service="MockCompaniesService" teams_service="MockTeamsService" style="height:320px" value="# Feature preview&#10;&#10;Task: {{?t1}}&#10;&#10;Done: {{!t3}}&#10;&#10;Mention: @astrid"></feature-rich-markdown>`,
             },
             'week-notes-calendar': {
                 desc: `<p><strong>&lt;week-notes-calendar&gt;</strong> is the calendar <em>page</em> component: a toolbar (title, ISO-week badge, date range, prev/today/next nav buttons) wrapping an embedded <code>&lt;week-calendar&gt;</code>. Used on <code>/calendar</code> and <code>/calendar/&lt;week&gt;</code>.</p>
@@ -2971,11 +2997,13 @@ modal.open();</pre>
             'nav-meta:newMinute', 'nav-meta:newHour', 'nav-meta:newDay', 'nav-meta:newWeek', 'nav-meta:newMonth', 'nav-meta:newYear',
             'meeting-create:created', 'meeting-create:cancel', 'meeting-create:error',
             'note-editor:saved', 'note-editor:cancel',
+            'feature-rich-markdown:error',
             'task:created', 'task:create-failed',
             'task:completed', 'task:uncompleted',
             'task-note:save', 'task-note:cancel',
             'modal-open', 'modal-close',
             'markdown-preview:scroll',
+            'feature-rich-markdown:scroll',
             'calendar:week-changed',
             'context-selected',
             'datetime-selected', 'datetime-cancelled', 'dateweek-selected',
@@ -3027,6 +3055,8 @@ modal.open();</pre>
     <script type="module" src="/components/week-pill.js"></script>
     <script type="module" src="/components/global-search.js"></script>
     <script type="module" src="/components/markdown-preview.js"></script>
+    <script type="module" src="/components/feature-rich-text-area.js"></script>
+    <script type="module" src="/components/feature-rich-markdown.js"></script>
     <script type="module" src="/components/note-editor.js"></script>
     <script type="module" src="/components/week-calendar.js"></script>
     <script type="module" src="/components/week-notes-calendar.js"></script>

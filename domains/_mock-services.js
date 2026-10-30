@@ -81,6 +81,14 @@
         remove: (id) => { const i = companies.findIndex(x => x.key === id); if (i >= 0) companies.splice(i, 1); return delay({ ok: true }); },
     };
 
+    // ---------- Teams ----------
+    const teams = [
+        { key: 'design', name: 'Designteamet', members: ['astrid'] },
+    ];
+    window.MockTeamsService = {
+        list: () => delay(JSON.parse(JSON.stringify(teams))),
+    };
+
     // ---------- Places ----------
     const places = [
         { id: 'pl1', key: 'mathallen', name: 'Mathallen Oslo', address: 'Vulkan 5, 0178 Oslo', lat: 59.9226, lng: 10.7517, notes: 'Bra for lunsjmøter.', created: now() },

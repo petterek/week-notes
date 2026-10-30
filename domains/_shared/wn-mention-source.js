@@ -84,9 +84,13 @@ function _mentionRenderItem(item, query) {
 
 export function createMentionSource(options = {}) {
     const serviceFor = typeof options.serviceFor === 'function' ? options.serviceFor : null;
-    const fetchImpl = typeof options.fetchImpl === 'function'
-        ? options.fetchImpl
-        : (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
+    // servicesOnly: resolve people/companies/teams exclusively through
+    // injected *_service attributes; never fall back to /api/* fetches.
+    const fetchImpl = options.servicesOnly
+        ? null
+        : typeof options.fetchImpl === 'function'
+            ? options.fetchImpl
+            : (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
     const meKey = () => options.meKey != null
         ? String(options.meKey)
         : ((typeof window !== 'undefined' && window.mePersonKey) || '');

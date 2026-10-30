@@ -35,7 +35,33 @@ Freeform markdown notes, one folder per ISO week.
 - Editor component: `domains/notes/note-editor.js`, mounted by
   `pages/editor.html`. `/editor` is a shared-manifest SPA shell;
   existing-note path guards and filename titles remain in `routes/pages.js`.
-- Mention autocomplete: `public/mention-autocomplete.js`. Init via
+- The note editor uses `feature-rich-text-area.js` for raw Markdown input
+  (smart list continuation/indentation, `::` searchable emoji picker — curated
+  groups + "Nylig brukt" (localStorage), ranked search over `/emoji-catalog.json`
+  (emojilib, same map as the renderer) plus Norwegian keywords — with
+  fzf-style scoring in `emoji-search.js` (names/keywords split into words on
+  `_`, `-` and spaces; each query word must match within one word; boundary
+  and consecutive bonuses, gap penalties, one-typo tolerance) and
+  shortcode insertion such as `:grinning:`, task autocomplete, Ctrl+D
+  date/date-time and Ctrl+M meeting shortcuts) and
+  `feature-rich-markdown.js` for the live preview. The rich editor owns
+  these input behaviors, shows a shortcut help line, and emits the
+  bubbling/composed `feature-rich-text-area:input` event with `{ value }`
+  for host-to-preview synchronization. Shared note-marker and
+  mention transformations are in `markdown-features.js`; the companion
+  components also have standalone `/debug/` demos.
+- The note editor's `{{?` / `{{!` autocomplete loads open tasks through
+  its `tasks_service` and inserts task IDs using the same marker syntax
+  consumed by the live renderer.
+- `@mention` autocomplete in the note editor is owned by
+  `feature-rich-text-area` (shares its popover with task autocomplete).
+  The rich editor, `feature-rich-markdown` and `note-editor` load
+  people/companies/teams only from injected `people_service`,
+  `companies_service` and `teams_service` (`createMentionSource({
+  servicesOnly: true })`) — never direct `/api/*` fetches. Hosts must pass
+  those attributes; `pages/editor.html` uses `week-note-services.*` and
+  debug demos use `Mock*Service` (incl. `MockTeamsService`).
+- Mention autocomplete (legacy pages): `public/mention-autocomplete.js`. Init via
   `initMentionAutocomplete(el)` on every editable input/textarea.
 - Shared preview internals: `domains/_shared/wn-markdown-preview.js`
   owns the canonical markdown preview CSS + detached document setup;

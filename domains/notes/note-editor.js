@@ -1,7 +1,7 @@
 /**
  * <note-editor service="NotesService"> — minimal new/edit-note editor.
  *
- * Renders a week selector, filename input, textarea + <markdown-preview>
+ * Renders a week selector, filename input, Markdown editor + feature preview
  * and Save button inside its own shadow DOM. Theming flows from the page
  * via inherited CSS custom properties (--accent, --text, --surface, …).
  *
@@ -14,8 +14,8 @@
  *   week  — pre-select this ISO week (default: current)
  *   file  — pre-fill filename (default: empty)
  *   value — pre-fill textarea content
- *   preview_service — service path passed through to inner <markdown-preview>
- *                     (defaults to notes_service)
+ *   tasks_service, people_service, companies_service, teams_service —
+ *                  optional services forwarded to the rich editor/renderer
  *
  * Public API:
  *   element.save() / element.getContent() / element.setContent(s)
@@ -26,9 +26,10 @@
  */
 import { WNElement, html, escapeHtml, linkMentions, isoWeek } from './_shared.js';
 import { attachAutocomplete, replaceRange, highlightMatch } from '/components/wn-autocomplete.js';
-import { attachDateTrigger } from '/components/wn-date-trigger.js';
 import { createMentionSource } from '/services/_shared/wn-mention-source.js';
 import { createDetachedMarkdownPreview } from '/services/_shared/wn-markdown-preview.js';
+import './feature-rich-text-area.js';
+import './feature-rich-markdown.js';
 
 const STYLES = `
     :host {
@@ -59,16 +60,7 @@ const STYLES = `
     }
     .ne-split.detached { grid-template-columns: 1fr; }
     @media (max-width: 900px) { .ne-split { grid-template-columns: 1fr; } }
-    textarea {
-        width: 100%; height: 100%; padding: 14px;
-        border: 1px solid var(--border); border-radius: 8px;
-        font-family: var(--font-mono);
-        font-size: 0.95em; line-height: 1.5; resize: none; outline: none;
-        box-sizing: border-box;
-        background: var(--surface); color: var(--text-strong);
-        overflow: auto;
-    }
-    textarea:focus { border-color: var(--accent); }
+    .ne-split feature-rich-text-area { height: 100%; min-height: 0; }
     .ne-shortcuts {
         margin-top: 6px;
         font-size: 0.8em; color: var(--text-subtle);
@@ -83,7 +75,7 @@ const STYLES = `
         font-size: 0.92em;
         color: var(--text-muted);
     }
-    markdown-preview {
+    markdown-preview, feature-rich-markdown {
         height: 100%; display: block;
         overflow: auto;
         border: 1px solid var(--border); border-radius: 8px;
@@ -131,7 +123,7 @@ const STYLES = `
     }
     .ne-preview-wrap { position: relative; display: flex; flex-direction: column; min-height: 0; height: 100%; }
     .ne-preview-wrap[hidden] { display: none; }
-    .ne-preview-wrap markdown-preview { flex: 1; }
+    .ne-preview-wrap feature-rich-markdown { flex: 1; }
     .ne-preview-detached { display: none; }
     h1.ne-title {
         font-family: var(--font-heading); font-weight: 400;
@@ -260,7 +252,6 @@ class NoteEditor extends WNElement {
 
     render() {
         if (!this.service) return this.renderNoService();
-        const previewSrv = this.getAttribute('preview_service') || this.getAttribute('notes_service');
         const titleText = this._editing ? `Rediger ${this._initialFile}` : 'Nytt notat';
         return html`
             <h1 class="ne-title">${titleText}</h1>
@@ -297,9 +288,19 @@ class NoteEditor extends WNElement {
                 </label>
             </div>
             <div class="ne-split">
-                <textarea class="ne-content" placeholder="# Tittel&#10;&#10;Skriv markdown…">${this._initialValue}</textarea>
+                <feature-rich-text-area class="ne-content"
+                    tasks_service="${this.getAttribute('tasks_service') || 'week-note-services.tasks_service'}"
+                    people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
+                    companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
+                    teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"
+                    placeholder="# Tittel&#10;&#10;Skriv markdown…" value="${this._initialValue}"></feature-rich-text-area>
                 <div class="ne-preview-wrap">
-                    <markdown-preview class="ne-preview" placeholder="Forhåndsvisning vises her…" notes_service="${previewSrv}"></markdown-preview>
+                    <feature-rich-markdown class="ne-preview"
+                        tasks_service="${this.getAttribute('tasks_service') || 'week-note-services.tasks_service'}"
+                        people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
+                        companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
+                        teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"
+                        placeholder="Forhåndsvisning vises her…"></feature-rich-markdown>
                     <div class="ne-preview-detached" hidden>
                         <div>
                             📤 Forhåndsvisning er åpnet i eget vindu.
@@ -315,6 +316,7 @@ class NoteEditor extends WNElement {
                 <code>{{?</code> oppgave ·
                 <code>[[?</code> resultat ·
                 <code>{{m:?</code> møte ·
+                <code>Tab</code> oppgaveliste/innrykk ·
                 <code>Ctrl+M</code> nytt møte ·
                 <code>Ctrl+D</code> dato ·
                 <code>Ctrl+Shift+D</code> dato + tid ·
@@ -381,7 +383,8 @@ class NoteEditor extends WNElement {
         this._presStyleEl = this.shadowRoot.querySelector('.ne-pres-style');
         this._pinnedEl = this.shadowRoot.querySelector('.ne-pinned');
         this._taxonomyRow = this.shadowRoot.querySelector('.ne-row-taxonomy');
-        this._contentEl = this.shadowRoot.querySelector('.ne-content');
+        this._contentControl = this.shadowRoot.querySelector('.ne-content');
+        this._contentEl = this._contentControl?.textarea;
         this._previewEl = this.shadowRoot.querySelector('.ne-preview');
         this._previewWrap = this.shadowRoot.querySelector('.ne-preview-wrap');
         this._detachedPanel = this.shadowRoot.querySelector('.ne-preview-detached');
@@ -399,7 +402,6 @@ class NoteEditor extends WNElement {
         this._loadThemeSuggestions();
         this._installAutocompletes();
         this._installTagSpaceCommit();
-        this._installMeetingSnippet();
         this._installHistoryPanel();
         this._updateAutosaveInfo();
 
@@ -412,7 +414,11 @@ class NoteEditor extends WNElement {
         this._reattachBtn.addEventListener('click', () => this._reattachPreview());
 
         const markDirty = () => this._markDirty();
-        this._contentEl.addEventListener('input', () => { this._renderPreview(); markDirty(); });
+        this._contentControl.addEventListener('feature-rich-text-area:input', event => {
+            if (event.detail?.value !== this._contentEl.value) return;
+            this._renderPreview();
+            markDirty();
+        });
         this._fileEl.addEventListener('input', () => { if (this._detached) this._publishPreview(); markDirty(); });
 
         // Two-way scroll sync (percentage-based) between textarea and preview.
@@ -447,7 +453,7 @@ class NoteEditor extends WNElement {
         };
         this._contentEl.addEventListener('scroll', syncFromContent, { passive: true });
         if (this._previewEl) {
-            this._previewEl.addEventListener('markdown-preview:scroll', syncFromPreview);
+            this._previewEl.addEventListener('feature-rich-markdown:scroll', syncFromPreview);
         }
         if (this._tagsEl) this._tagsEl.addEventListener('change', markDirty);
         if (this._pinnedEl) this._pinnedEl.addEventListener('change', markDirty);
@@ -578,13 +584,14 @@ class NoteEditor extends WNElement {
         }
         if (!this._previewEl) return;
         const raw = this._contentEl ? this._contentEl.value : '';
-        this._previewEl.value = this._previewTransform(raw);
+        this._previewEl.value = raw;
     }
 
     _getMentionSource() {
         if (!this._mentionSource) {
             this._mentionSource = createMentionSource({
                 serviceFor: (key) => this.serviceFor(key),
+                servicesOnly: true,
             });
         }
         return this._mentionSource;
@@ -1210,32 +1217,20 @@ class NoteEditor extends WNElement {
     }
 
     _installCloseTaskAutocomplete() {
-        // Replaced by _installAutocompletes (task + tag + mention triggers
-        // share the same popover via attachAutocomplete). Noop.
+        // Task and @mention autocomplete are owned by <feature-rich-text-area>. Noop.
     }
 
     _installMentionAutocomplete() {
-        // Mentions are wired through _installAutocompletes too. Kept as a
-        // separate name in case external callers reference it.
+        // @mentions are owned by <feature-rich-text-area>. Kept as a noop
+        // in case external callers reference it.
     }
 
     _installAutocompletes() {
         if (!this._contentEl || this._acAttached) return;
         const ta = this._contentEl;
-        const tasksSvc = (typeof this.serviceFor === 'function') ? this.serviceFor('task') : null;
-
         // Lazy caches — fetched on first activation, reused thereafter.
-        let openTasks = null;
         let results = null;
         let meetings = null;
-        const ensureOpenTasks = async () => {
-            if (openTasks) return openTasks;
-            try {
-                const all = (tasksSvc && typeof tasksSvc.list === 'function') ? await tasksSvc.list() : [];
-                openTasks = (Array.isArray(all) ? all : []).filter(t => !t.done);
-            } catch (_) { openTasks = []; }
-            return openTasks;
-        };
         const ensureResults = async () => {
             if (results) return results;
             try {
@@ -1253,48 +1248,6 @@ class NoteEditor extends WNElement {
                 if (!Array.isArray(meetings)) meetings = [];
             } catch (_) { meetings = []; }
             return meetings;
-        };
-
-        const taskTrigger = {
-            // Detect '{{?' or '{{!' before the caret with no '}' or
-            // newline between. Extra carries the kind so onSelect can
-            // emit the right marker.
-            detect: (text, caret) => {
-                const upto = text.slice(0, caret);
-                const closeIdx = upto.lastIndexOf('{{!');
-                const openIdx  = upto.lastIndexOf('{{?');
-                const idx = Math.max(closeIdx, openIdx);
-                if (idx < 0) return null;
-                const between = upto.slice(idx + 3);
-                if (/[\n}]/.test(between)) return null;
-                const kind = (idx === closeIdx) ? '!' : '?';
-                return { query: between, start: idx, end: caret, extra: { kind } };
-            },
-            fetchItems: async () => {
-                const tasks = await ensureOpenTasks();
-                return tasks.map(t => ({
-                    value: t.id,
-                    label: t.text || '(uten tekst)',
-                    hint: t.week || '',
-                    week: t.week || '',
-                    created: t.created || '',
-                }));
-            },
-            filter: 'words',
-            limit: 12,
-            renderItem: (item, query) => {
-                const icon = '✓';
-                return `${icon} ${highlightMatch(item.label, query)}` +
-                    (item.hint ? `<span style="opacity:0.55;font-size:0.85em"> · ${highlightMatch(item.hint, query)}</span>` : '');
-            },
-            onSelect: (item, ctx) => {
-                const kind = (ctx.extra && ctx.extra.kind) || '!';
-                let endIdx = ctx.range.end;
-                if (ta.value.slice(endIdx, endIdx + 2) === '}}') endIdx += 2;
-                replaceRange(ta, ctx.range.start, endIdx, `{{${kind}${item.value}}} `);
-                this._renderPreview();
-                this._markDirty();
-            },
         };
 
         const resultTrigger = {
@@ -1379,7 +1332,6 @@ class NoteEditor extends WNElement {
             },
         };
 
-        const mentionSource = this._getMentionSource();
         const meetingTrigger = {
             // Detect '{{m:?' or '{{m:!' before the caret.
             detect: (text, caret) => {
@@ -1421,10 +1373,9 @@ class NoteEditor extends WNElement {
         };
 
         this._acHandle = attachAutocomplete(ta, {
-            triggers: [taskTrigger, resultTrigger, meetingTrigger, tagTrigger, mentionSource.createTrigger()],
+            triggers: [resultTrigger, meetingTrigger, tagTrigger],
             container: this.shadowRoot,
         });
-        this._dateHandle = attachDateTrigger(ta);
         this._acAttached = true;
     }
 
