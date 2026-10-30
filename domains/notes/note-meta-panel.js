@@ -16,7 +16,7 @@
  * Public API:
  *   el.reload()    — re-fetches the sidecar
  */
-import { WNElement, html, escapeHtml } from './_shared.js';
+import { WNElement, html } from './_shared.js';
 import './note-meta-view.js';
 
 const STYLES = `

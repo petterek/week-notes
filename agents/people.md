@@ -149,3 +149,26 @@ People POST accepts `primaryCompanyKey` and `primaryCompanyKey`+`extraCompanyKey
   column; overflow: hidden`. Active pane is `display: flex; flex:1;
   min-height:0`. `.pp-scroll` inside each pane is `overflow-y: scroll`
   — the scrollable list area. `.pp-toolbar` above it is `flex-shrink:0`.
+
+## Rich notes fields
+
+Person, company and place `notes` remain raw Markdown in storage. Their
+modals use `<feature-rich-text-area data-f="notes">` with
+`features="lists,emoji,mentions,dates"` (3 rows for people/companies,
+2 for places). The existing generic `.value` reads still save the notes.
+Each editor forwards the page's injected people/company/team services,
+falling back to `week-note-services.*`; autocomplete belongs to the editor.
+The place editor is mounted in light DOM, so attribute values and injected
+service paths must be escaped there explicitly.
+
+Person/company/place cards and team cards render notes as block rich text
+through `renderRichText` and `RICH_TEXT_CSS`, using the page's loaded mention
+lists. Names, titles, addresses and reference labels keep their existing
+plain-text/mention-only rendering. `entity-callout` also renders notes as
+rich text; `setData` optionally accepts `people`, `companies`, and `teams`
+lookup lists. Callouts limit notes visually instead of truncating Markdown
+mid-token. Raw HTML in notes is displayed literally, never executed.
+
+Regression coverage: `tests/playwright/rich-text-people.spec.js` exercises
+all four editors, persistence, reopening saved values, rich card displays,
+mention resolution, literal HTML and entity-callout rendering.

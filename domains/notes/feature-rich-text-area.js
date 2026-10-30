@@ -162,8 +162,29 @@ function rememberEmoji(item) {
     } catch { /* storage unavailable */ }
 }
 
+const MENTION_RE = /(?:^|[\s\n(\[])@([a-zA-ZæøåÆØÅ][a-zA-ZæøåÆØÅ0-9_-]*)/g;
+function extractMentions(text) {
+    return [...new Set([...String(text || '').matchAll(MENTION_RE)].map(m => m[1]))];
+}
+
+const FEATURES = ['lists', 'indent', 'emoji', 'mentions', 'tasks', 'results', 'dates', 'meetings', 'help'];
+const HELP = {
+    lists: 'Enter fortsetter lister',
+    indent: 'Tab/Shift+Tab innrykk',
+    emoji: ':: emoji',
+    mentions: '@ omtale',
+    tasks: '{{? oppgave',
+    results: '[[? resultat',
+    dates: 'Ctrl+D dato · Ctrl+Shift+D dato/tid',
+    meetings: 'Ctrl+M møte',
+};
+
 const STYLES = `
     :host { display: block; position: relative; width: 100%; height: 100%; min-height: 0; }
+    :host([rows]) { height: auto; }
+    :host([rows]) .editor { height: auto; }
+    :host([rows]) textarea { flex: none; min-height: 3.2em; padding: 8px 10px; resize: vertical; font-family: inherit; }
+    textarea[readonly] { background: var(--surface-alt, var(--surface)); color: var(--text-muted); }
     .editor { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; }
     textarea { flex: 1 1 auto; width: 100%; min-height: 0; padding: 14px; border: 1px solid var(--border); border-radius: 8px; font-family: var(--font-mono, monospace); font-size: 0.95em; line-height: 1.5; resize: none; outline: none; box-sizing: border-box; background: var(--surface); color: var(--text-strong); overflow: auto; }
     textarea:focus { border-color: var(--accent); }
@@ -182,7 +203,46 @@ const STYLES = `
 
 class FeatureRichTextArea extends WNElement {
     static get domain() { return 'notes'; }
-    static get observedAttributes() { return ['value', 'placeholder', 'disabled', 'rows']; }
+    static get observedAttributes() { return ['value', 'placeholder', 'disabled', 'readonly', 'rows', 'features']; }
+    static get formAssociated() { return true; }
+
+    constructor() {
+        super();
+        this._internals = typeof this.attachInternals === 'function' ? this.attachInternals() : null;
+    }
+
+    // Comma/space separated subset of FEATURES; absent means every feature.
+    get features() {
+        const raw = this.getAttribute('features');
+        if (raw == null) return new Set(FEATURES);
+        return new Set(raw.split(/[\s,]+/).filter(name => FEATURES.includes(name)));
+    }
+
+    _has(feature) { return this.features.has(feature); }
+
+    // Help line: enabled features plus `help` labels on host triggers.
+    _helpText() {
+        const features = this.features;
+        if (!features.has('help')) return '';
+        return [
+            ...FEATURES.filter(name => features.has(name) && HELP[name]).map(name => HELP[name]),
+            ...(this._extraTriggers || []).map(trigger => trigger?.help).filter(Boolean),
+        ].join(' · ');
+    }
+
+    _updateHelp() {
+        const textarea = this.textarea;
+        if (!textarea) return;
+        const text = textarea.readOnly || textarea.disabled ? '' : this._helpText();
+        let el = this.shadowRoot.querySelector('.editor-help');
+        if (!text) { el?.remove(); return; }
+        if (!el) {
+            el = document.createElement('div');
+            el.className = 'editor-help';
+            textarea.after(el);
+        }
+        el.textContent = text;
+    }
 
     css() { return STYLES; }
 
@@ -190,10 +250,13 @@ class FeatureRichTextArea extends WNElement {
         const value = this.value;
         const rows = Math.max(2, Number(this.getAttribute('rows')) || 10);
         const disabled = this.hasAttribute('disabled');
+        const readonly = this.hasAttribute('readonly');
+        const features = this.features;
+        const help = !readonly && !disabled ? this._helpText() : '';
         return html`
             <div class="editor">
-                <textarea aria-label="Markdown" placeholder="${this.getAttribute('placeholder') || ''}" rows="${rows}" ${disabled ? 'disabled' : ''}>${value}</textarea>
-                <div class="editor-help">Enter fortsetter lister · Tab/Shift+Tab innrykk · :: emoji · @ omtale · {{? oppgave · Ctrl+D dato · Ctrl+Shift+D dato/tid · Ctrl+M møte</div>
+                <textarea aria-label="${this.getAttribute('aria-label') || 'Markdown'}" placeholder="${this.getAttribute('placeholder') || ''}" rows="${rows}" ${disabled ? 'disabled' : ''} ${readonly ? 'readonly' : ''}>${value}</textarea>
+                ${help ? html`<div class="editor-help">${help}</div>` : ''}
                 <div class="emoji-pop" role="dialog" aria-label="Velg emoji" aria-modal="false">
                     <input type="search" class="emoji-search" placeholder="Søk emoji – navn eller ord (f.eks. tommel, rakett)…" aria-label="Søk emoji" autocomplete="off">
                     <div class="emoji-empty" hidden>Ingen treff</div>
@@ -209,19 +272,41 @@ class FeatureRichTextArea extends WNElement {
     }
 
     connectedCallback() {
-        this._value = this.getAttribute('value') || this.textContent || '';
+        if (this._value == null) this._value = this.getAttribute('value') ?? this.textContent ?? '';
+        if (this._defaultValue == null) this._defaultValue = this._value;
+        this._syncFormValue();
         super.connectedCallback();
     }
 
+    formResetCallback() { this.value = this._defaultValue || ''; }
+
+    formDisabledCallback(disabled) { this.toggleAttribute('disabled', disabled); }
+
+    _syncFormValue() { this._internals?.setFormValue?.(this.value); }
+
+    focus(options) {
+        if (this.textarea) this.textarea.focus(options);
+        else super.focus(options);
+    }
+
+    get selectionStart() { return this.textarea?.selectionStart ?? 0; }
+    get selectionEnd() { return this.textarea?.selectionEnd ?? 0; }
+    setSelectionRange(start, end, direction) { this.textarea?.setSelectionRange(start, end, direction); }
+
     attributeChangedCallback(name, oldValue, newValue) {
         if (oldValue === newValue) return;
-        if (name === 'value') this._value = newValue || '';
+        if (name === 'value') {
+            this._value = newValue || '';
+            this._syncFormValue();
+        }
         super.attributeChangedCallback(name, oldValue, newValue);
     }
 
     afterRender() {
         this._shortcutHandles?.forEach(handle => handle.destroy());
         this._shortcutHandles = [];
+        this._acHandle?.destroy();
+        this._acHandle = null;
         const textarea = this.textarea;
         if (!textarea) return;
         if (this._selection) {
@@ -241,26 +326,39 @@ class FeatureRichTextArea extends WNElement {
         textarea.addEventListener('mousedown', () => {
             if (this._emojiPickerOpen) this._closeEmojiPicker({ removeTrigger: false });
         });
+        textarea.addEventListener('change', () => {
+            this.dispatchEvent(new Event('change', { bubbles: true }));
+        });
         textarea.addEventListener('input', () => {
             this._value = textarea.value;
+            this._syncFormValue();
             this.dispatchEvent(new CustomEvent('feature-rich-text-area:input', {
                 bubbles: true,
                 composed: true,
                 detail: { value: this.value },
             }));
-            this._checkEmojiTrigger(textarea);
+            if (this._has('emoji') && !textarea.readOnly && !textarea.disabled) this._checkEmojiTrigger(textarea);
         });
         textarea.addEventListener('keydown', event => this._onKeydown(event));
-        this._shortcutHandles.push(
-            attachDateTrigger(textarea),
-            attachMeetingShortcut(textarea),
-            this._attachAutocomplete(textarea)
-        );
+        if (this.hasAttribute('readonly') || this.hasAttribute('disabled')) return;
+        if (this._has('dates')) this._shortcutHandles.push(attachDateTrigger(textarea));
+        if (this._has('meetings')) this._shortcutHandles.push(attachMeetingShortcut(textarea));
+        this._reattachAutocomplete();
     }
 
     disconnectedCallback() {
         this._shortcutHandles?.forEach(handle => handle.destroy());
         this._shortcutHandles = [];
+        this._acHandle?.destroy();
+        this._acHandle = null;
+    }
+
+    _reattachAutocomplete() {
+        this._acHandle?.destroy();
+        this._acHandle = null;
+        const textarea = this.textarea;
+        if (!textarea || textarea.readOnly || textarea.disabled) return;
+        this._acHandle = this._attachAutocomplete(textarea);
     }
 
     _mentionSource() {
@@ -308,10 +406,65 @@ class FeatureRichTextArea extends WNElement {
                 replaceRange(textarea, context.range.start, end, `{{${kind}${item.value}}} `);
             },
         };
+        const triggers = [...(this._extraTriggers || [])];
+        if (this._has('tasks')) triggers.push(taskTrigger);
+        if (this._has('results')) triggers.push(this._resultTrigger(textarea));
+        if (this._has('mentions')) triggers.push(this._mentionSource().createTrigger());
         return attachAutocomplete(textarea, {
-            triggers: [taskTrigger, this._mentionSource().createTrigger()],
+            triggers,
             container: this.shadowRoot,
         });
+    }
+
+    // '[[?' picks a result from results_service and inserts '[[?<id>]]'.
+    _resultTrigger(textarea) {
+        const service = this.serviceFor('results');
+        let results = null;
+        return {
+            detect: (text, caret) => {
+                const prefix = text.slice(0, caret);
+                const start = prefix.lastIndexOf('[[?');
+                if (start < 0) return null;
+                const query = prefix.slice(start + 3);
+                if (/[\n\]]/.test(query)) return null;
+                return { query, start, end: caret };
+            },
+            fetchItems: async () => {
+                if (!results) {
+                    if (!service || typeof service.list !== 'function') {
+                        throw new Error('Result autocomplete requires a results_service with list()');
+                    }
+                    const list = await service.list();
+                    if (!Array.isArray(list)) throw new TypeError('results_service.list() must return an array');
+                    results = list.slice().sort((a, b) =>
+                        String(b.created || b.week || '').localeCompare(String(a.created || a.week || '')));
+                }
+                return results.map(result => ({
+                    value: result.id,
+                    label: result.text || '(uten tekst)',
+                    hint: result.week || '',
+                }));
+            },
+            filter: 'words',
+            limit: 12,
+            renderItem: (item, query) => `🏁 ${highlightMatch(item.label, query)}` +
+                (item.hint ? `<span style="opacity:0.55;font-size:0.85em"> · ${highlightMatch(item.hint, query)}</span>` : ''),
+            onSelect: (item, context) => {
+                let end = context.range.end;
+                if (textarea.value.slice(end, end + 2) === ']]') end += 2;
+                replaceRange(textarea, context.range.start, end, `[[?${item.value}]] `);
+            },
+        };
+    }
+
+    // Host-specific autocomplete triggers (same shape as wn-autocomplete
+    // triggers); onSelect receives the inner textarea as ctx.textarea.
+    // An optional `help` string is appended to the help line.
+    get triggers() { return this._extraTriggers || []; }
+    set triggers(list) {
+        this._extraTriggers = Array.isArray(list) ? list : [];
+        this._updateHelp();
+        this._reattachAutocomplete();
     }
 
     get textarea() { return this.shadowRoot?.querySelector('textarea') || null; }
@@ -319,6 +472,7 @@ class FeatureRichTextArea extends WNElement {
     set value(value) {
         this._value = value == null ? '' : String(value);
         if (this.textarea && this.textarea.value !== this._value) this.textarea.value = this._value;
+        this._syncFormValue();
     }
 
     _replace(start, end, insertion, selectionStart = null, selectionEnd = null) {
@@ -329,7 +483,108 @@ class FeatureRichTextArea extends WNElement {
         const caret = before.length + insertion.length;
         textarea.setSelectionRange(selectionStart ?? caret, selectionEnd ?? selectionStart ?? caret);
         this._value = textarea.value;
+        this._syncFormValue();
         textarea.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+    }
+
+    // Turn inline create markers into entities through the injected
+    // services. Hosts await this before saving. Enabled features decide
+    // what is converted:
+    //   tasks    {{X}}                              → tasks_service.create
+    //   results  [[X]] / [[X+]] / [[X-]]            → results_service.create
+    //   meetings {{m:Title @ YYYY-MM-DD HH:MM[ Nm]}} → meetings_service.create
+    // replaceWith 'ref' writes {{?id}} / [[?id]] / {{m:?id}}; 'text' keeps
+    // only the plain text. Returns { value, created }.
+    async convert({ week = '', noteRef = '', taskId = '', taskText = '', replaceWith = 'ref' } = {}) {
+        const asText = replaceWith === 'text';
+        const noteMentions = extractMentions(this.value);
+        const created = { tasks: [], results: [], meetings: [] };
+        const need = key => {
+            const service = this.serviceFor(key);
+            if (!service || typeof service.create !== 'function') throw new Error(`${key}_service mangler`);
+            return service;
+        };
+        let value = this.value;
+        // Replace one marker at a time so markers already turned into
+        // entities stay converted even if a later create fails.
+        const each = async (re, fn) => {
+            let pos = 0;
+            for (;;) {
+                re.lastIndex = pos;
+                const m = re.exec(value);
+                if (!m) return;
+                const replacement = await fn(m);
+                value = value.slice(0, m.index) + replacement + value.slice(m.index + m[0].length);
+                pos = m.index + replacement.length;
+            }
+        };
+        const commit = () => {
+            if (value === this.value) return;
+            this.value = value;
+            this.textarea?.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+        };
+
+        try {
+            if (this._has('tasks')) {
+                await each(/\{\{([^{}]+)\}\}/g, async m => {
+                    const text = m[1].trim();
+                    if (!text || /^[?!]/.test(text) || /^m:/i.test(text)) return m[0];
+                    const opts = {};
+                    if (week) opts.week = week;
+                    if (noteRef) opts.noteRef = noteRef;
+                    const res = await need('tasks').create(text, opts);
+                    const task = Array.isArray(res) ? res[res.length - 1] : (res?.task || res);
+                    if (!task?.id) throw new Error('Kunne ikke opprette oppgave');
+                    created.tasks.push(task);
+                    return asText ? text : `{{?${task.id}}}`;
+                });
+            }
+
+            if (this._has('results')) {
+                await each(/\[\[([^[\]]+)\]\]/g, async m => {
+                    let text = m[1].trim();
+                    if (!text || /^[?!]/.test(text)) return m[0];
+                    let sentiment = null;
+                    if (text.endsWith('+')) sentiment = 'good';
+                    else if (text.endsWith('-')) sentiment = 'bad';
+                    if (sentiment) text = text.slice(0, -1).trimEnd();
+                    if (!text) return m[0];
+                    const data = { text, people: [...new Set([...noteMentions, ...extractMentions(text)])] };
+                    if (week) data.week = week;
+                    if (sentiment) data.sentiment = sentiment;
+                    if (taskId) data.taskId = taskId;
+                    if (taskText) data.taskText = taskText;
+                    const res = await need('results').create(data);
+                    const result = res?.result || res;
+                    if (!result?.id) throw new Error('Kunne ikke opprette resultat');
+                    created.results.push(result);
+                    return asText ? text : `[[?${result.id}]]`;
+                });
+            }
+
+            if (this._has('meetings')) {
+                await each(/\{\{m:([^{}]+)\}\}/gi, async m => {
+                    const inner = m[1].trim();
+                    if (/^[?!]/.test(inner)) return m[0];
+                    const at = inner.lastIndexOf('@');
+                    if (at < 0) return m[0];
+                    const title = inner.slice(0, at).trim();
+                    const when = inner.slice(at + 1).trim().match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})(?:\s+(\d+)m)?$/);
+                    if (!title || !when) return m[0];
+                    const data = { title, date: when[1], start: when[2], type: 'standup', attendees: noteMentions };
+                    if (when[3]) data.durationMinutes = parseInt(when[3], 10);
+                    if (noteRef) data.noteRef = noteRef;
+                    const res = await need('meetings').create(data);
+                    const meeting = res?.meeting || res;
+                    if (!meeting?.id) throw new Error('Kunne ikke opprette møte');
+                    created.meetings.push(meeting);
+                    return asText ? title : `{{m:?${meeting.id}}}`;
+                });
+            }
+        } finally {
+            commit();
+        }
+        return { value, created };
     }
 
     _insertAtSelection(value, name = SHORTCODE_BY_EMOJI.get(value)) {
@@ -459,9 +714,11 @@ class FeatureRichTextArea extends WNElement {
         if (event.key === 'Escape' && this._emojiPickerOpen) {
             event.preventDefault();
             this._closeEmojiPicker();
-        } else if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        } else if (textarea.readOnly || textarea.disabled) {
+            return;
+        } else if (event.key === 'Enter' && this._has('lists') && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
             if (this._handleListEnter(textarea)) event.preventDefault();
-        } else if (event.key === 'Tab' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        } else if (event.key === 'Tab' && this._has('indent') && !event.ctrlKey && !event.metaKey && !event.altKey) {
             event.preventDefault();
             if (!event.shiftKey && textarea.selectionStart === textarea.selectionEnd) {
                 this._replace(textarea.selectionStart, textarea.selectionEnd, '    ');

@@ -28,6 +28,7 @@
  * render that needs it.
  */
 import { WNElement, html, unsafeHTML, escapeHtml, linkMentions } from '../../components/_shared.js';
+import { renderRichText, RICH_TEXT_CSS } from '/services/_shared/wn-rich-text.js';
 
 const LEAFLET_CSS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
 const LEAFLET_JS  = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
@@ -76,7 +77,7 @@ const STYLES = `
     .person-contact a { color: var(--accent); text-decoration: none; }
     .person-contact a:hover { text-decoration: underline; }
     .place-mini-map { height: 200px; border-top: 1px solid var(--border-soft); border-bottom: 1px solid var(--border-soft); }
-    .person-notes { padding: 8px 18px; background: var(--surface-head); border-top: 1px solid var(--border-soft); font-size: 0.85em; color: var(--text-muted); font-style: italic; white-space: pre-wrap; }
+    .person-notes { padding: 8px 18px; background: var(--surface-head); border-top: 1px solid var(--border-soft); font-size: 0.85em; color: var(--text-muted); }
     .person-section { padding: 10px 18px; border-top: 1px solid var(--border-faint); }
     .person-section-h { font-size: 0.75em; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
     .person-section-h .c { display: inline-block; min-width: 18px; padding: 0 6px; margin-left: 4px; background: var(--surface-alt); color: var(--text-muted); border-radius: 9px; font-size: 0.95em; text-align: center; }
@@ -105,7 +106,7 @@ export class PlaceCard extends WNElement {
         this.requestRender();
     }
 
-    css() { return STYLES; }
+    css() { return STYLES + RICH_TEXT_CSS; }
 
     connectedCallback() {
         super.connectedCallback();
@@ -180,6 +181,11 @@ export class PlaceCard extends WNElement {
         }
     }
 
+    _richNotes(text) {
+        const { people = [], companies = [], teams = [] } = this._data || {};
+        return unsafeHTML(renderRichText(text, { people, companies, teams }));
+    }
+
     _link(rawText) {
         const people = (this._data && this._data.people) || [];
         const companies = (this._data && this._data.companies) || [];
@@ -250,7 +256,7 @@ export class PlaceCard extends WNElement {
                             <span>📍 <a href="https://www.openstreetmap.org/?mlat=${p.lat}&mlon=${p.lng}#map=16/${p.lat}/${p.lng}" target="_blank" rel="noopener">Vis på kart (OSM)</a></span>
                         </div>
                         <div class="place-mini-map" data-lat="${p.lat}" data-lng="${p.lng}" data-name="${p.name || ''}"></div>` : ''}
-                    ${p.notes ? html`<div class="person-notes">${p.notes}</div>` : ''}
+                    ${p.notes ? html`<div class="person-notes rich-text">${this._richNotes(p.notes)}</div>` : ''}
                     ${meetings.length ? html`
                         <div class="person-section">
                             <div class="person-section-h">Møter <span class="c">${meetings.length}</span></div>

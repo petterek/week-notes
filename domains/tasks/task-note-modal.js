@@ -21,9 +21,8 @@
  * the ✕ button cancel.
  */
 import { WNElement, html, escapeHtml, modalZ } from './_shared.js';
-import { attachDateTrigger } from '/components/wn-date-trigger.js';
-import { attachAutocomplete } from '/components/wn-autocomplete.js';
-import { createMentionSource } from '/services/_shared/wn-mention-source.js';
+
+import '/components/feature-rich-text-area.js';
 
 const STYLES = `
     :host { display: inline-block; font: inherit; }
@@ -60,15 +59,7 @@ const STYLES = `
         color: var(--text-muted); font-weight: 600;
         margin: 0 0 14px; word-break: break-word;
     }
-    textarea {
-        width: 100%; box-sizing: border-box;
-        min-height: 140px; resize: vertical;
-        padding: 8px 10px;
-        background: var(--surface); color: var(--text-strong);
-        border: 1px solid var(--border); border-radius: 6px;
-        font: inherit; font-size: 0.95em;
-    }
-    textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    feature-rich-text-area { width: 100%; }
 
     .actions {
         display: flex; justify-content: flex-end; gap: 8px;
@@ -106,8 +97,14 @@ class TaskNoteModal extends WNElement {
                         <button type="button" class="close" data-act="cancel" title="Lukk (Esc)">✕</button>
                     </div>
                     <p class="task-text">${escapeHtml(text)}</p>
-                    <textarea data-el="note" rows="6"
-                        placeholder="Skriv notat her…"></textarea>
+                    <feature-rich-text-area data-el="note" rows="6"
+                        features="lists,emoji,mentions,tasks,results,dates" value="${t?.note || ''}"
+                        people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
+                        companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
+                        teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"
+                        tasks_service="${this.getAttribute('tasks_service') || 'week-note-services.tasks_service'}"
+                        results_service="${this.getAttribute('results_service') || 'week-note-services.results_service'}"
+                        aria-label="Oppgavenotat" placeholder="Skriv notat her…"></feature-rich-text-area>
                     <div class="hint">Ctrl/⌘ + Enter for å lagre, Esc for å avbryte. Markdown og @mentions støttes.</div>
                     <div class="actions">
                         <button type="button" class="btn cancel" data-act="cancel">Avbryt</button>
@@ -119,11 +116,6 @@ class TaskNoteModal extends WNElement {
     }
 
     setData(d) {
-        this._mentionSource = null;
-        if (this._acHandle) {
-            try { this._acHandle.destroy(); } catch (_) {}
-            this._acHandle = null;
-        }
         this._data = d || {};
         this.requestRender();
         this._wire();
@@ -133,24 +125,18 @@ class TaskNoteModal extends WNElement {
         this.setData({ task: task || {} });
         this._callback = (typeof callback === 'function') ? callback : null;
         this._zIndex = modalZ.next();
+        this._focusOnRender = true;
         this.setAttribute('open', '');
         const bd = this.shadowRoot && this.shadowRoot.querySelector('.backdrop');
         if (bd) bd.style.zIndex = this._zIndex;
-        const initial = (task && typeof task.note === 'string') ? task.note : '';
-        setTimeout(() => {
-            const ta = this.shadowRoot && this.shadowRoot.querySelector('[data-el="note"]');
-            if (ta) {
-                ta.value = initial;
-                if (!ta.__wnDateAttached) attachDateTrigger(ta);
-                if (!ta.__wnMentionAttached) {
-                    ta.__wnMentionAttached = true;
-                    this._installMentionAutocomplete(ta);
-                }
-                ta.focus();
-                const len = ta.value.length;
-                try { ta.setSelectionRange(len, len); } catch {}
-            }
-        }, 0);
+    }
+
+    afterRender() {
+        if (!this._focusOnRender) return;
+        this._focusOnRender = false;
+        const editor = this.shadowRoot.querySelector('[data-el="note"]');
+        editor?.focus();
+        editor?.setSelectionRange(editor.value.length, editor.value.length);
     }
 
     close() {
@@ -180,22 +166,30 @@ class TaskNoteModal extends WNElement {
         this._runCallback({ saved: false, id });
     }
 
-    _save() {
+    async _save() {
+        if (this._converting) return;
+        this._converting = true;
+        try { await this._saveImpl(); }
+        finally { this._converting = false; }
+    }
+
+    async _saveImpl() {
+        const t = (this._data && this._data.task) || {};
         const id = this._currentId();
         const ta = this.shadowRoot && this.shadowRoot.querySelector('[data-el="note"]');
+        if (ta) {
+            // {{X}} / [[X]] become tasks/results; the note keeps the plain text.
+            try {
+                await ta.convert({ week: t.week || '', taskId: id || '', taskText: t.text || '', replaceWith: 'text' });
+            } catch (e) {
+                const hint = this.shadowRoot.querySelector('.hint');
+                if (hint) hint.textContent = 'Kunne ikke opprette fra markører: ' + (e.message || e);
+                return;
+            }
+        }
         const note = ta ? ta.value.trim() : '';
         if (this.hasAttribute('open')) this.removeAttribute('open');
         this._runCallback({ saved: true, id, note });
-    }
-
-    _installMentionAutocomplete(ta) {
-        this._mentionSource = this._mentionSource || createMentionSource({
-            serviceFor: (key) => this.serviceFor(key),
-        });
-        this._acHandle = attachAutocomplete(ta, {
-            triggers: [this._mentionSource.createTrigger()],
-            container: this.shadowRoot.querySelector('.card') || this.shadowRoot,
-        });
     }
 
     connectedCallback() {
@@ -213,8 +207,6 @@ class TaskNoteModal extends WNElement {
 
     disconnectedCallback() {
         document.removeEventListener('keydown', this._onKey);
-        if (this._acHandle) { this._acHandle.destroy(); this._acHandle = null; }
-        this._mentionSource = null;
         this._keyWired = false;
     }
 

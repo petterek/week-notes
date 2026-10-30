@@ -123,6 +123,7 @@
             if (opts.dueDate) t.dueDate = opts.dueDate;
             if (opts.goalId) t.goalId = opts.goalId;
             if (opts.note) t.note = opts.note;
+            if (opts.noteRef) t.noteRef = opts.noteRef;
             tasks.push(t);
             return delay(JSON.parse(JSON.stringify(tasks)));
         },
@@ -165,7 +166,9 @@
         },
         create: (d) => {
             const text = String(d.text || '').trim();
-            const r = { id: uid('r'), created: now(), week: d.week || thisWeek, text, people: extractMentionsM(text) };
+            const people = [...new Set([...extractMentionsM(text), ...(Array.isArray(d.people) ? d.people : [])])];
+            const r = { id: uid('r'), created: now(), week: d.week || thisWeek, text, people };
+            for (const k of ['sentiment', 'taskId', 'taskText']) if (d[k]) r[k] = d[k];
             results.unshift(r); return delay(r);
         },
         update: (id, patch) => { const i = results.findIndex(x => x.id === id); if (i < 0) return Promise.reject(new Error('not found')); Object.assign(results[i], patch); return delay(results[i]); },

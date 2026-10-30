@@ -17,12 +17,15 @@
  * statuses: 'active', 'achieved', 'abandoned'.
  */
 import { WNElement, html, unsafeHTML, escapeHtml } from './_shared.js';
+import '/components/feature-rich-text-area.js';
+import { renderRichText, RICH_TEXT_CSS } from '/services/_shared/wn-rich-text.js';
 
 const STATUS_LABEL = { active: 'Aktiv', achieved: 'Oppnådd', abandoned: 'Forlatt' };
 const STATUS_ICON  = { active: '🎯', achieved: '🏆', abandoned: '🗑️' };
 const STATUS_ORDER = ['active', 'achieved', 'abandoned'];
 
 const STYLES = `
+    ${RICH_TEXT_CSS}
     :host { display: block; padding: 20px 24px; box-sizing: border-box; color: var(--text-strong); font: inherit; }
     body:has(goals-page) { max-width: none; }
     .gp { display: flex; flex-direction: column; height: calc(100vh - 100px); min-height: 400px; }
@@ -99,7 +102,7 @@ const STYLES = `
     .gp-del { color: var(--danger, #c53030); }
     .gp-desc {
         color: var(--text-muted); font-size: 0.95em; line-height: 1.5;
-        white-space: pre-wrap; word-break: break-word; margin: 0 0 16px;
+        word-break: break-word; margin: 0 0 16px;
     }
     .gp-meta {
         display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
@@ -205,6 +208,7 @@ const STYLES = `
         border-radius: 6px; background: var(--bg);
         color: var(--text-strong); font: inherit;
     }
+    .modal-form feature-rich-text-area { display: block; width: 100%; margin-top: 4px; }
     .modal-form textarea:focus, .modal-form input:focus, .modal-form select:focus {
         border-color: var(--accent); outline: none;
     }
@@ -227,7 +231,7 @@ const STYLES = `
 
 class GoalsPage extends WNElement {
     static get domain() { return 'goals'; }
-    static get observedAttributes() { return ['goals_service', 'tasks_service', 'results_service', 'people_service']; }
+    static get observedAttributes() { return ['goals_service', 'tasks_service', 'results_service', 'people_service', 'companies_service', 'teams_service']; }
 
     constructor() {
         super();
@@ -269,6 +273,8 @@ class GoalsPage extends WNElement {
         const tasksSvc = this.serviceFor('tasks');
         const resultsSvc = this.serviceFor('results');
         const peopleSvc = this.serviceFor('people');
+        const companiesSvc = this.serviceFor('companies') || window['week-note-services']?.companies_service;
+        const teamsSvc = this.serviceFor('teams') || window['week-note-services']?.teams_service;
         return {
             goals: async () => {
                 const g = await this.service.list();
@@ -277,6 +283,8 @@ class GoalsPage extends WNElement {
             tasks:   () => tasksSvc ? tasksSvc.list() : Promise.resolve([]),
             results: () => resultsSvc ? resultsSvc.list() : Promise.resolve([]),
             people:  () => peopleSvc ? peopleSvc.list() : Promise.resolve([]),
+            companies: () => companiesSvc ? companiesSvc.list() : Promise.resolve([]),
+            teams: () => teamsSvc ? teamsSvc.list() : Promise.resolve([]),
         };
     }
 
@@ -531,6 +539,7 @@ class GoalsPage extends WNElement {
     _renderDetailPane(g) {
         const tasks = (this._state.tasks || []).filter(t => t.goalId === g.id);
         const results = (this._state.results || []).filter(r => r.goalId === g.id);
+        const { people = [], companies = [], teams = [] } = this._state;
         const tDone = tasks.filter(t => t.done).length;
         const tTotal = tasks.length;
         const pct = tTotal === 0 ? 0 : Math.round((tDone / tTotal) * 100);
@@ -549,7 +558,7 @@ class GoalsPage extends WNElement {
                 <button class="gp-act gp-edit" data-id="${g.id}" title="Rediger">✏️</button>
                 <button class="gp-act gp-del" data-id="${g.id}" title="Slett">✕</button>
             </div>
-            ${g.description ? html`<div class="gp-desc">${g.description}</div>` : ''}
+            ${g.description ? unsafeHTML(`<div class="gp-desc rich-text">${renderRichText(g.description, { people, companies, teams })}</div>`) : ''}
             ${g.targetValue != null ? html`<div class="gp-value">${this._renderValue(g)}</div>` : ''}
             <div class="gp-meta">
                 ${g.targetDate ? unsafeHTML(`<span class="due${dueOverdue ? ' overdue' : ''}">📅 ${escapeHtml(g.targetDate)}</span>`) : ''}
@@ -569,6 +578,7 @@ class GoalsPage extends WNElement {
     }
 
     _renderDetail(g, tasks, results) {
+        const { people = [], companies = [], teams = [] } = this._state;
         const sortedTasks = tasks.slice().sort((a, b) => {
             if (!!a.done !== !!b.done) return a.done ? 1 : -1;
             return (b.created || '').localeCompare(a.created || '');
@@ -610,7 +620,7 @@ class GoalsPage extends WNElement {
                         : html`<ul>${sortedResults.map(r => html`
                             <li>
                                 <span class="mark">📋</span>
-                                <span class="text">${r.text || ''}</span>
+                                <span class="text rich-text">${unsafeHTML(renderRichText(r.text || '', { people, companies, teams, inline: true }))}</span>
                                 ${r.week ? html`<a class="wk" href="/${r.week}/" title="Uke">${r.week}</a>` : ''}
                             </li>
                         `)}</ul>`}
@@ -641,7 +651,11 @@ class GoalsPage extends WNElement {
                             <input type="text" id="gpModalTitle" value="${this._modal.title || ''}" placeholder="Hva vil du oppnå?" />
                         </label>
                         <label>Beskrivelse (markdown)
-                            <textarea id="gpModalDesc" rows="4" placeholder="Detaljer, suksesskriterier...">${this._modal.description || ''}</textarea>
+                            <feature-rich-text-area id="gpModalDesc" aria-label="Beskrivelse" rows="4" features="lists,emoji,mentions"
+                                people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
+                                companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
+                                teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"
+                                placeholder="Detaljer, suksesskriterier..." value="${this._modal.description || ''}"></feature-rich-text-area>
                         </label>
                         <label>Måldato (valgfritt)
                             <input type="date" id="gpModalDate" value="${this._modal.targetDate || ''}" />
@@ -679,7 +693,10 @@ class GoalsPage extends WNElement {
         if (data._loading) return html`<div class="gp-loading">Laster…</div>`;
         if (!Array.isArray(data.goals)) return html`<div class="gp-error">Kunne ikke laste mål</div>`;
 
-        this._state = { goals: data.goals, tasks: data.tasks || [], results: data.results || [], people: data.people || [] };
+        this._state = {
+            goals: data.goals, tasks: data.tasks || [], results: data.results || [],
+            people: data.people || [], companies: data.companies || [], teams: data.teams || [],
+        };
         const goals = data.goals;
         const byStatus = { active: [], achieved: [], abandoned: [] };
         goals.forEach(g => { (byStatus[g.status] || byStatus.active).push(g); });

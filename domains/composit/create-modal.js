@@ -10,7 +10,8 @@
  *   element.open()  / window.openCreateModal()
  *   element.close() / window.closeCreateModal()
  */
-import { WNElement, html } from './_shared.js';
+import { WNElement } from './_shared.js';
+import '/components/feature-rich-text-area.js';
 
 const STYLE_ID = 'create-modal-styles';
 function ensureStyles() {
@@ -285,8 +286,11 @@ class CreateModal extends WNElement {
                     </div>
                     <div>
                         <label style="display:block;font-size:0.85em;color:var(--text-muted);margin-bottom:4px;">Beskrivelse (valgfritt)</label>
-                        <textarea name="description" rows="2" placeholder="Kort beskrivelse…"
-                            style="width:100%;font:inherit;font-size:0.95em;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);resize:vertical;"></textarea>
+                        <feature-rich-text-area name="description" aria-label="Beskrivelse" rows="2" features="lists,emoji,mentions"
+                            people_service="week-note-services.people_service"
+                            companies_service="week-note-services.companies_service"
+                            teams_service="week-note-services.teams_service"
+                            placeholder="Kort beskrivelse…" style="width:100%;"></feature-rich-text-area>
                     </div>
                 </div>
             `;
@@ -297,7 +301,7 @@ class CreateModal extends WNElement {
                     const input = body.querySelector('input[name=title]');
                     const title = (input.value || '').trim();
                     if (!title) { input.focus(); return; }
-                    const desc = (body.querySelector('textarea[name=description]').value || '').trim();
+                    const desc = (body.querySelector('feature-rich-text-area[name=description]').value || '').trim();
                     try {
                         await fetch('/api/goals', {
                             method: 'POST',
@@ -315,7 +319,7 @@ class CreateModal extends WNElement {
             this._goalModal = modal;
         }
         const input = this._goalModal.querySelector('input[name=title]');
-        const desc = this._goalModal.querySelector('textarea[name=description]');
+        const desc = this._goalModal.querySelector('feature-rich-text-area[name=description]');
         if (input) input.value = '';
         if (desc) desc.value = '';
         this._goalModal.open();

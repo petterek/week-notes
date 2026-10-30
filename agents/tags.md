@@ -68,8 +68,9 @@ Code locations in `note-editor.js`:
 - `_loadThemeSuggestions()` (~line 992): populates `_availableThemes`
 - `_installTagSpaceCommit()` (~line 1003): keydown handler for
   space→underscore and double-space→commit
-- `tagTrigger` in `_installAutocompletes()` (~line 1314): detect,
-  fetchItems, onSelect
+- `tagTrigger` in `_installAutocompletes()`: detect, fetchItems,
+  onSelect; handed to the rich editor via `el.triggers` with
+  `help: '# tag'` so it appears in the editor's help line
 
 ---
 

@@ -57,7 +57,11 @@ working-hour overlays, and per-meeting notes.
   is an `<a>` linking to the relevant editor/list/page.
 - Right-click menu: `#calCtxMenu` listing meeting types.
 - Meeting modal: `#mtgModal` with title, type, date, time selects,
-  attendees (mention autocomplete), location, notes.
+  attendees (mention autocomplete), location, notes. Meeting notes in the
+  create/edit forms use a form-associated `<feature-rich-text-area>` with
+  lists, emoji, mentions and date insertion, so `FormData` and form reset
+  continue to work. Calendar import previews render event descriptions as
+  safe Markdown/emoji, escaping any raw HTML.
 - The current calendar edit overlay hosts `<meeting-edit>` in
   `domains/meetings/meeting-edit.js`. Its `html` tagged template escapes
   interpolated text automatically. The linked-note row is a pre-escaped

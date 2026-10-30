@@ -5,7 +5,7 @@ module.exports = function(deps) {
     const _core = deps.core;
     const {
         dataDir, extractMentions, getDataContext, getCurrentYearWeek, getMePersonKey, loadAllTasks,
-        loadResults, loadTasks, meetingId, processInlineResults, readJsonBody, saveResults, saveTasks,
+        loadResults, loadTasks, meetingId, readJsonBody, saveResults, saveTasks,
         setNoteMeta, syncMentions, syncTaskNote,
     } = _core;
     return async function(req, res, ctx) {
@@ -18,7 +18,7 @@ module.exports = function(deps) {
         if (src && tgt) {
             const parts = [tgt.note, src.text, src.note].filter(Boolean);
             const mergedNote = parts.join('\n');
-            syncTaskNote(tgt, mergedNote, tasks);
+            syncTaskNote(tgt, mergedNote);
             const filtered = tasks.filter(t => t.id !== body.srcId);
             // Remove results for deleted src task
             saveResults(loadResults().filter(r => r.taskId !== body.srcId));
@@ -59,12 +59,15 @@ module.exports = function(deps) {
         const tasks = loadTasks();
         const meKey = getMePersonKey(getDataContext()) || '';
         const task = {
-            id: Date.now().toString(36),
+            id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
             text: body.text,
             done: false,
             created: new Date().toISOString(),
             week: body.week || getCurrentYearWeek(),
         };
+        if (typeof body.noteRef === 'string' && /^[^/]+\/[^/]+\.md$/.test(body.noteRef.trim())) {
+            task.noteRef = body.noteRef.trim();
+        }
         if (meKey) task.author = meKey;
         // Responsible: explicit body value wins. Otherwise extract the first
         // @mention from the task text (skipping @me). Falls back to @me.
@@ -132,7 +135,7 @@ module.exports = function(deps) {
             } else if (body.dueDate === null) {
                 delete task.dueDate;
             }
-            if (body.note !== undefined) syncTaskNote(task, body.note, tasks);
+            if (body.note !== undefined) syncTaskNote(task, body.note);
             else syncMentions(task.text, task.note);
             if (body.goalId === null || body.goalId === '') {
                 delete task.goalId;
@@ -192,11 +195,7 @@ module.exports = function(deps) {
             }
             if (task.done && comment) {
                 const week = task.completedWeek || task.week || getCurrentYearWeek();
-                const proc = processInlineResults(comment, week, { taskId: task.id, taskText: task.text });
-                if (proc.createdCount > 0) {
-                    syncMentions(task.text, comment);
-                }
-                const cleanComment = proc.text;
+                const cleanComment = comment;
                 const fileName = `oppgave-${task.id}.md`;
                 fs.mkdirSync(path.join(dataDir(), week), { recursive: true });
                 fs.writeFileSync(path.join(dataDir(), week, fileName),
@@ -245,9 +244,7 @@ module.exports = function(deps) {
         // sidecar note as POST /api/tasks/:id/toggle does.
         if (wantDone && comment) {
             const week = task.completedWeek || task.week || getCurrentYearWeek();
-            const proc = processInlineResults(comment, week, { taskId: task.id, taskText: task.text });
-            if (proc.createdCount > 0) syncMentions(task.text, comment);
-            const cleanComment = proc.text;
+            const cleanComment = comment;
             const fileName = `oppgave-${task.id}.md`;
             const dateStr = new Date().toISOString().slice(0, 10);
             fs.mkdirSync(path.join(dataDir(), week), { recursive: true });

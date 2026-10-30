@@ -48,18 +48,20 @@ import '/components/date-time-picker.js';
 import '/components/person-picker.js';
 import '/components/person-multi-picker.js';
 
+import '/components/feature-rich-text-area.js';
+
 const CSS = `
     :host { display: block; box-sizing: border-box; }
-    input.txt, select.sel, textarea.note {
+    input.txt, select.sel {
         padding: 10px 14px; min-width: 0;
         border: 2px solid var(--border-soft);
         border-radius: 8px; font-size: 1em; outline: none;
         background: var(--bg); color: var(--text);
         font-family: inherit;
     }
-    input.txt, textarea.note { width: 100%; box-sizing: border-box; }
-    textarea.note { resize: vertical; min-height: 60px; line-height: 1.4; }
-    input.txt:focus, select.sel:focus, textarea.note:focus {
+    input.txt, feature-rich-text-area.note { width: 100%; box-sizing: border-box; }
+    feature-rich-text-area.note { min-width: 0; }
+    input.txt:focus, select.sel:focus {
         border-color: var(--accent);
     }
     button.btn {
@@ -86,7 +88,7 @@ const CSS = `
     .meta-grid > .field { min-width: 0; display: flex; }
     .meta-grid > .field > .sel { flex: 1; }
     .actions { display: flex; justify-content: flex-end; gap: 8px; }
-    :host([no-note]) textarea.note { display: none; }
+    :host([no-note]) feature-rich-text-area.note { display: none; }
 
     .due-row { display: flex; gap: 4px; align-items: stretch; flex: 1; }
     .due-trigger {
@@ -178,7 +180,14 @@ class TaskCreateFull extends WNElement {
         return html`
             <div class="form">
                 <input class="txt" type="text" data-el="text" />
-                <textarea class="note" data-el="note" rows="3" placeholder="Notat (valgfritt)..."></textarea>
+                <feature-rich-text-area class="note" data-el="note" rows="3"
+                        features="lists,emoji,mentions,tasks,results,dates"
+                        people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
+                        companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
+                        teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"
+                        tasks_service="${this.getAttribute('tasks_service') || 'week-note-services.tasks_service'}"
+                        results_service="${this.getAttribute('results_service') || 'week-note-services.results_service'}"
+                        aria-label="Oppgavenotat" placeholder="Notat (valgfritt)..."></feature-rich-text-area>
                 <div class="meta-grid">
                     <span class="lbl">Ansvarlig</span>
                     <span class="field">
@@ -318,12 +327,6 @@ class TaskCreateFull extends WNElement {
         this._acHandles = [];
         if (this._input) {
             this._acHandles.push(attachAutocomplete(this._input, {
-                triggers: [mentionTrigger],
-                container: this.shadowRoot,
-            }));
-        }
-        if (this._noteIn) {
-            this._acHandles.push(attachAutocomplete(this._noteIn, {
                 triggers: [mentionTrigger],
                 container: this.shadowRoot,
             }));
@@ -487,7 +490,16 @@ class TaskCreateFull extends WNElement {
         const responsible = this._respSel ? (this._respSel.value || '') : '';
         const goalId      = this._goalSel ? (this._goalSel.value || '') : '';
         const dueDate     = this._dueIn   ? (this._dueIn.value   || '') : '';
-        const note        = this._noteIn  ? (this._noteIn.value  || '') : '';
+        let note          = this._noteIn  ? (this._noteIn.value  || '') : '';
+        // {{X}} / [[X]] in the note become tasks/results linked to this task;
+        // the note keeps the plain text.
+        const convertNote = async (task) => {
+            if (!note || !this._noteIn || typeof this._noteIn.convert !== 'function') return;
+            note = (await this._noteIn.convert({
+                week: task.week || this.getAttribute('week') || '',
+                taskId: task.id || '', taskText: task.text || text, replaceWith: 'text',
+            })).value;
+        };
 
         this._btn.disabled = true;
         try {
@@ -497,6 +509,7 @@ class TaskCreateFull extends WNElement {
                     throw new Error('update ikke støttet av tjenesten');
                 }
                 const id = this._task.id;
+                await convertNote(this._task);
                 const participants = this._getSelectedParticipants();
                 const patch = {
                     text, note,
@@ -534,6 +547,11 @@ class TaskCreateFull extends WNElement {
                 if (week) opts.week = week;
                 const tasks = await svc.create(text, opts);
                 const task = Array.isArray(tasks) ? tasks[tasks.length - 1] : null;
+                if (note && task && task.id && typeof svc.update === 'function') {
+                    await convertNote(task);
+                    await svc.update(task.id, { note });
+                    task.note = note;
+                }
                 this._input.value = '';
                 if (this._noteIn) this._noteIn.value = '';
                 this._setDue('');

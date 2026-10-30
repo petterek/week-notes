@@ -26,7 +26,7 @@ test('calendar meeting edit renders the linked note and original form values, no
         const editor = calendar.locator('meeting-edit');
         await expect(editor.locator('[data-note-ref-row] .note-ref-pill')).toContainText('plan');
         await expect(editor.locator('input[name="title"]')).toHaveValue('Review <draft> & notes');
-        await expect(editor.locator('textarea[name="notes"]')).toHaveValue('Agenda <final> & follow-up');
+        await expect.poll(() => editor.locator('feature-rich-text-area[name="notes"]').evaluate(el => el.value)).toBe('Agenda <final> & follow-up');
         await expect(editor.locator('[data-note-ref-row]')).not.toContainText('<div');
         await editor.evaluate(el => el._setNoteRef(''));
         await expect(editor.locator('[data-note-ref-row] button[data-pick-note]')).toHaveText(/Velg notat/);
@@ -486,7 +486,7 @@ test('meeting occurrence workspace: full lifecycle via UI', async ({ page, reque
             const minutes = el.shadowRoot.querySelector('[data-el="minutes"]');
             return {
                 edit: !!editBtn,
-                minutesReadonly: !!minutes && minutes.readOnly,
+                minutesReadonly: !!minutes && minutes.hasAttribute('readonly'),
             };
         })).toEqual({ edit: true, minutesReadonly: false });
     } finally {
@@ -509,12 +509,13 @@ test('adding an agenda item preserves an unsaved meeting-minutes draft', async (
         await page.goto(`/meeting-occurrence/${meeting.id}`);
         const host = page.locator('meeting-occurrence-page');
         const minutes = host.locator('[data-el="minutes"]');
+        const minutesInput = minutes.locator('textarea');
         await expect(minutes).toBeVisible();
-        await minutes.fill('Draft notes that are not saved yet');
+        await minutesInput.fill('Draft notes that are not saved yet');
         await host.locator('[data-el="agenda-add"]').fill('A new discussion point');
         await host.locator('.mo-agenda-add-btn').click();
         await expect(host.locator('.mo-agenda-item')).toContainText('A new discussion point');
-        await expect(minutes).toHaveValue('Draft notes that are not saved yet');
+        await expect(minutesInput).toHaveValue('Draft notes that are not saved yet');
     } finally {
         if (meeting) await request.delete(`/api/meetings/${meeting.id}`);
         await request.delete(`/api/meeting-series/${series.id}`);
@@ -616,13 +617,14 @@ test('meeting minutes support mention autocomplete and save the selected mention
         await page.goto(`/meeting-occurrence/${meeting.id}`);
         const workspace = page.locator('meeting-occurrence-page');
         const minutes = workspace.locator('[data-el="minutes"]');
+        const minutesInput = minutes.locator('textarea');
         await expect(minutes).toBeVisible();
-        await minutes.fill('Følg opp @me');
+        await minutesInput.fill('Følg opp @me');
         const suggestion = workspace.getByRole('listbox').getByRole('option');
         await expect(suggestion.first()).toBeVisible();
-        await minutes.press('ArrowDown');
-        await minutes.press('Enter');
-        await expect(minutes).toHaveValue(/@me /);
+        await minutesInput.press('ArrowDown');
+        await minutesInput.press('Enter');
+        await expect(minutesInput).toHaveValue(/@me /);
         await workspace.locator('.mo-save-minutes').click();
         await expect.poll(async () => (await (await request.get(`/api/meetings/${meeting.id}`)).json()).minutes)
             .toContain('@me ');
@@ -644,16 +646,17 @@ test('meeting minutes text input opens the date picker with Ctrl+D', async ({ pa
         })).json()).meeting;
         await page.goto(`/meeting-occurrence/${meeting.id}`);
         const minutes = page.locator('meeting-occurrence-page [data-el="minutes"]');
+        const minutesInput = minutes.locator('textarea');
         await expect(minutes).toBeVisible();
-        await minutes.fill('Follow up on ');
-        await minutes.press('Control+d');
+        await minutesInput.fill('Follow up on ');
+        await minutesInput.press('Control+d');
 
         const picker = page.locator('date-time-picker');
         await expect(picker).toBeVisible();
         await expect.poll(() => picker.evaluate(el => el.getAttribute('mode'))).toBe('date');
         const selectedDate = await picker.evaluate(el => el.value);
         await picker.evaluate(el => el.shadowRoot.querySelector('.ok').click());
-        await expect(minutes).toHaveValue(`Follow up on ${selectedDate}`);
+        await expect(minutesInput).toHaveValue(`Follow up on ${selectedDate}`);
     } finally {
         if (meeting) await request.delete(`/api/meetings/${meeting.id}`);
         await request.delete(`/api/meeting-series/${series.id}`);
@@ -866,18 +869,19 @@ test('meeting occurrence agenda inputs support mentions and date insertion', asy
         const host = page.locator('meeting-occurrence-page');
         const picker = page.locator('date-time-picker');
 
-        const notes = host.locator(`textarea[data-agenda="${item.id}"]`);
+        const notes = host.locator(`feature-rich-text-area[data-agenda="${item.id}"]`);
+        const notesInput = notes.locator('textarea');
         await expect(notes).toBeVisible();
-        await notes.fill('Ask @me');
-        await notes.press('ArrowDown');
-        await notes.press('Enter');
-        await expect(notes).toHaveValue(/@me /);
-        await notes.press('End');
-        await notes.press('Control+d');
+        await notesInput.fill('Ask @me');
+        await notesInput.press('ArrowDown');
+        await notesInput.press('Enter');
+        await expect(notesInput).toHaveValue(/@me /);
+        await notesInput.press('End');
+        await notesInput.press('Control+d');
         await expect(picker).toBeVisible();
         const notesDate = await picker.evaluate(el => el.value);
         await picker.evaluate(el => el.shadowRoot.querySelector('.ok').click());
-        await expect(notes).toHaveValue(`Ask @me ${notesDate}`);
+        await expect(notesInput).toHaveValue(`Ask @me ${notesDate}`);
 
         const addInput = host.locator('[data-el="agenda-add"]');
         await addInput.fill('New for @me');

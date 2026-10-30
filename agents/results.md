@@ -41,34 +41,38 @@ Per-week outcome / result log. Two creation paths:
 ## Where it shows up
 
 - `/results` — full list grouped by ISO week, sorted desc. Current week
-  gets a "aktiv" pill.
+  gets a "aktiv" pill. Result text uses a rows=3
+  `<feature-rich-text-area features="emoji,mentions">` and displays inline
+  Markdown through `renderRichText` (raw HTML is escaped).
 - `/` (home) — per-week sidebar (`weekResults` block) shows results for
-  that week.
+  that week, rendered as inline Markdown through `renderRichText`.
 - AI summary prompt — results are an explicit section in the LLM input.
 
 ## Code map
 
-- `extractResults(noteText)` — finds new-result markers `[[X]]` and
-  returns `{results, cleanNote}`. Skips reference forms (`[[?<id>]]`).
-- `processInlineResults(text, week, extra)` — used on **explicit** save:
-  creates a result for each `[[X]]` marker and **rewrites the marker in
-  place** to `[[?<id>]]` so the saved note keeps a stable reference.
-  Mirrors the `{{X}} → {{?<id>}}` task pipeline.
-  **Sentiment suffix**: `[[text+]]` → good, `[[text-]]` → bad. The
-  `+`/`-` is stripped from the stored text.
-- `syncTaskNote(task, rawNote)` — on every task-note save, replaces all
-  results that belong to `task.id` with the bracketed pieces.
+- `[[X]]` markers are converted in the browser by
+  `<feature-rich-text-area>.convert()` (`results` feature) via
+  `results_service.create({ text, week, sentiment, people, taskId, taskText })`.
+  Notes get `[[?<id>]]`; task notes (`replaceWith: 'text'`) keep the plain
+  text and link the result with `taskId`; completion comments keep
+  `[[?<id>]]`. **Sentiment suffix**: `[[text+]]` → good, `[[text-]]` → bad,
+  stripped from the stored text.
+- `POST /api/results` accepts `taskId`, `taskText` and a `people` array
+  (merged with mentions in the text).
+- `syncTaskNote(task, rawNote)` only stores the note and syncs mentions; it
+  no longer regenerates task-linked results.
 - `loadResults` / `saveResults` — file IO at top of `server.js`.
 - `/results` page handler (~line 3309).
 - `POST /api/results` handler (~line 6107).
 
 ## Conventions
 
-- Mentions are processed with `linkMentions(escapeHtml(text))` for both
-  result text and the people pills.
-- People pills on `/results` use `class="mention-link"` with
-  `data-person-key` so the global tooltip script picks them up; href
-  anchors to `/people#<key>`.
+- Result text is rich Markdown rendered with `renderRichText` in the
+  results page and weekly sidebar. Mention lists come from injected
+  people/companies/teams services; raw HTML remains escaped.
+- People pills on `/results` retain linked-mention rendering with
+  `class="mention-link"` and `data-person-key` for global tooltips; href
+  anchors point to `/people#<key>`.
 - IDs are generated server-side (timestamp + random) — clients should
   not invent them.
 - All styling is in CSS classes (`.results-page`, `.result-card`,

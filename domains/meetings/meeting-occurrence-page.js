@@ -16,6 +16,8 @@ import { WNElement, html, unsafeHTML } from './_shared.js';
 import '/components/pick-date-time-span.js';
 import '/components/person-multi-picker.js';
 import '/components/pick-place.js';
+import '/components/feature-rich-text-area.js';
+import { renderRichText, RICH_TEXT_CSS } from '/services/_shared/wn-rich-text.js';
 import { meetingPopupFeatures, rememberMeetingPopupSize } from '/components/meeting-popup.js';
 import { attachDateTrigger } from '/components/wn-date-trigger.js';
 import { attachAutocomplete } from '/components/wn-autocomplete.js';
@@ -26,6 +28,7 @@ const STATUS_ICON  = { planned: '📝', 'in-progress': '▶️', closed: '✅' }
 const OUTCOME_LABEL = { resolved: '✅ Løst', deferred: '⏭️ Utsatt', cancelled: '🚫 Avlyst' };
 
 const STYLES = `
+    ${RICH_TEXT_CSS}
     :host { display: block; padding: 20px 24px; box-sizing: border-box; color: var(--text-strong); font: inherit; max-width: 900px; margin: 0 auto; }
     .mo-back { font-size: 0.85em; color: var(--accent); text-decoration: none; }
     .mo-back:hover { text-decoration: underline; }
@@ -46,7 +49,7 @@ const STYLES = `
     .mo-agenda-item { border: 1px solid var(--border-soft); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; background: var(--surface); }
     .mo-agenda-item .row1 { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
     .mo-agenda-item .title { flex: 1; font-weight: 600; }
-    .mo-agenda-item textarea { width: 100%; box-sizing: border-box; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text-strong); font: inherit; font-size: 0.9em; min-height: 50px; resize: vertical; }
+    .mo-agenda-item feature-rich-text-area { display: block; margin-top: 4px; }
     .mo-outcome-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
     .mo-outcome-btn { padding: 4px 10px; border-radius: 12px; border: 1px solid var(--border-soft); background: var(--surface-alt); color: var(--text-muted); cursor: pointer; font: inherit; font-size: 0.8em; }
     .mo-outcome-btn:hover { border-color: var(--accent); }
@@ -62,13 +65,13 @@ const STYLES = `
     .mo-decision select { max-width: 210px; min-width: 0; background: var(--bg); color: var(--text-strong); border: 1px solid var(--border); border-radius: 6px; }
     .mo-agenda-decisions { margin: 8px 0 0; padding-left: 18px; font-size: 0.88em; color: var(--text-muted); }
     .mo-prev-notes { margin: 4px 0 6px; }
-    .mo-prev-note { margin-top: 4px; padding: 4px 8px; border-left: 2px solid var(--border); color: var(--text-muted); font-size: 0.85em; white-space: pre-wrap; word-break: break-word; }
+    .mo-prev-note { margin-top: 4px; padding: 4px 8px; border-left: 2px solid var(--border); color: var(--text-muted); font-size: 0.85em; word-break: break-word; }
     .mo-prev-note-date { display: block; color: var(--text-subtle); font-size: 0.85em; }
     .mo-decision-add { display: flex; gap: 8px; margin-top: 8px; }
     .mo-decision-add input { flex: 1; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text-strong); font: inherit; }
     .mo-decision-add button { padding: 7px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text-strong); cursor: pointer; font: inherit; }
 
-    .mo-minutes textarea { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text-strong); font: inherit; font-size: 0.92em; min-height: 160px; resize: vertical; font-family: ui-monospace, monospace; }
+    .mo-minutes feature-rich-text-area { display: block; }
     .mo-minutes .hint { font-size: 0.78em; color: var(--text-subtle); margin-top: 4px; }
     .mo-minutes .save-row { display: flex; justify-content: flex-end; margin-top: 6px; }
 
@@ -97,7 +100,7 @@ const STYLES = `
 
 class MeetingOccurrencePage extends WNElement {
     static get domain() { return 'meetings'; }
-    static get observedAttributes() { return ['meetings_service', 'tasks_service', 'people_service']; }
+    static get observedAttributes() { return ['meetings_service', 'tasks_service', 'people_service', 'companies_service', 'teams_service']; }
 
     connectedCallback() {
         this._id = this._extractId();
@@ -399,10 +402,13 @@ class MeetingOccurrencePage extends WNElement {
                 <div class="row1"><span class="title">${a.title}</span></div>
                 ${previousNotes.length ? html`
                     <div class="mo-prev-notes">${previousNotes.map(n => html`
-                        <div class="mo-prev-note"><span class="mo-prev-note-date">${n.date}</span>${n.notes}</div>
+                        <div class="mo-prev-note"><span class="mo-prev-note-date">${n.date}</span><div class="rich-text">${unsafeHTML(renderRichText(n.notes))}</div></div>
                     `)}</div>
                 ` : ''}
-                <textarea placeholder="Notater…" data-agenda="${a.agendaItemId}" ${closed ? 'readonly disabled' : ''}>${a.notes || ''}</textarea>
+                <feature-rich-text-area placeholder="Notater…" data-agenda="${a.agendaItemId}" rows="2" features="lists,emoji,mentions,dates" value="${a.notes || ''}" ${closed ? 'readonly' : ''}
+                    people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
+                    companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
+                    teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"></feature-rich-text-area>
                 <div class="mo-outcome-btns">
                     ${outcomes.map(o => html`
                         <button type="button" class="mo-outcome-btn ${a.outcome === o ? 'on' : ''}" data-item="${a.agendaItemId}" data-outcome="${o}" data-current="${a.outcome || ''}" ${closed ? 'disabled' : ''}>${OUTCOME_LABEL[o]}</button>
@@ -514,7 +520,11 @@ class MeetingOccurrencePage extends WNElement {
 
                 <div class="mo-section mo-minutes">
                     <h2>📝 Referat (fritekst)</h2>
-                    <textarea data-el="minutes" placeholder="Skriv referat i markdown…" ${isClosed ? 'readonly disabled' : ''}>${this._minutesDraft !== undefined ? this._minutesDraft : (meeting.minutes || '')}</textarea>
+                    <feature-rich-text-area data-el="minutes" rows="8" features="lists,emoji,mentions,tasks,dates,help" value="${this._minutesDraft !== undefined ? this._minutesDraft : (meeting.minutes || '')}" placeholder="Skriv referat i markdown…" ${isClosed ? 'readonly' : ''}
+                        people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
+                        companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
+                        teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"
+                        tasks_service="${this.getAttribute('tasks_service') || 'week-note-services.tasks_service'}"></feature-rich-text-area>
                     <div class="hint">Støtter markdown. Vises i PDF-eksporten.</div>
                     ${!isClosed ? html`<div class="save-row"><button type="button" class="mo-act mo-save-minutes">💾 Lagre referat</button></div>` : ''}
                 </div>
@@ -563,18 +573,20 @@ class MeetingOccurrencePage extends WNElement {
         // can't attach listeners directly; do it here where the DOM exists).
         const root = this.shadowRoot;
         root.querySelector('[data-el="resolved-decision"]')?.focus();
-        const minutesInput = root.querySelector('[data-el="minutes"]:not([disabled])');
+        const minutesInput = root.querySelector('[data-el="minutes"]:not([readonly])');
         if (minutesInput) {
             minutesInput.addEventListener('input', () => { this._minutesDraft = minutesInput.value; });
         }
-        root.querySelectorAll('textarea[data-agenda]').forEach(ta => {
+        root.querySelectorAll('feature-rich-text-area[data-agenda]:not([readonly])').forEach(ta => {
             if (ta._wired) return;
             ta._wired = true;
-            ta.addEventListener('blur', () => this._saveAgendaNotes(ta.dataset.agenda, ta.value));
+            ta.addEventListener('focusout', event => {
+                if (event.composedPath().some(node => node instanceof HTMLTextAreaElement)) {
+                    this._saveAgendaNotes(ta.dataset.agenda, ta.value);
+                }
+            });
         });
         const textInputs = root.querySelectorAll([
-            '[data-el="minutes"]:not([disabled])',
-            'textarea[data-agenda]:not([disabled])',
             '[data-el="agenda-add"]',
             '[data-el="decision-add"]',
         ].join(','));

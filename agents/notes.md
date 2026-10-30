@@ -61,6 +61,39 @@ Freeform markdown notes, one folder per ISO week.
   servicesOnly: true })`) — never direct `/api/*` fetches. Hosts must pass
   those attributes; `pages/editor.html` uses `week-note-services.*` and
   debug demos use `Mock*Service` (incl. `MockTeamsService`).
+- `<feature-rich-text-area>` is also the app-wide replacement for plain
+  `<textarea>`s (except settings). Field API: `name` (form-associated:
+  `FormData`, `form.reset()`), `value`, `placeholder`, `rows` (content-sized,
+  vertically resizable; without `rows` it fills its container, as in the note
+  editor), `readonly`, `disabled`, `aria-label`, and `features` — comma list of
+  `lists, indent, emoji, mentions, tasks, results, dates, meetings, help`
+  (absent = all; `results` = `[[?` autocomplete via `results_service`).
+  Forms/modals must omit `indent` so Tab still moves focus. `focus()`,
+  `selectionStart/End`, `setSelectionRange()` delegate to the inner textarea;
+  `change` is re-dispatched on the host. Host-specific autocomplete triggers go
+  in `el.triggers = [...]` (re-attached after internal re-renders) — never
+  attach to `el.textarea` directly. A trigger's optional `help` string is
+  appended to the help line; `note-editor` passes `#` tag and `{{m:?` meeting
+  triggers this way (meetings via `meetings_service`).
+- Inline create markers are converted by the editor, not the server:
+  `await el.convert({ week, noteRef, taskId, taskText, replaceWith })`
+  creates entities through the injected services, gated by `features` —
+  `tasks` `{{X}}`, `results` `[[X]]`/`[[X+]]`/`[[X-]]` (people = note ∪ text
+  mentions), `meetings` `{{m:Title @ YYYY-MM-DD HH:MM[ Nm]}}`. Markers are
+  replaced one at a time (`replaceWith: 'ref'` → `{{?id}}`/`[[?id]]`/
+  `{{m:?id}}`, `'text'` → plain text), so a failure keeps earlier ones
+  converted. `note-editor` awaits it before an explicit save (not autosave)
+  and aborts the save on error. `/api/save` only applies `{{!id}}` and
+  `~~text~~` close markers.
+- Displays of those fields use `domains/_shared/wn-rich-text.js`
+  (`renderRichText(text, { people, companies, teams, taskTextById, inline })`
+  + `RICH_TEXT_CSS`): Markdown, `:emoji:`, @mentions and `{{?task}}` markers,
+  with raw HTML in the source escaped. Link/image URLs outside
+  http(s)/mailto/tel/relative are replaced with `#` by
+  `domains/_shared/wn-safe-urls.js` (`sanitizeHtmlUrls`); the server's
+  minutes export (`renderUserMarkdown` in `lib/core.js`) requires the same
+  module. `domains/_shared/package.json` marks that folder as ESM so Node can
+  `require()` it — keep `wn-safe-urls.js` free of imports.
 - Mention autocomplete (legacy pages): `public/mention-autocomplete.js`. Init via
   `initMentionAutocomplete(el)` on every editable input/textarea.
 - Shared preview internals: `domains/_shared/wn-markdown-preview.js`

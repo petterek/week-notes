@@ -10,7 +10,7 @@
  * Reads the team key from the current URL path: /team/:key
  * Fetches /api/teams/:key/status for aggregated data.
  */
-import { WNElement, html, escapeHtml, unsafeHTML, linkMentions, isoWeek } from './_shared.js';
+import { WNElement, html, isoWeek } from './_shared.js';
 
 const STYLES = `
     :host { display: block; padding: 20px 24px; box-sizing: border-box; color: var(--text-strong); font: inherit; }

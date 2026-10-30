@@ -22,7 +22,7 @@
  *   Contains hidden inputs named "start-date", "start-time", "end-date",
  *   "end-time" for FormData compatibility.
  */
-import { WNElement, html, escapeHtml } from './_shared.js';
+import { WNElement, html } from './_shared.js';
 import './date-time-picker.js';
 
 const STYLES = `

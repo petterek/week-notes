@@ -29,6 +29,8 @@ import { WNElement, html, unsafeHTML, escapeHtml, linkMentions } from './_shared
 import '/components/pick-date-time-span.js';
 import '/components/person-multi-picker.js';
 import '/components/pick-place.js';
+import '/components/feature-rich-text-area.js';
+import { renderRichText, RICH_TEXT_CSS } from '/services/_shared/wn-rich-text.js';
 import { meetingPopupFeatures, rememberMeetingPopupSize } from '/components/meeting-popup.js';
 import { attachDateTrigger } from '/components/wn-date-trigger.js';
 import { attachAutocomplete } from '/components/wn-autocomplete.js';
@@ -42,6 +44,7 @@ const OCC_ICON  = { planned: '📝', 'in-progress': '▶️', closed: '✅' };
 const OCC_LABEL = { planned: 'Planlagt', 'in-progress': 'Pågår', closed: 'Avsluttet' };
 
 const STYLES = `
+    ${RICH_TEXT_CSS}
     :host { display: block; padding: 20px 24px; box-sizing: border-box; color: var(--text-strong); font: inherit; }
     body:has(meeting-series-page) { max-width: none; }
     .mp { display: flex; flex-direction: column; height: calc(100vh - 100px); min-height: 400px; }
@@ -87,7 +90,7 @@ const STYLES = `
     .mp-act { background: none; border: none; cursor: pointer; font-size: 1em; padding: 4px 8px; border-radius: 4px; font-family: inherit; color: var(--text-muted); }
     .mp-act:hover { background: var(--surface-head); }
     .mp-del { color: var(--danger, #c53030); }
-    .mp-desc { color: var(--text-muted); font-size: 0.95em; line-height: 1.5; white-space: pre-wrap; word-break: break-word; margin: 0 0 16px; }
+    .mp-desc { color: var(--text-muted); font-size: 0.95em; line-height: 1.5; word-break: break-word; margin: 0 0 16px; }
     .mp-meta { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; font-size: 0.85em; color: var(--text-subtle); margin-bottom: 20px; }
 
     .mp-detail { display: flex; flex-direction: column; gap: 20px; }
@@ -104,7 +107,7 @@ const STYLES = `
     .mp-agenda-content { flex: 1; min-width: 0; }
     .mp-agenda-row .text { display: block; font-size: 0.92em; word-break: break-word; }
     .mp-agenda-added { display: block; margin-top: 2px; color: var(--text-subtle); font-size: 0.76em; }
-    .mp-agenda-note { margin-top: 4px; padding: 4px 8px; border-left: 2px solid var(--border); color: var(--text-muted); font-size: 0.85em; white-space: pre-wrap; word-break: break-word; }
+    .mp-agenda-note { margin-top: 4px; padding: 4px 8px; border-left: 2px solid var(--border); color: var(--text-muted); font-size: 0.85em; word-break: break-word; }
     .mp-agenda-note-date { display: block; color: var(--text-subtle); font-size: 0.85em; }
     .mp-agenda-resolved .text { color: var(--text-muted); }
     .mp-agenda-add { display: flex; gap: 8px; margin-top: 8px; }
@@ -135,12 +138,13 @@ const STYLES = `
     .modal-close { background: none; border: none; font-size: 1.3em; cursor: pointer; color: var(--text-subtle); font-family: inherit; }
     .modal-form { display: flex; flex-direction: column; gap: 12px; }
     .modal-form label { font-size: 0.85em; font-weight: 600; color: var(--text-muted); display: block; }
-    .modal-form textarea, .modal-form input, .modal-form select {
+    .modal-form input, .modal-form select {
         display: block; width: 100%; margin-top: 4px; box-sizing: border-box;
         padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;
         background: var(--bg); color: var(--text-strong); font: inherit;
     }
-    .modal-form textarea:focus, .modal-form input:focus, .modal-form select:focus { border-color: var(--accent); outline: none; }
+    .modal-form input:focus, .modal-form select:focus { border-color: var(--accent); outline: none; }
+    .modal-form feature-rich-text-area { display: block; margin-top: 4px; }
     .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
     .modal-btn { padding: 8px 16px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text-strong); font: inherit; cursor: pointer; }
     .modal-btn:hover { background: var(--surface-head); }
@@ -553,12 +557,11 @@ class MeetingSeriesPage extends WNElement {
             const date = new Date(value);
             return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('nb-NO');
         };
+        const richOptions = { people: this._state.people, companies: this._state.companies, teams: this._state.teams };
         const renderMentions = (text) => unsafeHTML(linkMentions(
-            escapeHtml(text || ''),
-            this._state.people,
-            this._state.companies,
-            this._state.teams,
+            escapeHtml(text || ''), this._state.people, this._state.companies, this._state.teams,
         ));
+        const renderRichNotes = (text) => unsafeHTML(renderRichText(text, richOptions));
         const itemNotes = (itemId) => occurrences.slice().reverse().flatMap(m => (m.agenda || [])
             .filter(e => e.agendaItemId === itemId && (e.notes || '').trim())
             .map(e => ({ date: m.date, notes: e.notes.trim() })));
@@ -573,7 +576,7 @@ class MeetingSeriesPage extends WNElement {
                 <button class="mp-act mp-edit" data-id="${s.id}" title="Rediger">✏️</button>
                 <button class="mp-act mp-del" data-id="${s.id}" title="Slett">✕</button>
             </div>
-            ${s.description ? html`<div class="mp-desc">${s.description}</div>` : ''}
+            ${s.description ? html`<div class="mp-desc rich-text">${unsafeHTML(renderRichText(s.description, richOptions))}</div>` : ''}
             <div class="mp-meta">
                 ${s.lastOccurrence ? html`<span>Sist: ${s.lastOccurrence.date}</span>` : ''}
                 ${s.nextOccurrence ? html`<span>Neste: ${s.nextOccurrence.date}</span>` : ''}
@@ -593,7 +596,7 @@ class MeetingSeriesPage extends WNElement {
                                 `}
                                 ${addedDate(a.createdAt) ? html`<span class="mp-agenda-added">Lagt til ${addedDate(a.createdAt)}</span>` : ''}
                                 ${itemNotes(a.id).map(n => html`
-                                    <div class="mp-agenda-note"><span class="mp-agenda-note-date">${n.date}</span>${renderMentions(n.notes)}</div>
+                                    <div class="mp-agenda-note"><span class="mp-agenda-note-date">${n.date}</span><div class="rich-text">${renderRichNotes(n.notes)}</div></div>
                                 `)}
                                 </div>
                                 ${this._editingAgendaItem?.id === a.id ? html`
@@ -706,7 +709,10 @@ class MeetingSeriesPage extends WNElement {
                     </div>
                     <div class="modal-form">
                         <label>Tittel<input type="text" id="mspModalTitle" value="${m.title || ''}" placeholder="F.eks. Ukentlig statusmøte" /></label>
-                        <label>Beskrivelse<textarea id="mspModalDesc" rows="3" placeholder="Hensikt, deltakere, …">${m.description || ''}</textarea></label>
+                        <label>Beskrivelse<feature-rich-text-area id="mspModalDesc" rows="3" value="${m.description || ''}" features="lists,emoji,mentions" placeholder="Hensikt, deltakere, …"
+                            people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
+                            companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
+                            teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"></feature-rich-text-area></label>
                         <div style="display:flex; gap:8px;">
                             <label style="flex:1;">Standard type
                                 <select id="mspModalType">

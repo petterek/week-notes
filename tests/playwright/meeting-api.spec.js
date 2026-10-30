@@ -214,3 +214,32 @@ test('editing one agenda outcome does not overwrite another occurrence outcome',
         await request.delete(`/api/meeting-series/${series.id}`);
     }
 });
+
+test('minutes export renders agenda Markdown and escapes raw HTML', async ({ request }) => {
+    const series = (await (await request.post('/api/meeting-series', {
+        data: { title: `Rich export ${Date.now()}` },
+    })).json()).series;
+    let meeting;
+    try {
+        const item = (await (await request.post(`/api/meeting-series/${series.id}/agenda`, {
+            data: { title: 'Export topic' },
+        })).json()).item;
+        meeting = (await (await request.post('/api/meetings', {
+            data: { seriesId: series.id, date: '2099-07-08' },
+        })).json()).meeting;
+        const notes = '**Agenda detail** :rocket: <b>agenda</b>';
+        const minutes = '**Minutes** :rocket: <b>recap</b>';
+        await request.put(`/api/meetings/${meeting.id}/agenda/${item.id}`, { data: { notes } });
+        await request.put(`/api/meetings/${meeting.id}`, { data: { minutes } });
+        const html = await (await request.get(`/meetings/${meeting.id}/minutes`)).text();
+        expect(html).toContain('<strong>Agenda detail</strong> 🚀');
+        expect(html).toContain('<strong>Minutes</strong> 🚀');
+        expect(html).toContain('&lt;b&gt;agenda&lt;/b&gt;');
+        expect(html).toContain('&lt;b&gt;recap&lt;/b&gt;');
+        expect(html).not.toContain('<b>agenda</b>');
+        expect(html).not.toContain('<b>recap</b>');
+    } finally {
+        if (meeting) await request.delete(`/api/meetings/${meeting.id}`);
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});

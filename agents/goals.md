@@ -53,22 +53,26 @@ references.
 - `domains/goals/goals-page.js` — `<goals-page>` full-page component.
   Mounted at `/goals` (SPA stub in `routes/spa.js`).
   - Groups goals by status: Aktive / Oppnådd / Avbrutt
-  - Each card shows title, target date (if any), description (markdown
-    via `<markdown-preview>`), progress bar from linked tasks, count of
-    linked results, and a "cycle status" button (active → achieved →
+  - The detail pane shows the selected goal title, target date, Markdown
+    description rendered with `renderRichText`, linked-task progress, result
+    count, and a "cycle status" button (active → achieved →
     abandoned → active).
-  - Modal for create/edit with title, description (textarea), target
-    date (`<date-time-picker>` in date mode via `<wn-date-trigger>`),
-    status select.
+  - Modal for create/edit uses a rows=4
+    `<feature-rich-text-area features="lists,emoji,mentions">` description
+    field and a target date (`<date-time-picker>` in date mode via
+    `<wn-date-trigger>`), plus status select. Goal-linked result text in the
+    detail pane also renders as inline Markdown; raw HTML is escaped.
+- The global Alt+C create dialog uses a rows=2 rich editor for goal descriptions
+  with lists, emoji, and mentions; it reads the component value on save.
 - `domains/goals/active-goals.js` — `<active-goals>` sidebar widget for
   home, listing only `status === 'active'` goals with progress bars.
-  Click → `/goals#g-<id>`.
+  Click → `/goals#g-<id>`. The sidebar `title` tooltip remains plain text.
 - `domains/tasks/task-edit-modal.js` — adds a `Mål` `<select>` so a task
   can pick a goal; sends `goalId` on save.
 - `domains/results/results-page.js` — modal renders a goal `<select>`
   similarly for results.
-- Nav entry: 🏆 Mål in `lib/core.js` `navbarHtml` + `navLinksHtml` +
-  shortcut bar (`Alt+M`).
+- Nav entry: 🏆 Mål in `lib/core.js` `navbarHtml` + shortcut bar
+  (`Alt+M`).
 
 ## Conventions / gotchas
 

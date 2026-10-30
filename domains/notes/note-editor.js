@@ -14,8 +14,10 @@
  *   week  — pre-select this ISO week (default: current)
  *   file  — pre-fill filename (default: empty)
  *   value — pre-fill textarea content
- *   tasks_service, people_service, companies_service, teams_service —
- *                  optional services forwarded to the rich editor/renderer
+ *   tasks_service, people_service, companies_service, teams_service,
+ *   results_service — services forwarded to the rich editor/renderer
+ *   meetings_service — {{m:? meeting autocomplete; forwarded to the
+ *                      rich editor so it can create meetings on save
  *
  * Public API:
  *   element.save() / element.getContent() / element.setContent(s)
@@ -25,7 +27,7 @@
  *   note-editor:cancel
  */
 import { WNElement, html, escapeHtml, linkMentions, isoWeek } from './_shared.js';
-import { attachAutocomplete, replaceRange, highlightMatch } from '/components/wn-autocomplete.js';
+import { replaceRange, highlightMatch } from '/components/wn-autocomplete.js';
 import { createMentionSource } from '/services/_shared/wn-mention-source.js';
 import { createDetachedMarkdownPreview } from '/services/_shared/wn-markdown-preview.js';
 import './feature-rich-text-area.js';
@@ -61,20 +63,6 @@ const STYLES = `
     .ne-split.detached { grid-template-columns: 1fr; }
     @media (max-width: 900px) { .ne-split { grid-template-columns: 1fr; } }
     .ne-split feature-rich-text-area { height: 100%; min-height: 0; }
-    .ne-shortcuts {
-        margin-top: 6px;
-        font-size: 0.8em; color: var(--text-subtle);
-        line-height: 1.6;
-        flex: 0 0 auto;
-    }
-    .ne-shortcuts code {
-        background: var(--surface-alt, var(--surface));
-        border: 1px solid var(--border-soft, var(--border));
-        border-radius: 4px;
-        padding: 1px 5px;
-        font-size: 0.92em;
-        color: var(--text-muted);
-    }
     markdown-preview, feature-rich-markdown {
         height: 100%; display: block;
         overflow: auto;
@@ -293,6 +281,8 @@ class NoteEditor extends WNElement {
                     people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
                     companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
                     teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"
+                    results_service="${this.getAttribute('results_service') || 'week-note-services.results_service'}"
+                    meetings_service="${this.getAttribute('meetings_service') || 'week-note-services.meetings_service'}"
                     placeholder="# Tittel&#10;&#10;Skriv markdown…" value="${this._initialValue}"></feature-rich-text-area>
                 <div class="ne-preview-wrap">
                     <feature-rich-markdown class="ne-preview"
@@ -308,19 +298,6 @@ class NoteEditor extends WNElement {
                         </div>
                     </div>
                 </div>
-            </div>
-            <div class="ne-shortcuts" aria-hidden="true">
-                Snarveier:
-                <code>@</code> person/firma ·
-                <code>#</code> tag ·
-                <code>{{?</code> oppgave ·
-                <code>[[?</code> resultat ·
-                <code>{{m:?</code> møte ·
-                <code>Tab</code> oppgaveliste/innrykk ·
-                <code>Ctrl+M</code> nytt møte ·
-                <code>Ctrl+D</code> dato ·
-                <code>Ctrl+Shift+D</code> dato + tid ·
-                <code>Ctrl+Enter</code> lagre og lukk
             </div>
             <div class="ne-actions">
                 <span class="ne-status" aria-live="polite"></span>
@@ -773,18 +750,10 @@ class NoteEditor extends WNElement {
     }
 
     disconnectedCallback() {
-        if (this._acHandle) {
-            try { this._acHandle.destroy(); } catch (_) {}
-            this._acHandle = null;
-            this._acAttached = false;
-        }
+        this._acAttached = false;
         if (this._dateHandle) {
             try { this._dateHandle.destroy(); } catch (_) {}
             this._dateHandle = null;
-        }
-        if (this._meetingPopupCleanup) {
-            this._meetingPopupCleanup();
-            this._meetingPopupCleanup = null;
         }
         if (this._docKeyHandler) {
             document.removeEventListener('keydown', this._docKeyHandler);
@@ -1054,243 +1023,23 @@ class NoteEditor extends WNElement {
         this._tagSpaceWired = true;
     }
 
-    _installMeetingSnippet() {
-        // Ctrl+M opens a small popover with date-time-picker, title and
-        // duration. On commit insert '{{m:<title> @ <date> <start>[ <dur>m]}}'
-        // at the caret. The server creates the actual meeting on note save
-        // and replaces the marker with '{{m:?<id>}}'.
-        if (!this._contentEl || this._meetingSnippetWired) return;
-        const ta = this._contentEl;
-        let pickerLoaded = false;
-        const ensurePickerLoaded = async () => {
-            if (pickerLoaded) return;
-            try { await import('/components/date-time-picker.js'); } catch (_) {}
-            pickerLoaded = true;
-        };
-        let popup = null;
-        let outsideHandler = null;
-        let outsideTimer = null;
-        let datePicker = null;
-        const closeDatePicker = () => {
-            if (datePicker) { datePicker.remove(); datePicker = null; }
-        };
-        const closePopup = () => {
-            closeDatePicker();
-            if (outsideTimer) { clearTimeout(outsideTimer); outsideTimer = null; }
-            if (popup) { popup.remove(); popup = null; }
-            if (outsideHandler) { document.removeEventListener('mousedown', outsideHandler, true); outsideHandler = null; }
-        };
-        const fmtWhen = (date, start) => {
-            const months = ['jan', 'feb', 'mar', 'apr', 'mai', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'des'];
-            const m = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-            if (!m) return `${date} ${start}`;
-            return `${parseInt(m[3], 10)}. ${months[parseInt(m[2], 10) - 1]} ${start}`;
-        };
-        const openPopup = (insertAt) => {
-            closePopup();
-            ensurePickerLoaded();
-            const today = new Date();
-            const pad = n => String(n).padStart(2, '0');
-            let chosenDate = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
-            let chosenStart = '09:00';
-            const wrap = document.createElement('div');
-            wrap.style.cssText = 'position:fixed;z-index:9999;background:var(--surface,#fff);border:1px solid var(--border,#ccc);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.15);padding:10px;display:flex;flex-direction:column;gap:6px;min-width:260px;font-size:0.9em;color:var(--text);';
-            wrap.innerHTML = `
-                <div style="font-size:0.8em;color:var(--text-muted);">Nytt møte</div>
-                <button type="button" class="m-when" style="text-align:left;padding:4px 8px;border:1px solid var(--border-soft,#ccc);border-radius:4px;background:var(--surface);color:var(--text);cursor:pointer;">📅 ${fmtWhen(chosenDate, chosenStart)}</button>
-                <input class="m-title" type="text" placeholder="Tittel" style="padding:4px 6px;border:1px solid var(--border-soft,#ccc);border-radius:4px;background:var(--surface);color:var(--text);">
-                <select class="m-dur" style="padding:4px 6px;border:1px solid var(--border-soft,#ccc);border-radius:4px;background:var(--surface);color:var(--text);">
-                    <option value="15">15 min</option>
-                    <option value="30">30 min</option>
-                    <option value="45">45 min</option>
-                    <option value="60" selected>60 min</option>
-                    <option value="90">90 min</option>
-                    <option value="120">2 t</option>
-                </select>
-                <div style="display:flex;justify-content:flex-end;gap:6px;margin-top:4px;">
-                    <button type="button" class="m-cancel" style="padding:3px 10px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);cursor:pointer;">Avbryt</button>
-                    <button type="button" class="m-ok" style="padding:3px 10px;border:none;border-radius:4px;background:var(--accent);color:var(--text-on-accent,#fff);cursor:pointer;">Sett inn</button>
-                </div>
-            `;
-            const taRect = ta.getBoundingClientRect();
-            wrap.style.left = Math.min(window.innerWidth - 280, Math.max(8, taRect.left + 16)) + 'px';
-            wrap.style.top = Math.min(window.innerHeight - 220, Math.max(8, taRect.top + 40)) + 'px';
-            document.body.appendChild(wrap);
-            popup = wrap;
-            const whenBtn = wrap.querySelector('.m-when');
-            const titleEl = wrap.querySelector('.m-title');
-            const durEl = wrap.querySelector('.m-dur');
-            const okBtn = wrap.querySelector('.m-ok');
-            const cancelBtn = wrap.querySelector('.m-cancel');
-            setTimeout(() => titleEl.focus(), 0);
-            const openDateTimePicker = async () => {
-                await ensurePickerLoaded();
-                if (!this.isConnected || popup !== wrap) return;
-                closeDatePicker();
-                const picker = document.createElement('date-time-picker');
-                picker.setAttribute('mode', 'datetime');
-                picker.setAttribute('value', `${chosenDate} ${chosenStart}`);
-                picker.style.cssText = 'position:fixed;z-index:10000;visibility:hidden;left:-9999px;top:0';
-                document.body.appendChild(picker);
-                requestAnimationFrame(() => {
-                    const pr = picker.getBoundingClientRect();
-                    const wr = wrap.getBoundingClientRect();
-                    const top = Math.min(window.innerHeight - pr.height - 8, Math.max(8, wr.bottom + 4));
-                    const left = Math.min(window.innerWidth - pr.width - 8, Math.max(8, wr.left));
-                    picker.style.cssText = `position:fixed;z-index:10000;visibility:visible;top:${top}px;left:${left}px`;
-                });
-                picker.addEventListener('datetime-selected', (e) => {
-                    const v = String(e.detail.value || '');
-                    const m = v.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})$/);
-                    if (m) {
-                        chosenDate = m[1];
-                        chosenStart = m[2];
-                        whenBtn.textContent = `📅 ${fmtWhen(chosenDate, chosenStart)}`;
-                    }
-                    closeDatePicker();
-                    titleEl.focus();
-                });
-                picker.addEventListener('datetime-cancelled', () => {
-                    closeDatePicker();
-                    titleEl.focus();
-                });
-                datePicker = picker;
-                picker.focus();
-            };
-            whenBtn.addEventListener('click', openDateTimePicker);
-            const commit = () => {
-                const title = (titleEl.value || '').trim();
-                if (!title) { titleEl.focus(); return; }
-                const dur = parseInt(durEl.value, 10) || 60;
-                // Insert as text marker; the server creates the meeting on
-                // save and replaces this with '{{m:?<id>}}'.
-                const durSuffix = dur === 60 ? '' : ` ${dur}m`;
-                const snippet = `{{m:${title} @ ${chosenDate} ${chosenStart}${durSuffix}}}`;
-                const text = ta.value;
-                ta.value = text.slice(0, insertAt) + snippet + text.slice(insertAt);
-                const newCaret = insertAt + snippet.length;
-                try { ta.setSelectionRange(newCaret, newCaret); } catch (_) {}
-                closePopup();
-                ta.focus();
-                this._renderPreview();
-                this._markDirty();
-            };
-            const cancel = () => { closePopup(); ta.focus(); };
-            okBtn.addEventListener('click', commit);
-            cancelBtn.addEventListener('click', cancel);
-            wrap.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter' && e.target !== whenBtn) { e.preventDefault(); commit(); }
-                else if (e.key === 'Escape') { e.preventDefault(); cancel(); }
-            });
-            outsideHandler = (e) => {
-                if (datePicker && datePicker.contains(e.target)) return;
-                if (popup && !popup.contains(e.target) && e.target !== ta) cancel();
-            };
-            outsideTimer = setTimeout(() => {
-                outsideTimer = null;
-                if (!popup || !outsideHandler) return;
-                document.addEventListener('mousedown', outsideHandler, true);
-            }, 0);
-        };
-        const onMeetingShortcut = (e) => {
-            if (!e.ctrlKey || e.altKey || e.metaKey) return;
-            if ((e.key || '').toLowerCase() !== 'm') return;
-            e.preventDefault();
-            e.stopPropagation();
-            if (popup) { closePopup(); return; }
-            const caret = ta.selectionStart != null ? ta.selectionStart : ta.value.length;
-            openPopup(caret);
-        };
-        ta.addEventListener('keydown', onMeetingShortcut);
-        this._meetingPopupCleanup = () => {
-            closePopup();
-            ta.removeEventListener('keydown', onMeetingShortcut);
-            this._meetingSnippetWired = false;
-        };
-        this._meetingSnippetWired = true;
-    }
-
-    _installHashTagAutocomplete() {
-        // Replaced by _installAutocompletes which registers a #tag trigger
-        // on the shared <wn-autocomplete> helper. Kept as a noop so any
-        // older callers still work.
-    }
-
-    _installCloseTaskAutocomplete() {
-        // Task and @mention autocomplete are owned by <feature-rich-text-area>. Noop.
-    }
-
-    _installMentionAutocomplete() {
-        // @mentions are owned by <feature-rich-text-area>. Kept as a noop
-        // in case external callers reference it.
-    }
-
     _installAutocompletes() {
-        if (!this._contentEl || this._acAttached) return;
-        const ta = this._contentEl;
-        // Lazy caches — fetched on first activation, reused thereafter.
-        let results = null;
+        if (!this._contentControl || this._acAttached) return;
+        const ta = () => this._contentControl.textarea;
         let meetings = null;
-        const ensureResults = async () => {
-            if (results) return results;
-            try {
-                const r = await fetch('/api/results');
-                results = await r.json() || [];
-                if (!Array.isArray(results)) results = [];
-            } catch (_) { results = []; }
-            return results;
-        };
         const ensureMeetings = async () => {
             if (meetings) return meetings;
-            try {
-                const r = await fetch('/api/meetings');
-                meetings = await r.json() || [];
-                if (!Array.isArray(meetings)) meetings = [];
-            } catch (_) { meetings = []; }
+            const service = this.serviceFor('meetings');
+            if (!service || typeof service.list !== 'function') {
+                throw new Error('Meeting autocomplete requires a meetings_service with list()');
+            }
+            const list = await service.list();
+            meetings = Array.isArray(list) ? list : [];
             return meetings;
         };
 
-        const resultTrigger = {
-            // Detect '[[?' before the caret with no ']' or newline between.
-            // Selecting an item inserts '[[?<id>]]'.
-            detect: (text, caret) => {
-                const upto = text.slice(0, caret);
-                const idx = upto.lastIndexOf('[[?');
-                if (idx < 0) return null;
-                const between = upto.slice(idx + 3);
-                if (/[\n\]]/.test(between)) return null;
-                return { query: between, start: idx, end: caret };
-            },
-            fetchItems: async () => {
-                const all = await ensureResults();
-                // Most recent first.
-                const sorted = all.slice().sort((a, b) => {
-                    const ad = a.created || a.week || '';
-                    const bd = b.created || b.week || '';
-                    return bd.localeCompare(ad);
-                });
-                return sorted.map(r => ({
-                    value: r.id,
-                    label: r.text || '(uten tekst)',
-                    hint: r.week || '',
-                }));
-            },
-            filter: 'words',
-            limit: 12,
-            renderItem: (item, query) => {
-                return `🏁 ${highlightMatch(item.label, query)}` +
-                    (item.hint ? `<span style="opacity:0.55;font-size:0.85em"> · ${highlightMatch(item.hint, query)}</span>` : '');
-            },
-            onSelect: (item, ctx) => {
-                let endIdx = ctx.range.end;
-                if (ta.value.slice(endIdx, endIdx + 2) === ']]') endIdx += 2;
-                replaceRange(ta, ctx.range.start, endIdx, `[[?${item.value}]] `);
-                this._renderPreview();
-                this._markDirty();
-            },
-        };
-
         const tagTrigger = {
+            help: '# tag',
             // Detect '#tag' looking back from caret. Must be at start of
             // value or preceded by whitespace.
             detect: (text, caret, opts) => {
@@ -1326,13 +1075,14 @@ class NoteEditor extends WNElement {
                     if (!cur.includes(item.value)) this._tagsEl.tags = cur.concat([item.value]);
                 }
                 const readable = item.value.replace(/_/g, ' ');
-                replaceRange(ta, ctx.range.start, ctx.range.end, readable + ' ');
+                replaceRange(ta(), ctx.range.start, ctx.range.end, readable + ' ');
                 this._renderPreview();
                 this._markDirty();
             },
         };
 
         const meetingTrigger = {
+            help: '{{m:? møte',
             // Detect '{{m:?' or '{{m:!' before the caret.
             detect: (text, caret) => {
                 const upto = text.slice(0, caret);
@@ -1365,17 +1115,15 @@ class NoteEditor extends WNElement {
             onSelect: (item, ctx) => {
                 const kind = (ctx.extra && ctx.extra.kind) || '?';
                 let endIdx = ctx.range.end;
-                if (ta.value.slice(endIdx, endIdx + 2) === '}}') endIdx += 2;
-                replaceRange(ta, ctx.range.start, endIdx, `{{m:${kind}${item.value}}} `);
+                if (ta().value.slice(endIdx, endIdx + 2) === '}}') endIdx += 2;
+                replaceRange(ta(), ctx.range.start, endIdx, `{{m:${kind}${item.value}}} `);
                 this._renderPreview();
                 this._markDirty();
             },
         };
 
-        this._acHandle = attachAutocomplete(ta, {
-            triggers: [resultTrigger, meetingTrigger, tagTrigger],
-            container: this.shadowRoot,
-        });
+        // The rich editor owns attachment and lists their help labels.
+        this._contentControl.triggers = [meetingTrigger, tagTrigger];
         this._acAttached = true;
     }
 
@@ -1481,30 +1229,6 @@ class NoteEditor extends WNElement {
         });
     }
 
-    _caretCoords(ta) {
-        // Mirror-div technique: build an offscreen <div> with the same styling
-        // as the textarea up to the caret, ending with a span at the caret.
-        const cs = getComputedStyle(ta);
-        const div = document.createElement('div');
-        const props = ['boxSizing','width','height','overflowX','overflowY','borderTopWidth','borderRightWidth','borderBottomWidth','borderLeftWidth','paddingTop','paddingRight','paddingBottom','paddingLeft','fontStyle','fontVariant','fontWeight','fontStretch','fontSize','fontSizeAdjust','lineHeight','fontFamily','textAlign','textTransform','textIndent','letterSpacing','wordSpacing','tabSize','MozTabSize','whiteSpace','wordWrap'];
-        for (const p of props) div.style[p] = cs[p];
-        div.style.position = 'absolute';
-        div.style.visibility = 'hidden';
-        div.style.whiteSpace = 'pre-wrap';
-        div.style.wordWrap = 'break-word';
-        div.style.top = '0'; div.style.left = '-9999px';
-        const caret = ta.selectionStart;
-        const before = ta.value.substring(0, caret);
-        div.textContent = before;
-        const span = document.createElement('span');
-        span.textContent = ta.value.substring(caret) || '.';
-        div.appendChild(span);
-        document.body.appendChild(div);
-        const rect = { left: span.offsetLeft - ta.scrollLeft, top: span.offsetTop - ta.scrollTop, height: parseFloat(cs.lineHeight) || 18 };
-        document.body.removeChild(div);
-        return rect;
-    }
-
     async loadWeeks(selected) {
         try {
             const weeks = await this.service.listWeeks();
@@ -1567,7 +1291,7 @@ class NoteEditor extends WNElement {
         const epochAtStart = this._dirtyEpoch || 0;
         const folder = this._weekSel.value.trim();
         let file = this._fileEl.value.trim();
-        const content = this._contentEl.value;
+        let content = this._contentEl.value;
         const tags = (this._tagsEl && Array.isArray(this._tagsEl.tags))
             ? this._tagsEl.tags.slice()
             : [];
@@ -1604,6 +1328,15 @@ class NoteEditor extends WNElement {
         }
         if (!file.endsWith('.md')) file += '.md';
         if (!autosave) this._setStatus('Lagrer…');
+        if (!autosave && this._contentControl && typeof this._contentControl.convert === 'function') {
+            // The editor turns {{X}} / [[X]] / {{m:…}} into entities first.
+            try {
+                content = (await this._contentControl.convert({ week: folder, noteRef: `${folder}/${file}` })).value;
+            } catch (e) {
+                this._setStatus('Kunne ikke opprette fra markører: ' + (e.message || e), true);
+                return;
+            }
+        }
         try {
             const payload = { folder, file, content, tags, type };
             if (presentationStyle) payload.presentationStyle = presentationStyle;
@@ -1627,8 +1360,7 @@ class NoteEditor extends WNElement {
                 file = data.file;
                 if (this._fileEl) this._fileEl.value = file;
             }
-            // Server may strip {{...}} / [[...]] markers and create entities on
-            // explicit save; reflect the cleaned content in the editor.
+            // Reflect whatever content the server stored.
             if (data && typeof data.content === 'string' && data.content !== content) {
                 this._contentEl.value = data.content;
             }

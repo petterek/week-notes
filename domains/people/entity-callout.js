@@ -7,7 +7,7 @@
  * methods:
  *
  *   const cal = document.createElement('entity-callout');
- *   cal.setData({ kind, entity, key, x, y });   // show
+ *   cal.setData({ kind, entity, key, x, y, people, companies, teams });   // show
  *   cal.hide();                                 // hide
  *
  * `kind`   — 'person' | 'company' | 'place'.
@@ -24,7 +24,8 @@
  * Mount one instance per host; place anywhere in the host's tree. Styled
  * `position: fixed`, the callout floats above any page chrome.
  */
-import { WNElement, html, escapeHtml } from '../../components/_shared.js';
+import { WNElement, html, escapeHtml, unsafeHTML } from '../../components/_shared.js';
+import { renderRichText, RICH_TEXT_CSS } from '/services/_shared/wn-rich-text.js';
 
 const STYLES = `
     :host { position: fixed; z-index: 2000; pointer-events: none; opacity: 0; transition: opacity 0.1s; left: 0; top: 0; }
@@ -34,14 +35,12 @@ const STYLES = `
     .ec-handle { font-size: 0.78em; color: var(--text-subtle); font-weight: 400; }
     .ec-title { color: var(--text-muted); font-style: italic; margin-bottom: 4px; }
     .ec-row { color: var(--text-muted-warm); font-size: 0.9em; padding: 1px 0; }
-    .ec-notes { color: var(--text-muted); margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-soft); white-space: pre-wrap; font-style: italic; }
+    .ec-notes { color: var(--text-muted); margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-soft); max-height: 10em; overflow: hidden; }
     .ec-missing { color: var(--text-subtle); font-style: italic; }
     .ec-badge { font-size: 0.72em; padding: 1px 6px; border-radius: 8px; background: var(--surface-alt); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
 `;
 
-function clip(s, n) { s = s || ''; return s.length > n ? s.slice(0, n) + '…' : s; }
-
-function renderPerson(p, key) {
+function renderPerson(p, key, lists) {
     if (!p) return html`<div class="ec-missing">Ingen oppføring for @${escapeHtml(key || '')}</div>`;
     const name = p.firstName ? (p.lastName ? `${p.firstName} ${p.lastName}` : p.firstName) : (p.name || key || '');
     const company = p.company || null;
@@ -52,29 +51,29 @@ function renderPerson(p, key) {
         ${company ? html`<div class="ec-row">🏢 ${company.name || company.key || ''}</div>` : ''}
         ${p.email ? html`<div class="ec-row">✉️ ${p.email}</div>` : ''}
         ${p.phone ? html`<div class="ec-row">📞 ${p.phone}</div>` : ''}
-        ${p.notes ? html`<div class="ec-notes">${clip(p.notes, 160)}</div>` : ''}
+        ${p.notes ? html`<div class="ec-notes rich-text">${unsafeHTML(renderRichText(p.notes, lists))}</div>` : ''}
     `;
 }
 
-function renderCompany(c, key) {
+function renderCompany(c, key, lists) {
     if (!c) return html`<div class="ec-missing">Ingen oppføring for @${escapeHtml(key || '')}</div>`;
     return html`
         <div class="ec-name">🏢 ${c.name || key || ''} <span class="ec-handle">@${c.key || key || ''}</span></div>
         ${c.url ? html`<div class="ec-row">🔗 ${c.url}</div>` : ''}
         ${c.address ? html`<div class="ec-row">📍 ${c.address}</div>` : ''}
         ${c.orgnr ? html`<div class="ec-row">Org.nr: ${c.orgnr}</div>` : ''}
-        ${c.notes ? html`<div class="ec-notes">${clip(c.notes, 160)}</div>` : ''}
+        ${c.notes ? html`<div class="ec-notes rich-text">${unsafeHTML(renderRichText(c.notes, lists))}</div>` : ''}
     `;
 }
 
-function renderPlace(p, key) {
+function renderPlace(p, key, lists) {
     if (!p) return html`<div class="ec-missing">Ingen oppføring for ${escapeHtml(key || '')}</div>`;
     const hasCoords = Number.isFinite(p.lat) && Number.isFinite(p.lng);
     return html`
         <div class="ec-name">📍 ${p.name || key || ''} <span class="ec-handle">@${p.key || key || ''}</span></div>
         ${p.address ? html`<div class="ec-row">${p.address}</div>` : ''}
         ${hasCoords ? html`<div class="ec-row">${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}</div>` : ''}
-        ${p.notes ? html`<div class="ec-notes">${clip(p.notes, 160)}</div>` : ''}
+        ${p.notes ? html`<div class="ec-notes rich-text">${unsafeHTML(renderRichText(p.notes, lists))}</div>` : ''}
     `;
 }
 
@@ -82,7 +81,7 @@ class EntityCallout extends WNElement {
     static get domain() { return 'people'; }
     static get observedAttributes() { return []; }
 
-    css() { return STYLES; }
+    css() { return STYLES + RICH_TEXT_CSS; }
     render() { return html`<div class="ec"></div>`; }
 
     setData(d) {
@@ -90,9 +89,9 @@ class EntityCallout extends WNElement {
         const kind = d.kind, key = d.key;
         const entity = d.entity;
         let markup = '';
-        if (kind === 'person')  markup = renderPerson(entity, key);
-        else if (kind === 'company') markup = renderCompany(entity, key);
-        else if (kind === 'place')   markup = renderPlace(entity, key);
+        if (kind === 'person')  markup = renderPerson(entity, key, d);
+        else if (kind === 'company') markup = renderCompany(entity, key, d);
+        else if (kind === 'place')   markup = renderPlace(entity, key, d);
         else return;
         const box = this.shadowRoot && this.shadowRoot.querySelector('.ec');
         if (!box) return;

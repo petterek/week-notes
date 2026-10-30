@@ -14,7 +14,7 @@
  * Events: none of its own. Click on a row navigates to /editor/<week>/<file>
  * via the SPA router (window.spaNavigate) when present, else full nav.
  */
-import { WNElement, html, escapeHtml } from './_shared.js';
+import { WNElement, html } from './_shared.js';
 
 const TYPES = [
     { id: 'note',         label: 'Notat',         icon: '📝' },

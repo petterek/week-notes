@@ -266,10 +266,13 @@
                 var doc = ctx.doc;
                 var modal = await ctx.waitFor(function () { return doc.querySelector('task-note-modal'); }, { label: 'task-note-modal' });
                 ctx.assert(typeof modal.open === 'function', 'expected open()');
+                modal.setAttribute('people_service', 'MockPeopleService');
+                modal.setAttribute('companies_service', 'MockCompaniesService');
+                modal.setAttribute('teams_service', 'MockTeamsService');
                 modal.open({ id: 'demo-note', text: 'Demo task', note: '' }, function () {});
                 var ta = await ctx.waitFor(function () {
                     var input = modal.shadowRoot && modal.shadowRoot.querySelector('[data-el="note"]');
-                    return input && input.__wnMentionAttached ? input : null;
+                    return input && input.textarea ? input.textarea : null;
                 }, { label: 'note textarea' });
                 ta.focus();
                 ta.value = '@me';
@@ -277,7 +280,7 @@
                 ta.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
 
                 var pop = await ctx.waitFor(function () {
-                    var p = modal.shadowRoot.querySelector('[role="listbox"]');
+                    var p = ta.getRootNode().querySelector('[role="listbox"]');
                     return p && !p.hidden && p.children.length > 0 ? p : null;
                 }, { label: 'mention dropdown visible', timeout: 2000 });
 
@@ -332,9 +335,10 @@
                         modal.open({ id: 'reconnected', text: 'Synthetic task' }, function (value) { result = value; });
                         var input = await ctx.waitFor(function () {
                             var field = modal.shadowRoot.querySelector('[data-el="' + variant.input + '"]');
-                            return field && field.__wnMentionAttached ? field : null;
+                            return field && field.textarea ? field.textarea : null;
                         }, { label: variant.tag + ' ready' });
                         input.value = 'Saved after reconnect';
+                        input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
                         input.dispatchEvent(new KeyboardEvent('keydown', {
                             key: 'Enter', ctrlKey: true, bubbles: true, composed: true, cancelable: true,
                         }));
@@ -565,6 +569,74 @@
                 await ctx.waitFor(function () {
                     return sr.querySelectorAll('a, button[data-ctx], li, [role="menuitem"]').length >= 1;
                 }, { label: 'context options visible', timeout: 3000 });
+            },
+        },
+
+        {
+            id: 'feature-rich-text-area-form-field',
+            name: 'feature-rich-text-area works as a form field with selectable features',
+            url: '/debug/feature-rich-text-area',
+            run: async function (ctx) {
+                var doc = ctx.doc;
+                await ctx.waitFor(function () { return doc.defaultView.customElements.get('feature-rich-text-area'); }, { label: 'editor defined' });
+                var form = doc.createElement('form');
+                form.innerHTML = '<feature-rich-text-area name="notes" rows="3" features="emoji,mentions" value="Start"></feature-rich-text-area>';
+                doc.body.appendChild(form);
+                try {
+                    var field = form.querySelector('feature-rich-text-area');
+                    var ta = await ctx.waitFor(function () { return field.textarea; }, { label: 'field textarea' });
+                    ctx.assert(new FormData(form).get('notes') === 'Start', 'FormData should read the initial value');
+                    ctx.assert(!field.shadowRoot.querySelector('.editor-help'), 'help line should be hidden unless enabled');
+                    ctx.assert(field.getBoundingClientRect().height < 200, 'rows should size the field to its content, got ' + field.getBoundingClientRect().height);
+
+                    field.focus();
+                    ctx.assert(field.shadowRoot.activeElement === ta, 'focus() should focus the inner textarea');
+
+                    var changed = 0;
+                    field.addEventListener('change', function () { changed++; });
+                    ta.value = 'Ny tekst';
+                    ta.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                    ta.dispatchEvent(new Event('change', { bubbles: true }));
+                    ctx.assert(changed === 1, 'change should be re-dispatched on the host');
+                    ctx.assert(new FormData(form).get('notes') === 'Ny tekst', 'FormData should follow edits');
+
+                    ta.value = '- item';
+                    ta.setSelectionRange(6, 6);
+                    var enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+                    ta.dispatchEvent(enter);
+                    ctx.assert(!enter.defaultPrevented, 'list continuation should be off when "lists" is not enabled');
+                    var tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+                    ta.dispatchEvent(tab);
+                    ctx.assert(!tab.defaultPrevented, 'Tab must move focus when "indent" is not enabled');
+
+                    var picked;
+                    field.triggers = [{
+                        detect: function (text, caret) { return text.slice(0, caret).endsWith('%x') ? { query: '', start: caret - 2, end: caret } : null; },
+                        fetchItems: async function () { return [{ value: 'X', label: 'Eksempel' }]; },
+                        onSelect: function (item) { picked = item.value; },
+                    }];
+                    ta.value = '%x';
+                    ta.setSelectionRange(2, 2);
+                    ta.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                    await ctx.waitFor(function () {
+                        var pop = field.shadowRoot.querySelector('[role="listbox"]');
+                        return pop && !pop.hidden && pop.querySelector('button');
+                    }, { label: 'host trigger suggestions' });
+                    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+                    ctx.assert(picked === 'X', 'host-provided triggers should be selectable');
+
+                    field.setAttribute('readonly', '');
+                    ta = await ctx.waitFor(function () { return field.textarea && field.textarea.readOnly ? field.textarea : null; }, { label: 'readonly textarea' });
+                    ta.value = 'låst ::';
+                    ta.setSelectionRange(7, 7);
+                    ta.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                    ctx.assert(!field.shadowRoot.querySelector('.emoji-pop[open]'), 'readonly field should not open the emoji picker');
+
+                    form.reset();
+                    ctx.assert(field.value === 'Start', 'form reset should restore the initial value, got ' + field.value);
+                } finally {
+                    form.remove();
+                }
             },
         },
 
@@ -1287,8 +1359,9 @@
                 ta.selectionStart = ta.selectionEnd = 7;
                 ta.dispatchEvent(new Event('input', { bubbles: true }));
 
+                // The rich editor owns the popup, so it lives in its shadow root.
                 var pop = await ctx.waitFor(function () {
-                    var p = sr.querySelector('[role="listbox"]');
+                    var p = control.shadowRoot.querySelector('[role="listbox"]');
                     return p && !p.hidden && p.children.length > 0 ? p : null;
                 }, { label: 'tag dropdown visible', timeout: 2000 });
 

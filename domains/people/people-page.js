@@ -38,6 +38,8 @@ import './company-card.js';
 import './person-card.js';
 import './place-card.js';
 import './person-multi-picker.js';
+import '/components/feature-rich-text-area.js';
+import { renderRichText, RICH_TEXT_CSS } from '/services/_shared/wn-rich-text.js';
 
 const LEAFLET_CSS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
 const LEAFLET_JS  = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
@@ -150,8 +152,8 @@ const STYLES = `
     .pp-modal-x { background: none; border: none; font-size: 1.3em; cursor: pointer; color: var(--text-subtle); }
     .pp-form { display: flex; flex-direction: column; gap: 12px; }
     .pp-form label { font-size: 0.85em; font-weight: 600; color: var(--text-muted); display: block; }
-    .pp-form input, .pp-form textarea, .pp-form select { display: block; width: 100%; margin-top: 4px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-strong); font: inherit; box-sizing: border-box; }
-    .pp-form textarea { resize: vertical; min-height: 60px; }
+    .pp-form input, .pp-form select { display: block; width: 100%; margin-top: 4px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-strong); font: inherit; box-sizing: border-box; }
+    .pp-form feature-rich-text-area { display: block; width: 100%; margin-top: 4px; }
     .pp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .cmpck-list { border: 1px solid var(--border); border-radius: 6px; padding: 6px; max-height: 130px; overflow-y: auto; background: var(--surface); margin-top: 4px; }
     .cmpck-list label { display: flex !important; align-items: center; gap: 6px; font-weight: normal !important; padding: 3px 4px; font-size: 0.9em; cursor: pointer; }
@@ -181,7 +183,7 @@ const STYLES = `
     .team-members { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
     .team-members strong { font-size: 0.85em; color: var(--text-muted); margin-right: 4px; }
     .team-member-chip { font-size: 0.85em; padding: 2px 10px; background: var(--surface-alt); color: var(--text); border-radius: 12px; }
-    .team-notes { font-size: 0.85em; color: var(--text-muted); font-style: italic; padding: 6px 0; white-space: pre-wrap; }
+    .team-notes { font-size: 0.85em; color: var(--text-muted); padding: 6px 0; }
     .team-actions { display: flex; gap: 8px; margin-top: 8px; }
     .team-actions .btn-ghost { padding: 6px 12px; font-size: 0.85em; border: 1px solid var(--border); background: var(--surface); border-radius: 6px; cursor: pointer; color: var(--text-muted); font: inherit; }
     .team-actions .btn-ghost:hover { background: var(--surface-head); border-color: var(--accent); }
@@ -240,7 +242,7 @@ class PeoplePage extends WNElement {
         this._miniMaps = new WeakSet();
     }
 
-    css() { return STYLES; }
+    css() { return STYLES + RICH_TEXT_CSS; }
 
     connectedCallback() {
         super.connectedCallback();
@@ -444,7 +446,7 @@ class PeoplePage extends WNElement {
             const members  = this._companyMembers.get(k) || [];
             card.setData({
                 company: c, members, tasks, meetings, results,
-                people: this._people, companies: this._companies,
+                people: this._people, companies: this._companies, teams: this._teams,
                 open: this._expanded.has('c-' + k),
             });
         });
@@ -465,7 +467,7 @@ class PeoplePage extends WNElement {
             const extraCompanies = (p.extraCompanyKeys || []).map(x => this._companiesByKey[x]).filter(Boolean);
             card.setData({
                 person: p, primaryCompany, extraCompanies, tasks, meetings, results,
-                people: this._people, companies: this._companies,
+                people: this._people, companies: this._companies, teams: this._teams,
                 open: this._expanded.has('p-' + k),
             });
         });
@@ -481,7 +483,7 @@ class PeoplePage extends WNElement {
             const meetings = this._placeMeetings.get(k) || [];
             card.setData({
                 place, meetings,
-                people: this._people, companies: this._companies,
+                people: this._people, companies: this._companies, teams: this._teams,
                 open: this._expanded.has('pl-' + k),
             });
         });
@@ -667,38 +669,6 @@ class PeoplePage extends WNElement {
             </div>`;
     }
 
-    _renderMeetingList(meetings) {
-        if (!meetings.length) return '';
-        const sorted = meetings.slice().sort((a, b) =>
-            (b.date + (b.start || '')).localeCompare(a.date + (a.start || '')));
-        return html`
-            <div class="person-section">
-                <div class="person-section-h">Møter <span class="c">${meetings.length}</span></div>
-                ${sorted.map(m => {
-                    const wk = m.week || '';
-                    const href = wk ? `/calendar/${encodeURIComponent(wk)}#m-${encodeURIComponent(m.id)}` : '/calendar';
-                    return html`
-                    <div class="person-ref">
-                        <a href="${href}">📅 ${this._link(m.title || '')} <span class="ref-when">${m.date || ''}${m.start ? ' ' + m.start : ''}</span></a>
-                    </div>`;
-                })}
-            </div>`;
-    }
-
-    _renderResultList(results) {
-        if (!results.length) return '';
-        const sorted = results.slice().sort((a, b) =>
-            String(b.created || '').localeCompare(String(a.created || '')));
-        return html`
-            <div class="person-section">
-                <div class="person-section-h">Resultater <span class="c">${results.length}</span></div>
-                ${sorted.map(r => html`
-                    <div class="person-ref">
-                        <a href="/results">⚖️ ${this._link(r.text || '')} <span class="ref-when">${r.week || ''}</span></a>
-                    </div>`)}
-            </div>`;
-    }
-
     _renderCompaniesPane() {
         const filtered = this._filterCompanies();
         const total = this._companies.length;
@@ -790,7 +760,7 @@ class PeoplePage extends WNElement {
                             <strong>Medlemmer:</strong>
                             ${memberNames.length ? memberNames.map(n => html`<span class="team-member-chip">${escapeHtml(n)}</span>`) : html`<em class="muted">Ingen</em>`}
                         </div>
-                        ${t.notes ? html`<div class="team-notes">${escapeHtml(t.notes)}</div>` : ''}
+                        ${t.notes ? html`<div class="team-notes rich-text">${unsafeHTML(renderRichText(t.notes, { people: this._people, companies: this._companies, teams: this._teams }))}</div>` : ''}
                         <div class="team-actions">
                             <a class="btn-ghost" href="/team/${encodeURIComponent(t.key)}">📊 Status</a>
                             <button class="btn-ghost" data-act="edit-team" data-id="${t.id}">✏️ Rediger</button>
@@ -850,7 +820,10 @@ class PeoplePage extends WNElement {
                         </div>` : ''}
                     <label>E-post<input type="email" data-f="email" value="${p.email || ''}" /></label>
                     <label>Telefon<input type="tel" data-f="phone" value="${p.phone || ''}" /></label>
-                    <label>Notat<textarea rows="3" data-f="notes">${p.notes || ''}</textarea></label>
+                    <label>Notat<feature-rich-text-area rows="3" data-f="notes" value="${p.notes || ''}" features="lists,emoji,mentions,dates" aria-label="Notat"
+                        people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
+                        companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
+                        teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"></feature-rich-text-area></label>
                     <label class="pp-inactive-row"><input type="checkbox" data-f="inactive" ${p.inactive ? 'checked' : ''} /> Inaktiv (skjules fra @-autofullføring)</label>
                 </div>
                 <div class="pp-actions">
@@ -875,7 +848,10 @@ class PeoplePage extends WNElement {
                     <label>Org.nr<input type="text" data-f="orgnr" value="${c.orgnr || ''}" /></label>
                     <label>Web<input type="text" data-f="url" value="${c.url || ''}" placeholder="https://" /></label>
                     <label>Adresse<input type="text" data-f="address" value="${c.address || ''}" /></label>
-                    <label>Notat<textarea rows="3" data-f="notes">${c.notes || ''}</textarea></label>
+                    <label>Notat<feature-rich-text-area rows="3" data-f="notes" value="${c.notes || ''}" features="lists,emoji,mentions,dates" aria-label="Notat"
+                        people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
+                        companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
+                        teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"></feature-rich-text-area></label>
                 </div>
                 <div class="pp-actions">
                     ${isEdit ? html`<button class="pp-btn danger" data-act="delete-company">🗑️ Slett</button>` : ''}
@@ -1237,7 +1213,7 @@ class PeoplePage extends WNElement {
             const extraCompanies = (updated.extraCompanyKeys || []).map(x => this._companiesByKey[x]).filter(Boolean);
             cardEl.setData({
                 person: updated, primaryCompany, extraCompanies, tasks, meetings, results,
-                people: this._people, companies: this._companies,
+                people: this._people, companies: this._companies, teams: this._teams,
                 open: this._expanded.has('p-' + newKey),
             });
         } else {
@@ -1310,7 +1286,7 @@ class PeoplePage extends WNElement {
             const members  = this._companyMembers.get(k) || [];
             cardEl.setData({
                 company: updated, members, tasks, meetings, results,
-                people: this._people, companies: this._companies,
+                people: this._people, companies: this._companies, teams: this._teams,
                 open: this._expanded.has('c-' + k),
             });
             // Primary-company labels on person cards may reference this
@@ -1363,7 +1339,10 @@ class PeoplePage extends WNElement {
                 </div>
                 <div class="pp-form">
                     <label>Teamnavn *<input type="text" data-f="name" value="${t.name || ''}" placeholder="Backend-teamet" /></label>
-                    <label>Notat<textarea rows="2" data-f="notes">${t.notes || ''}</textarea></label>
+                    <label>Notat<feature-rich-text-area rows="2" data-f="notes" value="${t.notes || ''}" features="lists,emoji,mentions,dates" aria-label="Notat"
+                        people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
+                        companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
+                        teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"></feature-rich-text-area></label>
                     <label>Medlemmer
                         <person-multi-picker data-el="members" value="${escapeHtml(memberValue)}" placeholder="Legg til medlem…"></person-multi-picker>
                     </label>
@@ -1450,7 +1429,10 @@ class PeoplePage extends WNElement {
                     </div>
                     <div style="font-size:0.8em;color:var(--text-subtle);margin-top:-6px">Klikk på kartet for å plassere markøren. Dra for å justere.</div>
                     <div data-place-map style="height:320px;border-radius:6px;border:1px solid var(--border)"></div>
-                    <label style="font-size:0.85em;font-weight:600;color:var(--text-muted)">Notat<textarea data-f="notes" rows="2" style="display:block;width:100%;margin-top:4px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text-strong);font:inherit;box-sizing:border-box;resize:vertical">${escapeHtml(p.notes || '')}</textarea></label>
+                    <label style="font-size:0.85em;font-weight:600;color:var(--text-muted)">Notat<feature-rich-text-area data-f="notes" rows="2" style="display:block;width:100%;margin-top:4px;font-weight:400" value="${escapeAttr(p.notes || '')}" features="lists,emoji,mentions,dates" aria-label="Notat"
+                        people_service="${escapeAttr(this.getAttribute('people_service') || 'week-note-services.people_service')}"
+                        companies_service="${escapeAttr(this.getAttribute('companies_service') || 'week-note-services.companies_service')}"
+                        teams_service="${escapeAttr(this.getAttribute('teams_service') || 'week-note-services.teams_service')}"></feature-rich-text-area></label>
                 </div>
                 <div style="margin-top:18px;display:flex;align-items:center;gap:10px;justify-content:flex-end">
                     ${isEdit ? `<button data-act="delete" style="padding:8px 16px;border-radius:6px;background:#fff5f5;color:#c53030;border:1px solid #fed7d7;cursor:pointer;font:inherit;margin-right:auto">🗑️ Slett</button>` : ''}
@@ -1567,7 +1549,7 @@ class PeoplePage extends WNElement {
             const meetings = this._placeMeetings.get(k) || [];
             cardEl.setData({
                 place: updated, meetings,
-                people: this._people, companies: this._companies,
+                people: this._people, companies: this._companies, teams: this._teams,
                 open: this._expanded.has('pl-' + k),
             });
         } else {

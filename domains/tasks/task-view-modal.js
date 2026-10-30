@@ -17,7 +17,9 @@
  *
  * Keyboard: Escape closes (via modal-container), E opens edit, C toggles complete.
  */
-import { WNElement, html, unsafeHTML, escapeHtml, linkMentions } from './_shared.js';
+import { WNElement, html, escapeHtml, linkMentions } from './_shared.js';
+
+import { renderRichText, RICH_TEXT_CSS } from '/services/_shared/wn-rich-text.js';
 
 const STYLES = `
     :host { display: inline-block; font: inherit; }
@@ -152,7 +154,7 @@ function weekLabel(w) {
 }
 
 class TaskViewModal extends WNElement {
-    css() { return STYLES; }
+    css() { return STYLES + RICH_TEXT_CSS; }
 
     render() {
         return html`<span></span>`;
@@ -324,13 +326,11 @@ class TaskViewModal extends WNElement {
         // Note section
         let noteSection = '';
         if (t.note) {
-            const noteHtml = window.marked
-                ? window.marked.parse(t.note)
-                : escapeHtml(t.note).replace(/\n/g, '<br>');
+            const noteHtml = renderRichText(t.note);
             noteSection = `
                 <div class="note-section">
                     <h4>📝 Notat</h4>
-                    <div class="note-body">${noteHtml}</div>
+                    <div class="note-body rich-text">${noteHtml}</div>
                 </div>
             `;
         }
@@ -338,11 +338,11 @@ class TaskViewModal extends WNElement {
         // Completion comment
         let commentSection = '';
         if (t.done && t.comment) {
-            const commentHtml = escapeHtml(t.comment).replace(/\n/g, '<br>');
+            const commentHtml = renderRichText(t.comment);
             commentSection = `
                 <div class="comment-section">
                     <h4>💬 Fullføringskommentar</h4>
-                    <div class="comment-body">${commentHtml}</div>
+                    <div class="comment-body rich-text">${commentHtml}</div>
                 </div>
             `;
         }
@@ -354,7 +354,7 @@ class TaskViewModal extends WNElement {
         const editBtn = `<button data-act="edit">✏️ Rediger</button>`;
 
         return `
-            <style>${STYLES}</style>
+            <style>${STYLES}${RICH_TEXT_CSS}</style>
             ${statusHtml}
             <div class="meta">${metaHtml}</div>
             ${noteSection}

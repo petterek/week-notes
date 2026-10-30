@@ -8,12 +8,12 @@ module.exports = function(deps) {
     const __dirname = deps.rootDir;
     const {
         CONTEXTS_DIR, EMBED_MODELS, SUMMARIZE_MODELS, WEEK_NOTES_MARKER, computeNoteReferences, dataDir,
-        embedEmit, embedSseClients, getEmbedState, extractInlineTasks, extractMentions, getDataContext,
-        getAppSettings, getCalendarActivity, getCurrentYearWeek, getDefaultMeetingMinutes,
+        embedEmit, embedSseClients, getEmbedState, getDataContext,
+        getAppSettings, getCalendarActivity, getCurrentYearWeek,
         getMePersonKey, getNoteMeta, git, gitCommitAll, gitInitIfNeeded, gitIsRepo, isEmbedReady,
-        listContexts, loadMeetings, loadTasks, meetingId, noteSnippet,
-        processInlineResults, readJsonBody, restartEmbedWorker, restartSearchWorker, restartSummarizeWorker,
-        saveMeetings, saveTasks, searchAll, searchViaWorker, setAppSettings, setMePersonKey, setNoteMeta,
+        listContexts, loadTasks, meetingId, noteSnippet,
+        readJsonBody, restartEmbedWorker, restartSearchWorker, restartSummarizeWorker,
+        saveTasks, searchAll, searchViaWorker, setAppSettings, setMePersonKey, setNoteMeta,
         stopEmbedWorker, stopSearchWorker, stopSummarizeWorker, summarizeEmit, summarizeSseClients,
         getSummarizeState, summarizeWeek, syncMentions, syncTaskNoteRefs, vectorHitToSearchResult,
         vectorSearchViaWorker, writeMarker,
@@ -500,49 +500,13 @@ module.exports = function(deps) {
             const filePath = path.join(dataDir(), folder, file);
             const existing = autosave ? {} : getNoteMeta(folder, file, { fresh: true });
 
-            // On EXPLICIT save (not autosave), process inline-create markers:
-            //   {{X}} → create a new task with text X
-            //   [[X]] → create a new result with text X
-            // Both have their markers stripped (inner text kept) before
-            // the file is written, so the on-disk content is clean.
+            // On EXPLICIT save (not autosave), apply task close markers.
+            // Creating tasks/results/meetings from {{X}} / [[X]] / {{m:…}}
+            // is owned by <feature-rich-text-area>.convert() in the browser.
             let finalContent = content;
-            let createdTasks = 0;
-            let createdResults = 0;
-            let createdMeetings = 0;
             let closedTasks = 0;
             if (!autosave) {
                 const noteWeek = (typeof folder === 'string' && /^\d{4}-W\d{2}$/.test(folder)) ? folder : getCurrentYearWeek();
-                const inline = extractInlineTasks(finalContent);
-                if (inline.tasks.length > 0) {
-                    const allTasks = loadTasks();
-                    const noteRef = `${folder}/${file}`;
-                    const newIds = [];
-                    inline.tasks.forEach(text => {
-                        const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
-                        allTasks.push({
-                            id,
-                            text,
-                            done: false,
-                            week: noteWeek,
-                            noteRef,
-                            created: new Date().toISOString(),
-                        });
-                        newIds.push(id);
-                    });
-                    saveTasks(allTasks);
-                    createdTasks = inline.tasks.length;
-                    // Rewrite each {{X}} marker (in order) to {{?<newId>}}
-                    // so the saved file keeps a stable ref to the new task.
-                    // Preserve the link so the note can render an interactive
-                    // checkbox and close-from-note works. Skip {{m:…}} which
-                    // is reserved for meeting markers.
-                    let i = 0;
-                    finalContent = finalContent.replace(/\{\{([^{}!?][^{}]*)\}\}/g, (m, inner) => {
-                        if (/^m:/i.test(inner.trim())) return m;
-                        if (i >= newIds.length) return m;
-                        return `{{?${newIds[i++]}}}`;
-                    });
-                }
                 // Process '{{!<id>}}' close markers: close the matching open
                 // task. The marker is left in the file so the rendered note
                 // can show a checked checkbox with the task text, and so
@@ -591,59 +555,6 @@ module.exports = function(deps) {
                         }
                         if (changed) saveTasks(allTasks);
                     }
-                }
-                const resOut = processInlineResults(finalContent, noteWeek);
-                createdResults = resOut.createdCount;
-                finalContent = resOut.text;
-
-                // Process inline meeting markers: {{m:Title @ YYYY-MM-DD HH:MM}}
-                // → create meeting, replace with {{m:?<id>}}. Skip already-
-                // resolved references {{m:?<id>}} / {{m:!<id>}}.
-                {
-                    const ctxId = getDataContext();
-                    const defaultMins = getDefaultMeetingMinutes(ctxId);
-                    const allMeetings = loadMeetings();
-                    const noteMentions = extractMentions(finalContent);
-                    const noteRef = `${folder}/${file}`;
-                    let mtgChanged = false;
-                    finalContent = finalContent.replace(/\{\{m:([^{}]+)\}\}/g, (m, inner) => {
-                        const trimmed = inner.trim();
-                        if (!trimmed) return m;
-                        if (trimmed.startsWith('?') || trimmed.startsWith('!')) return m;
-                        // Parse "Title @ YYYY-MM-DD HH:MM"
-                        const at = trimmed.lastIndexOf('@');
-                        if (at < 0) return m;
-                        const titlePart = trimmed.slice(0, at).trim();
-                        const whenPart = trimmed.slice(at + 1).trim();
-                        const dt = whenPart.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2})(?:\s+(\d+)m)?$/);
-                        if (!titlePart || !dt) return m;
-                        const date = dt[1];
-                        const startH = +dt[2], startM = +dt[3];
-                        const customDur = dt[4] ? parseInt(dt[4], 10) : null;
-                        const durMins = (customDur && customDur > 0) ? customDur : (defaultMins || 60);
-                        const endTotal = startH * 60 + startM + durMins;
-                        const endH = Math.floor(endTotal / 60) % 24;
-                        const endM = endTotal % 60;
-                        const pad = n => String(n).padStart(2, '0');
-                        const id = meetingId();
-                        allMeetings.push({
-                            id,
-                            date,
-                            start: `${pad(startH)}:${pad(startM)}`,
-                            end: `${pad(endH)}:${pad(endM)}`,
-                            title: titlePart,
-                            type: 'standup',
-                            attendees: noteMentions,
-                            location: '',
-                            notes: '',
-                            noteRef,
-                            created: new Date().toISOString(),
-                        });
-                        mtgChanged = true;
-                        createdMeetings++;
-                        return `{{m:?${id}}}`;
-                    });
-                    if (mtgChanged) saveMeetings(allMeetings);
                 }
             }
 
@@ -740,7 +651,7 @@ module.exports = function(deps) {
             }
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: true, path: `/${folder}/${file}`, file, folder, content: finalContent, createdTasks, createdResults, createdMeetings, closedTasks }));
+            res.end(JSON.stringify({ ok: true, path: `/${folder}/${file}`, file, folder, content: finalContent, closedTasks }));
 
             // Commit the note (and *every* sidecar / related entity file
             // touched by this save — git add -A sweeps the whole context

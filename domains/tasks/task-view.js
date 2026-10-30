@@ -21,6 +21,8 @@ import {
     linkMentions, wireMentionClicks,
 } from './_shared.js';
 
+import { renderRichText, RICH_TEXT_CSS } from '/services/_shared/wn-rich-text.js';
+
 const STYLES = `
     :host { display: block; color: var(--text-strong); font: inherit; font-size: 0.95em; }
     .wrap {
@@ -78,7 +80,6 @@ const STYLES = `
         font-size: 0.92em;
         color: var(--text-strong);
     }
-    .note { white-space: pre-wrap; }
     .section-h {
         margin-top: 16px; margin-bottom: 4px;
         font-size: 0.78em; font-weight: 600;
@@ -145,7 +146,7 @@ class TaskView extends WNElement {
     static get domain() { return 'tasks'; }
     static get observedAttributes() { return ['taskid', 'tasks_service', 'people_service', 'companies_service']; }
 
-    css() { return STYLES; }
+    css() { return STYLES + RICH_TEXT_CSS; }
 
     set task(t) {
         this._taskOverride = t || null;
@@ -272,22 +273,12 @@ class TaskView extends WNElement {
                 <p class="empty-quiet">(tom)</p>
             `;
         }
-        // Render markdown if marked is available, else fall back to escaped text.
-        let rendered;
-        if (typeof window !== 'undefined' && window.marked && typeof window.marked.parse === 'function') {
-            try {
-                const md = window.marked.parse(text);
-                const linked = linkMentions(md, this._people || [], this._companies || []);
-                rendered = unsafeHTML(linked);
-            } catch {
-                rendered = unsafeHTML('<pre>' + escapeHtml(text) + '</pre>');
-            }
-        } else {
-            rendered = unsafeHTML('<pre style="white-space:pre-wrap">' + escapeHtml(text) + '</pre>');
-        }
+        const rendered = unsafeHTML(renderRichText(text, {
+            people: this._people || [], companies: this._companies || [],
+        }));
         return html`
             <div class="section-h">Kommentar <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-subtle)">· ${unsafeHTML('<a href="/' + escapeHtml(t.commentFile) + '">' + escapeHtml(t.commentFile) + '</a>')}</span></div>
-            <div class="comment">${rendered}</div>
+            <div class="comment rich-text">${rendered}</div>
         `;
     }
 
@@ -315,7 +306,7 @@ class TaskView extends WNElement {
 
         // Note and commentFile get their own dedicated sections below.
         const rows = ordered
-            .filter(k => k !== 'text' && k !== 'note' && k !== 'commentFile')
+            .filter(k => k !== 'text' && k !== 'note' && k !== 'commentFile' && k !== 'comment')
             .map(k => this._renderField(k, t[k]))
             .filter(Boolean);
 
@@ -329,7 +320,8 @@ class TaskView extends WNElement {
                 </h3>
                 <p class="text ${t.done ? 'done' : ''}">${textHtml}</p>
                 <dl>${rows}</dl>
-                ${note ? html`<div class="section-h">Notat</div><div class="note">${t.note}</div>` : null}
+                ${note ? html`<div class="section-h">Notat</div><div class="note rich-text">${unsafeHTML(renderRichText(t.note, { people: this._people, companies: this._companies }))}</div>` : null}
+                ${t.comment ? html`<div class="section-h">Fullføringskommentar</div><div class="completion-comment rich-text">${unsafeHTML(renderRichText(t.comment, { people: this._people, companies: this._companies }))}</div>` : null}
                 ${this._renderComment()}
             </div>
         `;

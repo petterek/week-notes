@@ -2305,7 +2305,7 @@ modal.open();</pre>
                 rawHtml: `<button type="button" id="dbg-ctm-trigger" class="btn"
                     style="padding:8px 14px;background:var(--accent);color:var(--text-on-accent);border:0;border-radius:8px;font-weight:600;cursor:pointer">Fullfør «Send rapport til @anna»</button>
                     <pre id="dbg-ctm-out" style="margin-top:10px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;min-height:42px;white-space:pre-wrap"></pre>
-                    <task-complete-modal id="dbg-ctm"></task-complete-modal>
+                    <task-complete-modal id="dbg-ctm" people_service="MockPeopleService" companies_service="MockCompaniesService" teams_service="MockTeamsService" tasks_service="MockTaskService"></task-complete-modal>
                     <script>
                         customElements.whenDefined('task-complete-modal').then(function(){
                             var modal = document.getElementById('dbg-ctm');
@@ -2335,7 +2335,7 @@ modal.open();</pre>
                 rawHtml: `<button type="button" id="dbg-tnm-trigger" class="btn"
                     style="padding:8px 14px;background:var(--accent);color:var(--text-on-accent);border:0;border-radius:8px;font-weight:600;cursor:pointer">Rediger notat for «Send rapport til @anna»</button>
                     <pre id="dbg-tnm-out" style="margin-top:10px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;min-height:42px;white-space:pre-wrap"></pre>
-                    <task-note-modal id="dbg-tnm"></task-note-modal>
+                    <task-note-modal id="dbg-tnm" people_service="MockPeopleService" companies_service="MockCompaniesService" teams_service="MockTeamsService" tasks_service="MockTaskService"></task-note-modal>
                     <script>
                         customElements.whenDefined('task-note-modal').then(function(){
                             var modal = document.getElementById('dbg-tnm');
@@ -2364,7 +2364,7 @@ modal.open();</pre>
                     style="padding:8px 14px;background:var(--accent);color:var(--text-on-accent);border:0;border-radius:8px;font-weight:600;cursor:pointer">Rediger notat for «Send rapport til @anna»</button>
                     <modal-container id="dbg-tn-modal" size="md">
                         <span slot="title">📓 Notat</span>
-                        <task-note id="dbg-tn"></task-note>
+                        <task-note id="dbg-tn" people_service="MockPeopleService" companies_service="MockCompaniesService" teams_service="MockTeamsService" tasks_service="MockTaskService"></task-note>
                     </modal-container>
                     <script>
                         Promise.all([
@@ -2734,13 +2734,14 @@ modal.open();</pre>
                     </ul>`,
                 rawHtml: `<note-editor notes_service="MockNotesService"
                     tasks_service="MockTaskService" people_service="MockPeopleService" companies_service="MockCompaniesService"
-                    teams_service="MockTeamsService"></note-editor>`,
+                    teams_service="MockTeamsService" results_service="MockResultsService"
+                    meetings_service="MockMeetingsService"></note-editor>`,
             },
             'feature-rich-text-area': {
                 desc: `<p><strong>&lt;feature-rich-text-area&gt;</strong> is a Markdown input with raw Markdown as its value. It continues unordered, numbered and checkbox lists on Enter, exits an empty list, indents/outdents selected lines with Tab/Shift+Tab, and opens a searchable emoji selector when you type <code>::</code> (arrows navigate, Enter selects, Esc cancels), inserting a shortcode such as <code>:grinning:</code>. It also owns the note editor's <code>@mention</code> autocomplete (people, teams, companies and <code>@me</code>), task autocomplete (<code>{{?</code> / <code>{{!</code>), date shortcuts (<code>Ctrl+D</code> / <code>Ctrl+Shift+D</code>) and meeting shortcut (<code>Ctrl+M</code>).</p>
-                    <p>The editor is paired with <code>&lt;feature-rich-markdown&gt;</code> below; edits appear in the renderer immediately, including task markers and mentions. It emits <code>feature-rich-text-area:input</code> with <code>{ value }</code> whenever the Markdown changes, so hosts can sync another preview. <strong>API:</strong> read or set <code>el.value</code>; the native input remains available as <code>el.textarea</code>.</p>`,
+                    <p>The editor is paired with <code>&lt;feature-rich-markdown&gt;</code> below; edits appear in the renderer immediately, including task markers and mentions. It emits <code>feature-rich-text-area:input</code> with <code>{ value }</code> whenever the Markdown changes, so hosts can sync another preview. <strong>API:</strong> read or set <code>el.value</code>; the native input remains available as <code>el.textarea</code>. As a form field it is form-associated (<code>name</code>, <code>FormData</code>, reset) and supports <code>rows</code> (content-sized), <code>readonly</code>, <code>disabled</code>, <code>features="lists,indent,emoji,mentions,tasks,results,dates,meetings,help"</code> (absent = all; <code>results</code> = <code>[[?</code> via <code>results_service</code>) and host autocomplete triggers via <code>el.triggers</code> (an optional <code>help</code> label joins the help line). <code>await el.convert({ week, noteRef, taskId, taskText, replaceWith })</code> turns <code>{{X}}</code>, <code>[[X]]</code> and <code>{{m:Tittel @ YYYY-MM-DD HH:MM}}</code> into tasks, results and meetings via the injected services and returns <code>{ value, created }</code>; hosts call it before saving.</p>`,
                 rawHtml: `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;align-items:stretch;max-width:1100px">
-                        <div style="height:440px;min-width:0"><feature-rich-text-area id="dbg-rich-text" tasks_service="MockTaskService" people_service="MockPeopleService" companies_service="MockCompaniesService" teams_service="MockTeamsService" placeholder="Skriv Markdown her…" value="# Smart Markdown&#10;&#10;- Fortsett listen med Enter&#10;- [ ] Nye oppgaver starter ikke avkrysset&#10;&#10;Task: {{?t1}}&#10;&#10;Mention: @astrid"></feature-rich-text-area></div>
+                        <div style="height:440px;min-width:0"><feature-rich-text-area id="dbg-rich-text" tasks_service="MockTaskService" people_service="MockPeopleService" companies_service="MockCompaniesService" teams_service="MockTeamsService" results_service="MockResultsService" meetings_service="MockMeetingsService" placeholder="Skriv Markdown her…" value="# Smart Markdown&#10;&#10;- Fortsett listen med Enter&#10;- [ ] Nye oppgaver starter ikke avkrysset&#10;&#10;Task: {{?t1}}&#10;&#10;Mention: @astrid"></feature-rich-text-area></div>
                         <feature-rich-markdown id="dbg-rich-text-preview" tasks_service="MockTaskService" people_service="MockPeopleService" companies_service="MockCompaniesService" teams_service="MockTeamsService" style="height:440px;min-width:0" placeholder="Forhåndsvisning vises her…"></feature-rich-markdown>
                     </div>
                     <script>

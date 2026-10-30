@@ -23,6 +23,8 @@ import './task-note-modal.js';
 import './task-edit-modal.js';
 import './task-view-modal.js';
 
+import { renderRichText, RICH_TEXT_CSS } from '/services/_shared/wn-rich-text.js';
+
 const STYLES = `
         :host {
             display: flex; flex-direction: column;
@@ -186,10 +188,8 @@ function renderTask(t, people, companies) {
         const weekBadge = week ? unsafeHTML(`<week-pill week="${escapeHtml(week)}"></week-pill>`) : '';
         const textHtml = unsafeHTML(linkMentions(escapeHtml(t.text || ''), people, companies));
         const hasNote = !!(t.note && t.note.trim());
-        const noteHtml = hasNote && window.marked
-            ? linkMentions(window.marked.parse(t.note), people, companies)
-            : (hasNote ? escapeHtml(t.note) : '');
-        const noteBody = hasNote ? unsafeHTML(`<div class="md-content row-note-body">${noteHtml}</div>`) : '';
+        const noteHtml = renderRichText(t.note, { people, companies });
+        const noteBody = hasNote ? unsafeHTML(`<div class="rich-text md-content row-note-body">${noteHtml}</div>`) : '';
         const noteBtnCls = hasNote ? 'row-note-btn' : 'row-note-btn empty';
         const noteBtnTitle = hasNote ? 'Rediger notat' : 'Legg til notat';
         const due = t.dueDate || '';
@@ -220,7 +220,7 @@ class TaskOpenList extends WNElement {
     static get domain() { return 'tasks'; }
     static get observedAttributes() { return ['tasks_service', 'people_service', 'companies_service']; }
 
-    css() { return STYLES; }
+    css() { return STYLES + RICH_TEXT_CSS; }
 
     connectedCallback() {
         super.connectedCallback();
@@ -450,7 +450,10 @@ class TaskOpenList extends WNElement {
                 ${overdueCount > 0 ? unsafeHTML(`<span class="overdue-badge">⚠️ ${overdueCount} forfalt</span>`) : ''}
             </h3>
         `;
-        const modals = html`<task-note-modal></task-note-modal><task-view-modal></task-view-modal>`;
+        const modals = html`<task-note-modal people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
+                    companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
+                    teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"
+                    tasks_service="${this.getAttribute('tasks_service') || 'week-note-services.tasks_service'}"></task-note-modal><task-view-modal></task-view-modal>`;
         if (data._loading) return html`${header('', 0)}<p class="empty-quiet">Laster…</p>${modals}`;
         const open = Array.isArray(data.open) ? data.open : null;
         if (!open) return html`${header('', 0)}<p class="empty-quiet">Kunne ikke laste oppgaver</p>${modals}`;

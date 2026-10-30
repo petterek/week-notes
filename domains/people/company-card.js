@@ -37,6 +37,7 @@
  * Refs are non-link <span>s — no native navigation. The host owns routing.
  */
 import { WNElement, html, unsafeHTML, escapeHtml, linkMentions } from '../../components/_shared.js';
+import { renderRichText, RICH_TEXT_CSS } from '/services/_shared/wn-rich-text.js';
 
 const STYLES = `
     :host { display: block; }
@@ -61,7 +62,7 @@ const STYLES = `
     .company-chip { font-size: 0.85em; padding: 3px 10px; background: var(--surface-alt); color: var(--text-muted); border-radius: 12px; text-decoration: none; border: 1px solid transparent; cursor: pointer; }
     .company-chip:hover { border-color: var(--accent); color: var(--accent); }
     .chip-tag { font-size: 0.7em; opacity: 0.7; margin-left: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
-    .person-notes { padding: 8px 18px; background: var(--surface-head); border-top: 1px solid var(--border-soft); font-size: 0.85em; color: var(--text-muted); font-style: italic; white-space: pre-wrap; }
+    .person-notes { padding: 8px 18px; background: var(--surface-head); border-top: 1px solid var(--border-soft); font-size: 0.85em; color: var(--text-muted); }
     .person-section { padding: 10px 18px; border-top: 1px solid var(--border-faint); }
     .person-section-h { font-size: 0.75em; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
     .person-section-h .c { display: inline-block; min-width: 18px; padding: 0 6px; margin-left: 4px; background: var(--surface-alt); color: var(--text-muted); border-radius: 9px; font-size: 0.95em; text-align: center; }
@@ -87,7 +88,7 @@ export class CompanyCard extends WNElement {
         this.requestRender();
     }
 
-    css() { return STYLES; }
+    css() { return STYLES + RICH_TEXT_CSS; }
 
     connectedCallback() {
         super.connectedCallback();
@@ -164,6 +165,16 @@ export class CompanyCard extends WNElement {
         }
     }
 
+    _richNotes(text) {
+        const { people = [], companies = [], teams = [] } = this._data || {};
+        return unsafeHTML(renderRichText(text, { people, companies, teams }));
+    }
+
+    _richInline(text) {
+        const { people = [], companies = [], teams = [] } = this._data || {};
+        return unsafeHTML(renderRichText(text, { people, companies, teams, inline: true }));
+    }
+
     _link(rawText) {
         const people = (this._data && this._data.people) || [];
         const companies = (this._data && this._data.companies) || [];
@@ -217,7 +228,7 @@ export class CompanyCard extends WNElement {
                             ${c.url ? html`<span>🔗 <a href="${c.url}" target="_blank" rel="noopener">${c.url}</a></span>` : ''}
                             ${c.orgnr ? html`<span>Org.nr: ${c.orgnr}</span>` : ''}
                         </div>` : ''}
-                    ${c.notes ? html`<div class="person-notes">${c.notes}</div>` : ''}
+                    ${c.notes ? html`<div class="person-notes rich-text">${this._richNotes(c.notes)}</div>` : ''}
                     ${members.length ? html`
                         <div class="person-section">
                             <div class="person-section-h">Personer <span class="c">${members.length}</span></div>
@@ -238,7 +249,7 @@ export class CompanyCard extends WNElement {
                             <div class="person-section-h">Resultater <span class="c">${results.length}</span></div>
                             ${sortedResults.map(r => html`
                                 <div class="person-ref">
-                                    <span class="person-ref-link" data-ref="result" data-id="${r.id || ''}" data-week="${r.week || ''}">⚖️ ${this._link(r.text || '')} <span class="ref-when">${r.week || ''}</span></span>
+                                    <span class="person-ref-link" data-ref="result" data-id="${r.id || ''}" data-week="${r.week || ''}">⚖️ ${this._richInline(r.text || '')} <span class="ref-when">${r.week || ''}</span></span>
                                 </div>`)}
                         </div>` : ''}
                     ${tasks.length ? html`

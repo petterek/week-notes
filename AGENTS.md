@@ -349,6 +349,10 @@ do not retain a read-modify-write snapshot across another `await`.
 ### Markdown / mentions
 - `@person` mentions are rendered server-side via `linkMentions(...)`.
 - Person tooltips are wired up by the global script in `<body>`.
+- Inline create markers (`{{X}}`, `[[X]]`, `{{m:Title @ date time}}`) are
+  converted in the browser by `<feature-rich-text-area>.convert()` via
+  injected services; hosts await it before saving. The server does not
+  create entities from markers (see `agents/notes.md`).
 - Mention autocomplete is in `public/mention-autocomplete.js`; init it
   on each editor element after the DOM is ready (and re-init when
   modals show new inputs).

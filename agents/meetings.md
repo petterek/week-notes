@@ -38,7 +38,11 @@ Events emitted:
 - `meeting-create:error` — `detail: { error }` on failure
 
 Uses `<pick-date-time-span>` for date/time selection and
-`<person-multi-picker>` for attendees.
+`<person-multi-picker>` for attendees. Meeting notes use the
+form-associated `<feature-rich-text-area>` with lists, emoji, mentions
+and date insertion; imported invitation descriptions remain raw Markdown
+in the notes field and are preserved on edits. The series description
+uses the same editor with lists, emoji and mentions.
 
 ---
 
@@ -104,6 +108,12 @@ Key fields:
 | PUT | `/api/meeting-types` | Replace types array |
 
 Route module: `routes/api/meetings.js`
+
+`POST /api/meetings` derives `end` from `start` + `durationMinutes` (or the
+context default) when `end` is omitted. Note markers
+`{{m:Title @ YYYY-MM-DD HH:MM[ Nm]}}` are converted to `{{m:?<id>}}` by the
+rich editor's `convert()` through `meetings_service.create` (see
+`agents/notes.md`), not by `/api/save`.
 
 ---
 
@@ -335,15 +345,19 @@ its parent series once the meeting resolves. Renders:
 - Editable header (title/date-time-span/location/attendees) via a
   small modal, reusing `<pick-date-time-span>` / `<person-multi-picker>`
   / `<pick-place>` directly (no dependency on `<meeting-create>`).
-- Agenda list: per-item notes (autosaved on blur) + outcome buttons
+- Agenda list: per-item notes use `<feature-rich-text-area>` with lists,
+  emoji, mentions and date insertion; notes autosave on blur. Previous
+  occurrence notes render Markdown and emoji; the series dashboard also
+  links mentions using its already-loaded entity lists.
   (✅ Løst / ⏭️ Utsatt / 🚫 Avlyst — click the active one again to
   clear it back to undecided), plus an ad-hoc add row.
 - Decisions add/list, with a selector linking each decision to an existing
   occurrence agenda item; linked decisions also appear beneath that item.
-- Freeform minutes textarea (plain, no live markdown preview), with the
-  shared `@mention` picker for people, teams, companies and `@me`.
-  Unsaved text is preserved across workspace refreshes (such as adding an
-  agenda item) and cleared from the client draft only after a successful save.
+- Freeform minutes use `<feature-rich-text-area>` with lists, emoji,
+  mentions, task markers, dates and help. Unsaved text is preserved across
+  workspace refreshes (such as adding an agenda item) and cleared from the
+  client draft only after a successful save. The minutes export renders
+  Markdown and escapes raw HTML in agenda notes and the recap.
 - Follow-up tasks scoped to **this occurrence** (`t.meetingId ===
   this._id`; the series dashboard instead shows every task tagged with
   the series regardless of which occurrence). Quick-add via
@@ -363,8 +377,8 @@ Attributes: `meetings_service`, `tasks_service`, `people_service`.
   `pages/goals.html`).
   Server shells (empty body + title, hydrated client-side) come from
   `routes/spa.js` via `lib/page-routes.js`.
-- Nav: "🔁 Møteserier" in both `navbarHtml()` and `navLinksHtml()` in
-  `lib/core.js` — no keyboard shortcut assigned.
+- Nav: "🔁 Møteserier" in `navbarHtml()` in `lib/core.js` — no
+  keyboard shortcut assigned.
 - **Calendar click routing**: clicking a meeting block in
   `<week-notes-calendar>` normally opens the `<meeting-edit>` overlay
   (`_openEdit(id)`). If the clicked meeting has a `seriesId`,
