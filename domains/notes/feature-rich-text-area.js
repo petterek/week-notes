@@ -527,9 +527,15 @@ class FeatureRichTextArea extends WNElement {
         try {
             if (this._has('tasks')) {
                 await each(/\{\{([^{}]+)\}\}/g, async m => {
-                    const text = m[1].trim();
+                    let text = m[1].trim();
                     if (!text || /^[?!]/.test(text) || /^m:/i.test(text)) return m[0];
                     const opts = {};
+                    // Optional due date: {{Text @ YYYY-MM-DD[ HH:MM]}}
+                    const due = text.match(/^(.*?)\s*@\s*(\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?)$/);
+                    if (due && due[1]) {
+                        text = due[1];
+                        opts.dueDate = due[2];
+                    }
                     if (week) opts.week = week;
                     if (noteRef) opts.noteRef = noteRef;
                     const res = await need('tasks').create(text, opts);

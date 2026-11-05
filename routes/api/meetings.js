@@ -445,7 +445,7 @@ module.exports = function(deps) {
         m.updated = new Date().toISOString();
         saveMeetings(meetings);
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true }));
+        res.end(JSON.stringify({ ok: true, meeting: m }));
         return;
     }
 

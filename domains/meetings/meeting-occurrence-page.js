@@ -45,6 +45,15 @@ const STYLES = `
 
     .mo-section { margin-bottom: 26px; }
     .mo-section h2 { font-size: 0.85em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+    .mo-participant-list { display: flex; flex-wrap: wrap; gap: 8px; }
+    .mo-participant { padding: 4px 10px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--surface-alt); font-size: 0.9em; }
+    .mo-participant-edit { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px; margin-top: 10px; }
+    .mo-participant-actions { display: flex; gap: 8px; }
+    .mo-edit-attendees { margin-top: 10px; }
+    @media (max-width: 600px) {
+        .mo-participant-edit { grid-template-columns: minmax(0, 1fr); }
+        .mo-participant-actions { grid-row: 1; }
+    }
 
     .mo-agenda-item { border: 1px solid var(--border-soft); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; background: var(--surface); }
     .mo-agenda-item .row1 { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
@@ -135,28 +144,40 @@ class MeetingOccurrencePage extends WNElement {
         if (!this.service || !this._id) return {};
         const svc = this.service;
         const tasksSvc = this.serviceFor('tasks');
+        const peopleSvc = this.serviceFor('people');
         const id = this._id;
-        const meetingPromise = svc.get(id);
+        let meetingPromise;
+        const getMeeting = () => meetingPromise || (meetingPromise = svc.get(id));
         return {
-            meeting: () => meetingPromise,
-            series: () => meetingPromise.then(m => (m && m.seriesId) ? svc.getSeries(m.seriesId).catch(() => null) : null),
-            previous: () => meetingPromise.then(m => (m && m.seriesId)
+            meeting: getMeeting,
+            series: () => getMeeting().then(m => (m && m.seriesId) ? svc.getSeries(m.seriesId).catch(() => null) : null),
+            previous: () => getMeeting().then(m => (m && m.seriesId)
                 ? svc.list().then(list => (list || []).filter(o => o.seriesId === m.seriesId && o.id !== m.id)).catch(() => [])
                 : []),
             tasks: () => tasksSvc ? tasksSvc.list() : Promise.resolve([]),
+            people: () => peopleSvc ? peopleSvc.list() : Promise.resolve([]),
             types: () => svc.listTypes ? svc.listTypes() : Promise.resolve([]),
         };
     }
 
-    _refresh() { this.invalidateAwait(); this.requestRender(); }
+    _applyData(patch) {
+        if (patch.meeting) this._meeting = patch.meeting;
+        for (const [key, value] of Object.entries(patch)) this._awaitCache[key] = Promise.resolve(value);
+        this.requestRender();
+    }
 
     _wire() {
         if (this._wired) return;
         this._wired = true;
         this.shadowRoot.addEventListener('click', (e) => this._onClick(e));
         this.shadowRoot.addEventListener('change', (e) => this._onChange(e));
-        this.shadowRoot.addEventListener('task:created', () => this._refresh());
-        this.shadowRoot.addEventListener('task:completed', () => this._refresh());
+        this.shadowRoot.addEventListener('task:created', e => this._applyData({ tasks: e.detail.tasks }));
+        this.shadowRoot.addEventListener('input', e => {
+            if (e.target.matches('input[data-el]')) {
+                this._formDrafts ||= {};
+                this._formDrafts[e.target.dataset.el] = e.target.value;
+            }
+        });
         this.shadowRoot.addEventListener('keydown', (e) => {
             if (e.key !== 'Enter' || e.defaultPrevented) return;
             const el = e.target;
@@ -167,13 +188,18 @@ class MeetingOccurrencePage extends WNElement {
     }
 
     _onChange(e) {
+        const attendeesPicker = e.target.closest('person-multi-picker[data-el="attendees"]');
+        if (attendeesPicker) {
+            this._attendeesDraft = attendeesPicker.value;
+            return;
+        }
         const decisionSelect = e.target.closest('select[data-act="agenda-decision-link"]');
         if (decisionSelect) {
             const previous = decisionSelect.dataset.current || '';
             const agendaItemId = decisionSelect.value;
             decisionSelect.disabled = true;
             this.service.updateDecision(this._id, decisionSelect.dataset.decisionId, { agendaItemId: agendaItemId || null })
-                .then(() => this._refresh())
+                .then(result => this._applyData({ meeting: result.meeting }))
                 .catch(error => {
                     decisionSelect.value = previous;
                     alert((error && error.message) || 'Feil');
@@ -194,13 +220,16 @@ class MeetingOccurrencePage extends WNElement {
                     id, text,
                     callback: async (res) => {
                         if (!res || !res.confirmed) { cb.checked = false; return; }
-                        try { await tasksSvc.toggle(res.id, res.comment || ''); } catch (err) { console.error(err); }
-                        this._refresh();
+                        try { this._applyData({ tasks: await tasksSvc.toggle(res.id, res.comment || '') }); }
+                        catch (err) { console.error(err); }
                     },
                 },
             }));
         } else {
-            (async () => { try { await tasksSvc.toggle(id, ''); } catch (err) { console.error(err); } this._refresh(); })();
+            (async () => {
+                try { this._applyData({ tasks: await tasksSvc.toggle(id, '') }); }
+                catch (err) { console.error(err); }
+            })();
         }
     }
 
@@ -217,9 +246,9 @@ class MeetingOccurrencePage extends WNElement {
                 : 'Avslutte møtet?';
             if (!confirm(msg)) return;
             try {
-                await this.service.close(this._id);
+                const result = await this.service.close(this._id);
                 if (new URLSearchParams(location.search).get('popup') === '1' && window.opener) window.close();
-                else this._refresh();
+                else this._applyData({ meeting: result.meeting });
             } catch (error) {
                 alert((error && error.message) || 'Feil');
             }
@@ -235,9 +264,9 @@ class MeetingOccurrencePage extends WNElement {
             const next = current === outcome ? null : outcome; // click again to clear
             if (next === 'resolved') {
                 try {
-                    await this.service.updateOccurrenceAgendaItem(this._id, agendaItemId, { outcome: next });
+                    const result = await this.service.updateOccurrenceAgendaItem(this._id, agendaItemId, { outcome: next });
                     this._decisionAgendaItemId = agendaItemId;
-                    this._refresh();
+                    this._applyData({ meeting: result.meeting });
                 } catch (error) { alert((error && error.message) || 'Feil'); }
             } else {
                 await this._call(() => this.service.updateOccurrenceAgendaItem(this._id, agendaItemId, { outcome: next }));
@@ -253,13 +282,29 @@ class MeetingOccurrencePage extends WNElement {
         if (act('mo-save-minutes')) {
             const ta = this.shadowRoot.querySelector('[data-el="minutes"]');
             if (ta) await this._call(async () => {
-                await this.service.update(this._id, { minutes: ta.value });
-                this._minutesDraft = undefined;
+                const minutes = ta.value;
+                const result = await this.service.update(this._id, { minutes });
+                if (this._minutesDraft === minutes) this._minutesDraft = undefined;
+                return result;
             });
             return;
         }
 
         if (act('mo-edit-head')) { this._openHeaderModal(); return; }
+        if (act('mo-edit-attendees')) {
+            this._attendeesDraft = [...(this._meeting.attendees || [])];
+            this._editingAttendees = true;
+            this._focusAttendees = true;
+            this.requestRender();
+            return;
+        }
+        if (act('mo-save-attendees')) { this._saveAttendees(); return; }
+        if (act('mo-cancel-attendees')) {
+            this._editingAttendees = false;
+            this._attendeesDraft = undefined;
+            this.requestRender();
+            return;
+        }
         if (act('mo-save-resolved-decision')) { this._saveResolvedDecision(); return; }
         if (act('mo-skip-resolved-decision')) { this._dismissResolvedDecision(); return; }
         if (act('mo-decision-prompt')) {
@@ -273,7 +318,10 @@ class MeetingOccurrencePage extends WNElement {
     }
 
     async _call(fn) {
-        try { await fn(); this._refresh(); }
+        try {
+            const result = await fn();
+            this._applyData({ meeting: result.meeting });
+        }
         catch (e) { alert((e && e.message) || 'Feil'); }
     }
 
@@ -296,9 +344,10 @@ class MeetingOccurrencePage extends WNElement {
         popup.document.body.textContent = 'Starter møte…';
         this._call(async () => {
             try {
-                await this.service.start(this._id);
+                const result = await this.service.start(this._id);
                 popup.location.href = new URL(`/meeting-occurrence/${encodeURIComponent(this._id)}?popup=1`, location.origin).href;
                 popup.focus();
+                return result;
             } catch (error) {
                 popup.close();
                 throw error;
@@ -311,7 +360,12 @@ class MeetingOccurrencePage extends WNElement {
         if (!input) return;
         const title = (input.value || '').trim();
         if (!title) return;
-        await this._call(() => this.service.addOccurrenceAgendaItem(this._id, title));
+        await this._call(async () => {
+            const result = await this.service.addOccurrenceAgendaItem(this._id, title);
+            this._formDrafts ||= {};
+            if ((this._formDrafts['agenda-add'] ?? input.value).trim() === title) this._formDrafts['agenda-add'] = '';
+            return result;
+        });
     }
 
     async _addDecision() {
@@ -319,11 +373,17 @@ class MeetingOccurrencePage extends WNElement {
         if (!input) return;
         const text = (input.value || '').trim();
         if (!text) return;
-        await this._call(() => this.service.addDecision(this._id, text));
+        await this._call(async () => {
+            const result = await this.service.addDecision(this._id, text);
+            this._formDrafts ||= {};
+            if ((this._formDrafts['decision-add'] ?? input.value).trim() === text) this._formDrafts['decision-add'] = '';
+            return result;
+        });
     }
 
     _dismissResolvedDecision() {
         this._decisionAgendaItemId = null;
+        if (this._formDrafts) delete this._formDrafts['resolved-decision'];
         this.shadowRoot.querySelector('.mo-decision-prompt')?.remove();
     }
 
@@ -339,9 +399,10 @@ class MeetingOccurrencePage extends WNElement {
         this._savingResolvedDecision = true;
         button.disabled = true;
         try {
-            await this.service.addDecision(this._id, text, this._decisionAgendaItemId);
+            const result = await this.service.addDecision(this._id, text, this._decisionAgendaItemId);
             this._decisionAgendaItemId = null;
-            this._refresh();
+            if (this._formDrafts) delete this._formDrafts['resolved-decision'];
+            this._applyData({ meeting: result.meeting });
         } catch (error) {
             alert((error && error.message) || 'Feil');
             button.disabled = false;
@@ -351,8 +412,36 @@ class MeetingOccurrencePage extends WNElement {
     }
 
     async _saveAgendaNotes(agendaItemId, notes) {
-        try { await this.service.updateOccurrenceAgendaItem(this._id, agendaItemId, { notes }); }
+        try {
+            await this.service.updateOccurrenceAgendaItem(this._id, agendaItemId, { notes });
+            this._meeting = {
+                ...this._meeting,
+                agenda: this._meeting.agenda.map(a => a.agendaItemId === agendaItemId ? { ...a, notes } : a),
+            };
+            this._awaitCache.meeting = Promise.resolve(this._meeting);
+        }
         catch (e) { console.error('meeting-occurrence-page: save notes failed', e); }
+    }
+
+    async _saveAttendees() {
+        if (this._savingAttendees || this._meeting.status === 'closed') return;
+        const picker = this.shadowRoot.querySelector('person-multi-picker[data-el="attendees"]');
+        if (!picker) return;
+        this._savingAttendees = true;
+        picker.setAttribute('disabled', '');
+        this.shadowRoot.querySelectorAll('.mo-save-attendees, .mo-cancel-attendees').forEach(button => { button.disabled = true; });
+        try {
+            const result = await this.service.update(this._id, { attendees: picker.value });
+            this._editingAttendees = false;
+            this._attendeesDraft = undefined;
+            this._applyData({ meeting: result.meeting });
+        } catch (error) {
+            alert((error && error.message) || 'Feil ved lagring av deltakere');
+        } finally {
+            this._savingAttendees = false;
+            this.shadowRoot.querySelector('person-multi-picker[data-el="attendees"]')?.removeAttribute('disabled');
+            this.shadowRoot.querySelectorAll('.mo-save-attendees, .mo-cancel-attendees').forEach(button => { button.disabled = false; });
+        }
     }
 
     _openHeaderModal() {
@@ -389,9 +478,9 @@ class MeetingOccurrencePage extends WNElement {
         };
         if (endParts.date && endParts.date !== startParts.date) patch.endDate = endParts.date;
         try {
-            await this.service.update(this._id, patch);
+            const result = await this.service.update(this._id, patch);
             this._headerModal = false;
-            this._refresh();
+            this._applyData({ meeting: result.meeting });
         } catch (e) { alert((e && e.message) || 'Feil'); }
     }
 
@@ -405,7 +494,7 @@ class MeetingOccurrencePage extends WNElement {
                         <div class="mo-prev-note"><span class="mo-prev-note-date">${n.date}</span><div class="rich-text">${unsafeHTML(renderRichText(n.notes))}</div></div>
                     `)}</div>
                 ` : ''}
-                <feature-rich-text-area placeholder="Notater…" data-agenda="${a.agendaItemId}" rows="2" features="lists,emoji,mentions,dates" value="${a.notes || ''}" ${closed ? 'readonly' : ''}
+                <feature-rich-text-area placeholder="Notater…" data-agenda="${a.agendaItemId}" rows="2" features="lists,emoji,mentions,dates" value="${this._agendaDrafts?.[a.agendaItemId] ?? a.notes ?? ''}" ${closed ? 'readonly' : ''}
                     people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
                     companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
                     teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"></feature-rich-text-area>
@@ -456,6 +545,8 @@ class MeetingOccurrencePage extends WNElement {
         const decisions = Array.isArray(meeting.decisions) ? meeting.decisions : [];
         const isSeriesOccurrence = !!meeting.seriesId;
         const isClosed = meeting.status === 'closed';
+        const attendees = meeting.attendees || [];
+        const people = new Map((data.people || []).map(p => [p.key, p.name || p.key]));
         const timeRange = [meeting.start, meeting.end].filter(Boolean).join('–');
         const previous = (data.previous || []).slice()
             .filter(o => (o.date + (o.start || '')) <= (meeting.date + (meeting.start || '')))
@@ -474,9 +565,32 @@ class MeetingOccurrencePage extends WNElement {
                 <div class="mo-meta">
                     <span>📅 ${meeting.date}${timeRange ? ' ' + timeRange : ''}</span>
                     ${meeting.location ? html`<span>📍 ${meeting.location}</span>` : ''}
-                    ${(meeting.attendees || []).length ? html`<span>👥 ${meeting.attendees.map(a => '@' + a).join(' ')}</span>` : ''}
                     ${!isClosed ? html`<button type="button" class="mo-act mo-edit-head" title="Rediger møte">✏️ Rediger</button>` : ''}
                     <a class="mo-act" href="/meetings/${encodeURIComponent(this._id)}/minutes" target="_blank" rel="noopener">📄 Eksporter til PDF</a>
+                </div>
+
+                <div class="mo-section mo-participants">
+                    <h2>👥 Deltakere <span class="c">${attendees.length}</span></h2>
+                    <div class="mo-participant-list">
+                        ${attendees.length
+                            ? attendees.map(key => html`<span class="mo-participant">${people.get(key) || '@' + key}</span>`)
+                            : html`<span class="mo-empty">Ingen deltakere lagt til.</span>`}
+                    </div>
+                    ${!isClosed ? this._editingAttendees ? html`
+                        <div class="mo-participant-edit">
+                            <person-multi-picker data-el="attendees"
+                                people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
+                                value="${(this._attendeesDraft || []).join(',')}"
+                                placeholder="Legg til deltaker…"
+                                ${this._savingAttendees ? 'disabled' : ''}></person-multi-picker>
+                            <div class="mo-participant-actions">
+                                <button type="button" class="mo-act primary mo-save-attendees" ${this._savingAttendees ? 'disabled' : ''}>Lagre deltakere</button>
+                                <button type="button" class="mo-act mo-cancel-attendees" ${this._savingAttendees ? 'disabled' : ''}>Avbryt</button>
+                            </div>
+                        </div>
+                    ` : html`
+                        <button type="button" class="mo-act mo-edit-attendees">${attendees.length ? 'Endre deltakere' : 'Legg til deltakere'}</button>
+                    ` : ''}
                 </div>
 
                 ${isSeriesOccurrence ? html`
@@ -491,7 +605,7 @@ class MeetingOccurrencePage extends WNElement {
                         ${agenda.length === 0 ? html`<p class="mo-empty">Ingen saklistepunkter i dette møtet.</p>` : agenda.map(a => this._renderAgendaItem(a, decisions, isClosed, previousNotes(a.agendaItemId)))}
                         ${!isClosed ? html`
                             <div class="mo-agenda-add">
-                                <input type="text" data-el="agenda-add" placeholder="➕ Legg til saklistepunkt (også til serien)…" />
+                                <input type="text" data-el="agenda-add" value="${this._formDrafts?.['agenda-add'] || ''}" placeholder="➕ Legg til saklistepunkt (også til serien)…" />
                                 <button type="button" class="mo-agenda-add-btn">Legg til</button>
                             </div>
                         ` : ''}
@@ -511,7 +625,7 @@ class MeetingOccurrencePage extends WNElement {
                         `)}
                         ${!isClosed ? html`
                             <div class="mo-decision-add">
-                                <input type="text" data-el="decision-add" placeholder="➕ Ny beslutning…" />
+                                <input type="text" data-el="decision-add" value="${this._formDrafts?.['decision-add'] || ''}" placeholder="➕ Ny beslutning…" />
                                 <button type="button" class="mo-decision-add-btn">Legg til</button>
                             </div>
                         ` : ''}
@@ -553,7 +667,7 @@ class MeetingOccurrencePage extends WNElement {
                         <div class="modal-card">
                             <div class="modal-head"><h3 id="moDecisionPromptTitle">Opprett beslutning</h3></div>
                             <div class="modal-form">
-                                <label>Beslutning<input type="text" data-el="resolved-decision" placeholder="Hva ble besluttet?" /></label>
+                                <label>Beslutning<input type="text" data-el="resolved-decision" value="${this._formDrafts?.['resolved-decision'] || ''}" placeholder="Hva ble besluttet?" /></label>
                             </div>
                             <div class="modal-actions">
                                 <button type="button" class="modal-btn mo-skip-resolved-decision">Uten beslutning</button>
@@ -573,6 +687,10 @@ class MeetingOccurrencePage extends WNElement {
         // can't attach listeners directly; do it here where the DOM exists).
         const root = this.shadowRoot;
         root.querySelector('[data-el="resolved-decision"]')?.focus();
+        if (this._focusAttendees) {
+            root.querySelector('person-multi-picker[data-el="attendees"]')?.shadowRoot.querySelector('input')?.focus();
+            this._focusAttendees = false;
+        }
         const minutesInput = root.querySelector('[data-el="minutes"]:not([readonly])');
         if (minutesInput) {
             minutesInput.addEventListener('input', () => { this._minutesDraft = minutesInput.value; });
@@ -580,6 +698,10 @@ class MeetingOccurrencePage extends WNElement {
         root.querySelectorAll('feature-rich-text-area[data-agenda]:not([readonly])').forEach(ta => {
             if (ta._wired) return;
             ta._wired = true;
+            ta.addEventListener('input', () => {
+                this._agendaDrafts ||= {};
+                this._agendaDrafts[ta.dataset.agenda] = ta.value;
+            });
             ta.addEventListener('focusout', event => {
                 if (event.composedPath().some(node => node instanceof HTMLTextAreaElement)) {
                     this._saveAgendaNotes(ta.dataset.agenda, ta.value);

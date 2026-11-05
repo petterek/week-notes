@@ -176,6 +176,63 @@ module.exports = function(deps) {
             return;
         }
 
+        const taskOrderMatch = pathname.match(/^\/api\/meeting-series\/([^/]+)\/tasks\/reorder$/);
+        if (taskOrderMatch && req.method === 'POST') {
+            const data = await readJsonBody(req, {});
+            const series = loadMeetingSeries();
+            const s = series.find(x => x.id === taskOrderMatch[1]);
+            if (!s) {
+                res.writeHead(404, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: 'not found' }));
+                return;
+            }
+            const openIds = new Set(loadTasks().filter(t => t.meetingSeriesId === s.id && !t.done).map(t => t.id));
+            const ids = data && data.ids;
+            if (!Array.isArray(ids) || ids.length !== openIds.size || new Set(ids).size !== ids.length
+                || !ids.every(id => typeof id === 'string' && openIds.has(id))) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: 'ids must contain every open series task exactly once' }));
+                return;
+            }
+            s.taskOrder = ids;
+            s.updated = new Date().toISOString();
+            saveMeetingSeries(series);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, series: withRollup(s, loadMeetings()) }));
+            return;
+        }
+
+        const reorderMatch = pathname.match(/^\/api\/meeting-series\/([^/]+)\/agenda\/reorder$/);
+        if (reorderMatch && req.method === 'POST') {
+            const data = await readJsonBody(req, {});
+            const series = loadMeetingSeries();
+            const s = series.find(x => x.id === reorderMatch[1]);
+            if (!s) {
+                res.writeHead(404, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: 'not found' }));
+                return;
+            }
+            const items = reindexAgendaItems(s.agendaItems);
+            const queued = new Map(items.filter(item => item.state === 'queued').map(item => [item.id, item]));
+            const ids = data && data.ids;
+            if (!Array.isArray(ids) || ids.length !== queued.size
+                || new Set(ids).size !== ids.length
+                || !ids.every(id => typeof id === 'string' && queued.has(id))) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: false, error: 'ids must contain every queued agenda item exactly once' }));
+                return;
+            }
+            let index = 0;
+            s.agendaItems = items.map((item, order) => ({
+                ...(item.state === 'queued' ? queued.get(ids[index++]) : item), order,
+            }));
+            s.updated = new Date().toISOString();
+            saveMeetingSeries(series);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, series: withRollup(s, loadMeetings()) }));
+            return;
+        }
+
         // PUT/DELETE /api/meeting-series/:id/agenda/:itemId — edit or remove
         // a queued agenda item (does not touch occurrences that already
         // snapshotted this item's title into their own agenda log).
@@ -200,7 +257,7 @@ module.exports = function(deps) {
                 s.updated = new Date().toISOString();
                 saveMeetingSeries(series);
                 res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: true }));
+                res.end(JSON.stringify({ ok: true, series: withRollup(s, loadMeetings()) }));
                 return;
             }
             const data = await readJsonBody(req, {});

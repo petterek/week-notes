@@ -78,7 +78,7 @@ Freeform markdown notes, one folder per ISO week.
 - Inline create markers are converted by the editor, not the server:
   `await el.convert({ week, noteRef, taskId, taskText, replaceWith })`
   creates entities through the injected services, gated by `features` —
-  `tasks` `{{X}}`, `results` `[[X]]`/`[[X+]]`/`[[X-]]` (people = note ∪ text
+  `tasks` `{{X}}` / `{{X @ YYYY-MM-DD[ HH:MM]}}` (→ `dueDate`), `results` `[[X]]`/`[[X+]]`/`[[X-]]` (people = note ∪ text
   mentions), `meetings` `{{m:Title @ YYYY-MM-DD HH:MM[ Nm]}}`. Markers are
   replaced one at a time (`replaceWith: 'ref'` → `{{?id}}`/`[[?id]]`/
   `{{m:?id}}`, `'text'` → plain text), so a failure keeps earlier ones

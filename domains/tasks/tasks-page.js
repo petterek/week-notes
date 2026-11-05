@@ -3,12 +3,14 @@
  *
  * Full-page table view for tasks. Sortable columns, inline filter,
  * quick-create, and integrated actions (complete, edit, note, delete).
+ * `embedded` accepts host data via setData(data); `meeting-series-id`
+ * scopes tasks and quick-create to a series, with saved drag ordering.
  *
  * Service contract:
  *   tasks_service.list()               → Task[]
- *   tasks_service.create(text, opts)   → Task
- *   tasks_service.toggle(id, comment?) → Task
- *   tasks_service.update(id, patch)    → Task
+ *   tasks_service.create(text, opts)   → Task[]
+ *   tasks_service.toggle(id, comment?) → Task[] | Task
+ *   tasks_service.update(id, patch)    → Task[] | Task
  *   tasks_service.remove(id)           → { ok }
  *   people_service.list()              → Person[]
  *   companies_service.list()           → Company[]
@@ -45,6 +47,12 @@ const STYLES = `
     body:has(tasks-page) { max-width: none; }
 
     .tp { max-width: 1100px; margin: 0 auto; }
+    :host([embedded]) { padding: 0; }
+    :host([embedded]) .tp { max-width: none; overflow-x: auto; }
+    :host([embedded]) .tp-toolbar h1 { display: none; }
+    :host([embedded]) .tp-table { table-layout: auto; }
+    .tp-drag-handle { border: 0; background: transparent; color: var(--text-muted); cursor: grab; font: inherit; }
+    .tp-drag-handle:disabled { cursor: default; opacity: 0.4; }
 
     /* --- toolbar --- */
     .tp-toolbar {
@@ -207,13 +215,13 @@ const STYLES = `
 
 class TasksPage extends WNElement {
     static get domain() { return 'tasks'; }
-    static get observedAttributes() { return ['tasks_service', 'people_service', 'companies_service']; }
+    static get observedAttributes() { return ['tasks_service', 'people_service', 'companies_service', 'meeting-series-id']; }
 
     css() { return STYLES; }
 
     connectedCallback() {
         super.connectedCallback();
-        this._sort = { col: 'week', dir: 'desc' };
+        this._sort = { col: this.getAttribute('meeting-series-id') ? 'order' : 'week', dir: 'desc' };
         this._filter = '';
         this._tab = 'open';
         if (!this._wired) this._wire();
@@ -233,7 +241,31 @@ class TasksPage extends WNElement {
         if (this.isConnected) this.requestRender();
     }
 
+    setData(data) {
+        this._providedData = data;
+        if (this.isConnected) this.requestRender();
+    }
+
+    _acceptTasks(result) {
+        if (!Array.isArray(result) && (!result || !result.id)) throw new Error('Ugyldig oppgavesvar');
+        const tasks = Array.isArray(result) ? result : this._allTasks.map(t => t.id === result.id ? result : t);
+        if (this._providedData) this._providedData = { ...this._providedData, tasks };
+        else this._awaitCache.tasks = Promise.resolve(tasks);
+        this.requestRender();
+        this.dispatchEvent(new CustomEvent('tasks:changed', {
+            bubbles: true, composed: true, detail: { tasks },
+        }));
+    }
+
+    _editSaved(res) {
+        if (!res || !res.saved) return;
+        if (this._providedData) {
+            this._acceptTasks(this._providedData.tasks.map(t => t.id === res.id ? { ...t, ...res.patch } : t));
+        } else this.refresh();
+    }
+
     loadData() {
+        if (this.hasAttribute('embedded')) return null;
         if (!this.service) return null;
         const peopleSvc = this.serviceFor('people');
         const compSvc = this.serviceFor('companies');
@@ -266,9 +298,8 @@ class TasksPage extends WNElement {
                         callback: async (res) => {
                             if (!res || !res.confirmed) return;
                             try {
-                                await this.service.toggle(res.id, res.comment || '');
-                            } catch (err) { console.error('tasks-page: toggle failed', err); }
-                            this.refresh();
+                                this._acceptTasks(await this.service.toggle(res.id, res.comment || ''));
+                            } catch (err) { console.error('tasks-page: toggle failed', err); return; }
                             this.dispatchEvent(new CustomEvent('task:completed', {
                                 bubbles: true, composed: true,
                                 detail: { id: res.id, comment: res.comment || '' },
@@ -279,9 +310,8 @@ class TasksPage extends WNElement {
             } else {
                 // Uncompleting
                 (async () => {
-                    try { await this.service.toggle(id); }
-                    catch (err) { console.error('tasks-page: undo failed', err); }
-                    this.refresh();
+                    try { this._acceptTasks(await this.service.toggle(id)); }
+                    catch (err) { console.error('tasks-page: undo failed', err); return; }
                     this.dispatchEvent(new CustomEvent('task:uncompleted', {
                         bubbles: true, composed: true, detail: { id },
                     }));
@@ -306,9 +336,8 @@ class TasksPage extends WNElement {
                 if (!modal) return;
                 modal.open({ id: task.id, text: task.text, note: task.note || '' }, async (res) => {
                     if (!res || !res.saved) return;
-                    try { await this.service.update(res.id, { note: res.note }); }
+                    try { this._acceptTasks(await this.service.update(res.id, { note: res.note })); }
                     catch (err) { console.error('tasks-page: note update failed', err); }
-                    this.refresh();
                 });
                 return;
             }
@@ -318,7 +347,7 @@ class TasksPage extends WNElement {
                 if (!task) return;
                 this.dispatchEvent(new CustomEvent('task:request-edit', {
                     bubbles: true, composed: true,
-                    detail: { task, service: this.service, callback: (res) => { if (res && res.saved) this.refresh(); } },
+                    detail: { task, service: this.service, callback: res => this._editSaved(res) },
                 }));
                 return;
             }
@@ -329,8 +358,8 @@ class TasksPage extends WNElement {
                 if (!confirm(`Slette oppgaven «${task.text}»?`)) return;
                 (async () => {
                     try { await this.service.remove(task.id); }
-                    catch (err) { console.error('tasks-page: delete failed', err); }
-                    this.refresh();
+                    catch (err) { console.error('tasks-page: delete failed', err); return; }
+                    this._acceptTasks(this._allTasks.filter(t => t.id !== task.id));
                     this.dispatchEvent(new CustomEvent('task:deleted', {
                         bubbles: true, composed: true, detail: { id: task.id },
                     }));
@@ -368,6 +397,16 @@ class TasksPage extends WNElement {
 
         // Create form
         this.shadowRoot.addEventListener('keydown', (ev) => {
+            const handle = ev.target.closest('.tp-drag-handle');
+            if (handle && (ev.key === 'ArrowUp' || ev.key === 'ArrowDown')) {
+                ev.preventDefault();
+                if (handle.disabled) return;
+                const rows = [...this.shadowRoot.querySelectorAll('tr[data-taskid]')].filter(row => row.style.display !== 'none');
+                const index = rows.findIndex(row => row.dataset.taskid === handle.dataset.taskid);
+                const target = rows[index + (ev.key === 'ArrowUp' ? -1 : 1)];
+                if (target) this._reorderSeriesTasks(handle.dataset.taskid, target.dataset.taskid, true);
+                return;
+            }
             if (ev.target.matches('.tp-create-input') && ev.key === 'Enter') {
                 ev.preventDefault();
                 this._doCreate();
@@ -387,6 +426,10 @@ class TasksPage extends WNElement {
         this.shadowRoot.addEventListener('dragstart', (ev) => {
             const row = ev.target.closest('tr[data-taskid]');
             if (!row) return;
+            if (this.getAttribute('meeting-series-id')) {
+                const handle = ev.target.closest('.tp-drag-handle');
+                if (!handle || handle.disabled || this._findTask(row.dataset.taskid)?.done) { ev.preventDefault(); return; }
+            }
             this._dragSrcId = row.dataset.taskid;
             ev.dataTransfer.effectAllowed = 'move';
             ev.dataTransfer.setData('text/plain', this._dragSrcId);
@@ -395,7 +438,7 @@ class TasksPage extends WNElement {
 
         this.shadowRoot.addEventListener('dragover', (ev) => {
             const row = ev.target.closest('tr[data-taskid]');
-            if (!row || row.dataset.taskid === this._dragSrcId) return;
+            if (!row || !this._dragSrcId || row.dataset.taskid === this._dragSrcId) return;
             ev.preventDefault();
             ev.dataTransfer.dropEffect = 'move';
             // Highlight only the current target row
@@ -428,6 +471,10 @@ class TasksPage extends WNElement {
             const srcTask = this._findTask(srcId);
             const tgtTask = this._findTask(tgtId);
             if (!srcTask || !tgtTask) return;
+            if (this.getAttribute('meeting-series-id')) {
+                this._reorderSeriesTasks(srcId, tgtId);
+                return;
+            }
             const ok = confirm(`Slå sammen?\n\n« ${srcTask.text} »\n→ inn i →\n« ${tgtTask.text} »\n\nKilden slettes. Tekst og notat fra kilden legges i notater.`);
             if (!ok) return;
             (async () => {
@@ -438,14 +485,41 @@ class TasksPage extends WNElement {
         });
     }
 
+    async _reorderSeriesTasks(srcId, targetId, restoreFocus = false) {
+        const seriesId = this.getAttribute('meeting-series-id');
+        if (!seriesId || this._reordering || !this._providedData) return;
+        const ids = this._sortTasks(this._lastTasks.filter(t => !t.done)).map(t => t.id);
+        const from = ids.indexOf(srcId), to = ids.indexOf(targetId);
+        if (from < 0 || to < 0 || from === to) return;
+        ids.splice(to, 0, ids.splice(from, 1)[0]);
+        this._reordering = true;
+        this.shadowRoot.querySelectorAll('.tp-drag-handle').forEach(el => { el.disabled = true; });
+        try {
+            const result = await this.serviceFor('meetings').reorderSeriesTasks(seriesId, ids);
+            this._providedData = { ...this._providedData, taskOrder: result.series.taskOrder };
+            this._sort = { col: 'order', dir: 'asc' };
+            if (restoreFocus) this._focusTaskId = srcId;
+            this._reordering = false;
+            this.requestRender();
+            this.dispatchEvent(new CustomEvent('tasks:reordered', {
+                bubbles: true, composed: true, detail: { series: result.series },
+            }));
+        } catch (err) { alert(err.message || 'Feil ved lagring av rekkefølge'); }
+        finally {
+            this._reordering = false;
+            this.shadowRoot.querySelectorAll('.tp-drag-handle').forEach(el => { el.disabled = false; });
+        }
+    }
+
     async _doCreate() {
         const input = this.shadowRoot.querySelector('.tp-create-input');
         const text = (input && input.value || '').trim();
         if (!text) return;
         try {
-            await this.service.create(text);
+            const seriesId = this.getAttribute('meeting-series-id');
+            const tasks = await this.service.create(text, seriesId ? { meetingSeriesId: seriesId } : {});
             input.value = '';
-            this.refresh();
+            this._acceptTasks(tasks);
             this.dispatchEvent(new CustomEvent('task:created', {
                 bubbles: true, composed: true, detail: { text },
             }));
@@ -463,7 +537,7 @@ class TasksPage extends WNElement {
             onEdit: (t) => {
                 this.dispatchEvent(new CustomEvent('task:request-edit', {
                     bubbles: true, composed: true,
-                    detail: { task: t, service: this.service, callback: (res) => { if (res && res.saved) this.refresh(); } },
+                    detail: { task: t, service: this.service, callback: res => this._editSaved(res) },
                 }));
             },
             onComplete: (t) => {
@@ -473,17 +547,15 @@ class TasksPage extends WNElement {
                         id: t.id, text: t.text || '',
                         callback: async (res) => {
                             if (!res || !res.confirmed) return;
-                            try { await this.service.toggle(res.id, res.comment || ''); }
+                            try { this._acceptTasks(await this.service.toggle(res.id, res.comment || '')); }
                             catch (err) { console.error('tasks-page: toggle failed', err); }
-                            this.refresh();
                         },
                     },
                 }));
             },
             onUncomplete: async (t) => {
-                try { await this.service.toggle(t.id); }
+                try { this._acceptTasks(await this.service.toggle(t.id)); }
                 catch (err) { console.error('tasks-page: undo failed', err); }
-                this.refresh();
             },
         });
     }
@@ -504,6 +576,10 @@ class TasksPage extends WNElement {
     }
 
     afterRender() {
+        if (this._focusTaskId) {
+            this.shadowRoot.querySelector(`.tp-drag-handle[data-taskid="${CSS.escape(this._focusTaskId)}"]`)?.focus();
+            this._focusTaskId = null;
+        }
         // Restore filter input value after re-render
         const input = this.shadowRoot.querySelector('.tp-filter');
         if (input && this._filter) {
@@ -514,8 +590,14 @@ class TasksPage extends WNElement {
 
     render(data = {}) {
         if (!this.service) return this.renderNoService();
+        if (this.hasAttribute('embedded')) {
+            if (!this._providedData) return '';
+            data = this._providedData;
+        }
         if (data._loading) return html`<div class="tp"><p style="color:var(--text-subtle);font-style:italic">Laster…</p></div>`;
-        const all = Array.isArray(data.tasks) ? data.tasks : [];
+        this._allTasks = Array.isArray(data.tasks) ? data.tasks : [];
+        const seriesId = this.getAttribute('meeting-series-id');
+        const all = this._allTasks.filter(t => !seriesId || t.meetingSeriesId === seriesId);
         this._lastTasks = all;
         const people = data.people || [];
         const companies = data.companies || [];
@@ -631,8 +713,16 @@ class TasksPage extends WNElement {
         const filterText = [t.text || '', t.note || '', respName, partsStr, goalName, t.responsible || ''].join(' ');
 
         return html`
-            <tr class="${t.done ? 'task-done' : ''}" draggable="true" data-taskid="${id}" data-filtertext="${escapeHtml(filterText)}">
-                <td><input type="checkbox" data-act="toggle" data-taskid="${id}" ${t.done ? 'checked' : ''}></td>
+            <tr class="${t.done ? 'task-done' : ''}" draggable="${!this.getAttribute('meeting-series-id')}" data-taskid="${id}" data-filtertext="${escapeHtml(filterText)}">
+                <td>
+                    ${this.getAttribute('meeting-series-id') && !t.done ? html`
+                        <button type="button" class="tp-drag-handle" draggable="true" data-taskid="${id}"
+                            title="Dra for å flytte. Bruk pil opp/ned med tastatur."
+                            aria-label="Flytt oppgave: ${t.text || ''}. Bruk pil opp eller ned."
+                            ${this._reordering ? 'disabled' : ''}>↕</button>
+                    ` : ''}
+                    <input type="checkbox" data-act="toggle" data-taskid="${id}" ${t.done ? 'checked' : ''}>
+                </td>
                 <td class="task-title" data-act="view" data-taskid="${id}">${textHtml}</td>
                 <td>${week}</td>
                 <td class="${overdue ? 'overdue' : ''}">${overdue ? '⚠️ ' : ''}${due}</td>
@@ -651,6 +741,11 @@ class TasksPage extends WNElement {
 
     _sortTasks(tasks) {
         const { col, dir } = this._sort;
+        if (col === 'order') {
+            const order = new Map((this._providedData?.taskOrder || []).map((id, i) => [id, i]));
+            return tasks.slice().sort((a, b) => (order.get(a.id) ?? Infinity) - (order.get(b.id) ?? Infinity)
+                || (b.created || '').localeCompare(a.created || ''));
+        }
         const mult = dir === 'asc' ? 1 : -1;
         return [...tasks].sort((a, b) => {
             // Overdue always first in open tab

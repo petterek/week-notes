@@ -143,6 +143,28 @@ next time), and export the minutes to PDF. Plain one-off meetings
 
 ### Storage
 
+The series dashboard updates its cached series list from successful
+create/edit/archive and agenda mutation responses, without refetching
+occurrences, tasks or reference data. Agenda deletion returns
+`{ ok, series }` with the same rollups as add/edit, keeping queue counts
+current without an extra GET.
+
+Queued agenda items have drag handles; focused handles also support
+ArrowUp/ArrowDown. Reordering saves the complete queued-id permutation
+through `reorderAgendaItems(id, ids)` and updates the cached series from
+the response. Invalid, duplicate or stale queue ids are rejected without
+writing. Resolved/cancelled items keep their positions and state; existing
+occurrences keep their snapshots, while new occurrences use the saved order.
+
+Follow-up tasks on the series dashboard use the shared `<tasks-page embedded>`
+UI, filtered by `meeting-series-id`. The host supplies its already-loaded
+tasks/people/companies through `setData`; `tasks:changed` updates the host's
+task cache, and `tasks:reordered` updates its series cache without remounting
+the list. View/edit/note/complete/reopen/delete and quick-create use the same
+task actions as `/tasks`. Completed tasks have a separate tab and cannot
+be dragged. Series-only manual task order is stored as optional `taskOrder`
+on the series, not on task records; tasks not yet in that order appear last.
+
 Series live as one JSON file per series under
 `data/<ctx>/meeting-series/<id>.json` (via `loadCollection`/
 `syncCollection`, same convention as goals/results/etc). Helpers:
@@ -159,6 +181,7 @@ Series live as one JSON file per series under
   "defaultPlaceKey": "place-key",
   "defaultType": "meeting-type-key",
   "defaultDurationMins": 60,
+  "taskOrder": ["task-id", "..."],
   "agendaItems": [
     { "id": "ai_...", "title": "string", "state": "queued | resolved | cancelled",
       "order": 0, "createdAt": "ISO", "updatedAt": "ISO" }
@@ -268,6 +291,8 @@ two new route files since there's no repo precedent either way).
 | PUT | `/api/meeting-series/:id` | Update series fields (incl. `status` for archive/unarchive) |
 | DELETE | `/api/meeting-series/:id` | Delete series (occurrences + tasks keep their data, but `seriesId` / `meetingSeriesId` links are cleared so they become standalone records) |
 | POST | `/api/meeting-series/:id/agenda` | Add a queued agenda item `{title}` |
+| POST | `/api/meeting-series/:id/agenda/reorder` | Save `{ids}` containing every queued item exactly once; returns `{ok, series}` with rollups |
+| POST | `/api/meeting-series/:id/tasks/reorder` | Save `{ids}` containing every open follow-up task in this series exactly once; returns `{ok, series}` without changing task records |
 | PUT | `/api/meeting-series/:id/agenda/:itemId` | Update (e.g. rename, or force a `state`) |
 | DELETE | `/api/meeting-series/:id/agenda/:itemId` | Remove from the queue |
 | GET | `/api/meetings/:id` | Single occurrence (bare object) — used by the workspace page |
@@ -345,6 +370,12 @@ its parent series once the meeting resolves. Renders:
 - Editable header (title/date-time-span/location/attendees) via a
   small modal, reusing `<pick-date-time-span>` / `<person-multi-picker>`
   / `<pick-place>` directly (no dependency on `<meeting-create>`).
+- A participant section shows names from the cached people list (unknown
+  keys fall back to `@key`). An inline `<person-multi-picker>` adds/removes
+  participants with explicit save/cancel. Save updates only the occurrence's
+  `attendees` through the existing meeting PUT, applies the response without
+  refetching, and preserves minutes/agenda drafts. It does not change series
+  defaults or other occurrences. Closed meetings show the list read-only.
 - Agenda list: per-item notes use `<feature-rich-text-area>` with lists,
   emoji, mentions and date insertion; notes autosave on blur. Previous
   occurrence notes render Markdown and emoji; the series dashboard also
@@ -355,9 +386,16 @@ its parent series once the meeting resolves. Renders:
   occurrence agenda item; linked decisions also appear beneath that item.
 - Freeform minutes use `<feature-rich-text-area>` with lists, emoji,
   mentions, task markers, dates and help. Unsaved text is preserved across
-  workspace refreshes (such as adding an agenda item) and cleared from the
+  cached workspace updates (such as adding an agenda item) and cleared from the
   client draft only after a successful save. The minutes export renders
   Markdown and escapes raw HTML in agenda notes and the recap.
+- Meeting mutations and follow-up task additions/toggles update the appropriate
+  await-cache entries from their responses rather than invalidating every
+  dependency. Keep the meeting GET lazy inside `loadData` factories so a
+  cached render cannot issue an accidental extra request. Agenda note drafts
+  and unfinished agenda/decision inputs survive these renders; only the
+  successfully submitted input is cleared. Decision deletion returns the
+  updated meeting like other decision mutations.
 - Follow-up tasks scoped to **this occurrence** (`t.meetingId ===
   this._id`; the series dashboard instead shows every task tagged with
   the series regardless of which occurrence). Quick-add via

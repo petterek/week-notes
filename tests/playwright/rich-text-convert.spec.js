@@ -23,6 +23,7 @@ test('/editor converts task, result and meeting markers before /api/save', async
             `# Convert ${stamp}`,
             `With @ada`,
             `{{Task ${stamp}}}`,
+            `{{Due ${stamp} @ 2099-02-03}}`,
             `[[Result ${stamp}+]]`,
             `{{m:Meeting ${stamp} @ 2099-01-05 10:00 30m}}`,
         ].join('\n'));
@@ -35,6 +36,11 @@ test('/editor converts task, result and meeting markers before /api/save', async
         expect(task).toBeTruthy();
         created.tasks.push(task.id);
         expect(task.noteRef).toBe(`${week}/${file}`);
+        expect(task.dueDate).toBeUndefined();
+        const dueTask = tasks.find(t => t.text === `Due ${stamp}`);
+        expect(dueTask).toBeTruthy();
+        created.tasks.push(dueTask.id);
+        expect(dueTask.dueDate).toBe('2099-02-03');
 
         const results = await (await request.get('/api/results')).json();
         const result = (Array.isArray(results) ? results : results.results).find(r => r.text === `Result ${stamp}`);
@@ -51,7 +57,7 @@ test('/editor converts task, result and meeting markers before /api/save', async
         expect(meeting.attendees).toContain('ada');
 
         const expected = [
-            `# Convert ${stamp}`, 'With @ada', `{{?${task.id}}}`, `[[?${result.id}]]`, `{{m:?${meeting.id}}}`,
+            `# Convert ${stamp}`, 'With @ada', `{{?${task.id}}}`, `{{?${dueTask.id}}}`, `[[?${result.id}]]`, `{{m:?${meeting.id}}}`,
         ].join('\n');
         expect(posted.content).toBe(expected);
         const raw = await request.get(`/api/notes/${week}/${encodeURIComponent(file)}/raw`);

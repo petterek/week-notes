@@ -1,5 +1,73 @@
 const { test, expect } = require('@playwright/test');
 
+test('series task ordering is scoped, validated and does not change task records', async ({ request }) => {
+    const series = (await (await request.post('/api/meeting-series', { data: { title: 'Scoped task order' } })).json()).series;
+    const tasks = [];
+    try {
+        for (const text of ['First task', 'Second task', 'Completed task', 'Unrelated task']) {
+            const response = await request.post('/api/tasks', { data: {
+                text, ...(text !== 'Unrelated task' ? { meetingSeriesId: series.id } : {}),
+            } });
+            tasks.push((await response.json()).at(-1));
+        }
+        await request.put(`/api/tasks/${tasks[2].id}/toggle`, { data: {} });
+        const before = await (await request.get('/api/tasks?all=1')).json();
+        const url = `/api/meeting-series/${series.id}/tasks/reorder`;
+        const ids = [tasks[1].id, tasks[0].id];
+        const response = await request.post(url, { data: { ids } });
+        expect(response.ok()).toBe(true);
+        expect((await response.json()).series.taskOrder).toEqual(ids);
+        for (const data of [null, {}, { ids: [ids[0], ids[0]] }, { ids: [ids[0]] },
+            { ids: [ids[0], tasks[2].id] }, { ids: [ids[0], tasks[3].id] }]) {
+            expect((await request.post(url, { data })).status()).toBe(400);
+        }
+        expect((await (await request.get(`/api/meeting-series/${series.id}`)).json()).taskOrder).toEqual(ids);
+        expect(await (await request.get('/api/tasks?all=1')).json()).toEqual(before);
+    } finally {
+        for (const task of tasks) await request.delete(`/api/tasks/${task.id}`);
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
+test('series agenda reorder validates the queue and preserves existing occurrence snapshots', async ({ request }) => {
+    const series = (await (await request.post('/api/meeting-series', {
+        data: { title: 'Reorder agenda queue' },
+    })).json()).series;
+    const meetings = [];
+    try {
+        const items = [];
+        for (const title of ['First', 'Resolved', 'Last']) {
+            items.push((await (await request.post(`/api/meeting-series/${series.id}/agenda`, { data: { title } })).json()).item);
+        }
+        await request.put(`/api/meeting-series/${series.id}/agenda/${items[1].id}`, { data: { state: 'resolved' } });
+        const before = (await (await request.post('/api/meetings', { data: { seriesId: series.id, date: '2099-07-01' } })).json()).meeting;
+        meetings.push(before.id);
+        const url = `/api/meeting-series/${series.id}/agenda/reorder`;
+        const ids = [items[2].id, items[0].id];
+        const response = await request.post(url, { data: { ids } });
+        expect(response.ok()).toBe(true);
+        const updated = (await response.json()).series;
+        expect(updated.agendaItems.map(item => item.id)).toEqual([items[2].id, items[1].id, items[0].id]);
+        expect(updated.agendaItems.map(item => item.order)).toEqual([0, 1, 2]);
+        expect(updated.agendaItems[1].state).toBe('resolved');
+        expect(updated.queuedAgendaCount).toBe(2);
+        for (const data of [null, {}, { ids: 'invalid' }, { ids: [ids[0], ids[0]] }, { ids: [ids[0]] }, { ids: [...ids, items[1].id] }, { ids: [ids[0], 'foreign-id'] }]) {
+            expect((await request.post(url, { data })).status()).toBe(400);
+        }
+        const stored = await (await request.get(`/api/meeting-series/${series.id}`)).json();
+        expect(stored.agendaItems).toEqual(updated.agendaItems);
+        const unchanged = await (await request.get(`/api/meetings/${before.id}`)).json();
+        expect(unchanged.agenda.map(item => item.agendaItemId)).toEqual([items[0].id, items[2].id]);
+        const after = (await (await request.post('/api/meetings', { data: { seriesId: series.id, date: '2099-07-02' } })).json()).meeting;
+        meetings.push(after.id);
+        expect(after.agenda.map(item => item.agendaItemId)).toEqual(ids);
+        expect((await request.post('/api/meeting-series/missing/agenda/reorder', { data: { ids } })).status()).toBe(404);
+    } finally {
+        for (const id of meetings) await request.delete(`/api/meetings/${id}`);
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
 test('plain meetings reject lifecycle decision endpoints', async ({ request }) => {
     const suffix = `plain-${Date.now()}`;
     const createResp = await request.post('/api/meetings', {

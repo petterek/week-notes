@@ -18,6 +18,8 @@
  * POST   /api/meeting-series/:id/agenda {title} → addAgendaItem(id, title)
  * PUT    /api/meeting-series/:id/agenda/:itemId → updateAgendaItem(id, itemId, patch)
  * DELETE /api/meeting-series/:id/agenda/:itemId → removeAgendaItem(id, itemId)
+ * POST   /api/meeting-series/:id/agenda/reorder {ids} → reorderAgendaItems(id, ids)
+ * POST   /api/meeting-series/:id/tasks/reorder {ids} → reorderSeriesTasks(id, ids)
  *
  * Occurrence lifecycle + in-meeting actions (only for occurrences with seriesId):
  * POST   /api/meetings/:id/start                → start(id)
@@ -65,6 +67,8 @@ export const MeetingsService = {
     addAgendaItem: (id, title)    => req('POST',   `${SERIES}/${encodeURIComponent(id)}/agenda`, { title }),
     updateAgendaItem: (id, itemId, patch) => req('PUT', `${SERIES}/${encodeURIComponent(id)}/agenda/${encodeURIComponent(itemId)}`, patch),
     removeAgendaItem: (id, itemId) => req('DELETE', `${SERIES}/${encodeURIComponent(id)}/agenda/${encodeURIComponent(itemId)}`),
+    reorderAgendaItems: (id, ids) => req('POST', `${SERIES}/${encodeURIComponent(id)}/agenda/reorder`, { ids }),
+    reorderSeriesTasks: (id, ids) => req('POST', `${SERIES}/${encodeURIComponent(id)}/tasks/reorder`, { ids }),
 
     // --- Occurrence lifecycle + in-meeting actions ---
     start:  (id) => req('POST', `${BASE}/${encodeURIComponent(id)}/start`),

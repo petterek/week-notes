@@ -162,6 +162,24 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3001/settings
 | `/meetings/:id/minutes` | Printable/PDF meeting minutes export |
 | `/api/...` | JSON APIs (people, tasks, meetings, meeting-series, contexts/:id/settings, contexts/:id/meeting-types, contexts/switch, …) |
 
+Meeting-series queue order is saved via
+`POST /api/meeting-series/:id/agenda/reorder` with `{ids}` covering exactly
+the queued items. Drag handles also accept ArrowUp/ArrowDown. Apply the
+returned series to the dashboard cache; do not reload unrelated data or
+rewrite existing occurrence agenda snapshots.
+
+Series follow-up tasks reuse `<tasks-page embedded meeting-series-id="…">`
+with data supplied by the host. Keep its `tasks:changed`/`tasks:reordered`
+events connected to the host caches. Manual follow-up order lives in the
+series' optional `taskOrder`, saved via
+`POST /api/meeting-series/:id/tasks/reorder`, not in global task ordering.
+Running-meeting mutations also apply response data to the await cache;
+keep their meeting GET lazy and preserve unfinished input/notes drafts.
+Occurrence participants are stored in `meeting.attendees`, edited with
+`<person-multi-picker>` through the meeting PUT response, and shown by name
+from cached people data. Do not change series defaults; closed occurrences
+are read-only.
+
 "Ny forekomst" opens `/meeting-series?startSeries=:id&popup=1` in a
 minimal-chrome popup with the date/time setup form. Start creates and
 starts the occurrence, navigating that popup to its workspace. A planned
@@ -353,6 +371,7 @@ do not retain a read-modify-write snapshot across another `await`.
   converted in the browser by `<feature-rich-text-area>.convert()` via
   injected services; hosts await it before saving. The server does not
   create entities from markers (see `agents/notes.md`).
+  Task markers also accept `{{X @ YYYY-MM-DD[ HH:MM]}}` to set `dueDate`.
 - Mention autocomplete is in `public/mention-autocomplete.js`; init it
   on each editor element after the DOM is ready (and re-init when
   modals show new inputs).

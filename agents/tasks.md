@@ -86,6 +86,17 @@ Per-week task list with comments, drag-reorder, merge, completion log.
   comment modal flow.
 - When adding a new field, update both the home renderer (left
   sidebar + week sections) and the `/tasks` page renderer.
+- `<tasks-page embedded meeting-series-id="…">` is also the series
+  follow-up task UI. `setData({ tasks, people, companies, taskOrder })`
+  supplies host data without fetching it again. Create is automatically
+  linked to the series; all other task actions are shared with `/tasks`.
+  Successful mutations emit `tasks:changed` with the full visible task
+  collection for the host cache. The series filter is applied only when
+  rendering, so unrelated tasks are preserved.
+- Series task drag handles and ArrowUp/ArrowDown save the complete open
+  series-task permutation through `meetings_service.reorderSeriesTasks`.
+  `tasks:reordered` carries the updated series; its optional `taskOrder`
+  does not alter global task order. Completed tasks are not reorderable.
 
 ## Gotchas
 
