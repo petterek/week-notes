@@ -58,11 +58,45 @@ Per-week task list with comments, drag-reorder, merge, completion log.
 
 - Tasks render with `data-taskid` and `data-tasktext` attributes —
   the inline JS reads these to drive toggle/comment/edit modals.
-- `comment` is shown as a small italic line under the completed task.
+- Task notes (`task-note`, `task-note-modal`, `task-create-full`) use
+  `<feature-rich-text-area features="lists,emoji,mentions,tasks,dates">`
+  with explicit rows (6, 6, 3). Completion comments use rows 4 and
+  `features="lists,emoji,mentions,dates"`. No form editor enables Tab
+  indentation; Ctrl/Cmd+Enter still saves/confirms and Escape cancels.
+- Editors forward injected people/companies/teams/tasks services, falling
+  back to `week-note-services.*_service`; mention/date autocomplete belongs
+  to the editor, not its host. The task-title input remains single-line
+  with its original autocomplete. Modal focus belongs in `afterRender`,
+  not deferred timers that can overwrite text typed immediately after open.
+- Notes and comments in task detail views, completion-note files in
+  `task-view`, and expanded open-list notes render via `renderRichText`
+  with `RICH_TEXT_CSS`: Markdown, emoji, mentions and task markers share
+  the note renderer; user-written HTML is shown literally.
+- Completion API comments are persisted as `commentFile` Markdown notes
+  (legacy inline `comment` remains displayable). Keep passing the raw
+  comment to `service.toggle(id, comment)`.
+- `{{X}}`/`[[X]]` in task notes and `[[X]]` in completion comments are
+  converted by the rich editor's `convert()` before the host saves (see
+  `agents/notes.md`); the server no longer parses them. `POST /api/tasks`
+  accepts `noteRef` and returns the full list with the new task last.
+- The create endpoint does not persist `note`; `task-create-full` follows
+  successful creation with `service.update(id, { note })` when needed,
+  before reporting `task:created`. Server API shapes stay unchanged.
 - `pendingToggleEl` is a global in the home script used by the
   comment modal flow.
 - When adding a new field, update both the home renderer (left
   sidebar + week sections) and the `/tasks` page renderer.
+- `<tasks-page embedded meeting-series-id="…">` is also the series
+  follow-up task UI. `setData({ tasks, people, companies, taskOrder })`
+  supplies host data without fetching it again. Create is automatically
+  linked to the series; all other task actions are shared with `/tasks`.
+  Successful mutations emit `tasks:changed` with the full visible task
+  collection for the host cache. The series filter is applied only when
+  rendering, so unrelated tasks are preserved.
+- Series task drag handles and ArrowUp/ArrowDown save the complete open
+  series-task permutation through `meetings_service.reorderSeriesTasks`.
+  `tasks:reordered` carries the updated series; its optional `taskOrder`
+  does not alter global task order. Completed tasks are not reorderable.
 
 ## Gotchas
 
@@ -83,3 +117,12 @@ Per-week task list with comments, drag-reorder, merge, completion log.
   `bd.style.zIndex` before setAttribute is a bug — the re-render wipes
   the inline style. Always: setAttribute first, then query the fresh
   `.backdrop` element and set z-index.
+
+## Rich-text regression coverage
+
+`tests/playwright/rich-text-tasks.spec.js` covers all four task editors,
+real create/update/toggle persistence (including completion-note files),
+Ctrl+Enter and list continuation, rich note/comment displays and HTML
+escaping. Existing task modal scenarios query the nested editor's shadow
+root for autocomplete and dispatch `input` after programmatic changes to
+its inner textarea.

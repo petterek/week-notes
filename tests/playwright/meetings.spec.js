@@ -26,7 +26,7 @@ test('calendar meeting edit renders the linked note and original form values, no
         const editor = calendar.locator('meeting-edit');
         await expect(editor.locator('[data-note-ref-row] .note-ref-pill')).toContainText('plan');
         await expect(editor.locator('input[name="title"]')).toHaveValue('Review <draft> & notes');
-        await expect(editor.locator('textarea[name="notes"]')).toHaveValue('Agenda <final> & follow-up');
+        await expect.poll(() => editor.locator('feature-rich-text-area[name="notes"]').evaluate(el => el.value)).toBe('Agenda <final> & follow-up');
         await expect(editor.locator('[data-note-ref-row]')).not.toContainText('<div');
         await editor.evaluate(el => el._setNoteRef(''));
         await expect(editor.locator('[data-note-ref-row] button[data-pick-note]')).toHaveText(/Velg notat/);
@@ -68,6 +68,301 @@ test('calendar opens a series occurrence in the saved-size meeting popup', async
         await expect(page).toHaveURL(/\/calendar\/2099-W23$/);
     } finally {
         if (occurrence) await request.delete(`/api/meetings/${occurrence.id}`);
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
+test('meeting-series edits update cached details without reloading dashboard data', async ({ page, request }) => {
+    const series = (await (await request.post('/api/meeting-series', {
+        data: { title: 'Cached series details', description: 'Original description' },
+    })).json()).series;
+    let occurrence;
+    try {
+        occurrence = (await (await request.post('/api/meetings', {
+            data: { seriesId: series.id, date: '2099-06-01', start: '10:00' },
+        })).json()).meeting;
+        await page.goto(`/meeting-series#ms-${series.id}`);
+        const host = page.locator('meeting-series-page');
+        await host.locator('.mp-edit').click();
+        await host.locator('#mspModalTitle').fill('Updated cached series');
+        await host.locator('#mspModalDesc textarea').fill('**Updated description**');
+        await page.waitForLoadState('networkidle');
+        const reads = [];
+        page.on('request', req => {
+            if (req.method() === 'GET' && new URL(req.url()).pathname.startsWith('/api/')) reads.push(req.url());
+        });
+
+        await host.locator('[data-act="save-series"]').click();
+        await expect(host.locator('.mp-dp-title')).toContainText('Updated cached series');
+        await expect(host.locator('.mp-item.selected .mp-item-title')).toHaveText('Updated cached series');
+        await expect(host.locator('.mp-desc strong')).toHaveText('Updated description');
+        await expect(host.locator(`.mp-occ-row[data-id="${occurrence.id}"]`)).toBeVisible();
+        await expect(host.locator('.mp-item.selected .mp-item-sub')).toContainText('1 møter');
+        await expect(page).toHaveURL(new RegExp(`#ms-${series.id}$`));
+        expect(reads, 'Saving series content must reuse the response and keep other data cached').toEqual([]);
+
+        await host.locator('.mp-archive').click();
+        await expect(host.locator('.mp-item.selected')).toHaveClass(/archived/);
+        await expect(host.locator('.mp-archive')).toHaveAttribute('data-next', 'active');
+        expect(reads, 'Archiving must not reload dashboard data').toEqual([]);
+    } finally {
+        if (occurrence) await request.delete(`/api/meetings/${occurrence.id}`);
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
+test('meeting-series agenda changes update the queue and counts without reloading data', async ({ page, request }) => {
+    const series = (await (await request.post('/api/meeting-series', {
+        data: { title: 'Cached agenda changes' },
+    })).json()).series;
+    try {
+        await request.post(`/api/meeting-series/${series.id}/agenda`, { data: { title: 'Keep existing topic' } });
+        await page.goto(`/meeting-series#ms-${series.id}`);
+        const host = page.locator('meeting-series-page');
+        const rows = host.locator('.mp-agenda-row:not(.mp-agenda-resolved)');
+        await expect(rows).toHaveCount(1);
+        await page.waitForLoadState('networkidle');
+        const reads = [];
+        page.on('request', req => {
+            if (req.method() === 'GET' && new URL(req.url()).pathname.startsWith('/api/')) reads.push(req.url());
+        });
+
+        await host.locator('[data-el="agenda-add"]').fill('New cached topic');
+        await host.locator('.mp-agenda-add-btn').click();
+        await expect(rows).toHaveCount(2);
+        await expect(host.locator('.mp-item.selected .mp-badge')).toHaveText('2 i kø');
+        expect(reads, 'Adding an agenda item must reuse the returned series').toEqual([]);
+
+        await rows.filter({ hasText: 'New cached topic' }).locator('.mp-agenda-edit').click();
+        await host.locator('.mp-agenda-edit-input').fill('Renamed cached topic');
+        await host.locator('.mp-agenda-edit-input').press('Enter');
+        await expect(rows.filter({ hasText: 'Renamed cached topic' })).toHaveCount(1);
+        await expect(rows.filter({ hasText: 'Keep existing topic' })).toHaveCount(1);
+        expect(reads, 'Renaming an agenda item must not reload dashboard data').toEqual([]);
+
+        page.once('dialog', dialog => dialog.accept());
+        await rows.filter({ hasText: 'Renamed cached topic' }).locator('.mp-agenda-rm').click();
+        await expect(rows).toHaveCount(1);
+        await expect(rows).toContainText('Keep existing topic');
+        await expect(host.locator('.mp-item.selected .mp-badge')).toHaveText('1 i kø');
+        expect(reads, 'Removing an agenda item must not reload dashboard data').toEqual([]);
+    } finally {
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
+test('meeting-series agenda drag and keyboard ordering persists without reloading data', async ({ page, request }) => {
+    const series = (await (await request.post('/api/meeting-series', { data: { title: 'Sortable agenda' } })).json()).series;
+    try {
+        for (const title of ['First topic', 'Second topic', 'Third topic']) {
+            await request.post(`/api/meeting-series/${series.id}/agenda`, { data: { title } });
+        }
+        await page.goto(`/meeting-series#ms-${series.id}`);
+        const host = page.locator('meeting-series-page');
+        const rows = host.locator('.mp-agenda-row[data-item]');
+        await expect(rows).toHaveCount(3);
+        await page.waitForLoadState('networkidle');
+        const reads = [];
+        page.on('request', req => {
+            if (req.method() === 'GET' && new URL(req.url()).pathname.startsWith('/api/')) reads.push(req.url());
+        });
+        await rows.nth(2).locator('.mp-agenda-drag').dragTo(rows.first());
+        await expect(rows.locator('.text')).toHaveText(['Third topic', 'First topic', 'Second topic']);
+        await rows.first().locator('.mp-agenda-drag').focus();
+        await rows.first().locator('.mp-agenda-drag').press('ArrowDown');
+        await expect(rows.locator('.text')).toHaveText(['First topic', 'Third topic', 'Second topic']);
+        await expect(rows.nth(1).locator('.mp-agenda-drag')).toBeFocused();
+        expect(reads, 'Reordering must update the cache without reloading dashboard data').toEqual([]);
+        await page.reload();
+        await expect(rows.locator('.text')).toHaveText(['First topic', 'Third topic', 'Second topic']);
+
+        await page.route('**/api/meeting-series/*/agenda/reorder', route => route.fulfill({
+            status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Reorder failed' }),
+        }));
+        const errorShown = new Promise(resolve => page.once('dialog', async dialog => {
+            const message = dialog.message();
+            await dialog.accept();
+            resolve(message);
+        }));
+        await rows.first().locator('.mp-agenda-drag').press('ArrowDown');
+        expect(await errorShown).toContain('Reorder failed');
+        await expect(rows.locator('.text')).toHaveText(['First topic', 'Third topic', 'Second topic']);
+        await expect(rows.first().locator('.mp-agenda-drag')).toBeEnabled();
+    } finally {
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
+test('series follow-up tasks use shared actions and saved sorting without reloading data', async ({ page, request }) => {
+    const series = (await (await request.post('/api/meeting-series', { data: { title: 'Shared series tasks' } })).json()).series;
+    const ids = [];
+    try {
+        for (const text of ['First follow-up', 'Second follow-up', 'Outside series']) {
+            const data = { text, ...(text !== 'Outside series' ? { meetingSeriesId: series.id } : {}) };
+            const tasks = await (await request.post('/api/tasks', { data })).json();
+            ids.push(tasks.at(-1).id);
+        }
+        let taskLoads = 0;
+        page.on('request', req => {
+            if (req.method() === 'GET' && new URL(req.url()).pathname === '/api/tasks') taskLoads++;
+        });
+        await page.goto(`/meeting-series#ms-${series.id}`);
+        const host = page.locator('meeting-series-page');
+        const shared = host.locator('tasks-page');
+        const rows = shared.locator('tbody tr[data-taskid]');
+        await expect(rows).toHaveCount(2);
+        await expect(shared).not.toContainText('Outside series');
+        await page.waitForLoadState('networkidle');
+        expect(taskLoads, 'The embedded UI must reuse tasks already loaded by the dashboard').toBe(1);
+        const reads = [];
+        page.on('request', req => {
+            if (req.method() === 'GET' && /\/api\/(tasks|meeting-series|meetings|meeting-types)$/.test(new URL(req.url()).pathname)) reads.push(req.url());
+        });
+        const firstId = await rows.first().getAttribute('data-taskid');
+        const secondId = await rows.nth(1).getAttribute('data-taskid');
+        await rows.nth(1).locator('.tp-drag-handle').dragTo(rows.first());
+        await expect(rows.first()).toHaveAttribute('data-taskid', secondId);
+        await rows.first().locator('.tp-drag-handle').press('ArrowDown');
+        await expect(rows.first()).toHaveAttribute('data-taskid', firstId);
+        await expect(rows.nth(1).locator('.tp-drag-handle')).toBeFocused();
+        expect(reads).toEqual([]);
+        await page.reload();
+        await expect(rows.first()).toHaveAttribute('data-taskid', firstId);
+        reads.length = 0;
+        await page.route('**/api/meeting-series/*/tasks/reorder', route => route.fulfill({
+            status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Task ordering failed' }),
+        }), { times: 1 });
+        const errorShown = new Promise(resolve => page.once('dialog', async dialog => {
+            const message = dialog.message();
+            await dialog.accept();
+            resolve(message);
+        }));
+        await rows.first().locator('.tp-drag-handle').press('ArrowDown');
+        expect(await errorShown).toContain('Task ordering failed');
+        await expect(rows.first()).toHaveAttribute('data-taskid', firstId);
+        await expect(rows.first().locator('.tp-drag-handle')).toBeEnabled();
+
+        await shared.locator('.tp-create-input').fill('Created in shared UI');
+        const createdResponse = page.waitForResponse(res => new URL(res.url()).pathname === '/api/tasks' && res.request().method() === 'POST');
+        await shared.locator('.tp-create-btn').click();
+        const created = (await (await createdResponse).json()).at(-1);
+        ids.push(created.id);
+        expect(created.meetingSeriesId).toBe(series.id);
+        await expect(rows).toHaveCount(3);
+
+        const row = shared.locator(`tr[data-taskid="${created.id}"]`);
+        await row.locator('[data-act="edit"]').click();
+        const modal = page.locator('body > task-edit-modal');
+        await modal.locator('task-create-full input[data-el="text"]').fill('Edited follow-up');
+        await modal.locator('task-create-full [data-el="submit"]').click();
+        await expect(row.locator('.task-title')).toHaveText('Edited follow-up');
+        await row.locator('[data-act="note"]').click();
+        const note = shared.locator('task-note-modal');
+        await note.locator('feature-rich-text-area textarea').fill('**Shared task note**');
+        await note.locator('feature-rich-text-area textarea').press('Control+Enter');
+        await row.locator('[data-act="view"]').click();
+        await expect(page.locator('modal-container .note-body strong')).toHaveText('Shared task note');
+        await page.keyboard.press('Escape');
+
+        await row.locator('[data-act="toggle"]').click();
+        const complete = page.locator('body > task-complete-modal');
+        await complete.locator('feature-rich-text-area textarea').press('Control+Enter');
+        await expect(rows).toHaveCount(2);
+        await shared.locator('[data-tab="done"]').click();
+        await expect(row).toBeVisible();
+        await expect(shared.locator('.tp-drag-handle')).toHaveCount(0);
+        await row.locator('[data-act="toggle"]').click();
+        await expect(rows).toHaveCount(0);
+        await shared.locator('[data-tab="open"]').click();
+        await expect(row).toBeVisible();
+        page.once('dialog', dialog => dialog.accept());
+        await row.locator('[data-act="delete"]').click();
+        await expect(rows).toHaveCount(2);
+        expect(reads, 'Shared task actions must use saved data without reloading the dashboard').toEqual([]);
+        await expect(host.locator('[data-el="task-count"]')).toHaveText('2');
+    } finally {
+        for (const id of ids) await request.delete(`/api/tasks/${id}`);
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
+test('meeting instance displays and edits its participants without reloading data', async ({ page, request }) => {
+    const series = (await (await request.post('/api/meeting-series', {
+        data: { title: 'Meeting instance participants', defaultAttendees: ['ada'] },
+    })).json()).series;
+    let meeting;
+    let other;
+    try {
+        meeting = (await (await request.post('/api/meetings', {
+            data: { seriesId: series.id, date: '2099-07-01' },
+        })).json()).meeting;
+        other = (await (await request.post('/api/meetings', {
+            data: { seriesId: series.id, date: '2099-07-02' },
+        })).json()).meeting;
+        await request.post(`/api/meetings/${meeting.id}/start`);
+        await page.goto(`/meeting-occurrence/${meeting.id}`);
+        const host = page.locator('meeting-occurrence-page');
+        const participants = host.locator('.mo-participants');
+        await expect(participants.locator('.mo-participant-list')).toContainText('Ada Test');
+        await host.locator('[data-el="minutes"] textarea').fill('Keep this minutes draft');
+        await page.waitForLoadState('networkidle');
+        const reads = [];
+        page.on('request', req => {
+            if (req.method() === 'GET' && new URL(req.url()).pathname.startsWith('/api/')) reads.push(req.url());
+        });
+        await participants.locator('.mo-edit-attendees').click();
+        const picker = participants.locator('person-multi-picker');
+        await picker.locator('input').fill('Per');
+        await picker.locator('.opt[data-key="per jørgen"]').click();
+        await participants.locator('.mo-save-attendees').click();
+        await expect(participants.locator('.mo-participant-list')).toContainText('Per Jørgen');
+        await expect(participants.locator('.mo-participant-list')).toContainText('Ada Test');
+        await expect(host.locator('[data-el="minutes"] textarea')).toHaveValue('Keep this minutes draft');
+        expect(reads, 'Participant edits must reuse cached data and the save response').toEqual([]);
+        const saved = await (await request.get(`/api/meetings/${meeting.id}`)).json();
+        expect(saved.attendees).toEqual(['ada', 'per jørgen']);
+        expect((await (await request.get(`/api/meetings/${other.id}`)).json()).attendees).toEqual(['ada']);
+        expect((await (await request.get(`/api/meeting-series/${series.id}`)).json()).defaultAttendees).toEqual(['ada']);
+
+        await page.setViewportSize({ width: 480, height: 800 });
+        await participants.locator('.mo-edit-attendees').click();
+        await picker.locator('.chip .x').first().click();
+        await picker.locator('.chip .x').first().click();
+        await participants.locator('.mo-cancel-attendees').click();
+        await expect(participants.locator('.mo-participant-list')).toContainText('Ada Test');
+        await expect(participants.locator('.mo-participant-list')).toContainText('Per Jørgen');
+
+        await participants.locator('.mo-edit-attendees').click();
+        await picker.locator('.chip .x').first().click();
+        await picker.locator('.chip .x').first().click();
+        await page.route(`**/api/meetings/${meeting.id}`, async route => {
+            if (route.request().method() === 'PUT') {
+                await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Participant save failed' }) });
+            } else await route.continue();
+        }, { times: 1 });
+        const errorShown = new Promise(resolve => page.once('dialog', async dialog => {
+            const message = dialog.message();
+            await dialog.accept();
+            resolve(message);
+        }));
+        await participants.locator('.mo-save-attendees').click();
+        expect(await errorShown).toContain('Participant save failed');
+        await expect(participants.locator('.mo-save-attendees')).toBeEnabled();
+        expect((await (await request.get(`/api/meetings/${meeting.id}`)).json()).attendees).toEqual(['ada', 'per jørgen']);
+        await participants.locator('.mo-save-attendees').click();
+        await expect(participants).toContainText('Ingen deltakere lagt til');
+        expect((await (await request.get(`/api/meetings/${meeting.id}`)).json()).attendees).toEqual([]);
+        expect(reads).toEqual([]);
+
+        await request.put(`/api/meetings/${meeting.id}`, { data: { attendees: ['ada'] } });
+        await request.post(`/api/meetings/${meeting.id}/close`);
+        await page.reload();
+        await expect(participants.locator('.mo-participant-list')).toContainText('Ada Test');
+        await expect(participants.locator('.mo-edit-attendees')).toHaveCount(0);
+        await expect(participants.locator('person-multi-picker')).toHaveCount(0);
+    } finally {
+        if (meeting) await request.delete(`/api/meetings/${meeting.id}`);
+        if (other) await request.delete(`/api/meetings/${other.id}`);
         await request.delete(`/api/meeting-series/${series.id}`);
     }
 });
@@ -486,12 +781,64 @@ test('meeting occurrence workspace: full lifecycle via UI', async ({ page, reque
             const minutes = el.shadowRoot.querySelector('[data-el="minutes"]');
             return {
                 edit: !!editBtn,
-                minutesReadonly: !!minutes && minutes.readOnly,
+                minutesReadonly: !!minutes && minutes.hasAttribute('readonly'),
             };
         })).toEqual({ edit: true, minutesReadonly: false });
     } finally {
         if (secondOcc) await request.delete(`/api/meetings/${secondOcc.id}`);
         if (occ) await request.delete(`/api/meetings/${occ.id}`);
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
+test('adding an agenda item preserves an unsaved meeting-minutes draft', async ({ page, request }) => {
+    const series = (await (await request.post('/api/meeting-series', {
+        data: { title: 'Minutes draft preservation' },
+    })).json()).series;
+    let meeting;
+    let taskId;
+    try {
+        meeting = (await (await request.post('/api/meetings', {
+            data: { seriesId: series.id, date: '2099-07-01' },
+        })).json()).meeting;
+        await request.post(`/api/meetings/${meeting.id}/start`);
+        await page.goto(`/meeting-occurrence/${meeting.id}`);
+        const host = page.locator('meeting-occurrence-page');
+        const minutes = host.locator('[data-el="minutes"]');
+        const minutesInput = minutes.locator('textarea');
+        await expect(minutes).toBeVisible();
+        await page.waitForLoadState('networkidle');
+        const reads = [];
+        page.on('request', req => {
+            if (req.method() === 'GET' && /\/api\/(meetings|meeting-series|tasks|meeting-types)(\/|$)/.test(new URL(req.url()).pathname)) reads.push(req.url());
+        });
+        await minutesInput.fill('Draft notes that are not saved yet');
+        await host.locator('[data-el="decision-add"]').fill('Decision draft');
+        await host.locator('[data-el="agenda-add"]').fill('A new discussion point');
+        await host.locator('.mo-agenda-add-btn').click();
+        await expect(host.locator('.mo-agenda-item')).toContainText('A new discussion point');
+        await expect(minutesInput).toHaveValue('Draft notes that are not saved yet');
+        await expect(host.locator('[data-el="decision-add"]')).toHaveValue('Decision draft');
+        expect(reads, 'Agenda additions must use the mutation response, not refetch workspace data').toEqual([]);
+        const notes = host.locator('feature-rich-text-area[data-agenda] textarea');
+        await notes.fill('Agenda notes in progress');
+        await host.locator('.mo-decision-add-btn').click();
+        await expect(host.locator('.mo-decision .text')).toHaveText('Decision draft');
+        await expect(notes).toHaveValue('Agenda notes in progress');
+        await expect(minutesInput).toHaveValue('Draft notes that are not saved yet');
+        expect(reads, 'Decision additions must keep other workspace data cached').toEqual([]);
+
+        const createdResponse = page.waitForResponse(res => new URL(res.url()).pathname === '/api/tasks' && res.request().method() === 'POST');
+        await host.locator('task-create input[data-el="text"]').fill('Task without workspace reload');
+        await host.locator('task-create [data-el="submit"]').click();
+        taskId = (await (await createdResponse).json()).at(-1).id;
+        await expect(host.locator('.mo-tasks')).toContainText('Task without workspace reload');
+        await expect(notes).toHaveValue('Agenda notes in progress');
+        await expect(minutesInput).toHaveValue('Draft notes that are not saved yet');
+        expect(reads, 'Task additions must use the returned task list without refetching').toEqual([]);
+    } finally {
+        if (taskId) await request.delete(`/api/tasks/${taskId}`);
+        if (meeting) await request.delete(`/api/meetings/${meeting.id}`);
         await request.delete(`/api/meeting-series/${series.id}`);
     }
 });
@@ -591,13 +938,14 @@ test('meeting minutes support mention autocomplete and save the selected mention
         await page.goto(`/meeting-occurrence/${meeting.id}`);
         const workspace = page.locator('meeting-occurrence-page');
         const minutes = workspace.locator('[data-el="minutes"]');
+        const minutesInput = minutes.locator('textarea');
         await expect(minutes).toBeVisible();
-        await minutes.fill('Følg opp @me');
+        await minutesInput.fill('Følg opp @me');
         const suggestion = workspace.getByRole('listbox').getByRole('option');
         await expect(suggestion.first()).toBeVisible();
-        await minutes.press('ArrowDown');
-        await minutes.press('Enter');
-        await expect(minutes).toHaveValue(/@me /);
+        await minutesInput.press('ArrowDown');
+        await minutesInput.press('Enter');
+        await expect(minutesInput).toHaveValue(/@me /);
         await workspace.locator('.mo-save-minutes').click();
         await expect.poll(async () => (await (await request.get(`/api/meetings/${meeting.id}`)).json()).minutes)
             .toContain('@me ');
@@ -619,16 +967,17 @@ test('meeting minutes text input opens the date picker with Ctrl+D', async ({ pa
         })).json()).meeting;
         await page.goto(`/meeting-occurrence/${meeting.id}`);
         const minutes = page.locator('meeting-occurrence-page [data-el="minutes"]');
+        const minutesInput = minutes.locator('textarea');
         await expect(minutes).toBeVisible();
-        await minutes.fill('Follow up on ');
-        await minutes.press('Control+d');
+        await minutesInput.fill('Follow up on ');
+        await minutesInput.press('Control+d');
 
         const picker = page.locator('date-time-picker');
         await expect(picker).toBeVisible();
         await expect.poll(() => picker.evaluate(el => el.getAttribute('mode'))).toBe('date');
         const selectedDate = await picker.evaluate(el => el.value);
         await picker.evaluate(el => el.shadowRoot.querySelector('.ok').click());
-        await expect(minutes).toHaveValue(`Follow up on ${selectedDate}`);
+        await expect(minutesInput).toHaveValue(`Follow up on ${selectedDate}`);
     } finally {
         if (meeting) await request.delete(`/api/meetings/${meeting.id}`);
         await request.delete(`/api/meeting-series/${series.id}`);
@@ -841,18 +1190,19 @@ test('meeting occurrence agenda inputs support mentions and date insertion', asy
         const host = page.locator('meeting-occurrence-page');
         const picker = page.locator('date-time-picker');
 
-        const notes = host.locator(`textarea[data-agenda="${item.id}"]`);
+        const notes = host.locator(`feature-rich-text-area[data-agenda="${item.id}"]`);
+        const notesInput = notes.locator('textarea');
         await expect(notes).toBeVisible();
-        await notes.fill('Ask @me');
-        await notes.press('ArrowDown');
-        await notes.press('Enter');
-        await expect(notes).toHaveValue(/@me /);
-        await notes.press('End');
-        await notes.press('Control+d');
+        await notesInput.fill('Ask @me');
+        await notesInput.press('ArrowDown');
+        await notesInput.press('Enter');
+        await expect(notesInput).toHaveValue(/@me /);
+        await notesInput.press('End');
+        await notesInput.press('Control+d');
         await expect(picker).toBeVisible();
         const notesDate = await picker.evaluate(el => el.value);
         await picker.evaluate(el => el.shadowRoot.querySelector('.ok').click());
-        await expect(notes).toHaveValue(`Ask @me ${notesDate}`);
+        await expect(notesInput).toHaveValue(`Ask @me ${notesDate}`);
 
         const addInput = host.locator('[data-el="agenda-add"]');
         await addInput.fill('New for @me');

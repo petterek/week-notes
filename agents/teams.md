@@ -77,7 +77,8 @@ Relevant code: `domains/people/team-status-page.js`
 - Name input (required)
 - `<person-multi-picker>` for member selection (convention: always use
   `<person-multi-picker>` when selecting multiple people)
-- Optional notes textarea
+- Optional rich notes editor (`<feature-rich-text-area>`, 2 rows,
+  `features="lists,emoji,mentions,dates"`)
 - On save: POST or PUT to `/api/teams/:id`
 
 Relevant code: `domains/people/people-page.js`
@@ -151,3 +152,14 @@ the 4th argument to the client-side `linkMentions()` for live preview.
   `linkMentions`: companies → teams → people → places.
   `syncMentions()` also skips team keys so no spurious person stubs
   are created.
+
+### Rich notes
+
+The team notes editor forwards the directory's injected people, company and
+team services (default `week-note-services.*`) for mentions. Notes persist
+as raw Markdown through the component's `.value`. Expanded team cards use
+block `renderRichText` with all three loaded lookup lists and shared rich
+text CSS; Markdown, emoji and mentions render while literal HTML stays
+escaped. The team status page lists note references, not `team.notes`, and
+therefore does not render this field. Coverage lives in
+`tests/playwright/rich-text-people.spec.js`.

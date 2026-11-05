@@ -5,7 +5,7 @@
  * Read-only: clicking a meeting shows info but no editing.
  * Navigates at /calendar/all or /calendar/all/YYYY-WNN.
  */
-import { WNElement, html, escapeHtml } from './_shared.js';
+import { WNElement, html } from './_shared.js';
 
 const MONTH_NAMES = ['januar', 'februar', 'mars', 'april', 'mai', 'juni', 'juli', 'august', 'september', 'oktober', 'november', 'desember'];
 

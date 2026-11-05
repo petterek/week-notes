@@ -12,7 +12,8 @@
  *
  * Property: element.settings = {...}
  */
-import { WNElement, html } from './_shared.js';
+import { WNElement, html, unsafeHTML } from './_shared.js';
+import { renderRichText, RICH_TEXT_CSS } from '/services/_shared/wn-rich-text.js';
 import { meetingPopupFeatures } from '/components/meeting-popup.js';
 import './meeting-edit.js';
 
@@ -90,6 +91,7 @@ function meetingToItem(m, typeMap) {
 }
 
 const STYLES = `
+    ${RICH_TEXT_CSS}
     :host { display: block; box-sizing: border-box; }
     .page { display: flex; flex-direction: column; padding: 8px 12px; box-sizing: border-box; gap: 6px; }
     .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 0 2px; }
@@ -123,6 +125,7 @@ const STYLES = `
     .import-list li { padding: 7px 0; border-bottom: 1px solid var(--border); }
     .import-list li.duplicate { color: var(--text-muted); }
     .import-list small { display: block; color: var(--text-muted); white-space: pre-wrap; }
+    .import-list .rich-text { color: var(--text-muted); white-space: normal; }
     .import-actions { display: flex; justify-content: flex-end; gap: 8px; }
     .import-actions button { padding: 7px 12px; cursor: pointer; }
 `;
@@ -261,7 +264,7 @@ class WeekNotesCalendar extends WNElement {
                                     <strong>${e.title}</strong>${e.duplicate ? ' — Allerede importert' : ''}
                                     <small>${e.date}${e.start ? ` ${e.start}${e.end ? `–${e.end}` : ''}` : ' (hele dagen)'}${e.endDate ? ` – ${e.endDate}` : ''}${e.location ? ` · ${e.location}` : ''}</small>
                                     ${e.joinUrl ? html`<a class="teams-link" href="${e.joinUrl}" target="_blank" rel="noopener noreferrer">Bli med i Teams-møtet</a>` : ''}
-                                    ${e.notes ? html`<small>${e.notes}</small>` : ''}
+                                    ${e.notes ? html`<div class="rich-text">${unsafeHTML(renderRichText(e.notes))}</div>` : ''}
                                 </li>
                             `)}</ul>
                             <div class="import-actions">

@@ -7,8 +7,10 @@
  *   list({ week? }) → Promise<Result[]>
  */
 import { WNElement, html, unsafeHTML, escapeHtml, linkMentions, wireMentionClicks, isoWeek } from './_shared.js';
+import { renderRichText, RICH_TEXT_CSS } from '/services/_shared/wn-rich-text.js';
 
 const STYLES = `
+    ${RICH_TEXT_CSS}
     :host { display: block; color: var(--text-strong); font: inherit; font-size: 0.92em; }
     .sec-h {
         font-family: var(--font-heading); font-weight: 400;
@@ -37,7 +39,7 @@ function inWeek(r, week) {
 
 class WeekResults extends WNElement {
     static get domain() { return 'results'; }
-    static get observedAttributes() { return ['week', 'results_service', 'people_service', 'companies_service']; }
+    static get observedAttributes() { return ['week', 'results_service', 'people_service', 'companies_service', 'teams_service']; }
 
     css() { return STYLES; }
 
@@ -59,6 +61,7 @@ class WeekResults extends WNElement {
         const week = this.getAttribute('week');
         const peopleSvc = this.serviceFor('people');
         const compSvc = this.serviceFor('companies');
+        const teamsSvc = this.serviceFor('teams') || window['week-note-services']?.teams_service;
         return {
             results: async () => {
                 const all = await this.service.list({ week });
@@ -66,6 +69,7 @@ class WeekResults extends WNElement {
             },
             people:    () => peopleSvc ? peopleSvc.list() : Promise.resolve([]),
             companies: () => compSvc   ? compSvc.list()   : Promise.resolve([]),
+            teams:     () => teamsSvc ? teamsSvc.list() : Promise.resolve([]),
         };
     }
 
@@ -76,6 +80,7 @@ class WeekResults extends WNElement {
         if (!results) return html`<h3 class="sec-h">Resultater</h3><p class="empty-quiet">Kunne ikke laste</p>`;
         const people = data.people || [];
         const companies = data.companies || [];
+        const teams = data.teams || [];
 
         if (results.length === 0) {
             return html`<h3 class="sec-h">Resultater <span class="c">0</span></h3><p class="empty-quiet">Ingen resultater</p>`;
@@ -85,7 +90,9 @@ class WeekResults extends WNElement {
             const peopleStr = (r.people && r.people.length > 0)
                 ? linkMentions(r.people.map(p => `@${escapeHtml(p)}`).join(', '), people, companies)
                 : '';
-            const textHtml = unsafeHTML(linkMentions(escapeHtml(r.text), people, companies));
+            const textHtml = unsafeHTML(`<span class="rich-text">${renderRichText(r.text, {
+                people, companies, teams, inline: true,
+            })}</span>`);
             const peopleHtml = unsafeHTML(peopleStr);
             const sentimentIcon = r.sentiment === 'good' ? '🟢 ' : r.sentiment === 'bad' ? '🔴 ' : '';
             return html`

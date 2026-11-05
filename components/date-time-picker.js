@@ -27,7 +27,7 @@
  *   dateweek-selected   detail: { value }   — user pressed 'w'; value is YYYY-Www
  *   datetime-cancelled                       — user clicked Avbryt / Esc
  */
-import { WNElement, html, escapeHtml } from './_shared.js';
+import { WNElement, escapeHtml } from './_shared.js';
 
 const DAY_LABELS = ['man', 'tir', 'ons', 'tor', 'fre', 'lør', 'søn'];
 const MONTH_LABELS = [

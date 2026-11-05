@@ -8,7 +8,7 @@
  *   goals_service.list()                     → Goal[]
  *   tasks_service.list()  (optional)         → Task[]   (for progress)
  */
-import { WNElement, html, escapeHtml } from './_shared.js';
+import { WNElement, html } from './_shared.js';
 
 const STYLES = `
     :host { display: block; color: var(--text-strong); font: inherit; font-size: 0.92em; }

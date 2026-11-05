@@ -21,7 +21,9 @@ module.exports = function(deps) {
         const text = String(data.text || '').trim();
         if (!text) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'text required' })); return; }
         const week = String(data.week || '').trim() || getCurrentYearWeek();
-        const people = extractMentions(text);
+        // Mentions in the text, plus any context mentions (e.g. the whole note).
+        const extraPeople = Array.isArray(data.people) ? data.people.filter(p => typeof p === 'string' && p.trim()).map(p => p.trim()) : [];
+        const people = [...new Set([...extractMentions(text), ...extraPeople])];
         const all = loadResults();
         const r = {
             id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
@@ -31,6 +33,8 @@ module.exports = function(deps) {
             created: new Date().toISOString()
         };
         if (typeof data.goalId === 'string' && data.goalId.trim()) r.goalId = data.goalId.trim();
+        if (typeof data.taskId === 'string' && data.taskId.trim()) r.taskId = data.taskId.trim();
+        if (typeof data.taskText === 'string' && data.taskText.trim()) r.taskText = data.taskText.trim();
         if (data.sentiment === 'good' || data.sentiment === 'bad') r.sentiment = data.sentiment;
         all.push(r);
         saveResults(all);

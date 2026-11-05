@@ -210,6 +210,14 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-11-05 (v5.7 — smidigere møter og felles oppgaveredigering)
+- **Uten full innlasting:** nye oppgaver, endringer i møteserier og arbeid i møteforekomster oppdaterer listene fra lagringssvaret. Ulagrede referater, saksnotater og påbegynt tekst beholdes.
+- **Lagret rekkefølge:** sakslistepunkter og åpne oppfølgingsoppgaver i en møteserie kan sorteres med dra-og-slipp eller piltaster. Eksisterende møteforekomster og den globale oppgaverekkefølgen endres ikke.
+- **Felles oppgaver:** møteseriens oppfølgingsoppgaver bruker samme oppgaveliste som `/tasks`, med redigering, notater, filtrering, fullføring og sletting.
+- **Deltakere per møte:** se, legg til og fjern deltakere i en møteforekomst uten å endre seriens standarddeltakere. Avsluttede møter viser deltakerne skrivebeskyttet.
+- **Felles Markdown-editor:** notater og øvrige redigeringsfelt deler editor og rendering med omtaler, emojier og oppgavemarkører. Oppgaver, resultater og møter fra markører opprettes i editoren før lagring; `{{Tekst @ YYYY-MM-DD}}` støtter frist med valgfritt klokkeslett.
+- **Verifisert:** 166 Playwright-tester passerer.
+
 ### 2026-10-26 (omtaler i møteserier)
 - **Omtaler i sakslister:** `@`-omtaler i møteseriens køpunkter og møtenotater vises nå som person-, team- og firmaomtaler, også etter at et punkt er løst.
 

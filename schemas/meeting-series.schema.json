@@ -48,6 +48,12 @@
       "minimum": 5,
       "description": "Default duration for newly created occurrences."
     },
+    "taskOrder": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string" },
+      "description": "Manual order of open follow-up task IDs in this series; unrelated task lists are unaffected."
+    },
     "agendaItems": {
       "type": "array",
       "description": "Durable agenda queue for the series.",

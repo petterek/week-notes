@@ -25,12 +25,13 @@ import { WNElement, html, escapeHtml } from './_shared.js';
 import '/components/pick-date-time-span.js';
 import '/components/person-multi-picker.js';
 import '/components/pick-place.js';
+import '/components/feature-rich-text-area.js';
 
 const STYLES = `
     :host { display: block; color: var(--text-strong); font: inherit; }
     form { display: flex; flex-direction: column; gap: 10px; }
     label { display: block; font-size: 0.78em; color: var(--text-muted-warm); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
-    input[type=text], input[type=date], input[type=time], select, textarea {
+    input[type=text], input[type=date], input[type=time], select {
         width: 100%; box-sizing: border-box; padding: 8px 10px;
         border: 1px solid var(--border); border-radius: 5px;
         font-family: inherit; font-size: 0.95em; margin-top: 5px;
@@ -38,12 +39,12 @@ const STYLES = `
         text-transform: none; letter-spacing: normal;
         transition: border-color 0.12s, box-shadow 0.12s;
     }
-    input:focus, select:focus, textarea:focus {
+    input:focus, select:focus {
         outline: none; border-color: var(--accent);
         box-shadow: 0 0 0 3px var(--accent-soft);
         background: var(--surface);
     }
-    textarea { font-family: ui-monospace, monospace; font-size: 0.88em; resize: vertical; min-height: 80px; }
+    feature-rich-text-area { display: block; margin-top: 5px; text-transform: none; letter-spacing: normal; font-weight: 400; }
     .row { display: flex; gap: 10px; }
     .row > label { flex: 1; }
     .actions { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
@@ -171,7 +172,10 @@ class MeetingCreate extends WNElement {
                 <label>Sted
                     <pick-place data-el="place" placeholder="Velg eller opprett sted…"></pick-place>
                 </label>
-                <label for="${id('notes')}">Notater<textarea id="${id('notes')}" name="notes" rows="4" placeholder="Agenda, lenker, …"></textarea></label>
+                <label for="${id('notes')}">Notater<feature-rich-text-area id="${id('notes')}" name="notes" rows="4" features="lists,emoji,mentions,dates" placeholder="Agenda, lenker, …"
+                    people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
+                    companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
+                    teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"></feature-rich-text-area></label>
                 <div class="err" data-err></div>
                 <div class="actions">
                     <span class="spacer"></span>

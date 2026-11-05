@@ -266,18 +266,21 @@
                 var doc = ctx.doc;
                 var modal = await ctx.waitFor(function () { return doc.querySelector('task-note-modal'); }, { label: 'task-note-modal' });
                 ctx.assert(typeof modal.open === 'function', 'expected open()');
+                modal.setAttribute('people_service', 'MockPeopleService');
+                modal.setAttribute('companies_service', 'MockCompaniesService');
+                modal.setAttribute('teams_service', 'MockTeamsService');
                 modal.open({ id: 'demo-note', text: 'Demo task', note: '' }, function () {});
                 var ta = await ctx.waitFor(function () {
                     var input = modal.shadowRoot && modal.shadowRoot.querySelector('[data-el="note"]');
-                    return input && input.__wnMentionAttached ? input : null;
+                    return input && input.textarea ? input.textarea : null;
                 }, { label: 'note textarea' });
                 ta.focus();
                 ta.value = '@me';
                 ta.selectionStart = ta.selectionEnd = ta.value.length;
-                ta.dispatchEvent(new Event('input', { bubbles: true }));
+                ta.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
 
                 var pop = await ctx.waitFor(function () {
-                    var p = modal.shadowRoot.querySelector('[role="listbox"]');
+                    var p = ta.getRootNode().querySelector('[role="listbox"]');
                     return p && !p.hidden && p.children.length > 0 ? p : null;
                 }, { label: 'mention dropdown visible', timeout: 2000 });
 
@@ -332,9 +335,10 @@
                         modal.open({ id: 'reconnected', text: 'Synthetic task' }, function (value) { result = value; });
                         var input = await ctx.waitFor(function () {
                             var field = modal.shadowRoot.querySelector('[data-el="' + variant.input + '"]');
-                            return field && field.__wnMentionAttached ? field : null;
+                            return field && field.textarea ? field.textarea : null;
                         }, { label: variant.tag + ' ready' });
                         input.value = 'Saved after reconnect';
+                        input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
                         input.dispatchEvent(new KeyboardEvent('keydown', {
                             key: 'Enter', ctrlKey: true, bubbles: true, composed: true, cancelable: true,
                         }));
@@ -569,6 +573,373 @@
         },
 
         {
+            id: 'feature-rich-text-area-form-field',
+            name: 'feature-rich-text-area works as a form field with selectable features',
+            url: '/debug/feature-rich-text-area',
+            run: async function (ctx) {
+                var doc = ctx.doc;
+                await ctx.waitFor(function () { return doc.defaultView.customElements.get('feature-rich-text-area'); }, { label: 'editor defined' });
+                var form = doc.createElement('form');
+                form.innerHTML = '<feature-rich-text-area name="notes" rows="3" features="emoji,mentions" value="Start"></feature-rich-text-area>';
+                doc.body.appendChild(form);
+                try {
+                    var field = form.querySelector('feature-rich-text-area');
+                    var ta = await ctx.waitFor(function () { return field.textarea; }, { label: 'field textarea' });
+                    ctx.assert(new FormData(form).get('notes') === 'Start', 'FormData should read the initial value');
+                    ctx.assert(!field.shadowRoot.querySelector('.editor-help'), 'help line should be hidden unless enabled');
+                    ctx.assert(field.getBoundingClientRect().height < 200, 'rows should size the field to its content, got ' + field.getBoundingClientRect().height);
+
+                    field.focus();
+                    ctx.assert(field.shadowRoot.activeElement === ta, 'focus() should focus the inner textarea');
+
+                    var changed = 0;
+                    field.addEventListener('change', function () { changed++; });
+                    ta.value = 'Ny tekst';
+                    ta.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                    ta.dispatchEvent(new Event('change', { bubbles: true }));
+                    ctx.assert(changed === 1, 'change should be re-dispatched on the host');
+                    ctx.assert(new FormData(form).get('notes') === 'Ny tekst', 'FormData should follow edits');
+
+                    ta.value = '- item';
+                    ta.setSelectionRange(6, 6);
+                    var enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+                    ta.dispatchEvent(enter);
+                    ctx.assert(!enter.defaultPrevented, 'list continuation should be off when "lists" is not enabled');
+                    var tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+                    ta.dispatchEvent(tab);
+                    ctx.assert(!tab.defaultPrevented, 'Tab must move focus when "indent" is not enabled');
+
+                    var picked;
+                    field.triggers = [{
+                        detect: function (text, caret) { return text.slice(0, caret).endsWith('%x') ? { query: '', start: caret - 2, end: caret } : null; },
+                        fetchItems: async function () { return [{ value: 'X', label: 'Eksempel' }]; },
+                        onSelect: function (item) { picked = item.value; },
+                    }];
+                    ta.value = '%x';
+                    ta.setSelectionRange(2, 2);
+                    ta.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                    await ctx.waitFor(function () {
+                        var pop = field.shadowRoot.querySelector('[role="listbox"]');
+                        return pop && !pop.hidden && pop.querySelector('button');
+                    }, { label: 'host trigger suggestions' });
+                    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+                    ctx.assert(picked === 'X', 'host-provided triggers should be selectable');
+
+                    field.setAttribute('readonly', '');
+                    ta = await ctx.waitFor(function () { return field.textarea && field.textarea.readOnly ? field.textarea : null; }, { label: 'readonly textarea' });
+                    ta.value = 'låst ::';
+                    ta.setSelectionRange(7, 7);
+                    ta.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                    ctx.assert(!field.shadowRoot.querySelector('.emoji-pop[open]'), 'readonly field should not open the emoji picker');
+
+                    form.reset();
+                    ctx.assert(field.value === 'Start', 'form reset should restore the initial value, got ' + field.value);
+                } finally {
+                    form.remove();
+                }
+            },
+        },
+
+        {
+            id: 'feature-rich-text-area-smart-markdown',
+            name: 'feature-rich-text-area continues lists and inserts emoji at selection',
+            url: '/debug/feature-rich-text-area',
+            run: async function (ctx) {
+                var doc = ctx.doc;
+                var editor = await ctx.waitFor(function () {
+                    return doc.querySelector('#dbg-rich-text');
+                }, { label: 'feature-rich-text-area' });
+                var preview = await ctx.waitFor(function () {
+                    return doc.querySelector('#dbg-rich-text-preview');
+                }, { label: 'paired Markdown renderer' });
+                var ta = await ctx.waitFor(function () { return editor.textarea; }, { label: 'Markdown textarea' });
+                ctx.assert(ta.value.indexOf('# Smart Markdown') === 0, 'initial Markdown value should reach the textarea');
+                ctx.assert(editor.shadowRoot.querySelector('.editor-help')?.textContent.includes('Ctrl+M møte'),
+                    'editor should show its feature help line');
+                ta.focus();
+                ta.value = 'Hei @ast';
+                ta.setSelectionRange(ta.value.length, ta.value.length);
+                ta.dispatchEvent(new Event('input', { bubbles: true }));
+                var mentionRow = await ctx.waitFor(function () {
+                    var pop = editor.shadowRoot.querySelector('[role="listbox"]');
+                    return pop && !pop.hidden ? pop.querySelector('button[data-idx]') : null;
+                }, { label: '@mention suggestions owned by the rich editor' });
+                ctx.assert(mentionRow.textContent.includes('Astrid'), '@ast should suggest Astrid, got: ' + mentionRow.textContent);
+                ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+                ctx.assert(ta.value === 'Hei @astrid ', 'Enter should insert the mention, got: ' + JSON.stringify(ta.value));
+                var win = doc.defaultView;
+                var apiCalls = [];
+                var realFetch = win.fetch;
+                win.fetch = function (url) {
+                    if (String(url).indexOf('/api/') >= 0) apiCalls.push(String(url));
+                    return realFetch.apply(this, arguments);
+                };
+                try {
+                    var bare = doc.createElement('feature-rich-text-area');
+                    var bareMd = doc.createElement('feature-rich-markdown');
+                    doc.body.appendChild(bare);
+                    doc.body.appendChild(bareMd);
+                    var bareTa = await ctx.waitFor(function () { return bare.textarea; }, { label: 'bare editor textarea' });
+                    bareTa.value = '@ast';
+                    bareTa.setSelectionRange(4, 4);
+                    bareTa.dispatchEvent(new Event('input', { bubbles: true }));
+                    bareMd.value = 'Hei @astrid';
+                    await ctx.sleep(300);
+                    ctx.assert(apiCalls.length === 0, 'mentions must use injected services, not direct API calls: ' + apiCalls.join(', '));
+                    bare.remove();
+                    bareMd.remove();
+                } finally {
+                    win.fetch = realFetch;
+                }
+                ta.value = '# Smart Markdown';
+                ta.dispatchEvent(new Event('input', { bubbles: true }));
+                await ctx.waitFor(function () {
+                    return preview.shadowRoot.querySelector('.root h1')?.textContent === 'Smart Markdown';
+                }, { label: 'initial Markdown rendered beside editor' });
+                var publishedInput;
+                editor.addEventListener('feature-rich-text-area:input', function (event) {
+                    publishedInput = { value: event.detail?.value, bubbles: event.bubbles, composed: event.composed };
+                });
+                function press(key, opts) {
+                    ta.dispatchEvent(new KeyboardEvent('keydown', Object.assign({
+                        key: key, bubbles: true, cancelable: true,
+                    }, opts || {})));
+                }
+
+                ta.value = '1. First';
+                ta.setSelectionRange(ta.value.length, ta.value.length);
+                press('Enter');
+                ctx.assert(ta.value === '1. First\n2. ', 'ordered list should increment, got: ' + JSON.stringify(ta.value));
+
+                ta.value = '- one two';
+                ta.setSelectionRange(5, 5);
+                press('Enter');
+                ctx.assert(ta.value === '- one\n- two', 'Enter should split a list item at the caret, got: ' + JSON.stringify(ta.value));
+
+                ta.value = '- [x] Completed';
+                ta.setSelectionRange(ta.value.length, ta.value.length);
+                press('Enter');
+                ctx.assert(ta.value === '- [x] Completed\n- [ ] ', 'new task-list item should be unchecked, got: ' + JSON.stringify(ta.value));
+
+                ta.value = '- ';
+                ta.setSelectionRange(ta.value.length, ta.value.length);
+                press('Enter');
+                ctx.assert(ta.value === '\n', 'empty list should exit, got: ' + JSON.stringify(ta.value));
+
+                ta.value = 'first\nsecond';
+                ta.setSelectionRange(0, ta.value.length);
+                press('Tab');
+                ctx.assert(ta.value === '    first\n    second', 'Tab should indent selected lines, got: ' + JSON.stringify(ta.value));
+                press('Tab', { shiftKey: true });
+                ctx.assert(ta.value === 'first\nsecond', 'Shift+Tab should outdent selected lines, got: ' + JSON.stringify(ta.value));
+                ta.value = 'first\nsecond';
+                ta.setSelectionRange(0, 6);
+                press('Tab');
+                ctx.assert(ta.value === '    first\nsecond', 'indent should not affect an unselected next line, got: ' + JSON.stringify(ta.value));
+                ta.value = 'beforeafter';
+                ta.setSelectionRange(6, 6);
+                press('Tab');
+                ctx.assert(ta.value === 'before    after', 'Tab at a caret should insert indentation, got: ' + JSON.stringify(ta.value));
+
+                ta.value = '{{?';
+                ta.setSelectionRange(ta.value.length, ta.value.length);
+                ta.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                var taskOptions = await ctx.waitFor(function () {
+                    var list = editor.shadowRoot.querySelector('[role="listbox"]');
+                    return list && !list.hidden && list.children.length ? list : null;
+                }, { label: 'standalone task suggestions' });
+                ctx.assert(taskOptions.textContent.indexOf('Forberede demo for fredag') >= 0,
+                    'rich editor should load task suggestions from tasks_service');
+                ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+                ctx.assert(ta.value === '{{?t1}} ', 'task shortcut should insert a task marker, got: ' + ta.value);
+
+                ta.value = 'a::c';
+                ta.setSelectionRange(3, 3);
+                ta.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                await ctx.waitFor(function () {
+                    return preview.value === 'a::c';
+                }, { label: 'renderer follows editor input' });
+                ctx.assert(publishedInput?.value === 'a::c' && publishedInput.bubbles && publishedInput.composed,
+                    'editor should publish the current value in a bubbling, composed input event');
+                ctx.assert(!editor.shadowRoot.querySelector('.emoji-toggle'), 'emoji toolbar button should be removed');
+                var picker = editor.shadowRoot.querySelector('icon-picker');
+                var pop = await ctx.waitFor(function () {
+                    return editor.shadowRoot.querySelector('.emoji-pop[open]');
+                }, { label: 'emoji selector opens for ::' });
+                var search = editor.shadowRoot.querySelector('.emoji-search');
+                function emojiKey(key) {
+                    search.dispatchEvent(new KeyboardEvent('keydown', {
+                        key: key, bubbles: true, composed: true, cancelable: true,
+                    }));
+                }
+                function activeEmoji() {
+                    var cells = picker.shadowRoot.querySelectorAll('.cell.selected');
+                    return cells.length === 1 ? cells[0].dataset.icon : 'highlighted=' + cells.length;
+                }
+                function searchFor(text) {
+                    search.value = text;
+                    search.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                }
+                try { localStorage.removeItem('wn-emoji-recent'); } catch (_) {}
+                ctx.assert(editor.shadowRoot.activeElement === search, 'emoji search should get focus on ::');
+                ctx.assert(activeEmoji() === '😀', 'first emoji should be highlighted, got: ' + activeEmoji());
+                ctx.assert(editor.shadowRoot.querySelector('.emoji-preview-name').textContent === ':grinning:',
+                    'preview line should show the highlighted shortcode');
+                emojiKey('ArrowRight');
+                ctx.assert(activeEmoji() === '😃', 'ArrowRight should move to the next emoji');
+                emojiKey('ArrowDown');
+                emojiKey('ArrowUp');
+                emojiKey('ArrowLeft');
+                ctx.assert(activeEmoji() === '😀', 'arrow keys should navigate the emoji grid');
+                emojiKey('Enter');
+                ctx.assert(ta.value === 'a:grinning:c', 'Enter should replace :: with the emoji shortcode, got: ' + ta.value);
+                ctx.assert(!pop.hasAttribute('open'), 'selector should close after selecting');
+                await ctx.waitFor(function () {
+                    return preview.shadowRoot.querySelector('.root')?.textContent.indexOf('a😀c') >= 0;
+                }, { label: 'emoji shortcode rendered as emoji' });
+
+                ta.value = 'r::';
+                ta.setSelectionRange(3, 3);
+                ta.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                await ctx.waitFor(function () { return pop.hasAttribute('open'); }, { label: 'emoji selector opens for search' });
+                ctx.assert(search.value === '', 'search should reset when the selector reopens');
+                ctx.assert(picker.shadowRoot.querySelector('.group-name')?.textContent === 'Nylig brukt',
+                    'recently used emojis should be listed first');
+                ctx.assert(activeEmoji() === '😀', 'recent emoji should be highlighted first');
+                searchFor('qxqx');
+                ctx.assert(!editor.shadowRoot.querySelector('.emoji-empty').hidden, 'no-match message should show');
+                emojiKey('Enter');
+                ctx.assert(ta.value === 'r::' && pop.hasAttribute('open'), 'Enter without matches should do nothing');
+                searchFor('rocket');
+                ctx.assert(activeEmoji() === '🚀', 'exact shortcode match should rank first');
+                searchFor('tommel');
+                ctx.assert(activeEmoji() === '👍', 'Norwegian keyword should find thumbs up, got: ' + activeEmoji());
+                searchFor('avocado');
+                await ctx.waitFor(function () { return activeEmoji() === '🥑'; },
+                    { label: 'search should cover the full renderable emoji catalog' });
+                searchFor('hart');
+                var hartHits = Array.prototype.map.call(picker.shadowRoot.querySelectorAll('.cell'), function (cell) {
+                    return cell.dataset.icon;
+                });
+                ctx.assert(hartHits.indexOf('🥰') >= 0, 'misspelled "hart" should find smiling_face_with_three_hearts');
+                ctx.assert(hartHits.indexOf('📈') === -1 || hartHits.indexOf('📈') > hartHits.indexOf('🥰'),
+                    'typo matches on whole words should rank above mid-word substrings like chart, got: ' + hartHits.join(''));
+                searchFor('har');
+                var harHits = Array.prototype.map.call(picker.shadowRoot.querySelectorAll('.cell'), function (cell) {
+                    return cell.dataset.icon;
+                });
+                ctx.assert(harHits.slice(0, 5).join('') === hartHits.slice(0, 5).join(''),
+                    '"har" and "hart" should rank the same heart emojis first, got: ' + harHits.slice(0, 5).join('') + ' vs ' + hartHits.slice(0, 5).join(''));
+                searchFor('three hearts');
+                var threeHits = Array.prototype.map.call(picker.shadowRoot.querySelectorAll('.cell'), function (cell) {
+                    return cell.dataset.icon;
+                });
+                ctx.assert(threeHits[0] === '🥰', '_ should separate words so "three hearts" finds smiling_face_with_three_hearts first, got: ' + threeHits.join(''));
+                searchFor('twoheart');
+                ctx.assert(!picker.shadowRoot.querySelector('[data-icon="💕"]'),
+                    'a query word must not match across _ (two_hearts) boundaries');
+                searchFor('avocado');
+                emojiKey('Enter');
+                ctx.assert(ta.value === 'r:avocado:', 'Enter should insert the searched emoji, got: ' + ta.value);
+                await ctx.waitFor(function () {
+                    return preview.shadowRoot.querySelector('.root')?.textContent.indexOf('r🥑') >= 0;
+                }, { label: 'catalog emoji renders in preview' });
+
+                ta.value = 'x::y';
+                ta.setSelectionRange(3, 3);
+                ta.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                await ctx.waitFor(function () { return pop.hasAttribute('open'); }, { label: 'emoji selector reopens' });
+                emojiKey('Escape');
+                ctx.assert(!pop.hasAttribute('open'), 'Esc should close the emoji selector');
+                ctx.assert(ta.value === 'xy', 'Esc should remove the :: trigger, got: ' + ta.value);
+
+                ta.value = 'date ';
+                ta.setSelectionRange(ta.value.length, ta.value.length);
+                ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, bubbles: true, cancelable: true }));
+                var datePicker = await ctx.waitFor(function () {
+                    return doc.querySelector('body > date-time-picker[mode="date"]');
+                }, { label: 'standalone date shortcut' });
+                datePicker.value = '2026-10-30';
+                datePicker.dispatchEvent(new CustomEvent('datetime-selected', {
+                    detail: { value: '2026-10-30' }, bubbles: true, composed: true,
+                }));
+                ctx.assert(ta.value === 'date 2026-10-30', 'Ctrl+D should insert the selected date');
+
+                ta.value = 'meeting ';
+                ta.setSelectionRange(ta.value.length, ta.value.length);
+                ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', ctrlKey: true, bubbles: true, cancelable: true }));
+                var title = await ctx.waitFor(function () { return doc.querySelector('input.m-title'); }, { label: 'standalone meeting shortcut' });
+                title.value = 'Demo meeting';
+                doc.querySelector('.m-insert').click();
+                ctx.assert(ta.value.indexOf('meeting {{m:Demo meeting @ ') === 0, 'Ctrl+M should insert a meeting marker at the caret, got: ' + ta.value);
+            },
+        },
+
+        {
+            id: 'note-editor-feature-preview',
+            name: 'note-editor passes task and mention features to its live renderer',
+            url: '/debug/note-editor',
+            run: async function (ctx) {
+                var doc = ctx.doc;
+                var editor = await ctx.waitFor(function () {
+                    return doc.querySelector('note-editor');
+                }, { label: 'note-editor' });
+                await ctx.waitFor(function () {
+                    return editor._previewEl && editor._previewEl._featureDataLoaded;
+                }, { label: 'preview feature data loaded' });
+                var control = editor.shadowRoot.querySelector('.ne-content');
+                var textarea = control && control.textarea;
+                ctx.assert(textarea, 'note editor Markdown input should be available');
+                textarea.value = '{{?';
+                textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+                textarea.dispatchEvent(new Event('input', { bubbles: true }));
+                var taskOptions = await ctx.waitFor(function () {
+                    var list = control.shadowRoot.querySelector('[role="listbox"]');
+                    return list && !list.hidden && list.children.length ? list : null;
+                }, { label: 'task autocomplete options' });
+                ctx.assert(taskOptions.textContent.indexOf('Forberede demo for fredag') >= 0,
+                    'typing {{? should offer open tasks, got: ' + taskOptions.textContent);
+                textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+                ctx.assert(textarea.value === '{{?t1}} ', 'selecting a task should insert its task marker, got: ' + textarea.value);
+                editor.setContent('{{?t1}}\n\n@astrid');
+                editor._renderPreview();
+                await ctx.waitFor(function () {
+                    var root = editor._previewEl.shadowRoot.querySelector('.root');
+                    return root.querySelector('input[type="checkbox"][disabled]') &&
+                        root.querySelector('entity-mention');
+                }, { label: 'task and mention rendered' });
+                var root = editor._previewEl.shadowRoot.querySelector('.root');
+                ctx.assert(root.textContent.indexOf('Forberede demo for fredag') >= 0,
+                    'preview should resolve task text from the note editor service');
+            },
+        },
+
+        {
+            id: 'feature-rich-markdown-renders-features',
+            name: 'feature-rich-markdown renders task markers and entity mentions',
+            url: '/debug/feature-rich-markdown',
+            run: async function (ctx) {
+                var doc = ctx.doc;
+                var preview = await ctx.waitFor(function () {
+                    return doc.querySelector('#dbg-rich-markdown');
+                }, { label: 'feature-rich-markdown' });
+                await ctx.waitFor(function () {
+                    return preview._featureDataLoaded &&
+                        preview.shadowRoot.querySelector('.root entity-mention');
+                }, { label: 'entity mention rendered' });
+                var root = preview.shadowRoot.querySelector('.root');
+                ctx.assert(root.textContent.indexOf('Forberede demo for fredag') >= 0,
+                    'task marker should resolve seeded task text, got: ' + root.textContent);
+                ctx.assert(root.querySelector('input[type="checkbox"][disabled]'),
+                    'task marker should render a disabled checkbox');
+                ctx.assert(root.querySelector('input[type="checkbox"][disabled][checked]'),
+                    'completed task marker should render checked');
+                ctx.assert(root.querySelector('entity-mention'),
+                    'person mention should render as an entity-mention component');
+            },
+        },
+
+        {
             id: 'note-editor-ctrl-d-date-trigger',
             name: 'note-editor: Ctrl+D opens date picker, Ctrl+Shift+D opens datetime picker',
             url: '/debug/note-editor',
@@ -577,7 +948,8 @@
                 var win = ctx.win || (doc.defaultView);
                 var ne = await ctx.waitFor(function () { return doc.querySelector('note-editor'); }, { label: 'note-editor' });
                 var ta = await ctx.waitFor(function () {
-                    return ne.shadowRoot && ne.shadowRoot.querySelector('textarea');
+                    var control = ne.shadowRoot && ne.shadowRoot.querySelector('.ne-content');
+                    return control && control.textarea;
                 }, { label: 'editor textarea' });
 
                 function pickers() {
@@ -940,7 +1312,8 @@
                 var sr = editor.shadowRoot;
                 await ctx.waitFor(function () { return editor._acAttached; }, { label: 'autocomplete attached', timeout: 5000 });
 
-                var ta = sr.querySelector('.ne-content');
+                var control = sr.querySelector('.ne-content');
+                var ta = control && control.textarea;
                 ctx.assert(ta, 'textarea found');
 
                 // Use a person from MockPeopleService, not the active context.
@@ -950,9 +1323,9 @@
                 ta.dispatchEvent(new Event('input', { bubbles: true }));
 
                 var pop = await ctx.waitFor(function () {
-                    var p = sr.querySelector('[role="listbox"]');
+                    var p = control.shadowRoot.querySelector('[role="listbox"]');
                     return p && !p.hidden && p.children.length > 0 ? p : null;
-                }, { label: 'mention dropdown visible', timeout: 2000 });
+                }, { label: 'mention dropdown owned by feature-rich-text-area', timeout: 2000 });
 
                 ctx.assert(pop.textContent.toLowerCase().indexOf('astrid') >= 0,
                     'dropdown should show matching person, got: ' + pop.textContent.slice(0, 80));
@@ -976,7 +1349,8 @@
                 var sr = editor.shadowRoot;
                 await ctx.waitFor(function () { return editor._acAttached; }, { label: 'autocomplete attached', timeout: 5000 });
 
-                var ta = sr.querySelector('.ne-content');
+                var control = sr.querySelector('.ne-content');
+                var ta = control && control.textarea;
                 ctx.assert(ta, 'textarea found');
 
                 // Type #newtag — should show "ny" (new) option
@@ -985,8 +1359,9 @@
                 ta.selectionStart = ta.selectionEnd = 7;
                 ta.dispatchEvent(new Event('input', { bubbles: true }));
 
+                // The rich editor owns the popup, so it lives in its shadow root.
                 var pop = await ctx.waitFor(function () {
-                    var p = sr.querySelector('[role="listbox"]');
+                    var p = control.shadowRoot.querySelector('[role="listbox"]');
                     return p && !p.hidden && p.children.length > 0 ? p : null;
                 }, { label: 'tag dropdown visible', timeout: 2000 });
 
@@ -1007,7 +1382,8 @@
                 var sr = editor.shadowRoot;
                 await ctx.waitFor(function () { return editor._tagSpaceWired; }, { label: 'tag-space wired', timeout: 5000 });
 
-                var ta = sr.querySelector('.ne-content');
+                var control = sr.querySelector('.ne-content');
+                var ta = control && control.textarea;
                 ctx.assert(ta, 'textarea found');
 
                 // Close any autocomplete first
@@ -1039,7 +1415,8 @@
                 var doc = ctx.doc;
                 var editor = await ctx.waitFor(function () { return doc.querySelector('note-editor'); }, { label: 'note-editor' });
                 var ta = await ctx.waitFor(function () {
-                    return editor.shadowRoot && editor.shadowRoot.querySelector('.ne-content');
+                    var control = editor.shadowRoot && editor.shadowRoot.querySelector('.ne-content');
+                    return control && control.textarea;
                 }, { label: 'editor textarea' });
 
                 ta.focus();

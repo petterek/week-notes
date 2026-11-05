@@ -6,7 +6,7 @@ module.exports = function(deps) {
         isoWeekMonday, listContexts, loadMeetingTypes, loadMeetings, loadMeetingsForContext,
         loadMeetingSeries, saveMeetingSeries, loadTasks, meetingId, meetingSeriesId,
         agendaItemId, decisionId, readJsonBody, saveMeetingTypes, saveMeetings,
-        saveTasks, syncMentions,
+        saveTasks, syncMentions, getDefaultMeetingMinutes,
     } = _core;
     const { validateOpenSeriesOccurrence, syncOccurrenceOutcomesToSeries } = require('../../lib/meeting-lifecycle');
     const { parseCalendar, MAX_FILE_BYTES } = require('../../lib/calendar-import');
@@ -163,6 +163,14 @@ module.exports = function(deps) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: false, error: 'date and title required' }));
             return;
+        }
+        if (/^\d{2}:\d{2}$/.test(data.start || '') && !data.end && !data.seriesId) {
+            // Derive an end time from durationMinutes (or the context default).
+            const dur = Number.isFinite(+data.durationMinutes) && +data.durationMinutes > 0
+                ? Math.round(+data.durationMinutes) : getDefaultMeetingMinutes();
+            const [h, mi] = data.start.split(':').map(Number);
+            const endMin = Math.min(h * 60 + mi + dur, 23 * 60 + 59);
+            data.end = String(Math.floor(endMin / 60)).padStart(2, '0') + ':' + String(endMin % 60).padStart(2, '0');
         }
         if (data.start && data.end) {
             // Compare full datetimes for multi-day meetings
@@ -437,7 +445,7 @@ module.exports = function(deps) {
         m.updated = new Date().toISOString();
         saveMeetings(meetings);
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true }));
+        res.end(JSON.stringify({ ok: true, meeting: m }));
         return;
     }
 

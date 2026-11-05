@@ -5,23 +5,28 @@
     var cal = document.getElementById('appEntityCallout');
     if (!cal) return;
     var ready = customElements.whenDefined('entity-callout');
-    var cache = { person: null, company: null, place: null };
+    var cache = { person: null, company: null, place: null, team: null };
     var loading = null;
     function svc(name){
         var ns = window['week-note-services'] || {};
         return ns[name + '_service'];
     }
     function loadAll(){
-        if (cache.person && cache.company && cache.place) return Promise.resolve();
+        if (cache.person && cache.company && cache.place && cache.team) return Promise.resolve();
         if (loading) return loading;
         loading = Promise.all([
             Promise.resolve((svc('people')    && svc('people').list())    || []),
             Promise.resolve((svc('companies') && svc('companies').list()) || []),
             Promise.resolve((svc('places')    && svc('places').list())    || []),
+            Promise.resolve((svc('teams')     && svc('teams').list())     || []),
         ]).then(function(arr){
             cache.person  = arr[0] || [];
             cache.company = arr[1] || [];
             cache.place   = arr[2] || [];
+            cache.team    = arr[3] || [];
+        }, function(err){
+            loading = null;
+            throw err;
         });
         return loading;
     }
@@ -43,7 +48,8 @@
             ready.then(function(){
                 if (!d.entering) { cal.hide(); return; }
                 loadAll().then(function(){
-                    cal.setData({ kind: kind, key: d.key, entity: lookup(kind, d.key), x: d.x, y: d.y });
+                    cal.setData({ kind: kind, key: d.key, entity: lookup(kind, d.key), x: d.x, y: d.y,
+                        people: cache.person, companies: cache.company, teams: cache.team });
                 });
             });
         });

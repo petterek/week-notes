@@ -134,3 +134,39 @@ test('extracted shell still routes entity callout selections', async ({ page }) 
     await expect(page.locator('people-page')).toBeVisible();
     expect(await page.evaluate(() => window.shellNavigationMarker)).toBe('same document');
 });
+
+test('/editor shows only the rich editor help line, not a duplicate shortcuts block', async ({ page }) => {
+    await page.goto('/editor');
+    const editor = page.locator('note-editor');
+    const help = editor.locator('feature-rich-text-area .editor-help');
+    for (const label of ['@ omtale', '[[? resultat', '# tag', '{{m:? møte']) {
+        await expect(help).toContainText(label);
+    }
+    await expect(editor.locator('.ne-shortcuts')).toHaveCount(0);
+});
+
+test('/editor rich editor owns [[? result lookup; # tag stays a note-editor trigger', async ({ page, request }) => {
+    const text = `Resultat ${Date.now()}`;
+    const result = await (await request.post('/api/results', { data: { text } })).json();
+    const id = result.id || result.result?.id;
+    expect(id).toBeTruthy();
+    try {
+        await page.goto('/editor');
+        const field = page.locator('note-editor feature-rich-text-area');
+        const textarea = field.locator('textarea');
+        await textarea.fill('');
+        await textarea.pressSequentially('[[?' + text.split(' ')[1]);
+        await expect(field.locator('[role="listbox"]')).toContainText(text);
+        await textarea.press('Enter');
+        await expect(textarea).toHaveValue(`[[?${id}]] `);
+
+        await textarea.pressSequentially('#nytag');
+        await expect(field.locator('[role="listbox"]')).toContainText('nytag');
+        await textarea.press('Enter');
+        await expect(textarea).toHaveValue(`[[?${id}]] nytag `);
+        await expect.poll(() => page.locator('note-editor').evaluate(el =>
+            el.shadowRoot.querySelector('.ne-tags').tags)).toContain('nytag');
+    } finally {
+        await request.delete(`/api/results/${id}`);
+    }
+});

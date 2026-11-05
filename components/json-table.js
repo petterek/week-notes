@@ -20,7 +20,7 @@
  * click again to flip direction; a third click clears the sort.
  */
 
-import { WNElement, html, escapeHtml } from './_shared.js';
+import { WNElement, html } from './_shared.js';
 
 const STYLES = `
 :host { display: block; }

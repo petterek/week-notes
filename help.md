@@ -83,6 +83,7 @@ Du kan opprette oppgaver, resultater og møter direkte fra et notat ved å skriv
 | Markør | Lager |
 | --- | --- |
 | `{{X}}` | Oppgave med teksten X |
+| `{{X @ YYYY-MM-DD}}` | Oppgave med frist (valgfritt klokkeslett: `@ YYYY-MM-DD HH:MM`) |
 | `[[X]]` | Resultat med teksten X |
 | `{{m:Tittel @ YYYY-MM-DD HH:MM}}` | Møte med tittel og starttidspunkt |
 | `{{!<id>}}` | Lukker oppgaven `<id>` |

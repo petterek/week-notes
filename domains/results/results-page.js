@@ -17,13 +17,16 @@
  *
  * Hash deep links: #r-<id> scrolls + briefly highlights the matching row.
  */
-import { WNElement, html, unsafeHTML, escapeHtml, linkMentions, isoWeek } from './_shared.js';
+import { WNElement, html, unsafeHTML, escapeHtml, isoWeek } from './_shared.js';
+import '/components/feature-rich-text-area.js';
+import { renderRichText, RICH_TEXT_CSS } from '/services/_shared/wn-rich-text.js';
 
 function currentYearWeek() {
     return isoWeek(new Date());
 }
 
 const STYLES = `
+    ${RICH_TEXT_CSS}
     :host { display: block; padding: 20px 24px; box-sizing: border-box; color: var(--text-strong); font: inherit; }
     .rp { max-width: 920px; }
     .rp-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 8px; flex-wrap: wrap; }
@@ -134,6 +137,7 @@ const STYLES = `
         border-radius: 6px; background: var(--bg);
         color: var(--text-strong); font: inherit;
     }
+    .modal-form feature-rich-text-area { display: block; width: 100%; margin-top: 4px; }
     .modal-form textarea:focus, .modal-form input:focus {
         border-color: var(--accent); outline: none;
     }
@@ -156,7 +160,7 @@ const STYLES = `
 
 class ResultsPage extends WNElement {
     static get domain() { return 'results'; }
-    static get observedAttributes() { return ['results_service', 'people_service', 'companies_service']; }
+    static get observedAttributes() { return ['results_service', 'people_service', 'companies_service', 'teams_service']; }
 
     constructor() {
         super();
@@ -195,6 +199,7 @@ class ResultsPage extends WNElement {
         if (!this.service) return {};
         const peopleSvc = this.serviceFor('people');
         const compSvc = this.serviceFor('companies');
+        const teamsSvc = this.serviceFor('teams') || window['week-note-services']?.teams_service;
         return {
             results: async () => {
                 const r = await this.service.list();
@@ -202,6 +207,7 @@ class ResultsPage extends WNElement {
             },
             people: () => peopleSvc ? peopleSvc.list() : Promise.resolve([]),
             companies: () => compSvc ? compSvc.list() : Promise.resolve([]),
+            teams: () => teamsSvc ? teamsSvc.list() : Promise.resolve([]),
             goals: () => fetch('/api/goals').then(r => r.json()).catch(() => []),
         };
     }
@@ -334,7 +340,9 @@ class ResultsPage extends WNElement {
     _renderCard(r) {
         const { people, companies } = this._state;
         const dShort = r.created ? r.created.slice(0, 10) : '';
-        const textHtml = unsafeHTML(linkMentions(escapeHtml(r.text || ''), people, companies));
+        const textHtml = unsafeHTML(`<span class="rich-text">${renderRichText(r.text || '', {
+            people, companies, teams: this._state.teams, inline: true,
+        })}</span>`);
         const linkedPeople = (r.people || []).map(name => {
             const key = String(name).toLowerCase();
             const p = people.find(p => (p.key && p.key === key) || (p.name && p.name.toLowerCase() === key));
@@ -378,8 +386,11 @@ class ResultsPage extends WNElement {
                     </div>
                     <div class="modal-form">
                         <label>Tekst
-                            <textarea id="rpModalText" rows="3"
-                                placeholder="Hva ble besluttet eller oppnådd?">${escapeHtml(this._modal.text || '')}</textarea>
+                            <feature-rich-text-area id="rpModalText" aria-label="Resultattekst" rows="3" features="emoji,mentions"
+                                people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
+                                companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
+                                teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"
+                                placeholder="Hva ble besluttet eller oppnådd?" value="${this._modal.text || ''}"></feature-rich-text-area>
                         </label>
                         <label>Vurdering
                             <div class="sentiment-pick">
@@ -422,8 +433,9 @@ class ResultsPage extends WNElement {
         const results = data.results;
         const people = data.people || [];
         const companies = data.companies || [];
+        const teams = data.teams || [];
         this._goals = Array.isArray(data.goals) ? data.goals : [];
-        this._state = { results, people, companies };
+        this._state = { results, people, companies, teams };
 
         const byWeek = {};
         results.forEach(r => {

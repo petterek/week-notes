@@ -18,6 +18,21 @@ marked.use({extensions:[{name:'emoji',level:'inline',
     return _emojiExtScript;
 }
 
+let _emojiCatalog = null;
+function buildEmojiCatalog() {
+    if (_emojiCatalog) return _emojiCatalog;
+    let items = [];
+    try {
+        const { lib, ordered } = require('emojilib');
+        const names = Array.isArray(ordered) ? ordered : Object.keys(lib);
+        items = names
+            .filter(name => lib[name] && lib[name].char)
+            .map(name => ({ name, icon: lib[name].char, keywords: lib[name].keywords || [] }));
+    } catch (_) {}
+    _emojiCatalog = JSON.stringify(items);
+    return _emojiCatalog;
+}
+
 module.exports = function(deps) {
     const fs = require('fs');
     const path = require('path');
@@ -63,6 +78,13 @@ module.exports = function(deps) {
     if (pathname === '/emoji-ext.js') {
         res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'public, max-age=3600' });
         res.end(buildEmojiExtScript());
+        return;
+    }
+
+    // Searchable catalog of the same shortcodes the renderer understands
+    if (pathname === '/emoji-catalog.json') {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' });
+        res.end(buildEmojiCatalog());
         return;
     }
 
