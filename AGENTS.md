@@ -69,7 +69,8 @@ Stack:
 │       ├── themes.js    # /api/themes*
 │       ├── contexts.js  # /api/contexts*, including settings/git/migrations subpaths
 │       └── notes.js     # /api/notes/* (render, meta, history, raw, pin, card, delete) + /api/weeks /api/week/:id
-├── README.md          # user-facing docs + changelog
+├── README.md          # compact user-facing docs + latest release summary
+├── CHANGELOG.md       # complete release history
 ├── openapi.json       # OpenAPI 3.1 contract for implemented HTTP APIs
 ├── AGENTS.md          # this file — start here
 ├── agents/            # per-feature deep-dives (read the relevant ones)
@@ -529,7 +530,8 @@ do not retain a read-modify-write snapshot across another `await`.
   `vN` (see "Release tags as migration anchors" below).
   - Branches: `main` = released, `develop` = next release in progress.
   - When the user says "release" / "ship v3" / similar:
-    1. ensure `develop` is green and the README changelog is up to date
+    1. ensure `develop` is green, CHANGELOG.md is up to date and the
+       README changelog summary reflects the release
     2. `git checkout main && git merge --no-ff develop -m "Release vN"`
     3. `git tag -a vN -m "vN — <summary>"`
     4. `git push origin main develop vN`
@@ -542,10 +544,11 @@ do not retain a read-modify-write snapshot across another `await`.
 - **Never push without an explicit user instruction.** Stage and commit
   freely; wait for "push", "send it", "ship it" or similar before
   `git push`.
-- **Always update the README changelog before pushing.** README has a
-  `## 📜 Changelog` section; add a bullet under the
-  current date for every notable change being shipped, then include
-  the README update in the push.
+- **Always update the changelog before pushing.** Add a dated bullet in
+  `CHANGELOG.md` for every notable change being shipped. Keep README's
+  `## 📜 Changelog` section compact: update its latest release summary
+  and retain the link to the complete history. Include both updates in
+  the push; do not move the full history back into README.
 - **Release tags as migration anchors.** When shipping a breaking data
   shape change, first tag the previous stable point on GitHub
   (`git tag -a vN <sha> && git push origin vN`). New entries in
