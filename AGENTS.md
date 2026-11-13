@@ -134,6 +134,8 @@ PORT=4000 node server.js
 
 Do not restart the user's server for automated tests. Playwright owns a
 separate server and disposable data root; see `agents/tests.md`.
+GitHub Actions workflows are intentionally absent. Run `npm test` locally
+before pushing; do not rely on GitHub setup checks for validation.
 For a requested restart, use the project's `stop.sh` / `run.sh` helpers
 or identify the exact PID with `lsof -ti:3001`. Never kill by process name.
 

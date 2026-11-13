@@ -23,6 +23,9 @@ tests/
 playwright.config.js            # baseURL :TEST_PORT, spawns tests/server.js
 ```
 
+There are no GitHub Actions workflows. Run `npm test` locally before
+pushing; the isolated Playwright server and fixture cleanup stay unchanged.
+
 Server-side wiring:
 - `GET /debug/tests`              → page (in-browser runner UI)
 - `GET /debug/tests/scenarios.js` → serves `tests/scenarios.js`

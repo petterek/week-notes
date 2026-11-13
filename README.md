@@ -72,7 +72,8 @@ and [AGENTS.md](AGENTS.md) for the code map and contributor conventions.
 
 ## 📜 Changelog
 
-**v5.10 · 2026-11-13:** compact README; complete history moved to `CHANGELOG.md`.
+**v5.11 · 2026-11-13:** GitHub workflow removed; validation runs locally.
+184 Playwright tests passing.
 
 [Complete release history](CHANGELOG.md).
 

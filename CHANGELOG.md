@@ -1,5 +1,9 @@
 # 📜 Changelog
 
+### 2026-11-13 (v5.11 — lokal testkjøring)
+- **GitHub-workflow fjernet:** Copilot-oppsettet og den tilhørende runner-testen er fjernet. Playwright-testene kjøres fortsatt lokalt med isolert server og midlertidige data.
+- **Verifisert:** 184 Playwright-tester passerer lokalt; `npm audit` rapporterer ingen kjente sårbarheter.
+
 ### 2026-11-13 (v5.10 — dokumentasjon)
 - **Kompakt README:** oppstart, funksjonsoversikt og dokumentasjonslenker beholdes i README; komplett utgivelseshistorikk er flyttet til `CHANGELOG.md`.
 
