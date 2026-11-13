@@ -26,6 +26,7 @@
  *   - 'toggle'         { key }            — header click. Host owns expanded
  *                                           state and re-renders.
  *   - 'edit'           { id, key }        — pencil button.
+ *   - 'select-person'  { key }            — person name link.
  *   - 'select-company' { key }            — company-pill click.
  *   - 'select-meeting' { id, week }       — meeting ref click.
  *   - 'select-result'  { id, week }       — result ref click.
@@ -47,9 +48,13 @@ const STYLES = `
     .person-header { padding: 8px 14px; background: var(--surface-head); display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
     .person-chev { font-size: 0.7em; color: var(--text-subtle); transition: transform 0.15s; display: inline-block; width: 10px; }
     .person-card.open .person-chev { transform: rotate(90deg); }
+    :host([standalone]) .person-header { cursor: default; }
+    :host([standalone]) .person-chev { display: none; }
     .person-icon { font-size: 1.1em; }
     .person-name-wrap { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
     .person-name { font-weight: 600; color: var(--accent); }
+    a.person-name { text-decoration: none; }
+    a.person-name:hover { text-decoration: underline; }
     .person-handle { font-size: 0.8em; color: var(--text-subtle); }
     .person-title { font-size: 0.82em; color: var(--text-muted); }
     .person-badge { font-size: 0.72em; padding: 1px 6px; border-radius: 8px; background: var(--surface-alt); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
@@ -144,6 +149,14 @@ export class PersonCard extends WNElement {
         if (!this._data) return;
         const p = this._data.person || {};
         const key = this._personKey(p);
+        if (e.target.closest('a.person-name')) {
+            if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+            e.preventDefault();
+            this.dispatchEvent(new CustomEvent('select-person', {
+                detail: { key }, bubbles: true, composed: true, cancelable: true,
+            }));
+            return;
+        }
         const editBtn = e.target.closest('[data-act="edit"]');
         if (editBtn) {
             e.stopPropagation();
@@ -161,7 +174,7 @@ export class PersonCard extends WNElement {
             }));
             return;
         }
-        if (e.target.closest('.person-header')) {
+        if (!this.hasAttribute('standalone') && e.target.closest('.person-header')) {
             this.dispatchEvent(new CustomEvent('toggle', {
                 detail: { key },
                 bubbles: true, composed: true, cancelable: true,
@@ -218,7 +231,9 @@ export class PersonCard extends WNElement {
                     <span class="person-chev">▶</span>
                     <span class="person-icon">${inactive ? '👻' : '👤'}</span>
                     <div class="person-name-wrap">
-                        <span class="person-name">${display}</span>
+                        ${this.hasAttribute('standalone')
+                            ? html`<span class="person-name">${display}</span>`
+                            : html`<a class="person-name" href="/person/${encodeURIComponent(k)}">${display}</a>`}
                         <span class="person-handle">@${p.key || (p.name || '')}</span>
                         ${inactive ? html`<span class="person-badge">inaktiv</span>` : ''}
                         ${p.title ? html`<span class="person-title">· ${p.title}</span>` : ''}

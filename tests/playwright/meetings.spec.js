@@ -1172,6 +1172,45 @@ test('meeting occurrence shows notes from earlier occurrences on agenda items', 
     }
 });
 
+test('closed meeting agenda notes render beneath a date heading and reopen as an editor', async ({ page, request }) => {
+    const series = (await (await request.post('/api/meeting-series', {
+        data: { title: 'Closed agenda note display' },
+    })).json()).series;
+    let meeting;
+    const notes = '**Agreed** with @ada about <vendor>';
+    try {
+        const item = (await (await request.post(`/api/meeting-series/${series.id}/agenda`, {
+            data: { title: 'Closed discussion' },
+        })).json()).item;
+        meeting = (await (await request.post('/api/meetings', {
+            data: { seriesId: series.id, date: '2099-06-04' },
+        })).json()).meeting;
+        expect((await request.post(`/api/meetings/${meeting.id}/start`)).ok()).toBe(true);
+        expect((await request.put(`/api/meetings/${meeting.id}/agenda/${item.id}`, {
+            data: { notes, outcome: 'deferred' },
+        })).ok()).toBe(true);
+        expect((await request.post(`/api/meetings/${meeting.id}/close`)).ok()).toBe(true);
+
+        await page.goto(`/meeting-occurrence/${meeting.id}`);
+        const host = page.locator('meeting-occurrence-page');
+        const agendaItem = host.locator('.mo-agenda-item').filter({ hasText: item.title });
+        await expect(agendaItem).toBeVisible();
+        await expect(agendaItem.locator('textarea, feature-rich-text-area')).toHaveCount(0);
+        await expect(agendaItem.getByRole('heading', { name: meeting.date, exact: true })).toBeVisible();
+        await expect(agendaItem.locator('.mo-agenda-notes .rich-text strong')).toHaveText('Agreed');
+        await expect(agendaItem.locator('.mo-agenda-notes .rich-text')).toContainText('<vendor>');
+        await expect(agendaItem.locator('vendor')).toHaveCount(0);
+        await expect(host.locator('[data-el="minutes"][readonly]')).toBeVisible();
+
+        await host.locator('.mo-reopen').click();
+        await expect(agendaItem.locator('feature-rich-text-area textarea')).toHaveValue(notes);
+        await expect(agendaItem.locator('.mo-agenda-notes')).toHaveCount(0);
+    } finally {
+        if (meeting) await request.delete(`/api/meetings/${meeting.id}`);
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
 test('meeting occurrence agenda inputs support mentions and date insertion', async ({ page, request }) => {
     const series = (await (await request.post('/api/meeting-series', {
         data: { title: 'Occurrence agenda input helpers' },

@@ -1,0 +1,969 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Week Notes API",
+    "version": "1.0.0",
+    "description": "HTTP API for the self-hosted Week Notes app. This describes the implemented contracts, not a redesigned API. Most mutations return HTTP 200; task mutations often return the entire live task array. PUT generally updates only supplied fields. Errors use existing JSON shapes such as {error} or {ok:false,error}, not RFC 7807. There is no built-in authentication: use only on a trusted host/network. The optional HttpOnly wn_ctx cookie selects the request context; without it the server uses the machine's active context. This cookie is not an authentication credential. GET /api/contexts refreshes it; POST /api/contexts/switch sets it and changes the machine default. Cookies are shared across browser tabs. Except for context management and API documentation, a server with no contexts redirects requests to /welcome. IDs and mention keys are distinct: CRUD uses IDs unless a parameter explicitly says key. Path segments must be URL-encoded. The general JSON body reader has no finite size limit; calendar import explicitly limits its request body to 1 MiB and decoded content to 512 KiB. UI pages and static assets are excluded, apart from the printable meeting-minutes export."
+  },
+  "servers": [{ "url": "/", "description": "The server hosting this document" }],
+  "security": [],
+  "tags": [
+    { "name": "Tasks" },
+    { "name": "Meetings" },
+    { "name": "Meeting series" },
+    { "name": "Notes" },
+    { "name": "People" },
+    { "name": "Companies" },
+    { "name": "Places" },
+    { "name": "Teams" },
+    { "name": "Results" },
+    { "name": "Goals" },
+    { "name": "Contexts", "description": "Context settings, local Git operations and data migrations. Mutating these endpoints can affect files and Git remotes on the host." },
+    { "name": "Themes" },
+    { "name": "Search and AI" },
+    { "name": "Settings" },
+    { "name": "Developer tools", "description": "Host-local documentation/schema editing and cache management." }
+  ],
+  "paths": {
+    "/api/tasks": {
+      "get": {
+        "operationId": "listTasks", "tags": ["Tasks"], "summary": "List tasks",
+        "parameters": [{ "name": "all", "in": "query", "schema": { "type": "string", "enum": ["1", "true"] }, "description": "Include tombstoned tasks. Omit for live tasks." }],
+        "responses": { "200": { "$ref": "#/components/responses/Tasks" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      },
+      "post": {
+        "operationId": "createTask", "tags": ["Tasks"], "summary": "Create a task and return all live tasks",
+        "description": "Defaults week to the current ISO week and author to the machine's @me mapping. Unless supplied explicitly, responsible and participants are inferred from text mentions. note is not accepted at creation; use the update endpoint.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskCreate" }, "example": { "text": "Prepare agenda", "dueDate": "2099-02-03", "participants": [] } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Tasks" }, "400": { "$ref": "#/components/responses/BadRequest" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/tasks/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "put": {
+        "operationId": "updateTask", "tags": ["Tasks"], "summary": "Update task fields and return all live tasks",
+        "description": "Empty responsible clears it; empty or null dueDate, goalId, meetingSeriesId, meetingId and agendaItemId clear those links. null participants clears participants. A missing task leaves the list unchanged and still returns 200.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TaskUpdate" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Tasks" }, "400": { "$ref": "#/components/responses/BadRequest" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      },
+      "delete": {
+        "operationId": "deleteTask", "tags": ["Tasks"], "summary": "Tombstone a task and return all live tasks",
+        "description": "Removes results associated with this task. Missing IDs still return 200 and the current task list.",
+        "responses": { "200": { "$ref": "#/components/responses/Tasks" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/tasks/{id}/toggle": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "put": {
+        "operationId": "toggleTask", "tags": ["Tasks"], "summary": "Toggle completion and return all live tasks",
+        "description": "An optional completion comment creates an oppgave-{id}.md sidecar note. A missing ID leaves the list unchanged.",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "comment": { "type": "string" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Tasks" }, "400": { "$ref": "#/components/responses/BadRequest" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/tasks/{id}/close-from-note": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "post": {
+        "operationId": "setTaskCompletionFromNote", "tags": ["Tasks"], "summary": "Set completion and update the linked note marker",
+        "description": "Defaults done to true. Replaces {{?id}} with {{!id}}, or the reverse, in the linked source note. noteUpdated reports whether that replacement was written.",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "done": { "type": "boolean", "default": true }, "comment": { "type": "string" } } } } } },
+        "responses": {
+          "200": { "description": "Updated task and marker result", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "task", "noteUpdated"], "properties": { "ok": { "const": true }, "task": { "$ref": "#/components/schemas/Task" }, "noteUpdated": { "type": "boolean" } } } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/tasks/merge": {
+      "post": {
+        "operationId": "mergeTasks", "tags": ["Tasks"], "summary": "Merge a source task into a target task",
+        "description": "Appends source text/note to the target note, removes the source task and its results, and returns live tasks.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["srcId", "tgtId"], "properties": { "srcId": { "type": "string" }, "tgtId": { "type": "string" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Tasks" }, "400": { "$ref": "#/components/responses/BadRequest" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/tasks/reorder": {
+      "post": {
+        "operationId": "reorderTasks", "tags": ["Tasks"], "summary": "Reorder the global live task list",
+        "description": "Listed IDs are placed first; unlisted tasks keep their relative order afterward. This is not the strict series-scoped permutation endpoint.",
+        "requestBody": { "$ref": "#/components/requestBodies/Ids" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/BadRequest" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/meetings": {
+      "get": {
+        "operationId": "listMeetings", "tags": ["Meetings"], "summary": "List meetings by date and start time",
+        "parameters": [
+          { "$ref": "#/components/parameters/WeekQuery" },
+          { "name": "upcoming", "in": "query", "description": "Filter to today through N days from today; a non-numeric value uses 7.", "schema": { "type": "integer" } },
+          { "name": "allContexts", "in": "query", "description": "1 includes all contexts with _ctx metadata; requires crossContextCalendar.enabled.", "schema": { "type": "string", "enum": ["1"] } }
+        ],
+        "responses": { "200": { "description": "Meetings", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Meeting" } } } } }, "403": { "$ref": "#/components/responses/Forbidden" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      },
+      "post": {
+        "operationId": "createMeeting", "tags": ["Meetings"], "summary": "Create a meeting or planned series occurrence",
+        "description": "Requires date and either title or seriesId. Series occurrences inherit defaults and snapshot all queued agenda items. For standalone meetings with start but no end, durationMinutes or the context default derives end. End must be after start, including endDate for multi-day meetings.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MeetingCreate" }, "example": { "date": "2099-02-03", "start": "10:00", "durationMinutes": 30, "title": "Planning", "attendees": [] } } } },
+        "responses": { "200": { "$ref": "#/components/responses/MeetingMutation" }, "400": { "$ref": "#/components/responses/BadRequest" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/meetings/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "get": {
+        "operationId": "getMeeting", "tags": ["Meetings"], "summary": "Get a meeting",
+        "responses": { "200": { "$ref": "#/components/responses/Meeting" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      },
+      "put": {
+        "operationId": "updateMeeting", "tags": ["Meetings"], "summary": "Update a meeting or open series occurrence",
+        "description": "Closed series occurrences are read-only until reopened. Updating attendees affects only this meeting, not series defaults.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MeetingUpdate" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/MeetingMutation" }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      },
+      "delete": {
+        "operationId": "deleteMeeting", "tags": ["Meetings"], "summary": "Delete a meeting and unlink task meetingId references",
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/meetings/{id}/start": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "post": {
+        "operationId": "startMeeting", "tags": ["Meetings"], "summary": "Start a planned series occurrence",
+        "description": "Sets status to in-progress. Closed occurrences must be reopened; standalone meetings are rejected.",
+        "responses": { "200": { "$ref": "#/components/responses/MeetingMutation" }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/meetings/{id}/close": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "post": {
+        "operationId": "closeMeeting", "tags": ["Meetings"], "summary": "Close a series occurrence",
+        "description": "Automatically defers agenda entries without an outcome and synchronizes outcomes to the series queue.",
+        "responses": { "200": { "$ref": "#/components/responses/MeetingMutation" }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/meetings/{id}/reopen": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "post": {
+        "operationId": "reopenMeeting", "tags": ["Meetings"], "summary": "Reopen a closed series occurrence",
+        "responses": { "200": { "$ref": "#/components/responses/MeetingMutation" }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/meetings/{id}/agenda": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "post": {
+        "operationId": "addMeetingAgendaItem", "tags": ["Meetings"], "summary": "Add an agenda item to an open occurrence and its series",
+        "requestBody": { "$ref": "#/components/requestBodies/Title" },
+        "responses": { "200": { "$ref": "#/components/responses/MeetingMutation" }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/meetings/{id}/agenda/{itemId}": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }, { "$ref": "#/components/parameters/ItemId" }],
+      "put": {
+        "operationId": "updateMeetingAgendaEntry", "tags": ["Meetings"], "summary": "Update an occurrence agenda entry",
+        "description": "itemId is the entry's agendaItemId. Outcome edits synchronize only this entry to the series. null or empty outcome clears it.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "notes": { "type": "string" }, "outcome": { "type": ["string", "null"], "enum": ["resolved", "deferred", "cancelled", "", null] } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/MeetingMutation" }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/meetings/{id}/decisions": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "post": {
+        "operationId": "addMeetingDecision", "tags": ["Meetings"], "summary": "Record a decision in an open series occurrence",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["text"], "properties": { "text": { "type": "string", "minLength": 1 }, "agendaItemId": { "type": "string", "description": "Must identify an agenda entry in this occurrence." } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/DecisionMutation" }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/meetings/{id}/decisions/{decisionId}": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }, { "name": "decisionId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "put": {
+        "operationId": "linkMeetingDecision", "tags": ["Meetings"], "summary": "Change a decision's agenda link, not its text",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["agendaItemId"], "properties": { "agendaItemId": { "type": ["string", "null"], "description": "An agendaItemId in this occurrence; null or empty string removes the link." } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/DecisionMutation" }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      },
+      "delete": {
+        "operationId": "deleteMeetingDecision", "tags": ["Meetings"], "summary": "Remove a decision from an open series occurrence",
+        "responses": { "200": { "$ref": "#/components/responses/MeetingMutation" }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/meetings/import/preview": {
+      "post": {
+        "operationId": "previewCalendarImport", "tags": ["Meetings"], "summary": "Preview an ICS/VCS calendar import without saving",
+        "description": "UTF-8 calendar content, maximum 512 KiB and 500 events. Requires an IANA local timeZone. Recurrences are not expanded; recurring reports the number of RRULE events. duplicate marks already-known UIDs and repeated UIDs in this file.",
+        "requestBody": { "$ref": "#/components/requestBodies/CalendarImport" },
+        "responses": {
+          "200": { "description": "Parsed events", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "events", "recurring"], "properties": { "ok": { "const": true }, "events": { "type": "array", "items": { "allOf": [{ "$ref": "#/components/schemas/CalendarEvent" }, { "type": "object", "required": ["duplicate"], "properties": { "duplicate": { "type": "boolean" } } }] } }, "recurring": { "type": "integer" } } } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }, "413": { "$ref": "#/components/responses/PayloadTooLarge" }, "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/meetings/import": {
+      "post": {
+        "operationId": "importCalendar", "tags": ["Meetings"], "summary": "Import ICS/VCS meetings into the selected context",
+        "description": "Validates the whole calendar before writing, skips known UIDs, and does not expand recurrences. Same limits as preview.",
+        "requestBody": { "$ref": "#/components/requestBodies/CalendarImport" },
+        "responses": {
+          "200": { "description": "Import counts", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "imported", "skipped", "recurring"], "properties": { "ok": { "const": true }, "imported": { "type": "integer" }, "skipped": { "type": "integer" }, "recurring": { "type": "integer" } } } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }, "413": { "$ref": "#/components/responses/PayloadTooLarge" }, "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/meeting-types": {
+      "get": { "operationId": "listMeetingTypes", "tags": ["Meetings"], "summary": "List meeting types for the selected context", "responses": { "200": { "$ref": "#/components/responses/MeetingTypes" }, "500": { "$ref": "#/components/responses/ServerError" } } },
+      "put": {
+        "operationId": "replaceMeetingTypes", "tags": ["Meetings"], "summary": "Replace meeting types for the selected context",
+        "description": "Entries without labels are dropped; absent/duplicate keys are generated. Invalid mins becomes 60.",
+        "requestBody": { "$ref": "#/components/requestBodies/MeetingTypes" },
+        "responses": { "200": { "$ref": "#/components/responses/MeetingTypesMutation" }, "400": { "$ref": "#/components/responses/BadRequest" } }
+      }
+    },
+    "/meetings/{id}/minutes": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "get": {
+        "operationId": "exportMeetingMinutes", "tags": ["Meetings"], "summary": "Get printable HTML meeting minutes",
+        "description": "HTML suitable for printing or saving as PDF in a browser, not a PDF binary. Open occurrences are marked as drafts.",
+        "responses": { "200": { "description": "Printable meeting minutes", "content": { "text/html": { "schema": { "type": "string" } } } }, "404": { "description": "Meeting not found", "content": { "text/plain": { "schema": { "type": "string" } } } }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/meeting-series": {
+      "get": {
+        "operationId": "listMeetingSeries", "tags": ["Meeting series"], "summary": "List series with occurrence and queue rollups",
+        "responses": { "200": { "description": "Active series first, then alphabetical", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/MeetingSeriesRollup" } } } } }, "500": { "$ref": "#/components/responses/ServerError" } }
+      },
+      "post": {
+        "operationId": "createMeetingSeries", "tags": ["Meeting series"], "summary": "Create an active meeting series",
+        "description": "Starts with an empty agenda. defaultAttendees falls back to mentions in description; defaultDurationMins defaults to 60.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/MeetingSeriesInput" }, { "type": "object", "required": ["title"] }] } } } },
+        "responses": { "200": { "$ref": "#/components/responses/SeriesMutation" }, "400": { "$ref": "#/components/responses/BadRequest" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/meeting-series/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "get": { "operationId": "getMeetingSeries", "tags": ["Meeting series"], "summary": "Get a series with rollups", "responses": { "200": { "$ref": "#/components/responses/Series" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } } },
+      "put": {
+        "operationId": "updateMeetingSeries", "tags": ["Meeting series"], "summary": "Update series fields or archive/unarchive a series",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MeetingSeriesInput" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/SeriesMutation" }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      },
+      "delete": {
+        "operationId": "deleteMeetingSeries", "tags": ["Meeting series"], "summary": "Delete a series and unlink occurrences and follow-up tasks",
+        "description": "Keeps meetings and tasks; removes their series links.",
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/meeting-series/{id}/agenda": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "post": {
+        "operationId": "addSeriesAgendaItem", "tags": ["Meeting series"], "summary": "Append a queued agenda item",
+        "requestBody": { "$ref": "#/components/requestBodies/Title" },
+        "responses": { "200": { "$ref": "#/components/responses/AgendaMutation" }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/meeting-series/{id}/agenda/{itemId}": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }, { "$ref": "#/components/parameters/ItemId" }],
+      "put": {
+        "operationId": "updateSeriesAgendaItem", "tags": ["Meeting series"], "summary": "Edit an agenda item title or queue state",
+        "description": "Does not rewrite existing occurrence snapshots.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "title": { "type": "string" }, "state": { "type": "string", "enum": ["queued", "resolved", "cancelled"] } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/AgendaMutation" }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      },
+      "delete": {
+        "operationId": "deleteSeriesAgendaItem", "tags": ["Meeting series"], "summary": "Remove a series agenda item without rewriting snapshots",
+        "responses": { "200": { "$ref": "#/components/responses/SeriesMutation" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/meeting-series/{id}/agenda/reorder": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "post": {
+        "operationId": "reorderSeriesAgenda", "tags": ["Meeting series"], "summary": "Save manual order of every queued agenda item",
+        "description": "ids must be an exact unique permutation of all currently queued items. Stale, duplicate, foreign or nonqueued IDs return 400 without writing. Resolved/cancelled slots and existing occurrence snapshots remain unchanged.",
+        "requestBody": { "$ref": "#/components/requestBodies/UniqueIds" },
+        "responses": { "200": { "$ref": "#/components/responses/SeriesMutation" }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/meeting-series/{id}/tasks/reorder": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "post": {
+        "operationId": "reorderSeriesTasks", "tags": ["Meeting series"], "summary": "Save manual order of every open series follow-up task",
+        "description": "ids must contain every nondeleted open task with this meetingSeriesId exactly once. Saves series.taskOrder; global task order and task records are unchanged.",
+        "requestBody": { "$ref": "#/components/requestBodies/UniqueIds" },
+        "responses": { "200": { "$ref": "#/components/responses/SeriesMutation" }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/people": {
+      "get": {
+        "operationId": "listPeople", "tags": ["People"], "summary": "List people",
+        "parameters": [{ "name": "includeDeleted", "in": "query", "schema": { "type": "string", "enum": ["1"] }, "description": "Include tombstones." }],
+        "responses": { "200": { "description": "People", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Person" } } } } }, "500": { "$ref": "#/components/responses/ServerError" } }
+      },
+      "post": {
+        "operationId": "createPerson", "tags": ["People"], "summary": "Create a person with a generated unique mention key",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/PersonInput" }, { "type": "object", "required": ["firstName"] }] } } } },
+        "responses": { "200": { "$ref": "#/components/responses/PersonMutation" }, "400": { "$ref": "#/components/responses/BadRequest" } }
+      }
+    },
+    "/api/people/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "put": {
+        "operationId": "updatePerson", "tags": ["People"], "summary": "Update a person; the mention key remains immutable",
+        "description": "lastName is applied when a nonempty firstName is also supplied.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PersonInput" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/PersonMutation" }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      },
+      "delete": {
+        "operationId": "deletePerson", "tags": ["People"], "summary": "Tombstone a person to prevent mention-based recreation",
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/people/{id}/restore": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "post": { "operationId": "restorePerson", "tags": ["People"], "summary": "Restore a tombstoned person", "responses": { "200": { "$ref": "#/components/responses/PersonMutation" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } } }
+    },
+    "/api/people/{id}/merge": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "post": {
+        "operationId": "mergePeople", "tags": ["People"], "summary": "Merge a source person into a target and rewrite references",
+        "description": "Target scalar fields win; source fills blanks. Rewrites linked records/mentions and tombstones the source with mergedInto.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["into"], "properties": { "into": { "type": "string", "description": "Target person ID, not mention key." } } } } } },
+        "responses": { "200": { "description": "Merged target", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "target"], "properties": { "ok": { "const": true }, "target": { "$ref": "#/components/schemas/Person" } } } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/companies": {
+      "get": { "operationId": "listCompanies", "tags": ["Companies"], "summary": "List live companies", "responses": { "200": { "description": "Companies", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Company" } } } } }, "500": { "$ref": "#/components/responses/ServerError" } } },
+      "post": {
+        "operationId": "createCompany", "tags": ["Companies"], "summary": "Create a company with a generated unique key",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/CompanyInput" }, { "type": "object", "required": ["name"] }] } } } },
+        "responses": { "200": { "$ref": "#/components/responses/CompanyMutation" }, "400": { "$ref": "#/components/responses/BadRequest" } }
+      }
+    },
+    "/api/companies/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "put": {
+        "operationId": "updateCompany", "tags": ["Companies"], "summary": "Update company fields",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CompanyInput" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/CompanyMutation" }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      },
+      "delete": { "operationId": "deleteCompany", "tags": ["Companies"], "summary": "Tombstone a company", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } } }
+    },
+    "/api/places": {
+      "get": { "operationId": "listPlaces", "tags": ["Places"], "summary": "List live places", "responses": { "200": { "description": "Places", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Place" } } } } }, "500": { "$ref": "#/components/responses/ServerError" } } },
+      "post": {
+        "operationId": "createPlace", "tags": ["Places"], "summary": "Create a place with optional coordinates",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/PlaceInput" }, { "type": "object", "required": ["name"] }] } } } },
+        "responses": { "200": { "$ref": "#/components/responses/PlaceMutation" }, "400": { "$ref": "#/components/responses/BadRequest" } }
+      }
+    },
+    "/api/places/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "put": {
+        "operationId": "updatePlace", "tags": ["Places"], "summary": "Update place fields; null or empty coordinates clear them",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlaceInput" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/PlaceMutation" }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      },
+      "delete": { "operationId": "deletePlace", "tags": ["Places"], "summary": "Tombstone a place", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } } }
+    },
+    "/api/teams": {
+      "get": { "operationId": "listTeams", "tags": ["Teams"], "summary": "List live teams", "responses": { "200": { "description": "Teams", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Team" } } } } }, "500": { "$ref": "#/components/responses/ServerError" } } },
+      "post": {
+        "operationId": "createTeam", "tags": ["Teams"], "summary": "Create a team and synchronize member people's team lists",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/TeamInput" }, { "type": "object", "required": ["name"] }] } } } },
+        "responses": { "201": { "description": "Created team (bare object, not an ok envelope)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Team" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/teams/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "put": {
+        "operationId": "updateTeam", "tags": ["Teams"], "summary": "Update a team and synchronize memberships",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TeamInput" } } } },
+        "responses": { "200": { "description": "Updated team", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Team" } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      },
+      "delete": { "operationId": "deleteTeam", "tags": ["Teams"], "summary": "Tombstone a team and clear its memberships", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } } }
+    },
+    "/api/teams/{key}/status": {
+      "parameters": [{ "name": "key", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Team mention key, not ID." }],
+      "get": {
+        "operationId": "getTeamStatus", "tags": ["Teams"], "summary": "Get team members, related notes, meetings and tasks",
+        "responses": { "200": { "description": "Team relationships (at most 50 meetings)", "content": { "application/json": { "schema": { "type": "object", "required": ["team", "memberDetails", "notesMentioning", "meetings", "tasks"], "properties": { "team": { "$ref": "#/components/schemas/Team" }, "memberDetails": { "type": "array", "items": { "$ref": "#/components/schemas/Person" } }, "notesMentioning": { "type": "array", "items": { "type": "object", "properties": { "week": { "type": "string" }, "file": { "type": "string" }, "title": { "type": "string" }, "href": { "type": "string" }, "snippet": { "type": "string" } } } }, "meetings": { "type": "array", "items": { "$ref": "#/components/schemas/Meeting" } }, "tasks": { "type": "array", "items": { "$ref": "#/components/schemas/Task" } } } } } } }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/results": {
+      "get": {
+        "operationId": "listResults", "tags": ["Results"], "summary": "List results, optionally by week",
+        "parameters": [{ "$ref": "#/components/parameters/WeekQuery" }],
+        "responses": { "200": { "description": "Results", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Result" } } } } }, "500": { "$ref": "#/components/responses/ServerError" } }
+      },
+      "post": {
+        "operationId": "createResult", "tags": ["Results"], "summary": "Create a result with mentions and optional task/goal links",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResultCreate" } } } },
+        "responses": { "200": { "description": "Created result", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "result"], "properties": { "ok": { "const": true }, "result": { "$ref": "#/components/schemas/Result" } } } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/results/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "put": {
+        "operationId": "updateResult", "tags": ["Results"], "summary": "Update result text, goal link or sentiment",
+        "description": "Empty/null goalId clears the link; neutral or empty sentiment clears sentiment. Does not return the result object.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "text": { "type": "string" }, "goalId": { "type": ["string", "null"] }, "sentiment": { "type": "string", "enum": ["good", "bad", "neutral", ""] } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      },
+      "delete": { "operationId": "deleteResult", "tags": ["Results"], "summary": "Delete a result (missing IDs still succeed)", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "500": { "$ref": "#/components/responses/ServerError" } } }
+    },
+    "/api/goals": {
+      "get": { "operationId": "listGoals", "tags": ["Goals"], "summary": "List goals", "responses": { "200": { "description": "Goals", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Goal" } } } } }, "500": { "$ref": "#/components/responses/ServerError" } } },
+      "post": {
+        "operationId": "createGoal", "tags": ["Goals"], "summary": "Create a goal with optional numeric progress",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/GoalInput" }, { "type": "object", "required": ["title"] }] } } } },
+        "responses": { "200": { "$ref": "#/components/responses/GoalMutation" }, "400": { "$ref": "#/components/responses/BadRequest" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/goals/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "put": {
+        "operationId": "updateGoal", "tags": ["Goals"], "summary": "Update goal fields and achievement status",
+        "description": "Empty/null targetDate, targetValue, currentValue or unit clears the field. Transitioning to achieved sets achievedAt.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GoalInput" } } } },
+        "responses": { "200": { "$ref": "#/components/responses/GoalMutation" }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      },
+      "delete": { "operationId": "deleteGoal", "tags": ["Goals"], "summary": "Delete a goal and unlink tasks/results (missing IDs succeed)", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "500": { "$ref": "#/components/responses/ServerError" } } }
+    },
+    "/api/contexts": {
+      "get": {
+        "operationId": "listContexts", "tags": ["Contexts"], "summary": "List contexts and refresh the selected-context cookie",
+        "responses": { "200": { "description": "Context settings and active ID", "headers": { "Set-Cookie": { "$ref": "#/components/headers/ContextCookie" } }, "content": { "application/json": { "schema": { "type": "object", "required": ["active", "contexts"], "properties": { "active": { "type": "string" }, "contexts": { "type": "array", "items": { "type": "object", "required": ["id", "active", "settings"], "properties": { "id": { "type": "string" }, "active": { "type": "boolean" }, "settings": { "$ref": "#/components/schemas/ContextSettings" } } } } } } } } }, "500": { "$ref": "#/components/responses/ServerError" } }
+      },
+      "post": {
+        "operationId": "createContext", "tags": ["Contexts"], "summary": "Create a local data context and optional Git remote",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string", "minLength": 1 }, "icon": { "type": "string" }, "description": { "type": "string" }, "remote": { "type": "string" }, "force": { "type": "boolean", "description": "Confirm a remote already used by another context after needsConfirm." } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/ContextCreated" }, "400": { "$ref": "#/components/responses/BadRequest" } }
+      }
+    },
+    "/api/contexts/switch": {
+      "post": {
+        "operationId": "switchContext", "tags": ["Contexts"], "summary": "Select a context and set wn_ctx",
+        "description": "Also changes the machine's active context. Commits the previous context and schedules remote pull/index work for the new one.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Selected context", "headers": { "Set-Cookie": { "$ref": "#/components/headers/ContextCookie" } }, "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "active"], "properties": { "ok": { "const": true }, "active": { "type": "string" } } } } } }, "400": { "$ref": "#/components/responses/BadRequest" } }
+      }
+    },
+    "/api/contexts/clone": {
+      "post": {
+        "operationId": "cloneContext", "tags": ["Contexts"], "summary": "Clone a Git remote into a local data context",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["remote"], "properties": { "remote": { "type": "string" }, "name": { "type": "string" }, "force": { "type": "boolean" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/ContextCreated" }, "400": { "$ref": "#/components/responses/BadRequest" } }
+      }
+    },
+    "/api/contexts/disconnected": {
+      "get": {
+        "operationId": "listDisconnectedContexts", "tags": ["Contexts"], "summary": "List remembered disconnected context URLs",
+        "responses": { "200": { "description": "Remembered remotes", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "icon": { "type": "string" }, "remote": { "type": "string" }, "disconnectedAt": { "type": "string", "format": "date-time" } } } } } } }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/contexts/disconnected/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "delete": { "operationId": "forgetDisconnectedContext", "tags": ["Contexts"], "summary": "Forget a remembered disconnected context", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/BadRequest" } } }
+    },
+    "/api/contexts/{id}/disconnect": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "post": {
+        "operationId": "disconnectContext", "tags": ["Contexts"], "summary": "Commit, push and remove a local context, remembering its remote",
+        "description": "Destructive host operation: removes the local context after successful synchronization.",
+        "responses": { "200": { "description": "Disconnected context", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "id", "remote"], "properties": { "ok": { "const": true }, "id": { "type": "string" }, "remote": { "type": "string" } } } } } }, "400": { "$ref": "#/components/responses/BadRequest" } }
+      }
+    },
+    "/api/contexts/{id}/settings": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "get": {
+        "operationId": "getContextSettings", "tags": ["Contexts"], "summary": "Get settings for an explicit context",
+        "responses": { "200": { "description": "Context settings", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContextSettings" } } } }, "404": { "description": "Context not found; legacy response is {} without Content-Type", "content": { "application/json": { "schema": { "type": "object", "maxProperties": 0 } } } }, "500": { "$ref": "#/components/responses/ServerError" } }
+      },
+      "put": {
+        "operationId": "updateContextSettings", "tags": ["Contexts"], "summary": "Merge context settings and synchronize its Git remote",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "allOf": [{ "$ref": "#/components/schemas/ContextSettings" }, { "type": "object", "properties": { "__force": { "type": "boolean", "description": "Confirm a remote collision after needsConfirm." } } }] } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/BadRequest" } }
+      }
+    },
+    "/api/contexts/{id}/meeting-types": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "get": {
+        "operationId": "listContextMeetingTypes", "tags": ["Contexts"], "summary": "List meeting types for an explicit context",
+        "responses": { "200": { "$ref": "#/components/responses/MeetingTypes" }, "404": { "description": "Context not found; legacy response is [] without Content-Type", "content": { "application/json": { "schema": { "type": "array", "maxItems": 0, "items": {} } } } }, "500": { "$ref": "#/components/responses/ServerError" } }
+      },
+      "put": {
+        "operationId": "replaceContextMeetingTypes", "tags": ["Contexts"], "summary": "Replace meeting types for an explicit context",
+        "requestBody": { "$ref": "#/components/requestBodies/MeetingTypes" },
+        "responses": { "200": { "$ref": "#/components/responses/MeetingTypesMutation" }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/api/contexts/{id}/git": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "get": {
+        "operationId": "getContextGitStatus", "tags": ["Contexts"], "summary": "Get local Git status, branch, remote and last commit",
+        "responses": { "200": { "description": "Git status", "content": { "application/json": { "schema": { "type": "object", "required": ["isRepo", "dirty", "last", "remote", "branch"], "properties": { "isRepo": { "type": "boolean" }, "dirty": { "type": "boolean" }, "last": { "anyOf": [{ "$ref": "#/components/schemas/GitCommit" }, { "type": "null" }] }, "remote": { "type": ["string", "null"] }, "branch": { "type": ["string", "null"] } } } } } }, "404": { "description": "Context not found; legacy response is {} without Content-Type", "content": { "application/json": { "schema": { "type": "object", "maxProperties": 0 } } } }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/contexts/{id}/commit": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "post": {
+        "operationId": "commitContext", "tags": ["Contexts"], "summary": "Commit every pending file in a context",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "message": { "type": "string" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/GitOperation" }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/contexts/{id}/push": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "post": { "operationId": "pushContext", "tags": ["Contexts"], "summary": "Push a context's HEAD to its configured Git remote", "responses": { "200": { "$ref": "#/components/responses/GitOperation" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } } }
+    },
+    "/api/contexts/{id}/pull": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "post": { "operationId": "pullContext", "tags": ["Contexts"], "summary": "Fast-forward pull a clean context from its Git remote", "responses": { "200": { "$ref": "#/components/responses/GitOperation" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } } }
+    },
+    "/api/contexts/{id}/migrations": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "get": {
+        "operationId": "previewContextMigrations", "tags": ["Contexts"], "summary": "Dry-run data migrations",
+        "description": "Returns HTTP 200 even when the migration process reports ok:false.",
+        "responses": { "200": { "$ref": "#/components/responses/Migrations" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      },
+      "post": {
+        "operationId": "runContextMigrations", "tags": ["Contexts"], "summary": "Run data migrations and optionally quarantine/commit changes",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "quarantine": { "type": "boolean", "default": false }, "commit": { "type": "boolean", "default": true }, "only": { "type": "array", "items": { "type": "string" }, "description": "Migration IDs to select; omitted means all applicable migrations." } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Migrations" }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/contexts/{id}/index-stats": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "get": {
+        "operationId": "getContextIndexStats", "tags": ["Contexts"], "summary": "Get on-disk keyword-search cache stats",
+        "description": "A missing cache/context still returns 200 with absent-cache stats.",
+        "responses": { "200": { "description": "Index statistics", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IndexStats" } } } }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/notes": {
+      "get": {
+        "operationId": "listNotes", "tags": ["Notes"], "summary": "List note metadata across weeks, excluding summarize.md",
+        "responses": { "200": { "description": "Newest weeks first", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/NoteIndexEntry" } } } } }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/notes/themes": {
+      "get": { "operationId": "listNoteTags", "tags": ["Notes"], "summary": "List configured and used note tags (legacy name: themes)", "responses": { "200": { "$ref": "#/components/responses/Strings" }, "500": { "$ref": "#/components/responses/ServerError" } } }
+    },
+    "/api/notes/{week}/{file}": {
+      "parameters": [{ "$ref": "#/components/parameters/Week" }, { "$ref": "#/components/parameters/File" }],
+      "delete": {
+        "operationId": "deleteNote", "tags": ["Notes"], "summary": "Delete a note, its metadata and task/meeting noteRef links",
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/api/notes/{week}/{file}/render": {
+      "parameters": [{ "$ref": "#/components/parameters/Week" }, { "$ref": "#/components/parameters/File" }],
+      "get": {
+        "operationId": "renderNote", "tags": ["Notes"], "summary": "Get rendered Markdown with mentions and task markers",
+        "responses": { "200": { "description": "Rendered note", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "html", "name", "week"], "properties": { "ok": { "const": true }, "html": { "type": "string" }, "name": { "type": "string" }, "week": { "type": "string" } } } } } }, "404": { "$ref": "#/components/responses/NotFound" } }
+      }
+    },
+    "/api/notes/{week}/{file}/raw": {
+      "parameters": [{ "$ref": "#/components/parameters/Week" }, { "$ref": "#/components/parameters/File" }],
+      "get": {
+        "operationId": "getRawNote", "tags": ["Notes"], "summary": "Get raw Markdown as plain text",
+        "responses": { "200": { "description": "Raw Markdown", "content": { "text/plain": { "schema": { "type": "string" } } } }, "403": { "description": "Forbidden path", "content": { "text/plain": { "schema": { "type": "string" } } } }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/notes/{week}/{file}/meta": {
+      "parameters": [{ "$ref": "#/components/parameters/Week" }, { "$ref": "#/components/parameters/File" }],
+      "get": { "operationId": "getNoteMetadata", "tags": ["Notes"], "summary": "Get note metadata with tags/themes aliases", "responses": { "200": { "description": "Metadata (may be empty for missing notes)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NoteMetadata" } } } }, "500": { "$ref": "#/components/responses/ServerError" } } }
+    },
+    "/api/notes/{week}/{file}/card": {
+      "parameters": [{ "$ref": "#/components/parameters/Week" }, { "$ref": "#/components/parameters/File" }],
+      "get": { "operationId": "getNoteCard", "tags": ["Notes"], "summary": "Get note-card data and snippet HTML", "responses": { "200": { "description": "Note card", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NoteCard" } } } }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } } }
+    },
+    "/api/notes/{week}/{file}/pin": {
+      "parameters": [{ "$ref": "#/components/parameters/Week" }, { "$ref": "#/components/parameters/File" }],
+      "put": {
+        "operationId": "toggleNotePin", "tags": ["Notes"], "summary": "Toggle pin status (no request body)",
+        "responses": { "200": { "description": "New pin state", "content": { "application/json": { "schema": { "type": "object", "required": ["pinned"], "properties": { "pinned": { "type": "boolean" } } } } } }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/notes/{week}/{file}/history": {
+      "parameters": [{ "$ref": "#/components/parameters/Week" }, { "$ref": "#/components/parameters/File" }],
+      "get": {
+        "operationId": "getNoteHistory", "tags": ["Notes"], "summary": "List commits touching a note, newest first",
+        "description": "Requires an ISO week and a single Markdown filename. No Git repository returns an empty array.",
+        "responses": { "200": { "description": "Commit history", "content": { "application/json": { "schema": { "type": "array", "items": { "allOf": [{ "$ref": "#/components/schemas/GitCommit" }, { "type": "object", "properties": { "shortHash": { "type": "string" }, "author": { "type": "string" } } }] } } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/notes/{week}/{file}/at/{hash}": {
+      "parameters": [{ "$ref": "#/components/parameters/Week" }, { "$ref": "#/components/parameters/File" }, { "name": "hash", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[0-9a-f]{4,40}$" } }],
+      "get": {
+        "operationId": "getNoteVersion", "tags": ["Notes"], "summary": "Read note content at a Git commit",
+        "responses": { "200": { "description": "Historical Markdown", "content": { "application/json": { "schema": { "type": "object", "required": ["hash", "path", "content"], "properties": { "hash": { "type": "string" }, "path": { "type": "string" }, "content": { "type": "string" } } } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/weeks": {
+      "get": { "operationId": "listWeeks", "tags": ["Notes"], "summary": "List weeks with notes, results or completed tasks", "responses": { "200": { "$ref": "#/components/responses/Strings" }, "500": { "$ref": "#/components/responses/ServerError" } } }
+    },
+    "/api/week/{week}": {
+      "parameters": [{ "$ref": "#/components/parameters/Week" }],
+      "get": {
+        "operationId": "getWeekSummary", "tags": ["Notes"], "summary": "Get week-section metadata and note cards",
+        "responses": { "200": { "description": "Week data", "content": { "application/json": { "schema": { "type": "object", "required": ["week", "weekNum", "dateRange", "notes", "hasSummary"], "properties": { "week": { "type": "string" }, "weekNum": { "type": "string" }, "dateRange": { "type": "string" }, "hasSummary": { "type": "boolean" }, "notes": { "type": "array", "items": { "type": "object", "properties": { "file": { "type": "string" }, "pinned": { "type": "boolean" }, "created": { "type": "string" }, "card": { "anyOf": [{ "$ref": "#/components/schemas/NoteCard" }, { "type": "object", "properties": { "ok": { "const": false }, "week": { "type": "string" }, "file": { "type": "string" } } }] } } } } } } } } }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/save": {
+      "post": {
+        "operationId": "saveNote", "tags": ["Notes"], "summary": "Save, append or autosave Markdown",
+        "description": "Explicit save requires folder, file and content. createNew deduplicates filenames; append joins content. autosave writes a recovery file instead of the note; autosave+draft only requires content and optionally meta. commit opts into a best-effort context-wide Git commit. Close markers can complete tasks; entity creation from inline markers is the editor's responsibility before calling this endpoint.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SaveNoteInput" }, "example": { "folder": "2099-W06", "file": "planning.md", "content": "# Planning\n", "createNew": true, "commit": false } } } },
+        "responses": {
+          "200": { "description": "Explicit save or autosave result", "content": { "application/json": { "schema": { "oneOf": [
+            { "type": "object", "required": ["ok", "path", "file", "folder", "content", "closedTasks"], "properties": { "ok": { "const": true }, "path": { "type": "string" }, "file": { "type": "string" }, "folder": { "type": "string" }, "content": { "type": "string" }, "closedTasks": { "type": "integer" } } },
+            { "type": "object", "required": ["ok", "autosave", "path", "tmp"], "properties": { "ok": { "const": true }, "autosave": { "const": true }, "path": { "type": "string" }, "tmp": { "const": true } } },
+            { "type": "object", "required": ["ok", "autosave", "draft", "modified"], "properties": { "ok": { "const": true }, "autosave": { "const": true }, "draft": { "const": true }, "modified": { "type": "string", "format": "date-time" } } }
+          ] } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" }, "403": { "$ref": "#/components/responses/Forbidden" }, "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
+    "/api/save/draft": {
+      "get": { "operationId": "getNewNoteDraft", "tags": ["Notes"], "summary": "Read the context's single new-note recovery draft", "responses": { "200": { "$ref": "#/components/responses/RecoveryContent" }, "500": { "$ref": "#/components/responses/ServerError" } } },
+      "delete": { "operationId": "deleteNewNoteDraft", "tags": ["Notes"], "summary": "Discard the new-note draft and its recovery metadata", "responses": { "200": { "$ref": "#/components/responses/Removed" }, "500": { "$ref": "#/components/responses/ServerError" } } }
+    },
+    "/api/save/autosave": {
+      "get": {
+        "operationId": "getNoteAutosave", "tags": ["Notes"], "summary": "Read an existing note's recovery content",
+        "parameters": [{ "name": "folder", "in": "query", "required": true, "schema": { "type": "string" } }, { "name": "file", "in": "query", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "$ref": "#/components/responses/RecoveryContent" }, "400": { "$ref": "#/components/responses/BadRequest" }, "403": { "$ref": "#/components/responses/Forbidden" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      },
+      "delete": {
+        "operationId": "deleteNoteAutosave", "tags": ["Notes"], "summary": "Discard an existing note's recovery content",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["folder", "file"], "properties": { "folder": { "type": "string" }, "file": { "type": "string" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Removed" }, "400": { "$ref": "#/components/responses/BadRequest" }, "403": { "$ref": "#/components/responses/Forbidden" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/me": {
+      "get": { "operationId": "getIdentity", "tags": ["Settings"], "summary": "Get the machine's @me mapping for the selected context", "responses": { "200": { "$ref": "#/components/responses/Identity" }, "500": { "$ref": "#/components/responses/ServerError" } } },
+      "put": {
+        "operationId": "setIdentity", "tags": ["Settings"], "summary": "Set the machine's @me person key, or clear with empty key",
+        "description": "This is a display/attribution mapping, not authentication.",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "key": { "type": "string" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Identity" }, "400": { "$ref": "#/components/responses/BadRequest" } }
+      }
+    },
+    "/api/me/all": {
+      "get": {
+        "operationId": "listIdentityMappings", "tags": ["Settings"], "summary": "List the machine's @me mapping for every context",
+        "responses": { "200": { "description": "Identity mappings", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "active", "mappings"], "properties": { "ok": { "const": true }, "active": { "type": "string" }, "mappings": { "type": "array", "items": { "type": "object", "properties": { "context": { "type": "string" }, "key": { "type": "string" }, "active": { "type": "boolean" } } } } } } } } }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/app-settings": {
+      "get": {
+        "operationId": "getAppSettings", "tags": ["Settings"], "summary": "Get app-wide settings and available Ollama summary models",
+        "description": "Legacy vector settings are omitted. An unsupported saved summary model disables summarization until an Ollama model is explicitly selected.",
+        "responses": { "200": { "description": "Settings and Ollama model catalogue; models are managed by Ollama, not downloaded by the app", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "settings", "summarizeModels"], "properties": { "ok": { "const": true }, "settings": { "$ref": "#/components/schemas/AppSettings" }, "summarizeModels": { "type": "array", "items": { "$ref": "#/components/schemas/Model" } } } } } } }, "500": { "$ref": "#/components/responses/ServerError" } }
+      },
+      "put": {
+        "operationId": "updateAppSettings", "tags": ["Settings"], "summary": "Update app settings and restart keyword search if needed",
+        "description": "Retired vectorSearch options and unsupported summary models are rejected with 400.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AppSettings" } } } },
+        "responses": { "200": { "description": "Updated settings", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "settings"], "properties": { "ok": { "const": true }, "settings": { "$ref": "#/components/schemas/AppSettings" } } } } } }, "400": { "$ref": "#/components/responses/BadRequest" } }
+      }
+    },
+    "/api/search": {
+      "get": {
+        "operationId": "search", "tags": ["Search and AI"], "summary": "Search notes and entities in the selected context",
+        "parameters": [{ "$ref": "#/components/parameters/SearchQuery" }],
+        "responses": { "200": { "$ref": "#/components/responses/SearchResults" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/calendar-activity": {
+      "get": {
+        "operationId": "listCalendarActivity", "tags": ["Meetings"], "summary": "List task, note and result activity in a local date range",
+        "parameters": [{ "name": "start", "in": "query", "required": true, "schema": { "type": "string", "format": "date" } }, { "name": "end", "in": "query", "required": true, "schema": { "type": "string", "format": "date" } }],
+        "responses": { "200": { "description": "Activity items", "content": { "application/json": { "schema": { "type": "array", "items": { "type": "object", "properties": { "kind": { "type": "string", "enum": ["task", "note", "result"] }, "id": { "type": "string" }, "title": { "type": "string" }, "date": { "type": "string", "format": "date" }, "time": { "type": "string" }, "href": { "type": "string" }, "icon": { "type": "string" }, "done": { "type": "boolean" } } } } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/summarize": {
+      "post": {
+        "operationId": "summarizeWeek", "tags": ["Search and AI"], "summary": "Generate a weekly summary using local Ollama",
+        "description": "Returns Markdown for preview; saving an accepted summary is a separate note-save request.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["week"], "properties": { "week": { "$ref": "#/components/schemas/Week" } } } } } },
+        "responses": { "200": { "description": "Summary Markdown", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "summary"], "properties": { "ok": { "const": true }, "summary": { "type": "string" } } } } } }, "400": { "$ref": "#/components/responses/BadRequest" }, "409": { "description": "Summarization is disabled", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/themes": {
+      "get": { "operationId": "listThemes", "tags": ["Themes"], "summary": "List built-in and custom visual themes", "responses": { "200": { "description": "Themes", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Theme" } } } } }, "500": { "$ref": "#/components/responses/ServerError" } } },
+      "post": {
+        "operationId": "cloneTheme", "tags": ["Themes"], "summary": "Clone a visual theme into a new custom theme",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["from"], "properties": { "from": { "type": "string" }, "name": { "type": "string" } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/ThemeMutation" }, "400": { "$ref": "#/components/responses/BadRequest" } }
+      }
+    },
+    "/api/themes/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "put": {
+        "operationId": "updateTheme", "tags": ["Themes"], "summary": "Update a custom visual theme (built-ins are read-only)",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["vars"], "properties": { "name": { "type": "string" }, "vars": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Variable names without the -- prefix." } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/ThemeMutation" }, "400": { "$ref": "#/components/responses/BadRequest" } }
+      },
+      "delete": { "operationId": "deleteTheme", "tags": ["Themes"], "summary": "Delete a custom visual theme", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/BadRequest" } } }
+    },
+    "/api/reload": {
+      "post": { "operationId": "reloadCaches", "tags": ["Developer tools"], "summary": "Clear active-context people/company/place/team/task/result caches", "responses": { "200": { "$ref": "#/components/responses/Ok" }, "500": { "$ref": "#/components/responses/ServerError" } } }
+    },
+    "/api/erd": {
+      "get": { "operationId": "getErd", "tags": ["Developer tools"], "summary": "Read the host's ERD PlantUML source", "responses": { "200": { "$ref": "#/components/responses/Source" }, "500": { "$ref": "#/components/responses/ServerError" } } },
+      "put": {
+        "operationId": "updateErd", "tags": ["Developer tools"], "summary": "Overwrite the host's ERD PlantUML source",
+        "requestBody": { "$ref": "#/components/requestBodies/Source" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/BadRequest" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/schemas": {
+      "get": {
+        "operationId": "listSchemas", "tags": ["Developer tools"], "summary": "List data-schema index metadata",
+        "responses": { "200": { "description": "Schema catalogue", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "schemas"], "properties": { "ok": { "const": true }, "schemas": { "type": "array", "items": { "type": "object", "additionalProperties": true } } } } } } }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
+    "/api/schemas/{name}": {
+      "parameters": [{ "name": "name", "in": "path", "required": true, "schema": { "type": "string", "pattern": "^[a-z0-9._-]+$" }, "example": "tasks.schema.json" }],
+      "get": {
+        "operationId": "getSchemaSource", "tags": ["Developer tools"], "summary": "Read a data-schema file as source text",
+        "description": "Missing files return empty src with 200.",
+        "responses": { "200": { "description": "Schema source", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "name", "src"], "properties": { "ok": { "const": true }, "name": { "type": "string" }, "src": { "type": "string" } } } } } }, "500": { "$ref": "#/components/responses/ServerError" } }
+      },
+      "put": {
+        "operationId": "updateSchemaSource", "tags": ["Developer tools"], "summary": "Overwrite a data-schema file on the host",
+        "description": "src is raw source text; the server does not validate it as JSON Schema.",
+        "requestBody": { "$ref": "#/components/requestBodies/Source" },
+        "responses": { "200": { "$ref": "#/components/responses/Ok" }, "400": { "$ref": "#/components/responses/BadRequest" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "Id": { "name": "id", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Stable record ID (context IDs are directory slugs)." },
+      "ItemId": { "name": "itemId", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Series agenda item ID." },
+      "Week": { "name": "week", "in": "path", "required": true, "schema": { "$ref": "#/components/schemas/Week" } },
+      "File": { "name": "file", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Single URL-encoded Markdown filename, including .md.", "example": "planning.md" },
+      "WeekQuery": { "name": "week", "in": "query", "schema": { "$ref": "#/components/schemas/Week" } },
+      "SearchQuery": { "name": "q", "in": "query", "schema": { "type": "string" }, "description": "Blank or omitted queries return an empty array." }
+    },
+    "headers": {
+      "ContextCookie": { "description": "wn_ctx=<context>; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly. Browsers manage this cookie automatically.", "schema": { "type": "string" } }
+    },
+    "requestBodies": {
+      "Ids": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["ids"], "properties": { "ids": { "type": "array", "items": { "type": "string" } } } } } } },
+      "UniqueIds": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["ids"], "properties": { "ids": { "type": "array", "uniqueItems": true, "items": { "type": "string" } } } } } } },
+      "Title": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["title"], "properties": { "title": { "type": "string", "minLength": 1 } } } } } },
+      "CalendarImport": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["content", "timeZone"], "properties": { "content": { "type": "string", "description": "UTF-8 VCALENDAR text, up to 512 KiB." }, "timeZone": { "type": "string", "example": "Europe/Oslo", "description": "IANA time zone for interpreting/displaying events." } } } } } },
+      "MeetingTypes": { "required": true, "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/MeetingTypeInput" } } } } },
+      "Source": { "content": { "application/json": { "schema": { "type": "object", "properties": { "src": { "type": "string", "description": "Omitted/non-string src writes empty text." } } } } } }
+    },
+    "responses": {
+      "Ok": { "description": "Operation succeeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } } },
+      "BadRequest": { "description": "Invalid input or operation. Legacy handlers can omit error and/or Content-Type. Context/remote conflicts may return needsConfirm:true.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "NotFound": { "description": "Record not found. Some legacy handlers return only {ok:false} and omit Content-Type.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Forbidden": { "description": "Operation forbidden (for example cross-context calendar disabled)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Conflict": { "description": "State conflict", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "PayloadTooLarge": { "description": "Request body too large", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "ServerError": { "description": "Server/storage/worker/Git failure", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Tasks": { "description": "Entire live task array (GET with all may include deleted tasks)", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Task" } } } } },
+      "Meeting": { "description": "Meeting", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Meeting" } } } },
+      "MeetingMutation": { "description": "Updated meeting", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "meeting"], "properties": { "ok": { "const": true }, "meeting": { "$ref": "#/components/schemas/Meeting" } } } } } },
+      "DecisionMutation": { "description": "Decision and updated meeting", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "decision", "meeting"], "properties": { "ok": { "const": true }, "decision": { "$ref": "#/components/schemas/Decision" }, "meeting": { "$ref": "#/components/schemas/Meeting" } } } } } },
+      "Series": { "description": "Series with rollups", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MeetingSeriesRollup" } } } },
+      "SeriesMutation": { "description": "Updated series; create returns the stored series without rollups", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "series"], "properties": { "ok": { "const": true }, "series": { "$ref": "#/components/schemas/MeetingSeries" } } } } } },
+      "AgendaMutation": { "description": "Agenda item and updated series with rollups", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "item", "series"], "properties": { "ok": { "const": true }, "item": { "$ref": "#/components/schemas/SeriesAgendaItem" }, "series": { "$ref": "#/components/schemas/MeetingSeriesRollup" } } } } } },
+      "MeetingTypes": { "description": "Meeting types", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/MeetingType" } } } } },
+      "MeetingTypesMutation": { "description": "Normalized meeting types", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "types"], "properties": { "ok": { "const": true }, "types": { "type": "array", "items": { "$ref": "#/components/schemas/MeetingType" } } } } } } },
+      "PersonMutation": { "description": "Updated person", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "person"], "properties": { "ok": { "const": true }, "person": { "$ref": "#/components/schemas/Person" } } } } } },
+      "CompanyMutation": { "description": "Updated company", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "company"], "properties": { "ok": { "const": true }, "company": { "$ref": "#/components/schemas/Company" } } } } } },
+      "PlaceMutation": { "description": "Updated place", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "place"], "properties": { "ok": { "const": true }, "place": { "$ref": "#/components/schemas/Place" } } } } } },
+      "GoalMutation": { "description": "Updated goal", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "goal"], "properties": { "ok": { "const": true }, "goal": { "$ref": "#/components/schemas/Goal" } } } } } },
+      "ThemeMutation": { "description": "Updated custom theme", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "theme"], "properties": { "ok": { "const": true }, "theme": { "$ref": "#/components/schemas/Theme" } } } } } },
+      "ContextCreated": { "description": "Created/cloned context ID", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "id"], "properties": { "ok": { "const": true }, "id": { "type": "string" } } } } } },
+      "GitOperation": { "description": "Git result; committed indicates whether a commit was needed", "content": { "application/json": { "schema": { "type": "object", "required": ["ok"], "properties": { "ok": { "const": true }, "committed": { "type": "boolean" }, "output": { "type": "string" } } } } } },
+      "Migrations": { "description": "Migration process result", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MigrationResult" } } } },
+      "Strings": { "description": "String list", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Strings" } } } },
+      "RecoveryContent": { "description": "Recovery content, or exists:false", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "exists"], "properties": { "ok": { "const": true }, "exists": { "type": "boolean" }, "content": { "type": "string" }, "modified": { "type": "string", "format": "date-time" }, "meta": { "type": ["object", "null"], "additionalProperties": true } } } } } },
+      "Removed": { "description": "Whether a recovery file was removed", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "removed"], "properties": { "ok": { "const": true }, "removed": { "type": "boolean" } } } } } },
+      "Identity": { "description": "Machine-local context identity", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "context", "key"], "properties": { "ok": { "const": true }, "context": { "type": "string" }, "key": { "type": "string" } } } } } },
+      "SearchResults": { "description": "Search hits", "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/SearchResult" } } } } },
+      "Source": { "description": "Source text", "content": { "application/json": { "schema": { "type": "object", "required": ["ok", "src"], "properties": { "ok": { "const": true }, "src": { "type": "string" } } } } } }
+    },
+    "schemas": {
+      "Ok": { "type": "object", "required": ["ok"], "properties": { "ok": { "const": true } } },
+      "Error": { "type": "object", "description": "Existing error envelope; fields vary by handler.", "properties": { "ok": { "const": false }, "error": { "type": "string" }, "needsConfirm": { "type": "boolean" }, "output": { "type": "string" } } },
+      "Strings": { "type": "array", "items": { "type": "string" } },
+      "Week": { "type": "string", "pattern": "^\\d{4}-W\\d{2}$", "description": "ISO week", "example": "2099-W06" },
+      "DateTime": { "type": "string", "format": "date-time" },
+      "DueDate": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}( \\d{2}:\\d{2})?$", "description": "Date or local date/time with a space separator; not an RFC 3339 timestamp.", "example": "2099-02-03 10:00" },
+      "TaskCreate": {
+        "type": "object", "required": ["text"],
+        "properties": {
+          "text": { "type": "string" }, "week": { "$ref": "#/components/schemas/Week" }, "noteRef": { "type": "string", "description": "week/file.md" },
+          "responsible": { "type": "string", "description": "Person key; empty suppresses inference." }, "participants": { "$ref": "#/components/schemas/Strings" },
+          "dueDate": { "$ref": "#/components/schemas/DueDate" }, "goalId": { "type": "string" }, "meetingSeriesId": { "type": "string" }, "meetingId": { "type": "string" }, "agendaItemId": { "type": "string" }
+        }
+      },
+      "TaskUpdate": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string" }, "note": { "type": "string" }, "responsible": { "type": "string" },
+          "participants": { "type": ["array", "null"], "items": { "type": "string" } },
+          "dueDate": { "type": ["string", "null"], "description": "YYYY-MM-DD[ HH:MM]; empty/null clears." },
+          "goalId": { "type": ["string", "null"] }, "meetingSeriesId": { "type": ["string", "null"] }, "meetingId": { "type": ["string", "null"] }, "agendaItemId": { "type": ["string", "null"] }
+        }
+      },
+      "Task": {
+        "type": "object", "required": ["id", "text"],
+        "properties": {
+          "id": { "type": "string" }, "text": { "type": "string" }, "done": { "type": "boolean" }, "week": { "type": "string" },
+          "created": { "$ref": "#/components/schemas/DateTime" }, "completedAt": { "$ref": "#/components/schemas/DateTime" }, "completedWeek": { "type": "string" }, "completedBy": { "type": "string" },
+          "author": { "type": "string" }, "responsible": { "type": "string" }, "participants": { "$ref": "#/components/schemas/Strings" },
+          "dueDate": { "$ref": "#/components/schemas/DueDate" }, "note": { "type": "string" }, "noteRef": { "type": "string" }, "commentFile": { "type": "string" },
+          "goalId": { "type": "string" }, "meetingSeriesId": { "type": "string" }, "meetingId": { "type": "string" }, "agendaItemId": { "type": "string" },
+          "deleted": { "type": "boolean" }, "deletedAt": { "$ref": "#/components/schemas/DateTime" }
+        }
+      },
+      "MeetingFields": {
+        "type": "object",
+        "properties": {
+          "date": { "type": "string", "format": "date" }, "start": { "type": "string", "description": "HH:MM or empty for all-day/unscheduled time." }, "end": { "type": "string" }, "endDate": { "type": "string", "description": "YYYY-MM-DD for multi-day meetings; empty clears on update." },
+          "title": { "type": "string" }, "type": { "type": "string", "description": "Meeting type key." },
+          "attendees": { "oneOf": [{ "$ref": "#/components/schemas/Strings" }, { "type": "string", "description": "Text containing @mentions." }] },
+          "location": { "type": "string" }, "placeKey": { "type": "string" }, "notes": { "type": "string" }, "noteRef": { "type": "string", "description": "week/file.md; empty removes link." }
+        }
+      },
+      "MeetingCreate": {
+        "allOf": [
+          { "$ref": "#/components/schemas/MeetingFields" },
+          { "type": "object", "required": ["date"], "anyOf": [{ "required": ["title"] }, { "required": ["seriesId"] }], "properties": { "seriesId": { "type": "string" }, "durationMinutes": { "type": "number", "exclusiveMinimum": 0 } } }
+        ]
+      },
+      "MeetingUpdate": { "allOf": [{ "$ref": "#/components/schemas/MeetingFields" }, { "type": "object", "properties": { "minutes": { "type": "string", "description": "Occurrence recap Markdown." } } }] },
+      "CalendarEvent": {
+        "type": "object", "required": ["calendarUid", "date", "start", "end", "title"],
+        "properties": {
+          "calendarUid": { "type": "string" }, "date": { "type": "string", "format": "date" }, "start": { "type": "string" }, "end": { "type": "string" }, "endDate": { "type": "string", "format": "date" }, "title": { "type": "string" },
+          "notes": { "type": "string" }, "joinUrl": { "type": "string", "description": "Validated Teams meeting URL when present." }, "location": { "type": "string" }, "type": { "type": "string" }, "attendees": { "$ref": "#/components/schemas/Strings" }, "placeKey": { "type": "string" }, "noteRef": { "type": "string" }
+        }
+      },
+      "Meeting": {
+        "type": "object", "required": ["id", "date", "title"],
+        "properties": {
+          "id": { "type": "string" }, "date": { "type": "string", "format": "date" }, "start": { "type": "string" }, "end": { "type": "string" }, "endDate": { "type": "string", "format": "date" },
+          "title": { "type": "string" }, "type": { "type": "string" }, "attendees": { "$ref": "#/components/schemas/Strings" }, "location": { "type": "string" }, "placeKey": { "type": "string" },
+          "notes": { "type": "string" }, "noteRef": { "type": "string" }, "calendarUid": { "type": "string" }, "joinUrl": { "type": "string" },
+          "seriesId": { "type": "string" }, "status": { "type": "string", "enum": ["planned", "in-progress", "closed"] }, "minutes": { "type": "string" },
+          "agenda": { "type": "array", "items": { "$ref": "#/components/schemas/OccurrenceAgendaEntry" } }, "decisions": { "type": "array", "items": { "$ref": "#/components/schemas/Decision" } },
+          "created": { "$ref": "#/components/schemas/DateTime" }, "updated": { "$ref": "#/components/schemas/DateTime" }, "closedAt": { "$ref": "#/components/schemas/DateTime" },
+          "_ctx": { "type": "string" }, "_ctxName": { "type": "string" }, "_ctxIcon": { "type": "string" }, "_ctxColor": { "type": "string" }, "_ctxActive": { "type": "boolean" }
+        }
+      },
+      "OccurrenceAgendaEntry": {
+        "type": "object", "required": ["agendaItemId", "title", "order", "notes", "outcome"],
+        "properties": { "agendaItemId": { "type": "string" }, "title": { "type": "string" }, "order": { "type": "integer" }, "notes": { "type": "string" }, "outcome": { "type": ["string", "null"], "enum": ["resolved", "deferred", "cancelled", null] } }
+      },
+      "Decision": { "type": "object", "required": ["id", "text", "createdAt"], "properties": { "id": { "type": "string" }, "text": { "type": "string" }, "createdAt": { "$ref": "#/components/schemas/DateTime" }, "agendaItemId": { "type": "string" } } },
+      "MeetingTypeInput": { "type": "object", "properties": { "key": { "type": "string" }, "icon": { "type": "string" }, "label": { "type": "string" }, "mins": { "type": "integer", "minimum": 1, "maximum": 600 } } },
+      "MeetingType": { "type": "object", "required": ["key", "label"], "properties": { "key": { "type": "string" }, "icon": { "type": "string" }, "label": { "type": "string" }, "mins": { "type": "integer" } } },
+      "MeetingSeriesInput": {
+        "type": "object",
+        "properties": { "title": { "type": "string" }, "description": { "type": "string" }, "status": { "type": "string", "enum": ["active", "archived"] }, "defaultAttendees": { "$ref": "#/components/schemas/Strings" }, "defaultLocation": { "type": "string" }, "defaultPlaceKey": { "type": "string" }, "defaultType": { "type": "string" }, "defaultDurationMins": { "type": "number", "exclusiveMinimum": 0 } }
+      },
+      "SeriesAgendaItem": {
+        "type": "object", "required": ["id", "title", "state", "order"],
+        "properties": { "id": { "type": "string" }, "title": { "type": "string" }, "state": { "type": "string", "enum": ["queued", "resolved", "cancelled"] }, "order": { "type": "integer", "minimum": 0 }, "createdAt": { "$ref": "#/components/schemas/DateTime" }, "updatedAt": { "$ref": "#/components/schemas/DateTime" } }
+      },
+      "MeetingSeries": {
+        "allOf": [
+          { "$ref": "#/components/schemas/MeetingSeriesInput" },
+          { "type": "object", "required": ["id", "title", "status", "agendaItems", "created"], "properties": {
+            "id": { "type": "string" }, "agendaItems": { "type": "array", "items": { "$ref": "#/components/schemas/SeriesAgendaItem" } }, "taskOrder": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+            "created": { "$ref": "#/components/schemas/DateTime" }, "updated": { "$ref": "#/components/schemas/DateTime" },
+            "occurrenceCount": { "type": "integer" }, "queuedAgendaCount": { "type": "integer" }, "nextOccurrence": { "anyOf": [{ "$ref": "#/components/schemas/OccurrenceSummary" }, { "type": "null" }] }, "lastOccurrence": { "anyOf": [{ "$ref": "#/components/schemas/OccurrenceSummary" }, { "type": "null" }] }
+          } }
+        ]
+      },
+      "MeetingSeriesRollup": { "allOf": [{ "$ref": "#/components/schemas/MeetingSeries" }, { "type": "object", "required": ["occurrenceCount", "queuedAgendaCount", "nextOccurrence", "lastOccurrence"] }] },
+      "OccurrenceSummary": { "type": "object", "required": ["id", "date"], "properties": { "id": { "type": "string" }, "date": { "type": "string", "format": "date" }, "start": { "type": "string" }, "status": { "type": "string", "enum": ["planned", "in-progress", "closed"] } } },
+      "PersonInput": {
+        "type": "object",
+        "properties": { "firstName": { "type": "string" }, "lastName": { "type": "string" }, "title": { "type": "string" }, "email": { "type": "string" }, "phone": { "type": "string" }, "notes": { "type": "string" }, "inactive": { "type": "boolean" }, "primaryCompanyKey": { "type": "string" }, "extraCompanyKeys": { "$ref": "#/components/schemas/Strings" } }
+      },
+      "Person": {
+        "allOf": [{ "$ref": "#/components/schemas/PersonInput" }, { "type": "object", "required": ["id", "key", "name"], "properties": { "id": { "type": "string" }, "key": { "type": "string" }, "name": { "type": "string" }, "teams": { "$ref": "#/components/schemas/Strings" }, "created": { "$ref": "#/components/schemas/DateTime" }, "deleted": { "type": "boolean" }, "deletedAt": { "$ref": "#/components/schemas/DateTime" }, "mergedInto": { "type": "string" } } }]
+      },
+      "CompanyInput": { "type": "object", "properties": { "name": { "type": "string" }, "orgnr": { "type": "string" }, "url": { "type": "string" }, "address": { "type": "string" }, "notes": { "type": "string" }, "inactive": { "type": "boolean" } } },
+      "Company": { "allOf": [{ "$ref": "#/components/schemas/CompanyInput" }, { "type": "object", "required": ["id", "key", "name"], "properties": { "id": { "type": "string" }, "key": { "type": "string" }, "created": { "$ref": "#/components/schemas/DateTime" }, "deleted": { "type": "boolean" }, "deletedAt": { "$ref": "#/components/schemas/DateTime" } } }] },
+      "PlaceInput": { "type": "object", "properties": { "name": { "type": "string" }, "address": { "type": "string" }, "notes": { "type": "string" }, "lat": { "type": ["number", "string", "null"], "description": "Numeric strings accepted; invalid/empty values become null." }, "lng": { "type": ["number", "string", "null"] } } },
+      "Place": { "allOf": [{ "$ref": "#/components/schemas/PlaceInput" }, { "type": "object", "required": ["id", "key", "name"], "properties": { "id": { "type": "string" }, "key": { "type": "string" }, "lat": { "type": ["number", "null"] }, "lng": { "type": ["number", "null"] }, "created": { "$ref": "#/components/schemas/DateTime" }, "deleted": { "type": "boolean" }, "deletedAt": { "$ref": "#/components/schemas/DateTime" } } }] },
+      "TeamInput": { "type": "object", "properties": { "name": { "type": "string" }, "members": { "$ref": "#/components/schemas/Strings" }, "notes": { "type": "string" } } },
+      "Team": { "allOf": [{ "$ref": "#/components/schemas/TeamInput" }, { "type": "object", "required": ["id", "key", "name", "members"], "properties": { "id": { "type": "string" }, "key": { "type": "string" }, "created": { "$ref": "#/components/schemas/DateTime" }, "deleted": { "type": "boolean" } } }] },
+      "ResultCreate": {
+        "type": "object", "required": ["text"],
+        "properties": { "text": { "type": "string", "minLength": 1 }, "week": { "$ref": "#/components/schemas/Week" }, "people": { "$ref": "#/components/schemas/Strings" }, "goalId": { "type": "string" }, "taskId": { "type": "string" }, "taskText": { "type": "string" }, "sentiment": { "type": "string", "enum": ["good", "bad"] } }
+      },
+      "Result": { "allOf": [{ "$ref": "#/components/schemas/ResultCreate" }, { "type": "object", "required": ["id", "text", "week"], "properties": { "id": { "type": "string" }, "created": { "$ref": "#/components/schemas/DateTime" } } }] },
+      "GoalInput": {
+        "type": "object",
+        "properties": { "title": { "type": "string" }, "description": { "type": "string" }, "status": { "type": "string", "enum": ["active", "achieved", "abandoned"] }, "targetDate": { "type": ["string", "null"] }, "targetValue": { "type": ["number", "string", "null"] }, "currentValue": { "type": ["number", "string", "null"] }, "unit": { "type": ["string", "null"], "description": "Trimmed to at most 16 characters." } }
+      },
+      "Goal": {
+        "allOf": [{ "$ref": "#/components/schemas/GoalInput" }, { "type": "object", "required": ["id", "title", "status"], "properties": { "id": { "type": "string" }, "created": { "$ref": "#/components/schemas/DateTime" }, "updated": { "type": ["string", "null"], "format": "date-time" }, "achievedAt": { "$ref": "#/components/schemas/DateTime" }, "targetValue": { "type": "number" }, "currentValue": { "type": "number" } } }]
+      },
+      "ContextSettings": {
+        "type": "object", "additionalProperties": true,
+        "properties": {
+          "name": { "type": "string" }, "description": { "type": "string" }, "icon": { "type": "string" }, "color": { "type": "string" }, "theme": { "type": "string" }, "remote": { "type": "string" },
+          "upcomingMeetingsDays": { "type": "integer" }, "visibleStartHour": { "type": "integer" }, "visibleEndHour": { "type": "integer" }, "defaultMeetingMinutes": { "type": "integer" }, "availableThemes": { "$ref": "#/components/schemas/Strings" },
+          "workHours": { "type": "array", "minItems": 7, "maxItems": 7, "description": "Monday through Sunday; null means no work band.", "items": { "type": ["object", "null"], "properties": { "start": { "type": "string" }, "end": { "type": "string" } } } },
+          "meetingTypes": { "type": "array", "items": { "$ref": "#/components/schemas/MeetingType" } }
+        }
+      },
+      "GitCommit": { "type": "object", "required": ["hash", "date", "subject"], "properties": { "hash": { "type": "string" }, "date": { "type": "string", "format": "date-time" }, "subject": { "type": "string" } } },
+      "MigrationResult": {
+        "type": "object", "required": ["ok"],
+        "properties": { "ok": { "type": "boolean" }, "ctx": { "type": "string" }, "marker": { "type": "string" }, "target": { "type": "string" }, "migrations": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "string" }, "description": { "type": "string" }, "applies": { "type": "boolean" } } } }, "ranIds": { "$ref": "#/components/schemas/Strings" }, "totalChanges": { "type": "integer" }, "unknowns": { "$ref": "#/components/schemas/Strings" }, "jsonProblems": { "type": "array", "items": {} }, "output": { "type": "string" }, "error": { "type": "string" } }
+      },
+      "IndexStats": {
+        "type": "object", "required": ["ok", "contextId", "isActive", "search"],
+        "properties": {
+          "ok": { "const": true }, "contextId": { "type": "string" }, "isActive": { "type": "boolean" },
+          "search": { "allOf": [{ "$ref": "#/components/schemas/CacheStats" }, { "type": "object", "properties": { "tokens": { "type": ["integer", "null"] }, "version": { "type": ["integer", "string", "null"] } } }] }
+        }
+      },
+      "CacheStats": { "type": "object", "properties": { "cacheExists": { "type": "boolean" }, "sizeBytes": { "type": "integer" }, "mtime": { "type": ["number", "null"], "description": "Unix timestamp in milliseconds." }, "docs": { "type": ["integer", "null"] } } },
+      "NoteIndexEntry": {
+        "type": "object", "required": ["week", "file", "name", "type", "pinned", "tags", "themes", "created", "modified"],
+        "properties": { "week": { "type": "string" }, "file": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string" }, "pinned": { "type": "boolean" }, "tags": { "$ref": "#/components/schemas/Strings" }, "themes": { "$ref": "#/components/schemas/Strings" }, "created": { "type": "string", "description": "Timestamp or empty for legacy notes." }, "modified": { "type": "string" } }
+      },
+      "NoteMetadata": {
+        "type": "object", "additionalProperties": true,
+        "properties": {
+          "type": { "type": "string" }, "title": { "type": "string" }, "pinned": { "type": "boolean" }, "tags": { "$ref": "#/components/schemas/Strings" }, "themes": { "$ref": "#/components/schemas/Strings" }, "presentationStyle": { "type": "string" },
+          "created": { "type": "string" }, "modified": { "type": "string" }, "createdBy": { "type": "string" }, "lastSavedBy": { "type": "string" }, "snippet": { "type": "string" }, "meetingId": { "type": "string" },
+          "saves": { "type": "array", "items": { "anyOf": [{ "type": "string" }, { "type": "object", "properties": { "at": { "type": "string" }, "by": { "type": "string" }, "sha": { "type": "string" } } }] } },
+          "references": { "type": "object", "additionalProperties": { "$ref": "#/components/schemas/Strings" } }
+        }
+      },
+      "NoteCard": {
+        "type": "object", "required": ["ok", "week", "file", "name", "title", "titleHtml", "type", "pinned", "presentationStyle", "tags", "themes", "snippet"],
+        "properties": { "ok": { "const": true }, "week": { "type": "string" }, "file": { "type": "string" }, "name": { "type": "string" }, "title": { "type": "string" }, "titleHtml": { "type": "string" }, "type": { "type": "string" }, "pinned": { "type": "boolean" }, "presentationStyle": { "type": ["string", "null"] }, "tags": { "$ref": "#/components/schemas/Strings" }, "themes": { "$ref": "#/components/schemas/Strings" }, "snippet": { "type": "string", "description": "HTML with mention links." } }
+      },
+      "SaveNoteInput": {
+        "type": "object", "required": ["content"],
+        "anyOf": [
+          { "required": ["folder", "file"] },
+          { "required": ["autosave", "draft"], "properties": { "autosave": { "const": true }, "draft": { "const": true } } }
+        ],
+        "properties": { "folder": { "type": "string" }, "file": { "type": "string", "description": "Single .md filename." }, "content": { "type": "string" }, "append": { "type": "boolean" }, "type": { "type": "string" }, "presentationStyle": { "type": "string" }, "autosave": { "type": "boolean" }, "draft": { "type": "boolean" }, "meta": { "type": "object", "additionalProperties": true }, "tags": { "$ref": "#/components/schemas/Strings" }, "themes": { "$ref": "#/components/schemas/Strings" }, "commit": { "type": "boolean" }, "createNew": { "type": "boolean" }, "title": { "type": "string" } }
+      },
+      "AppSettings": {
+        "type": "object", "not": { "required": ["vectorSearch"] },
+        "properties": { "searchIndex": { "type": "object", "properties": { "enabled": { "type": "boolean" } } }, "summarization": { "$ref": "#/components/schemas/ModelSetting" }, "crossContextCalendar": { "type": "object", "properties": { "enabled": { "type": "boolean" } } } }
+      },
+      "ModelSetting": { "type": "object", "properties": { "enabled": { "type": "boolean" }, "model": { "type": "string", "enum": ["ollama:qwen3.5:9b", "ollama:gemma4:12b", "ollama:gpt-oss:20b", "ollama:gemma3", "ollama:gemma4", "ollama:gemma3:1b", "ollama:llama3.2"] } } },
+      "Model": { "type": "object", "required": ["id", "ollama"], "properties": { "id": { "type": "string", "pattern": "^ollama:" }, "label": { "type": "string" }, "description": { "type": "string" }, "ollama": { "const": true } } },
+      "SearchResult": { "type": "object", "required": ["type", "identifier", "title", "subtitle", "href", "snippet"], "properties": { "type": { "type": "string" }, "identifier": { "type": "string" }, "title": { "type": "string" }, "subtitle": { "type": "string" }, "href": { "type": "string" }, "snippet": { "type": "string" }, "score": { "type": "number" } } },
+      "Theme": { "type": "object", "required": ["id", "name", "builtin", "vars"], "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "builtin": { "type": "boolean" }, "vars": { "type": "object", "additionalProperties": { "type": "string" } } } }
+    }
+  }
+}

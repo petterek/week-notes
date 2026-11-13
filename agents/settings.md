@@ -30,7 +30,7 @@ the declarative `render()` pattern.
 │ (list)   │   - Arbeidstid (per-day hours)        │
 │          │   - Møtetyper (types + icon picker)    │
 │          │   - Git (remote, branch, sync)         │
-│          │   - Indekser (search/embed stats)      │
+│          │   - Indekser (keyword-search stats)    │
 │          │   + Create / Clone / Delete actions    │
 └──────────┴───────────────────────────────────────┘
 ```
@@ -43,8 +43,8 @@ the declarative `render()` pattern.
 | --- | --- | --- |
 | `welcome` | 👋 Velkommen | Version info, changelog link |
 | `user` | 👤 Bruker | "Me" person key (maps `@me` to a real person) |
-| `embeddings` | 🔍 Søk | Search index settings + reindex button |
-| `summarize` | 📝 Oppsummer | AI summarize model config |
+| `search` | 🔍 Søk | Keyword-search index toggle |
+| `summarize` | 📝 Oppsummer | Ollama summary model and enabled state |
 | `crosscal` | 📅 Kalender | Cross-context calendar toggle |
 
 These are stored in the global `app-settings.json` (not per-context).
@@ -86,8 +86,7 @@ expandable `<details>` or tabbed regions.
 
 ### Indekser (Indexes)
 
-- Search index stats + reindex button
-- Embedding index stats + rebuild button
+- Keyword-search index cache statistics
 
 ---
 
@@ -136,8 +135,7 @@ Route modules: `routes/api/contexts.js`, `routes/api/misc.js`
 ```json
 {
   "searchIndex": { "enabled": true },
-  "embeddings": { "model": "...", "enabled": false },
-  "summarize": { "model": "...", "enabled": false },
+  "summarization": { "model": "ollama:gemma3", "enabled": false },
   "crossContextCalendar": { "enabled": false }
 }
 ```

@@ -45,8 +45,6 @@ function ensureStyles() {
         global-search .page-modal { display: none; position: fixed; inset: 0; background: var(--overlay); z-index: 1000; align-items: center; justify-content: center; }
         global-search .gs-card { background: var(--bg); border: 1px solid var(--border-soft); border-radius: 10px; padding: 18px 20px; width: min(720px, 92vw); max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px var(--shadow); }
         global-search .gs-input-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
-        global-search .gs-mode { display: inline-flex; align-items: center; gap: 4px; font-size: 0.85em; color: var(--text-muted); cursor: pointer; user-select: none; white-space: nowrap; }
-        global-search .gs-mode input { margin: 0; }
         global-search .gs-input { flex: 1; font-size: 1.05em; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-strong); outline: none; }
         global-search .gs-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent); }
         global-search .gs-close { background: none; border: none; font-size: 1.3em; cursor: pointer; color: var(--text-muted); }
@@ -106,10 +104,6 @@ class GlobalSearch extends WNElement {
                         <input id="gsInput" class="gs-input" type="text"
                             placeholder="Søk i notater, oppgaver, møter, personer, resultater…"
                             autocomplete="off" />
-                        <label class="gs-mode" title="Bruk semantisk søk (vektor-embeddings)">
-                            <input id="gsEmbed" type="checkbox" />
-                            <span>🧠 semantisk</span>
-                        </label>
                         <button class="gs-close" title="Lukk (Esc)" type="button">✕</button>
                     </div>
                     <div class="gs-toolbar" id="gsToolbar">
@@ -140,7 +134,6 @@ class GlobalSearch extends WNElement {
         const trigger = this.querySelector('.gs-trigger');
         const modal = this.querySelector('#globalSearchModal');
         const input = this.querySelector('#gsInput');
-        const embedToggle = this.querySelector('#gsEmbed');
         const resultsEl = this.querySelector('#gsResults');
         const closeBtn = this.querySelector('.gs-close');
         const toolbar = this.querySelector('#gsToolbar');
@@ -166,24 +159,6 @@ class GlobalSearch extends WNElement {
             toolbar.querySelectorAll('.gs-filter').forEach(b => b.classList.toggle('active', b.dataset.gsType === activeFilter));
             rerenderFiltered();
         });
-
-        try { embedToggle.checked = localStorage.getItem('gs.embed') === '1'; } catch {}
-
-        // Hide the 🧠 toggle entirely if semantic search is disabled in app
-        // settings. We re-check whenever the modal opens so toggling the
-        // setting in /settings shows up without a full reload.
-        const embedLabel = embedToggle.closest('.gs-mode');
-        const refreshEmbedAvailability = () => {
-            fetch('/api/embed/status').then(r => r.json()).then(d => {
-                const avail = d && d.phase && d.phase !== 'disabled';
-                if (embedLabel) embedLabel.style.display = avail ? '' : 'none';
-                if (!avail && embedToggle.checked) {
-                    embedToggle.checked = false;
-                    try { localStorage.setItem('gs.embed', '0'); } catch {}
-                }
-            }).catch(() => {});
-        };
-        refreshEmbedAvailability();
 
         let debounceTimer = null;
         let lastQuery = '';
@@ -282,8 +257,7 @@ class GlobalSearch extends WNElement {
             lastQuery = q;
             if (!q) { resultsEl.innerHTML = ''; lastRawData = []; updateFilterCounts([]); return; }
             const svc = this.service;
-            const useEmbed = !!embedToggle.checked;
-            const fn = useEmbed ? svc && svc.embedSearch : svc && svc.search;
+            const fn = svc && svc.search;
             if (!svc || typeof fn !== 'function') {
                 resultsEl.innerHTML = '<p style="color:var(--danger)">Søketjeneste ikke koblet til</p>';
                 return;
@@ -296,17 +270,10 @@ class GlobalSearch extends WNElement {
                 .catch(() => { resultsEl.innerHTML = '<p style="color:var(--danger)">Søkefeil</p>'; });
         };
 
-        embedToggle.addEventListener('change', () => {
-            try { localStorage.setItem('gs.embed', embedToggle.checked ? '1' : '0'); } catch {}
-            const q = input.value.trim();
-            if (q) doSearch(q);
-        });
-
         const open = (prefill) => {
             const evt = new CustomEvent('search:open', { bubbles: true, cancelable: true, detail: { prefill } });
             if (!this.dispatchEvent(evt)) return;
             modal.style.display = 'flex';
-            refreshEmbedAvailability();
             if (typeof prefill === 'string') input.value = prefill;
             setTimeout(() => { input.focus(); input.select(); }, 0);
             const q = input.value.trim();

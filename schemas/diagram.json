@@ -80,7 +80,7 @@
             "slug": "app-settings",
             "label": "app-settings",
             "x": 960, "y": 290, "w": 200, "h": 130,
-            "fields": ["vectorSearch", "searchIndex", "summarization"]
+            "fields": ["searchIndex", "summarization"]
         }
     ],
     "edges": [

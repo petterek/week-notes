@@ -7,16 +7,14 @@ module.exports = function(deps) {
     const _core = deps.core;
     const __dirname = deps.rootDir;
     const {
-        CONTEXTS_DIR, EMBED_MODELS, SUMMARIZE_MODELS, WEEK_NOTES_MARKER, computeNoteReferences, dataDir,
-        embedEmit, embedSseClients, getEmbedState, getDataContext,
+        CONTEXTS_DIR, SUMMARIZE_MODELS, WEEK_NOTES_MARKER, computeNoteReferences, dataDir,
+        getDataContext,
         getAppSettings, getCalendarActivity, getCurrentYearWeek,
-        getMePersonKey, getNoteMeta, git, gitCommitAll, gitInitIfNeeded, gitIsRepo, isEmbedReady,
+        getMePersonKey, getNoteMeta, git, gitCommitAll, gitInitIfNeeded, gitIsRepo,
         listContexts, loadTasks, meetingId, noteSnippet,
-        readJsonBody, restartEmbedWorker, restartSearchWorker, restartSummarizeWorker,
+        readJsonBody, restartSearchWorker,
         saveTasks, searchAll, searchViaWorker, setAppSettings, setMePersonKey, setNoteMeta,
-        stopEmbedWorker, stopSearchWorker, stopSummarizeWorker, summarizeEmit, summarizeSseClients,
-        getSummarizeState, summarizeWeek, syncMentions, syncTaskNoteRefs, vectorHitToSearchResult,
-        vectorSearchViaWorker, writeMarker,
+        stopSearchWorker, summarizeWeek, syncMentions, syncTaskNoteRefs, writeMarker,
     } = _core;
     return async function(req, res, ctx) {
         const { pathname, url } = ctx;
@@ -61,22 +59,6 @@ module.exports = function(deps) {
                 res.writeHead(500, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: e.message }));
             }
-        }
-        return;
-    }
-
-    if (pathname === '/api/embed-search' && req.method === 'GET') {
-        const q = (url.searchParams.get('q') || '').trim();
-        if (!q) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('[]'); return; }
-        if (!isEmbedReady()) { res.writeHead(503, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'embed-worker ikke klar' })); return; }
-        try {
-            const hits = await vectorSearchViaWorker(q);
-            const results = hits.map(vectorHitToSearchResult).filter(Boolean);
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(results));
-        } catch (e) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: e.message }));
         }
         return;
     }
@@ -131,66 +113,14 @@ module.exports = function(deps) {
         return;
     }
 
-    // App-wide settings (currently just vector-search). Per-context settings
-    // remain at /api/contexts/:id/settings.
+    // App-wide settings; per-context settings remain at /api/contexts/:id/settings.
     if (pathname === '/api/app-settings' && req.method === 'GET') {
-        const annotateLocal = (m) => {
-            const dir = path.join(__dirname, 'models', m.id.replace(/\//g, path.sep));
-            let downloaded = false;
-            try {
-                downloaded = fs.existsSync(path.join(dir, 'onnx', 'model_quantized.onnx'))
-                          || fs.existsSync(path.join(dir, 'onnx', 'model.onnx'));
-            } catch {}
-            return Object.assign({}, m, { downloaded });
-        };
-        const modelsAnnotated = EMBED_MODELS.map(annotateLocal);
-        // Ollama manages its own model files; only Xenova models are downloaded here.
-        const summarizeModelsAnnotated = SUMMARIZE_MODELS.map(m =>
-            m.ollama ? Object.assign({}, m, { downloaded: true }) : annotateLocal(m)
-        );
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             ok: true,
             settings: getAppSettings(),
-            models: modelsAnnotated,
-            summarizeModels: summarizeModelsAnnotated,
+            summarizeModels: SUMMARIZE_MODELS,
         }));
-        return;
-    }
-    if (pathname.match(/^\/api\/app-settings\/models\/(.+)$/) && req.method === 'DELETE') {
-        try {
-            const modelId = decodeURIComponent(pathname.match(/^\/api\/app-settings\/models\/(.+)$/)[1]);
-            const inEmbed = EMBED_MODELS.some(m => m.id === modelId);
-            const inSummarize = SUMMARIZE_MODELS.some(m => m.id === modelId);
-            if (!inEmbed && !inSummarize) {
-                res.writeHead(404, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: false, error: 'Ukjent modell' }));
-                return;
-            }
-            if (SUMMARIZE_MODELS.some(m => m.id === modelId && m.ollama)) {
-                res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: false, error: 'Ollama-modeller slettes med `ollama rm`.' }));
-                return;
-            }
-            const settings = getAppSettings();
-            if (inEmbed && settings.vectorSearch.enabled && settings.vectorSearch.model === modelId) {
-                res.writeHead(409, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: false, error: 'Kan ikke slette aktiv modell. Slå av først eller bytt modell.' }));
-                return;
-            }
-            if (inSummarize && settings.summarization.enabled && settings.summarization.model === modelId) {
-                res.writeHead(409, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ ok: false, error: 'Kan ikke slette aktiv modell. Slå av først eller bytt modell.' }));
-                return;
-            }
-            const dir = path.join(__dirname, 'models', modelId.replace(/\//g, path.sep));
-            try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { console.warn('rm model failed', e); }
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: true }));
-        } catch (e) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: false, error: e.message }));
-        }
         return;
     }
     if (pathname === '/api/app-settings' && req.method === 'PUT') {
@@ -198,22 +128,10 @@ module.exports = function(deps) {
             const body = await readJsonBody(req);
             const before = getAppSettings();
             const next = setAppSettings(body);
-            const vsChanged = before.vectorSearch.enabled !== next.vectorSearch.enabled
-                           || before.vectorSearch.model   !== next.vectorSearch.model;
-            if (vsChanged) {
-                if (next.vectorSearch.enabled) restartEmbedWorker();
-                else { stopEmbedWorker(); embedEmit({ phase: 'disabled', model: next.vectorSearch.model, progress: null, error: null, docCount: 0 }); }
-            }
             const siChanged = before.searchIndex.enabled !== next.searchIndex.enabled;
             if (siChanged) {
                 if (next.searchIndex.enabled) restartSearchWorker();
                 else stopSearchWorker();
-            }
-            const sumChanged = before.summarization.enabled !== next.summarization.enabled
-                            || before.summarization.model   !== next.summarization.model;
-            if (sumChanged) {
-                if (next.summarization.enabled) restartSummarizeWorker();
-                else { stopSummarizeWorker(); summarizeEmit({ phase: 'disabled', model: next.summarization.model, progress: null, error: null }); }
             }
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: true, settings: next }));
@@ -221,31 +139,6 @@ module.exports = function(deps) {
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: false, error: e.message }));
         }
-        return;
-    }
-    if (pathname === '/api/embed/status' && req.method === 'GET') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(Object.assign({ ok: true }, getEmbedState())));
-        return;
-    }
-    if (pathname === '/api/summarize/status' && req.method === 'GET') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(Object.assign({ ok: true }, getSummarizeState())));
-        return;
-    }
-    if (pathname === '/api/summarize/events' && req.method === 'GET') {
-        res.writeHead(200, {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'X-Accel-Buffering': 'no',
-        });
-        res.write(`data: ${JSON.stringify(getSummarizeState())}\n\n`);
-        summarizeSseClients.add(res);
-        const keepalive = setInterval(() => { try { res.write(': ping\n\n'); } catch {} }, 30000);
-        const cleanup = () => { clearInterval(keepalive); summarizeSseClients.delete(res); };
-        req.on('close', cleanup);
-        req.on('error', cleanup);
         return;
     }
     // Per-context index stats: read on-disk caches and report sizes.
@@ -268,7 +161,6 @@ module.exports = function(deps) {
                 }
             };
             const search = readCache('search-index.json');
-            const embed  = readCache('embeddings.json');
             const isActive = id === getDataContext();
             const out = {
                 ok: true,
@@ -282,40 +174,12 @@ module.exports = function(deps) {
                     tokens:      search.exists && search.data && search.data.tokens ? Object.keys(search.data.tokens).length : null,
                     version:     search.exists && search.data ? search.data.version : null,
                 },
-                embed: {
-                    cacheExists: embed.exists,
-                    sizeBytes:   embed.exists ? embed.sizeBytes : 0,
-                    mtime:       embed.exists ? embed.mtime : null,
-                    docs:        embed.exists && embed.data && embed.data.entries ? Object.keys(embed.data.entries).length : null,
-                    model:       embed.exists && embed.data ? embed.data.model || null : null,
-                    dim:         embed.exists && embed.data ? embed.data.dim || null : null,
-                },
-                liveEmbed: isActive ? { phase: getEmbedState().phase, docCount: getEmbedState().docCount, model: getEmbedState().model } : null,
             };
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(out));
             return;
         }
     }
-    // SSE: stream live embed-worker state (load progress, ready, errors).
-    // The same payload as /api/embed/status is emitted on every change.
-    if (pathname === '/api/embed/events' && req.method === 'GET') {
-        res.writeHead(200, {
-            'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache',
-            'Connection': 'keep-alive',
-            'X-Accel-Buffering': 'no',
-        });
-        res.write(`data: ${JSON.stringify(getEmbedState())}\n\n`);
-        embedSseClients.add(res);
-        const keepalive = setInterval(() => { try { res.write(': ping\n\n'); } catch {} }, 30000);
-        const cleanup = () => { clearInterval(keepalive); embedSseClients.delete(res); };
-        req.on('close', cleanup);
-        req.on('error', cleanup);
-        return;
-    }
-
-
     // ----- New-note draft (no filename yet) ---------------------------------
     //
     // While the user is composing a brand-new note, we don't want to commit to a

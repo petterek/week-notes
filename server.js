@@ -4,6 +4,7 @@ const http = require('http');
 const _core = require('./lib/core');
 const _dates = require('./lib/dates');
 const { HttpError, sendJson } = require('./lib/http');
+const createApiDocs = require('./routes/api-docs');
 
 // --- lifecycle diagnostics --------------------------------------------------
 // The server has been observed to "stop" without leaving a crash trace. These
@@ -49,14 +50,13 @@ const {
     rebuildTaskNoteRefs,
     autoSelectSummarizeModel,
     startSearchWorker,
-    startEmbedWorker,
-    startSummarizeWorker,
 } = _core;
 
 const deps = { core: _core, dates: _dates, rootDir: __dirname };
 
 // Order matters — most-specific / static first, then per-domain APIs, then page catch-alls.
 const handlers = [
+    createApiDocs(deps),
     require('./routes/static-early')(deps),
     require('./routes/spa')(deps),
     require('./routes/debug-static')(deps),
@@ -87,6 +87,7 @@ const server = http.createServer(async (req, res) => {
         // First-run guard: if no contexts exist, force the user onto /welcome.
         if (listContexts().length === 0) {
             const allowed = pathname === '/welcome'
+                || createApiDocs.isApiDocsPath(pathname)
                 || pathname === '/welcome.css'
                 || pathname.startsWith('/themes/')
                 || pathname.startsWith('/api/contexts');
@@ -124,7 +125,6 @@ server.listen(PORT, () => {
     try { ensureAllContextsInitialised(); } catch (e) { console.error('ctx init', e.message); }
     try { rebuildTaskNoteRefs(); } catch (e) { console.error('rebuildTaskNoteRefs', e.message); }
     startSearchWorker();
-    startEmbedWorker();
-    autoSelectSummarizeModel(); // probes Ollama async, then calls startSummarizeWorker
+    autoSelectSummarizeModel();
     console.log('Press Ctrl+C to stop');
 });

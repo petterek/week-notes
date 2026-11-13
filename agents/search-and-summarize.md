@@ -62,16 +62,6 @@ week as `summarize.md`.
   messages or exit events from a terminated instance must not clear a
   replacement worker or complete its pending requests.
 
-### Vector-search ownership
-
-The embedding worker still owns a single context. Its initialization
-directory and every `buildEmbedDocs()` call use that captured id, not
-the context of whichever request happened to trigger reindexing.
-`isEmbedReady()` also checks the caller's context. `/api/embed-search`
-returns 503 when the current worker belongs to another context; it must
-never hydrate another workspace's documents. Context switching restarts
-the embedding worker when vector search is enabled.
-
 ### Frontend (global search modal)
 
 - The shared navbar mounts `<global-search>` from
@@ -121,26 +111,21 @@ the `href` builder in `searchAll` accordingly.
 
 - Endpoint: `POST /api/summarize` body `{week}`.
 - Backend helper: `summarizeWeek(week)` in `lib/core.js`. Concatenates
-  every note in the week into a context, then prompts an LLM (or
-  whichever backend is configured) and returns the result.
+  every note in the week into a context, prompts local Ollama and
+  returns the result.
 - The home week section has an `✨ Oppsummering` button that opens
   `#summaryModal`. The modal lets the user accept and save — saving
   writes the result to `summarize.md` in that week's folder.
 - The shared app-shell handler saves accepted summaries through `/api/save`.
 
-### Model types
+### Ollama models
 
-Two flavours, selected in App-settings → Oppsummering. The list, auto-select
+Models are selected in App-settings → Oppsummering. The list, auto-select
 priority and `pickOllamaSummarizeModel` live in `lib/summarize-models.js`.
 Summarization must be enabled: `/api/summarize` returns 409 otherwise
-(there is no remote fallback; GitHub Models was retired 2026-07-30).
+(there is no other backend or remote fallback).
 
-| Flag | Examples | How it runs |
-|---|---|---|
-| `ollama: true` | `ollama:qwen3.5:9b`, `ollama:gemma4:12b`, `ollama:gpt-oss:20b`, `ollama:gemma3`, … | HTTP to `localhost:11434` (Ollama); no token, no download |
-| _(neither)_ | `Xenova/distilbart-cnn-6-6`, etc. | `@huggingface/transformers` via Worker thread; model files cached in `models/` |
-
-**Ollama path** (`isOllamaSummarizeModel`):
+**Ollama request**:
 - Uses a richly-instructed Norwegian prompt (chat models understand
   instructions; seq2seq models do not).
 - Calls `http://127.0.0.1:11434/v1/chat/completions` with `stream: false`.
@@ -149,9 +134,19 @@ Summarization must be enabled: `/api/summarize` returns 409 otherwise
 - To use: `ollama pull qwen3.5:9b` then activate in Settings.
 - Startup (`autoSelectSummarizeModel`) keeps the configured Ollama model if it
   is installed (exact tag; untagged ids match `:latest`), otherwise switches to
-  the first installed id in `OLLAMA_AUTO_PRIORITY`. It never switches away
-  from a missing Ollama; summaries then fail with the Ollama error.
+  the first installed id in `OLLAMA_AUTO_PRIORITY`. Disabled summaries do not
+  contact Ollama or become enabled automatically. If Ollama is unavailable,
+  summaries fail with an explicit error.
 - Settings UI shows `🦙 Ollama` status cell; size column shows `—`.
+- Models are installed and removed through Ollama, not this app.
+
+Vector search, transformer-model summaries, model-download management and
+their worker status/SSE endpoints have been removed. Ordinary keyword
+search and existing saved summaries are unchanged. Legacy `vectorSearch`
+settings are omitted on read and dropped on the next settings save;
+unsupported saved summary models disable summaries with a server warning
+until an Ollama model is selected. New retired options are rejected with 400.
+Existing `models/` files and embedding caches are left on disk, untouched.
 
 ## Code map
 

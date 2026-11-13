@@ -35,6 +35,64 @@ function runWithCore(source, setup = '') {
     });
 }
 
+test('retired AI settings disable unsupported summaries without deleting data or enabling Ollama', () => {
+    const settings = {
+        vectorSearch: { enabled: true, model: 'Xenova/multilingual-e5-small' },
+        summarization: { enabled: true, model: 'Xenova/distilbart-cnn-6-6' },
+        crossContextCalendar: { enabled: true },
+    };
+    fs.writeFileSync(path.join(root, 'app-settings.json'), JSON.stringify(settings));
+    runWithCore(`
+        const settings = core.getAppSettings();
+        assert.equal(settings.vectorSearch, undefined);
+        assert.equal(settings.summarization.enabled, false);
+        assert.equal(settings.summarization.model, 'ollama:gemma3');
+        assert.equal(settings.crossContextCalendar.enabled, true);
+        core.http.request = () => { throw new Error('disabled summaries must not contact Ollama'); };
+        core.autoSelectSummarizeModel();
+        assert.equal(JSON.parse(fs.readFileSync(core.APP_SETTINGS_FILE)).vectorSearch.enabled, true);
+        core.setAppSettings({ searchIndex: { enabled: true } });
+        assert.equal(JSON.parse(fs.readFileSync(core.APP_SETTINGS_FILE)).vectorSearch, undefined);
+    `);
+});
+
+test('Ollama summaries retain the weekly prompt and surface connection failures', () => {
+    runWithCore(`
+        (async () => {
+            core.setAppSettings({ summarization: { enabled: true, model: 'ollama:gemma3' } });
+            core.saveTasks([{ id: 'summary-task', text: 'Synthetic weekly task', week: '2099-W01', done: false }]);
+            let payload;
+            core.http.request = (options, callback) => {
+                assert.equal(options.hostname, '127.0.0.1');
+                assert.equal(options.port, 11434);
+                assert.equal(options.path, '/v1/chat/completions');
+                const req = new EventEmitter();
+                req.write = body => { payload = JSON.parse(body); };
+                req.end = () => {
+                    const res = new EventEmitter();
+                    res.statusCode = 200;
+                    callback(res);
+                    res.emit('data', JSON.stringify({ choices: [{ message: { content: '\`\`\`markdown\\n## Synthetic summary\\n\`\`\`' } }] }));
+                    res.emit('end');
+                };
+                return req;
+            };
+            assert.equal(await core.summarizeWeek('2099-W01'), '## Synthetic summary');
+            assert.equal(payload.model, 'gemma3');
+            assert.equal(payload.stream, false);
+            assert.match(payload.messages[1].content, /Synthetic weekly task/);
+            assert.match(payload.messages[1].content, /Skriv oppsummeringen på norsk/);
+            core.http.request = () => {
+                const req = new EventEmitter();
+                req.write = () => {};
+                req.end = () => req.emit('error', new Error('synthetic unavailable'));
+                return req;
+            };
+            await assert.rejects(core.summarizeWeek('2099-W01'), /Ollama ikke tilgjengelig/);
+        })().catch(error => { console.error(error); process.exitCode = 1; });
+    `, `const { EventEmitter } = require('node:events');`);
+});
+
 test('collection reads do not expose nested cached records to mutation', () => {
     runWithCore(`
         core.saveMeetingSeries([{ id: 'series-a', agendaItems: [{ id: 'item-a', state: 'queued' }] }]);
@@ -259,53 +317,6 @@ test('search never returns the globally indexed context for another request', ()
                 core.stopSearchWorker();
             }
         })().catch(error => { console.error(error); process.exitCode = 1; });
-    `);
-});
-
-test('embedding workers retain their own context and ignore retired worker callbacks', () => {
-    for (const id of ['alpha', 'beta']) {
-        const dir = path.join(root, id, '2099-W01');
-        fs.mkdirSync(dir);
-        fs.writeFileSync(path.join(dir, 'note.md'), '# Needle ' + id);
-    }
-    fs.writeFileSync(path.join(root, 'app-settings.json'), JSON.stringify({
-        vectorSearch: { enabled: true },
-    }));
-    runWithCore(`
-        (async () => {
-            core.startEmbedWorker();
-            const alpha = workers[0];
-            alpha.emit('message', { type: 'ready', model: 'fake', cached: 0, ms: 0, docCount: 1 });
-            assert.equal(core.isEmbedReady(), true);
-            await core.runWithDataContext('beta', async () => {
-                assert.equal(core.isEmbedReady(), false);
-                await assert.rejects(core.vectorSearchViaWorker('Needle'), /denne konteksten/);
-                core.reindexEmbeddings();
-                const index = alpha.messages.filter(message => message.type === 'index').at(-1);
-                assert.ok(index.docs.some(doc => doc.text.includes('alpha')));
-                assert.ok(index.docs.every(doc => !doc.text.includes('beta')));
-                core.restartEmbedWorker();
-                const beta = workers[1];
-                alpha.emit('exit', 0);
-                alpha.emit('message', { type: 'ready' });
-                assert.equal(core.isEmbedReady(), false);
-                beta.emit('message', { type: 'ready', model: 'fake', cached: 0, ms: 0, docCount: 1 });
-                assert.equal(core.isEmbedReady(), true, 'retired worker exit cleared the replacement');
-                const nextIndex = beta.messages.filter(message => message.type === 'index').at(-1);
-                assert.ok(nextIndex.docs.some(doc => doc.text.includes('beta')));
-                assert.ok(nextIndex.docs.every(doc => !doc.text.includes('alpha')));
-            });
-            assert.equal(core.isEmbedReady(), false);
-            core.stopEmbedWorker();
-        })().catch(error => { console.error(error); process.exitCode = 1; });
-    `, `
-        const { EventEmitter } = require('node:events');
-        const workers = [];
-        require('node:worker_threads').Worker = class extends EventEmitter {
-            constructor() { super(); this.messages = []; workers.push(this); }
-            postMessage(message) { this.messages.push(message); }
-            terminate() { return Promise.resolve(0); }
-        };
     `);
 });
 

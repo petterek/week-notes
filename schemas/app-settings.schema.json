@@ -2,18 +2,6 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "properties": {
-    "vectorSearch": {
-      "type": "object",
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "model": {
-          "type": "string",
-          "description": "HF model id, e.g. Xenova/multilingual-e5-base"
-        }
-      }
-    },
     "searchIndex": {
       "type": "object",
       "properties": {
@@ -29,7 +17,12 @@
           "type": "boolean"
         },
         "model": {
-          "type": "string"
+          "type": "string",
+          "description": "Ollama model managed outside the app",
+          "enum": [
+            "ollama:qwen3.5:9b", "ollama:gemma4:12b", "ollama:gpt-oss:20b",
+            "ollama:gemma3", "ollama:gemma4", "ollama:gemma3:1b", "ollama:llama3.2"
+          ]
         }
       }
     }

@@ -59,6 +59,7 @@ const STYLES = `
     .mo-agenda-item .row1 { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
     .mo-agenda-item .title { flex: 1; font-weight: 600; }
     .mo-agenda-item feature-rich-text-area { display: block; margin-top: 4px; }
+    .mo-agenda-note-date { margin: 4px 0; color: var(--text-subtle); font-size: 0.85em; }
     .mo-outcome-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
     .mo-outcome-btn { padding: 4px 10px; border-radius: 12px; border: 1px solid var(--border-soft); background: var(--surface-alt); color: var(--text-muted); cursor: pointer; font: inherit; font-size: 0.8em; }
     .mo-outcome-btn:hover { border-color: var(--accent); }
@@ -494,10 +495,17 @@ class MeetingOccurrencePage extends WNElement {
                         <div class="mo-prev-note"><span class="mo-prev-note-date">${n.date}</span><div class="rich-text">${unsafeHTML(renderRichText(n.notes))}</div></div>
                     `)}</div>
                 ` : ''}
-                <feature-rich-text-area placeholder="Notater…" data-agenda="${a.agendaItemId}" rows="2" features="lists,emoji,mentions,dates" value="${this._agendaDrafts?.[a.agendaItemId] ?? a.notes ?? ''}" ${closed ? 'readonly' : ''}
-                    people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
-                    companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
-                    teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"></feature-rich-text-area>
+                ${closed ? html`
+                    <div class="mo-agenda-notes">
+                        <h3 class="mo-agenda-note-date">${this._meeting.date}</h3>
+                        <div class="rich-text">${unsafeHTML(renderRichText(a.notes || ''))}</div>
+                    </div>
+                ` : html`
+                    <feature-rich-text-area placeholder="Notater…" data-agenda="${a.agendaItemId}" rows="2" features="lists,emoji,mentions,dates" value="${this._agendaDrafts?.[a.agendaItemId] ?? a.notes ?? ''}"
+                        people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
+                        companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
+                        teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"></feature-rich-text-area>
+                `}
                 <div class="mo-outcome-btns">
                     ${outcomes.map(o => html`
                         <button type="button" class="mo-outcome-btn ${a.outcome === o ? 'on' : ''}" data-item="${a.agendaItemId}" data-outcome="${o}" data-current="${a.outcome || ''}" ${closed ? 'disabled' : ''}>${OUTCOME_LABEL[o]}</button>

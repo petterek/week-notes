@@ -707,6 +707,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
         <nav class="dbg-nav">
             <a href="/debug">← components</a>
             <a href="/debug/services">services</a>
+            <a href="/api-explorer">API explorer</a>
         </nav>
     </aside>
     <main class="dbg-main">
@@ -921,6 +922,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
             <nav class="dbg-nav">
                 <a href="/debug">← components</a>
                 <a href="/debug/services">services</a>
+                <a href="/api-explorer">API explorer</a>
             </nav>
         </aside>`;
 
@@ -1128,6 +1130,7 @@ ${SERVICES.map(s => `            ${JSON.stringify(s.global)}: ${s.global},`).joi
                 <a href="/debug/services">services</a>
                 <a href="/debug/data-shapes">data shapes</a>
                 <a href="/debug/tests" class="active">tests</a>
+                <a href="/api-explorer">API explorer</a>
             </nav>
             <p style="font-size:0.82em;color:var(--text-muted);margin-top:14px">
                 Scenarios are defined in
@@ -2679,7 +2682,7 @@ modal.open();</pre>
             },
             'global-search': {
                 desc: `<p><strong>&lt;global-search&gt;</strong> is the singleton command-bar / search modal triggered from the navbar's 🔍 button or <kbd>Ctrl+K</kbd>. Light-DOM via <code>&lt;slot&gt;</code> so server-rendered shell HTML stays styled.</p>
-                    <p><strong>Domain:</strong> <code>search</code> &mdash; from <code>search_service</code>. The service is expected to expose <code>search(text) → results</code> and (optionally) <code>embedSearch(text) → results</code> for the embedding-based mode toggle.</p>
+                    <p><strong>Domain:</strong> <code>search</code> &mdash; from <code>search_service</code>. The service exposes <code>search(text) → results</code> for keyword search.</p>
                     <p><strong>API.</strong> <code>openSearch()</code>, <code>closeSearch()</code>. Also responds to the window event <code>search:open</code>.</p>
                     <p><strong>Lifecycle.</strong> Debounced query as the user types; arrow-key navigation through results; Enter activates. Esc / backdrop click closes.</p>
                     <p><strong>Events</strong> (cancelable, bubbling, composed):</p>
@@ -2976,6 +2979,7 @@ modal.open();</pre>
                 <a href="/debug/services">services</a>
                 <a href="/debug/data-shapes">data shapes</a>
                 <a href="/debug/tests">tests</a>
+                <a href="/api-explorer">API explorer</a>
             </nav>
         </aside>`;
 

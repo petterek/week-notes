@@ -130,8 +130,8 @@ test('extracted shell still routes entity callout selections', async ({ page }) 
             detail: { key: 'ada' }, bubbles: true, composed: true,
         }));
     });
-    await expect(page).toHaveURL(/\/people#p-ada$/);
-    await expect(page.locator('people-page')).toBeVisible();
+    await expect(page).toHaveURL(/\/tasks$/);
+    await expect(page.locator('#personViewModal[open] people-page[person-key="ada"]')).toBeVisible();
     expect(await page.evaluate(() => window.shellNavigationMarker)).toBe('same document');
 });
 

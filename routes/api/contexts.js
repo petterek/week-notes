@@ -6,10 +6,10 @@ module.exports = function(deps) {
     const __dirname = deps.rootDir;
     const {
         CONTEXTS_DIR, _cacheInvalidateContext, cloneContext, createContext, disconnectContext,
-        forgetDisconnected, getAppSettings, getContextSettings, getContextThemes, git, gitCommitAll,
+        forgetDisconnected, getContextSettings, getContextThemes, git, gitCommitAll,
         gitCurrentBranch, gitGetRemote, gitInitIfNeeded, gitIsDirty, gitIsRepo, gitLastCommit, gitPull,
         gitPush, listContexts, loadDisconnected, loadMeetingTypes, pullContextRemote,
-        rebuildTaskNoteRefs, reindexSearch, restartEmbedWorker, safeName, saveMeetingTypes,
+        rebuildTaskNoteRefs, reindexSearch, safeName, saveMeetingTypes,
         setActiveContext, setContextSettings,
     } = _core;
     return async function(req, res, ctx) {
@@ -84,7 +84,6 @@ module.exports = function(deps) {
                 try { pullContextRemote(next); } catch (e) { console.error('bg pull', e.message); }
                 try { rebuildTaskNoteRefs(); } catch (e) { console.error('rebuildTaskNoteRefs', e.message); }
                 reindexSearch();
-                if (getAppSettings().vectorSearch.enabled) restartEmbedWorker();
             }));
         } catch (e) {
             res.writeHead(400, { 'Content-Type': 'application/json' });

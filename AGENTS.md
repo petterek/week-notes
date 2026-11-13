@@ -57,7 +57,7 @@ Stack:
 │   ├── note-render.js   # catch-all GET /:week/:file.md (renders markdown)
 │   ├── assets-late.js   # /components/*.js, /style.css, /mention-autocomplete.js
 │   └── api/
-│       ├── misc.js      # /api/summarize, /api/search, /api/me, /api/app-settings, /api/embed*, /api/save*
+│       ├── misc.js      # /api/summarize (Ollama), /api/search, /api/me, /api/app-settings, /api/save*
 │       ├── tasks.js     # /api/tasks*, including /merge /reorder /:id/toggle /:id/close-from-note
 │       ├── results.js   # /api/results*
 │       ├── goals.js     # /api/goals*
@@ -70,6 +70,7 @@ Stack:
 │       ├── contexts.js  # /api/contexts*, including settings/git/migrations subpaths
 │       └── notes.js     # /api/notes/* (render, meta, history, raw, pin, card, delete) + /api/weeks /api/week/:id
 ├── README.md          # user-facing docs + changelog
+├── openapi.json       # OpenAPI 3.1 contract for implemented HTTP APIs
 ├── AGENTS.md          # this file — start here
 ├── agents/            # per-feature deep-dives (read the relevant ones)
 │   ├── notes.md
@@ -84,6 +85,7 @@ Stack:
 │   ├── presentations.md
 │   ├── help.md
 │   ├── tests.md
+│   ├── api-docs.md
 │   ├── themes.md
 │   ├── tags.md
 │   ├── teams.md
@@ -92,7 +94,7 @@ Stack:
 │   └── search-and-summarize.md
 ├── help.md            # in-app help, served at /help.md and rendered in a modal
 ├── run.sh             # start helper (checks if already running)
-├── package.json       # markdown/emoji + optional local AI dependencies; Playwright for tests
+├── package.json       # markdown/emoji + Swagger UI; Playwright for tests
 ├── domains/           # domain components + injectable browser services
 ├── components/        # shared Web Components
 ├── pages/             # SPA HTML fragments
@@ -153,6 +155,7 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3001/settings
 | `/calendar` (or `/calendar/YYYY-WNN`) | Week-view calendar, full width |
 | `/api/meetings/import` | Import UTF-8 iCalendar/vCalendar into the selected context; only explicit VEVENTs, skip duplicate UIDs |
 | `/people` | People directory (CRM-lite) |
+| `/person/:key` | Standalone person details, references and editing |
 | `/results` | Result/outcome log |
 | `/settings` | Master/detail context settings (full width) |
 | `/meeting-series` | Recurring meeting series dashboard (agenda queue, occurrence history) |
@@ -161,6 +164,8 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3001/settings
 | `/help.md` | Raw markdown for the help modal |
 | `/meetings/:id/minutes` | Printable/PDF meeting minutes export |
 | `/api/...` | JSON APIs (people, tasks, meetings, meeting-series, contexts/:id/settings, contexts/:id/meeting-types, contexts/switch, …) |
+| `/openapi.json` | Complete OpenAPI 3.1 contract |
+| `/api-explorer` | Interactive, locally served Swagger UI |
 
 Meeting-series queue order is saved via
 `POST /api/meeting-series/:id/agenda/reorder` with `{ids}` covering exactly
@@ -202,6 +207,22 @@ for an optional decision, created with its `agendaItemId` in the same POST;
 skipping the prompt must not undo the resolved outcome.
 
 ### Adding/moving a route
+
+`openapi.json` is the API contract, not a generated storage-schema dump.
+Update its operations, request/response schemas and error statuses when
+changing an API. Preserve implemented wire formats (including task arrays,
+legacy error envelopes and PUT-as-partial-update semantics); documentation
+must not silently redesign them. `tests/playwright/api-docs.spec.js`
+validates the document, checks API path coverage and verifies representative
+real responses.
+
+`routes/api-docs.js` serves only an explicit set of spec/explorer assets.
+Its `isApiDocsPath` helper also allows documentation through the first-run
+guard when no contexts exist. Swagger UI assets come from `swagger-ui-dist`;
+do not use a CDN or enable its remote validator/query-config loading.
+The explorer wraps the Execute component to confirm mutations before UI
+loading state begins, so cancellation remains retryable. Requests use the
+normal context cookie and are not a sandbox.
 
 Routes live in `routes/` modules grouped by URL prefix or domain. Each
 module exports `(deps) => async (req, res, ctx) => void | true`, where `ctx`
@@ -263,6 +284,11 @@ do not retain a read-modify-write snapshot across another `await`.
 - The entity-callout bridge must move with the shell, not just the SPA
   router. Detached documents still need their own component registrations;
   `domains/_shared/wn-markdown-preview.js` handles those.
+- Person links open `window.openPersonViewModal(key)` without changing the
+  current URL. Direct URLs and modified clicks retain `/person/:key`.
+  The modal reuses `<people-page standalone person-key="…">`; keep
+  `person:changed` connected to mounted pages' caches and preserve nested
+  editor Escape/focus behavior. See `agents/people.md`.
 
 ### Server-side template strings
 - Pages are built by concatenating big `` ` ` `` template strings.
@@ -425,8 +451,11 @@ do not retain a read-modify-write snapshot across another `await`.
   create independent per-tab identities.
 - Full-text queries carry an explicit context directory to the worker,
   which indexes and queries that context in one synchronous message.
-  Vector search is available only for the embedding worker's own context;
-  another context gets 503, not results from the wrong index.
+- Keyword search is the only search backend. Summaries use local Ollama;
+  no embedding/transformer workers, model downloads or AI status/SSE APIs.
+  Unsupported saved summary models disable summaries with a warning;
+  never auto-enable summaries during startup selection. Leave existing
+  model files, caches and saved summaries untouched.
 
 ### Storage and cache safety
 - Use `lib/data-paths.js` in the server and maintenance scripts so

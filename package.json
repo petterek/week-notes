@@ -10,12 +10,14 @@
   },
   "type": "commonjs",
   "dependencies": {
-    "@huggingface/transformers": "^4.3.0",
     "marked": "^17.0.5",
     "marked-emoji": "^2.0.3",
-    "node-emoji": "^2.2.0"
+    "node-emoji": "^2.2.0",
+    "swagger-ui-dist": "^5.34.1"
   },
   "devDependencies": {
-    "@playwright/test": "^1.59.1"
+    "@apidevtools/swagger-parser": "12.1.0",
+    "@playwright/test": "^1.59.1",
+    "ajv": "^8.17.1"
   }
 }

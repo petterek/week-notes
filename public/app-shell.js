@@ -62,9 +62,65 @@
         if (window.SPA && typeof window.SPA.navigate === 'function') window.SPA.navigate(url);
         else window.location.assign(url);
     }
+    window.openPersonViewModal = function(key) {
+        if (!key) return;
+        var trigger = document.activeElement;
+        while (trigger && trigger.shadowRoot && trigger.shadowRoot.activeElement) trigger = trigger.shadowRoot.activeElement;
+        var existing = document.getElementById('personViewModal');
+        if (existing) existing.close('replaced');
+        var modal = document.createElement('modal-container');
+        modal.id = 'personViewModal';
+        modal.setAttribute('size', 'lg');
+        modal.setAttribute('no-escape-close', '');
+        var title = document.createElement('span');
+        title.slot = 'title';
+        title.textContent = 'Person';
+        modal.appendChild(title);
+        var profile = document.createElement('people-page');
+        profile.setAttribute('standalone', '');
+        profile.setAttribute('person-key', key);
+        ['people', 'companies', 'teams', 'tasks', 'meetings', 'results'].forEach(function(name) {
+            profile.setAttribute(name + '_service', 'week-note-services.' + name + '_service');
+        });
+        modal.appendChild(profile);
+        function escape(e) {
+            if (e.key === 'Escape' && !e.defaultPrevented) modal.close('escape');
+        }
+        window.addEventListener('keydown', escape);
+        modal.addEventListener('modal-close', function(e) {
+            if (e.target !== modal) return;
+            window.removeEventListener('keydown', escape);
+            modal.remove();
+            if (trigger && trigger.isConnected) trigger.focus();
+        });
+        document.body.appendChild(modal);
+        customElements.whenDefined('modal-container').then(function() {
+            if (!modal.isConnected) return;
+            modal.open();
+            modal.shadowRoot.querySelector('.close').focus();
+        });
+    };
+    document.addEventListener('spa:navigated', function() {
+        var modal = document.getElementById('personViewModal');
+        if (modal) modal.close('navigation');
+    });
+    document.addEventListener('click', function(e) {
+        if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        var a = e.composedPath().find(function(node) { return node.matches && node.matches('a[href]'); });
+        if (!a || a.hasAttribute('download') || (a.target && a.target !== '_self')) return;
+        var url = new URL(a.href, location.href);
+        var match = url.pathname.match(/^\/person\/([^/]+)$/);
+        if (url.origin !== location.origin || !match) return;
+        var key;
+        try { key = decodeURIComponent(match[1]); }
+        catch (error) { console.error('Invalid person link:', error); return; }
+        e.preventDefault();
+        window.openPersonViewModal(key);
+    });
     document.addEventListener('select-person', function(e){
         var key = (e.detail && e.detail.key) || '';
-        nav('/people' + (key ? '#p-' + encodeURIComponent(key) : ''));
+        if (key) window.openPersonViewModal(key);
+        else nav('/people');
     });
     document.addEventListener('select-company', function(e){
         var key = (e.detail && e.detail.key) || '';
@@ -460,7 +516,7 @@
             fetch('/api/companies').then(function(r){ return r.ok ? r.json() : []; }).then(function(companies){
                 var isCompany = (companies || []).some(function(c){ return c.key === id; });
                 if (isCompany) go('/people#tab=companies&key=' + encodeURIComponent(id));
-                else go('/people#p-' + encodeURIComponent(id));
+                else window.openPersonViewModal(id);
             }).catch(function(){ go('/people'); });
         });
 
@@ -732,8 +788,8 @@
                 fetch('/api/companies').then(function(r){ return r.ok ? r.json() : []; }).then(function(companies){
                     var isCompany = (companies || []).some(function(c){ return c.key === id; });
                     if (isCompany) go('/people#tab=companies&key=' + encodeURIComponent(id));
-                    else go('/people#p-' + encodeURIComponent(id));
-                }).catch(function(){ go('/people#p-' + encodeURIComponent(id)); });
+                    else window.openPersonViewModal(id);
+                }).catch(function(){ window.openPersonViewModal(id); });
             } else if (t === 'task') {
                 go('/tasks#t-' + encodeURIComponent(id));
             } else if (t === 'result') {
