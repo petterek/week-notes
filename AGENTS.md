@@ -565,8 +565,10 @@ do not retain a read-modify-write snapshot across another `await`.
   explorer, readable closed meeting notes and keyword/Ollama-only AI).
 - Release tag: `v5.9` → `998b044` (timestamped task comment
   history shared across task details, home and meeting series).
-- Latest release tag: `v5.10` → `aedf4a0` (documentation-only:
+- Release tag: `v5.10` → `aedf4a0` (documentation-only:
   compact README and complete release history in CHANGELOG.md).
+- Latest release tag: `v5.11` → `dd73998` (GitHub setup workflow
+  removed; validation remains local with Playwright).
 
 ---
 
