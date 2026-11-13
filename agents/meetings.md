@@ -143,6 +143,11 @@ next time), and export the minutes to PDF. Plain one-off meetings
 
 ### Storage
 
+Closed occurrences show each agenda item's saved notes as rendered Markdown
+in a div under a date heading, not a read-only editor. Open/reopened meetings
+keep the editable notes and autosave behavior. The free-text minutes section
+is unchanged.
+
 The series dashboard updates its cached series list from successful
 create/edit/archive and agenda mutation responses, without refetching
 occurrences, tasks or reference data. Agenda deletion returns

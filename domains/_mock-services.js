@@ -254,7 +254,7 @@
             .replace(/^## (.+)$/gm, '<h2>$1</h2>')
             .replace(/^- (.+)$/gm, '<li>$1</li>')
             .replace(/(<li>[\s\S]*?<\/li>)+/g, m => '<ul>' + m + '</ul>')
-            .replace(/@([a-z0-9_-]+)/gi, '<a class="mention-link" data-person-key="$1" href="#">@$1</a>')
+            .replace(/@([a-z0-9_-]+)/gi, '<a class="mention-link" data-person-key="$1" href="/person/$1">@$1</a>')
             .replace(/\n\n/g, '</p><p>')
             .replace(/^/, '<p>').replace(/$/, '</p>');
     }
@@ -369,7 +369,7 @@
                         identifier: p.key || '',
                         title: display,
                         subtitle: p.title || p.email || '@' + (p.key || ''),
-                        href: '/people#p-' + encodeURIComponent(p.key || ''),
+                        href: '/person/' + encodeURIComponent(p.key || ''),
                         snippet: p.notes || ''
                     });
                 }

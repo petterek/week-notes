@@ -65,7 +65,6 @@ const STYLES = `
     .app-tab-panel { display: none; }
     .app-tab-panel.is-active { display: block; }
     .app-card { background: transparent; border: 0; border-radius: 0; padding: 0; position: relative; }
-    .app-sep { border: 0; border-top: 1px solid var(--border-soft); margin: 14px 0; }
     .app-card.welcome h3 { margin: 0 0 6px; font-size: 1.05em; color: var(--text-strong); }
     .app-card.welcome > p { margin: 0 0 14px; color: var(--text-muted); line-height: 1.5; }
     .welcome-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -105,19 +104,12 @@ const STYLES = `
     .vs-pill-btn { border: 1px solid transparent; cursor: pointer; font-family: inherit; }
     .vs-pill-btn:hover { filter: brightness(0.95); border-color: rgba(0,0,0,0.15); }
     .vs-pill-disabled { background: var(--border-faint); color: var(--text-muted); }
-    .vs-pill-loading  { background: #fff5d6; color: #8a6300; }
     .vs-pill-ready    { background: #d6f5e0; color: #116b32; }
-    .vs-pill-error    { background: #ffe2e2; color: #a02020; }
     .vs-form { display: grid; gap: 10px; }
     .vs-row { display: flex; flex-direction: row; align-items: center; gap: 10px; color: var(--text-strong); font-size: 1em; }
     .vs-row .vs-label { min-width: 80px; color: var(--text-muted); font-size: 0.9em; }
     .vs-row select { flex: 1; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text-strong); font: inherit; }
     .vs-desc { margin: 0 0 4px 90px; font-size: 0.85em; color: var(--text-muted); min-height: 1.2em; }
-    .vs-progress { margin: 0 0 4px 90px; display: flex; align-items: center; gap: 10px; }
-    .vs-progress[hidden] { display: none; }
-    .vs-progress-bar { flex: 1; height: 8px; background: var(--border-faint); border-radius: 4px; overflow: hidden; max-width: 260px; }
-    .vs-progress-fill { height: 100%; background: var(--accent); width: 0%; transition: width 200ms ease-out; }
-    .vs-progress-label { font-size: 0.82em; color: var(--text-muted); }
     .vs-actions { display: flex; align-items: center; gap: 12px; }
     .vs-toggle { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; color: var(--text-strong); font-size: 0.9em; }
     .vs-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.88em; }
@@ -128,18 +120,10 @@ const STYLES = `
     .vs-table .vs-name { font-weight: 600; color: var(--text-strong); }
     .vs-table .vs-name small { display: block; font-weight: 400; color: var(--text-muted); font-size: 0.85em; margin-top: 1px; }
     .vs-table .vs-status-ok { color: #116b32; }
-    .vs-table .vs-status-no { color: var(--text-muted); }
-    .vs-table .vs-status-loading { color: #8a6300; font-weight: 600; font-size: 0.85em; }
-    .vs-row-prog { display: flex; flex-direction: column; gap: 4px; min-width: 140px; }
-    .vs-row-bar { height: 6px; border-radius: 999px; background: var(--border-faint); overflow: hidden; }
-    .vs-row-fill { height: 100%; background: linear-gradient(90deg, #f5b942, #e89a14); transition: width 0.2s ease; }
-    .vs-table tr.is-loading { background: #fff9e6; }
     .vs-table .vs-action { padding: 4px 10px; font: inherit; font-size: 0.88em; border: 1px solid var(--border); border-radius: 5px; background: var(--bg); color: var(--text-strong); cursor: pointer; margin-left: 4px; }
     .vs-table .vs-action:first-child { margin-left: 0; }
     .vs-table .vs-action:hover { border-color: var(--accent); color: var(--accent); }
     .vs-table .vs-action.is-active-btn { border-color: var(--accent); background: var(--accent); color: var(--text-on-accent, white); cursor: default; }
-    .vs-table .vs-action.vs-action-danger { padding: 4px 8px; }
-    .vs-table .vs-action.vs-action-danger:hover { border-color: #c0392b; color: #c0392b; }
     .vs-table .vs-action:disabled { opacity: 0.5; cursor: default; }
     .vs-save { padding: 6px 14px; border: 1px solid var(--accent); background: var(--accent); color: var(--text-on-accent, white); border-radius: 6px; cursor: pointer; font: inherit; }
     .vs-save:hover { filter: brightness(0.95); }
@@ -298,12 +282,6 @@ class SettingsPage extends WNElement {
         this._initAppSettings();
         this._initSummarizeSettings();
         this._initCrossCalSettings();
-    }
-
-    disconnectedCallback() {
-        super.disconnectedCallback?.();
-        if (this._vsSse) { try { this._vsSse.close(); } catch {} this._vsSse = null; }
-        if (this._smSse) { try { this._smSse.close(); } catch {} this._smSse = null; }
     }
 
     async _initUserTab() {
@@ -515,7 +493,7 @@ class SettingsPage extends WNElement {
 
     async _initAppSettings() {
         const root = this.shadowRoot;
-        // Tab switching (currently a single tab, but ready for more).
+        // Application settings tabs.
         root.querySelectorAll('[data-app-tab]').forEach(btn => {
             btn.addEventListener('click', () => {
                 const key = btn.dataset.appTab;
@@ -525,169 +503,17 @@ class SettingsPage extends WNElement {
         });
 
         this._initUserTab();
-        const $ = (k) => root.querySelector(`[data-vs="${k}"]`);
-        const tbody    = $('tbody');
-        const progress = $('progress');
-        const fill     = $('fill');
-        const progLabel = $('progLabel');
-        const status   = $('status');
-        const saveStatus = $('saveStatus');
-        if (!tbody) return;
-
-        let models = [];
-        let appSettings = null;
-        const loadAppSettings = async () => {
-            try {
-                const r = await fetch('/api/app-settings');
-                const d = await r.json();
-                models = d.models || [];
-                appSettings = d.settings;
-                return true;
-            } catch { return false; }
-        };
-        await loadAppSettings();
-
-        const escapeHtml = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-
-        // Latest SSE state — used by renderTable to decorate the loading row.
-        let liveState = null;
-
-        const renderTable = () => {
-            const activeId = appSettings && appSettings.vectorSearch.enabled ? appSettings.vectorSearch.model : null;
-            const loadingId = (liveState && liveState.phase === 'loading') ? liveState.model : null;
-            const loadingPct = (liveState && liveState.progress && typeof liveState.progress.pct === 'number')
-                ? Math.round(liveState.progress.pct) : null;
-            tbody.innerHTML = models.map(m => {
-                const isActive = m.id === activeId;
-                const isLoading = m.id === loadingId;
-                const downloaded = m.downloaded || isActive;
-                let statusCell;
-                if (isLoading) {
-                    const pctTxt = loadingPct != null ? (loadingPct + '%') : '…';
-                    statusCell = `<div class="vs-row-prog">
-                        <span class="vs-status-loading">⬇ Laster ${pctTxt}</span>
-                        <div class="vs-row-bar"><div class="vs-row-fill" style="width:${loadingPct != null ? loadingPct : 5}%"></div></div>
-                    </div>`;
-                } else if (downloaded) {
-                    statusCell = `<span class="vs-status-ok">✓ Lastet ned</span>`;
-                } else {
-                    statusCell = `<span class="vs-status-no">Ikke lastet ned</span>`;
-                }
-                let actions;
-                if (isLoading) {
-                    actions = `<button class="vs-action" disabled>Laster…</button>`;
-                } else if (isActive) {
-                    actions = `<button class="vs-action is-active-btn" disabled>Aktiv</button>`;
-                } else if (downloaded) {
-                    actions = `<button class="vs-action" data-vs-act="${escapeHtml(m.id)}">Aktiver</button>
-                        <button class="vs-action vs-action-danger" data-vs-del="${escapeHtml(m.id)}" title="Slett nedlastet modell">Slett</button>`;
-                } else {
-                    actions = `<button class="vs-action" data-vs-act="${escapeHtml(m.id)}">⬇ Last ned</button>`;
-                }
-                return `<tr class="${isActive ? 'is-active' : ''}${isLoading ? ' is-loading' : ''}">
-                    <td><div class="vs-name">${escapeHtml(m.label)}${m.recommended ? ' <small style="display:inline;color:var(--accent);font-weight:600;margin-left:4px">Anbefalt</small>' : ''}<small>${escapeHtml(m.id)}</small></div></td>
-                    <td>~${m.sizeMb}MB</td>
-                    <td>${escapeHtml(m.languages)}</td>
-                    <td>${escapeHtml(m.description)}</td>
-                    <td>${statusCell}</td>
-                    <td style="text-align:right; white-space:nowrap">${actions}</td>
-                </tr>`;
-            }).join('');
-        };
-        renderTable();
-
-        const deleteModel = async (modelId) => {
-            const m = models.find(x => x.id === modelId);
-            if (!m) return;
-            if (!confirm('Slette nedlastede filer for ' + m.label + '?\n\nDu kan laste den ned igjen senere.')) return;
-            saveStatus.textContent = 'Sletter…';
-            try {
-                const r = await fetch('/api/app-settings/models/' + encodeURIComponent(modelId), { method: 'DELETE' });
-                const d = await r.json();
-                if (d.ok) {
-                    saveStatus.textContent = '✓ Slettet';
-                    await loadAppSettings();
-                    renderTable();
-                    refreshPill();
-                } else {
-                    saveStatus.textContent = '✗ ' + (d.error || 'Feil');
-                }
-            } catch (e) {
-                saveStatus.textContent = '✗ ' + e.message;
-            } finally {
-                setTimeout(() => { saveStatus.textContent = ''; }, 3000);
-            }
-        };
-
-        // Activate (and download if needed) a model when its row button is clicked.
-        const activateModel = async (modelId) => {
-            saveStatus.textContent = 'Aktiverer…';
-            try {
-                const body = { vectorSearch: { enabled: true, model: modelId } };
-                const r = await fetch('/api/app-settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-                const d = await r.json();
-                if (d.ok) {
-                    saveStatus.textContent = '✓ Aktivert';
-                    await loadAppSettings();
-                    renderTable();
-                    refreshPill();
-                } else {
-                    saveStatus.textContent = '✗ ' + (d.error || 'Feil');
-                }
-            } catch (e) {
-                saveStatus.textContent = '✗ ' + e.message;
-            } finally {
-                setTimeout(() => { saveStatus.textContent = ''; }, 3000);
-            }
-        };
-        tbody.addEventListener('click', (ev) => {
-            const act = ev.target.closest('[data-vs-act]');
-            const del = ev.target.closest('[data-vs-del]');
-            if (act) activateModel(act.dataset.vsAct);
-            else if (del) deleteModel(del.dataset.vsDel);
-        });
-
-        const setPill = (phase, label) => {
-            status.className = 'vs-pill vs-pill-btn vs-pill-' + phase;
-            status.textContent = label;
-        };
-
-        // Pill click: toggles search on/off. When off and current model isn't
-        // downloaded yet, the pill reads "Last ned og aktiver" — clicking it
-        // activates the configured model (downloading first if needed).
-        const refreshPill = () => {
-            if (!appSettings) return;
-            const enabled = appSettings.vectorSearch.enabled;
-            // While loading/ready/error, applyState owns the pill.
-            if (liveState && (liveState.phase === 'loading' || liveState.phase === 'ready' || liveState.phase === 'error')) return;
-            if (enabled) {
-                setPill('ready', 'Aktiv');
-            } else {
-                const cur = models.find(m => m.id === appSettings.vectorSearch.model);
-                if (cur && !cur.downloaded) setPill('disabled', '⬇ Last ned og aktiver');
-                else setPill('disabled', 'Stoppet');
-            }
-        };
-        refreshPill();
-
-        status.addEventListener('click', async () => {
-            if (!appSettings) return;
-            const newEnabled = !appSettings.vectorSearch.enabled;
-            saveStatus.textContent = newEnabled ? 'Aktiverer…' : 'Slår av…';
-            try {
-                const body = { vectorSearch: { enabled: newEnabled, model: appSettings.vectorSearch.model } };
-                const r = await fetch('/api/app-settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-                const d = await r.json();
-                saveStatus.textContent = d.ok ? '✓ Lagret' : ('✗ ' + (d.error || 'Feil'));
-                await loadAppSettings();
-                renderTable();
-                refreshPill();
-            } catch (e) {
-                saveStatus.textContent = '✗ ' + e.message;
-            } finally {
-                setTimeout(() => { saveStatus.textContent = ''; }, 2500);
-            }
-        });
+        let appSettings;
+        try {
+            const response = await fetch('/api/app-settings');
+            const data = await response.json();
+            if (!response.ok || !data.ok) throw new Error(data.error || 'Kunne ikke hente søkeinnstillinger');
+            appSettings = data.settings;
+        } catch (error) {
+            root.querySelector('[data-si="saveStatus"]').textContent = '✗ ' + error.message;
+            root.querySelector('[data-si="status"]').disabled = true;
+            return;
+        }
 
         // Reverse-index (BM25) toggle: pill click toggles enabled/disabled.
         const $si = (k) => root.querySelector(`[data-si="${k}"]`);
@@ -724,40 +550,6 @@ class SettingsPage extends WNElement {
                 }
             });
         }
-
-        const applyState = (s) => {
-            if (!s) return;
-            liveState = s;
-            if (s.phase === 'disabled') { progress.hidden = true; refreshPill(); }
-            else if (s.phase === 'loading') {
-                const pct = s.progress && typeof s.progress.pct === 'number' ? Math.round(s.progress.pct) : null;
-                setPill('loading', pct != null ? ('Laster ' + pct + '%') : 'Laster…');
-                progress.hidden = true;
-            }
-            else if (s.phase === 'ready') {
-                setPill('ready', 'Aktiv');
-                progress.hidden = true;
-                loadAppSettings().then(() => { renderTable(); refreshPill(); });
-                return;
-            }
-            else if (s.phase === 'error') {
-                setPill('error', 'Feil');
-                status.title = 'Klikk for å prøve på nytt — ' + (s.error || 'feil ved lasting');
-                progress.hidden = true;
-                if (progLabel) progLabel.textContent = s.error || '';
-            }
-            renderTable();
-        };
-
-        // Live updates via SSE.
-        const openSse = () => {
-            try {
-                this._vsSse = new EventSource('/api/embed/events');
-                this._vsSse.onmessage = (ev) => { try { applyState(JSON.parse(ev.data)); } catch {} };
-                this._vsSse.onerror = () => { try { this._vsSse.close(); } catch {} this._vsSse = null; setTimeout(openSse, 3000); };
-            } catch {}
-        };
-        openSse();
     }
 
     async _initSummarizeSettings() {
@@ -771,57 +563,32 @@ class SettingsPage extends WNElement {
         let models = [];
         let appSettings = null;
         const load = async () => {
-            try {
-                const r = await fetch('/api/app-settings');
-                const d = await r.json();
-                models = d.summarizeModels || [];
-                appSettings = d.settings;
-                return true;
-            } catch { return false; }
+            const response = await fetch('/api/app-settings');
+            const data = await response.json();
+            if (!response.ok || !data.ok) throw new Error(data.error || 'Kunne ikke hente oppsummeringsinnstillinger');
+            models = data.summarizeModels;
+            appSettings = data.settings;
         };
-        await load();
+        try {
+            await load();
+        } catch (error) {
+            saveStatus.textContent = '✗ ' + error.message;
+            status.disabled = true;
+            return;
+        }
 
         const escapeHtml = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-        let liveState = null;
 
         const renderTable = () => {
             const activeId = appSettings && appSettings.summarization.enabled ? appSettings.summarization.model : null;
-            const loadingId = (liveState && liveState.phase === 'loading') ? liveState.model : null;
-            const loadingPct = (liveState && liveState.progress && typeof liveState.progress.pct === 'number')
-                ? Math.round(liveState.progress.pct) : null;
             tbody.innerHTML = models.map(m => {
                 const isActive = m.id === activeId;
-                const isLoading = m.id === loadingId;
-                const downloaded = m.downloaded || isActive;
-                let statusCell;
-                if (m.ollama) {
-                    statusCell = `<span class="vs-status-ok">🦙 Ollama</span>`;
-                } else if (isLoading) {
-                    const pctTxt = loadingPct != null ? (loadingPct + '%') : '…';
-                    statusCell = `<div class="vs-row-prog">
-                        <span class="vs-status-loading">⬇ Laster ${pctTxt}</span>
-                        <div class="vs-row-bar"><div class="vs-row-fill" style="width:${loadingPct != null ? loadingPct : 5}%"></div></div>
-                    </div>`;
-                } else if (downloaded) {
-                    statusCell = `<span class="vs-status-ok">✓ Lastet ned</span>`;
-                } else {
-                    statusCell = `<span class="vs-status-no">Ikke lastet ned</span>`;
-                }
-                let actions;
-                if (isLoading) {
-                    actions = `<button class="vs-action" disabled>Laster…</button>`;
-                } else if (isActive) {
-                    actions = `<button class="vs-action is-active-btn" disabled>Aktiv</button>`;
-                } else if (m.ollama) {
-                    actions = `<button class="vs-action" data-sm-act="${escapeHtml(m.id)}">Aktiver</button>`;
-                } else if (downloaded) {
-                    actions = `<button class="vs-action" data-sm-act="${escapeHtml(m.id)}">Aktiver</button>
-                        <button class="vs-action vs-action-danger" data-sm-del="${escapeHtml(m.id)}" title="Slett nedlastet modell">Slett</button>`;
-                } else {
-                    actions = `<button class="vs-action" data-sm-act="${escapeHtml(m.id)}">⬇ Last ned</button>`;
-                }
-                const sizeTxt = m.ollama ? '—' : ('~' + m.sizeMb + 'MB');
-                return `<tr class="${isActive ? 'is-active' : ''}${isLoading ? ' is-loading' : ''}">
+                const statusCell = '<span class="vs-status-ok">🦙 Ollama</span>';
+                const actions = isActive
+                    ? '<button class="vs-action is-active-btn" disabled>Aktiv</button>'
+                    : '<button class="vs-action" data-sm-act="' + escapeHtml(m.id) + '">Aktiver</button>';
+                const sizeTxt = '—';
+                return `<tr class="${isActive ? 'is-active' : ''}">
                     <td><div class="vs-name">${escapeHtml(m.label)}${m.recommended ? ' <small style="display:inline;color:var(--accent);font-weight:600;margin-left:4px">Anbefalt</small>' : ''}<small>${escapeHtml(m.id)}</small></div></td>
                     <td>${sizeTxt}</td>
                     <td>${escapeHtml(m.languages)}</td>
@@ -839,13 +606,8 @@ class SettingsPage extends WNElement {
         };
         const refreshPill = () => {
             if (!appSettings) return;
-            if (liveState && (liveState.phase === 'loading' || liveState.phase === 'ready' || liveState.phase === 'error')) return;
-            if (appSettings.summarization.enabled) setPill('ready', 'Aktiv');
-            else {
-                const cur = models.find(m => m.id === appSettings.summarization.model);
-                if (cur && !cur.ollama && !cur.downloaded) setPill('disabled', '⬇ Last ned og aktiver');
-                else setPill('disabled', 'Stoppet');
-            }
+            setPill(appSettings.summarization.enabled ? 'ready' : 'disabled',
+                appSettings.summarization.enabled ? 'Aktiv' : 'Stoppet');
         };
         refreshPill();
 
@@ -862,26 +624,9 @@ class SettingsPage extends WNElement {
             } catch (e) { saveStatus.textContent = '✗ ' + e.message; }
             finally { setTimeout(() => { saveStatus.textContent = ''; }, 3000); }
         };
-        const del = async (modelId) => {
-            const m = models.find(x => x.id === modelId);
-            if (!m) return;
-            if (!confirm('Slette nedlastede filer for ' + m.label + '?\n\nDu kan laste den ned igjen senere.')) return;
-            saveStatus.textContent = 'Sletter…';
-            try {
-                const r = await fetch('/api/app-settings/models/' + encodeURIComponent(modelId), { method: 'DELETE' });
-                const d = await r.json();
-                if (d.ok) {
-                    saveStatus.textContent = '✓ Slettet';
-                    await load(); renderTable(); refreshPill();
-                } else saveStatus.textContent = '✗ ' + (d.error || 'Feil');
-            } catch (e) { saveStatus.textContent = '✗ ' + e.message; }
-            finally { setTimeout(() => { saveStatus.textContent = ''; }, 3000); }
-        };
         tbody.addEventListener('click', (ev) => {
             const a = ev.target.closest('[data-sm-act]');
-            const d = ev.target.closest('[data-sm-del]');
             if (a) activate(a.dataset.smAct);
-            else if (d) del(d.dataset.smDel);
         });
 
         status.addEventListener('click', async () => {
@@ -897,33 +642,6 @@ class SettingsPage extends WNElement {
             } catch (e) { saveStatus.textContent = '✗ ' + e.message; }
             finally { setTimeout(() => { saveStatus.textContent = ''; }, 2500); }
         });
-
-        const applyState = (s) => {
-            if (!s) return;
-            liveState = s;
-            if (s.phase === 'disabled') refreshPill();
-            else if (s.phase === 'loading') {
-                const pct = s.progress && typeof s.progress.pct === 'number' ? Math.round(s.progress.pct) : null;
-                setPill('loading', pct != null ? ('Laster ' + pct + '%') : 'Laster…');
-            } else if (s.phase === 'ready') {
-                setPill('ready', 'Aktiv');
-                load().then(() => { renderTable(); refreshPill(); });
-                return;
-            } else if (s.phase === 'error') {
-                setPill('error', 'Feil');
-                status.title = 'Klikk for å prøve på nytt — ' + (s.error || 'feil ved lasting');
-            }
-            renderTable();
-        };
-
-        const openSse = () => {
-            try {
-                this._smSse = new EventSource('/api/summarize/events');
-                this._smSse.onmessage = (ev) => { try { applyState(JSON.parse(ev.data)); } catch {} };
-                this._smSse.onerror = () => { try { this._smSse.close(); } catch {} this._smSse = null; setTimeout(openSse, 3000); };
-            } catch {}
-        };
-        openSse();
     }
 
     async _initCrossCalSettings() {
@@ -979,7 +697,7 @@ class SettingsPage extends WNElement {
                 <div class="app-tabs" role="tablist">
                     <button type="button" class="app-tab is-active" role="tab" data-app-tab="welcome">👋 Velkommen</button>
                     <button type="button" class="app-tab" role="tab" data-app-tab="user">👤 Bruker</button>
-                    <button type="button" class="app-tab" role="tab" data-app-tab="embeddings">🔍 Søk</button>
+                    <button type="button" class="app-tab" role="tab" data-app-tab="search">🔍 Søk</button>
                     <button type="button" class="app-tab" role="tab" data-app-tab="summarize">📝 Oppsummer</button>
                     <button type="button" class="app-tab" role="tab" data-app-tab="crosscal">📅 Kalender</button>
                 </div>
@@ -992,7 +710,7 @@ class SettingsPage extends WNElement {
                                 <li><strong>📁 Kontekster:</strong> hver kontekst (jobb, hjem, prosjekt) ligger i sin egen mappe under <code>data/</code> med eget git-repo. Bytt mellom dem fra navbaren.</li>
                                 <li><strong>📝 Notater &amp; uker:</strong> friform markdown organisert per ISO-uke (<code>YYYY-WNN</code>). Bruk <code>@person</code> for å nevne folk og <code>#tema</code> for tagger.</li>
                                 <li><strong>📅 Kalender &amp; møter:</strong> uke-basert kalender med møtetyper, arbeidstider per dag, og notater knyttet direkte til hvert møte.</li>
-                                <li><strong>🔍 Søk:</strong> globalt søk i topp-baren (Ctrl+K). Reverse indeks for nøkkelord; valgfri embedding-indeks for semantisk søk (se neste fane).</li>
+                                <li><strong>🔍 Søk:</strong> globalt søk i topp-baren (Ctrl+K). Nøkkelordsøk med støtte for fraser og søkeoperatorer.</li>
                                 <li><strong>📦 Git per kontekst:</strong> hver kontekst er sitt eget git-repo. Endringer commitet automatisk; valgfri push til en remote du selv eier.</li>
                                 <li><strong>🎨 Tema:</strong> per-kontekst tema og fargepalett. Lag dine egne i temaeditoren under Tema-fanen.</li>
                             </ul>
@@ -1018,7 +736,7 @@ class SettingsPage extends WNElement {
                             </form>
                         </div>
                     </div>
-                    <div class="app-tab-panel" data-app-panel="embeddings">
+                    <div class="app-tab-panel" data-app-panel="search">
                         <div class="app-card">
                             <div class="app-head">
                                 <strong>📑 Reverse indeks (BM25)</strong>
@@ -1028,27 +746,6 @@ class SettingsPage extends WNElement {
                                 </div>
                             </div>
                             <p class="app-help">Brukes til vanlig nøkkelord-søk i topp-baren (Ctrl+K). Bygges automatisk fra alle markdown-filer i konteksten ved oppstart, oppdateres når filer endres, og cachet til disk for rask kald-start. Anbefales på.</p>
-                        </div>
-                        <hr class="app-sep">
-                        <div class="app-card">
-                            <div class="app-head">
-                                <strong>🧠 Semantisk søk (embeddings)</strong>
-                                <button type="button" class="vs-pill vs-pill-disabled vs-pill-btn" data-vs="status" title="Klikk for å slå på/av">Stoppet</button>
-                                <div class="vs-actions">
-                                    <span class="vs-save-status" data-vs="saveStatus"></span>
-                                </div>
-                            </div>
-                            <p class="app-help">Aktiverer en lokal vektor-modell som lar deg søke på <em>betydning</em>, ikke bare nøyaktige ord. Modellene lastes ned første gang og lagres i <code>models/</code>. Per-kontekst statistikk vises under hver kontekst (fanen <strong>🔍 Indekser</strong>).</p>
-                            <div class="vs-progress" data-vs="progress" hidden>
-                                <div class="vs-progress-bar"><div class="vs-progress-fill" data-vs="fill"></div></div>
-                                <span class="vs-progress-label" data-vs="progLabel">Laster…</span>
-                            </div>
-                            <table class="vs-table" data-vs="table">
-                                <thead>
-                                    <tr><th>Navn</th><th>Størrelse</th><th>Språk</th><th>Beskrivelse</th><th>Status</th><th></th></tr>
-                                </thead>
-                                <tbody data-vs="tbody"><tr><td colspan="6">Laster…</td></tr></tbody>
-                            </table>
                         </div>
                     </div>
                     <div class="app-tab-panel" data-app-panel="summarize">
@@ -1060,7 +757,7 @@ class SettingsPage extends WNElement {
                                     <span class="vs-save-status" data-sm="saveStatus"></span>
                                 </div>
                             </div>
-                            <p class="app-help">Velg modell for &laquo;✨ Oppsummer&raquo;-knappen på uke-visningen. <strong>Ollama</strong>-modeller kjøres lokalt via <a href="https://ollama.com" target="_blank" rel="noopener">Ollama</a> (installer med f.eks. <code>ollama pull qwen3.5:9b</code>) og er det reelle alternativet for norske notater. <strong>Xenova</strong>-modeller kjøres i en worker-tråd og lastes ned til <code>models/</code> første gang. Alle Xenovas oppsummerings-modeller er trent på engelsk (CNN/DailyMail) — norsk vil bli oversatt eller produsere dårlige resultater.</p>
+                            <p class="app-help">Velg modell for &laquo;✨ Oppsummer&raquo;-knappen på uke-visningen. <strong>Ollama</strong>-modeller kjøres lokalt via <a href="https://ollama.com" target="_blank" rel="noopener">Ollama</a> (installer med f.eks. <code>ollama pull qwen3.5:9b</code>). Modellene administreres med Ollama; appen laster ikke ned modeller selv.</p>
                             <table class="vs-table" data-sm="table">
                                 <thead>
                                     <tr><th>Navn</th><th>Størrelse</th><th>Språk</th><th>Beskrivelse</th><th>Status</th><th></th></tr>
@@ -1542,18 +1239,6 @@ class SettingsPage extends WNElement {
                                 <dt>Sist oppdatert</dt><dd data-k="mtime">–</dd>
                             </dl>
                         </div>
-                        <div class="ix-card">
-                            <div class="ix-head"><strong>🧠 Embedding-indeks (vektorer)</strong></div>
-                            <p class="ix-help">Brukes til semantisk søk når funksjonen er slått på (se Applikasjonsinnstillinger øverst). Hver markdown-fil får én vektor som lagres på disk og gjenbrukes hvis innholdet ikke har endret seg.</p>
-                            <dl class="ix-stats" data-ix-embed>
-                                <dt>Status</dt><dd data-k="status">…</dd>
-                                <dt>Dokumenter</dt><dd data-k="docs">–</dd>
-                                <dt>Modell</dt><dd data-k="model">–</dd>
-                                <dt>Dimensjon</dt><dd data-k="dim">–</dd>
-                                <dt>Cache-fil</dt><dd data-k="size">–</dd>
-                                <dt>Sist oppdatert</dt><dd data-k="mtime">–</dd>
-                            </dl>
-                        </div>
                     </div>
                 </fieldset>
             </div>
@@ -1891,8 +1576,7 @@ class SettingsPage extends WNElement {
         const id = this._selected;
         if (!id) return;
         const searchEl = detailEl.querySelector('[data-ix-search]');
-        const embedEl  = detailEl.querySelector('[data-ix-embed]');
-        if (!searchEl || !embedEl) return;
+        if (!searchEl) return;
         const setStat = (root, key, value) => {
             const el = root.querySelector(`[data-k="${key}"]`);
             if (el) el.textContent = value;
@@ -1906,7 +1590,6 @@ class SettingsPage extends WNElement {
         const fmtDate = (ms) => ms ? new Date(ms).toLocaleString('no-NO') : '–';
         // Show loading state.
         ['status','docs','tokens','size','mtime'].forEach(k => setStat(searchEl, k, '…'));
-        ['status','docs','model','dim','size','mtime'].forEach(k => setStat(embedEl, k, '…'));
         try {
             const r = await fetch(`/api/contexts/${encodeURIComponent(id)}/index-stats`);
             const d = await r.json();
@@ -1917,17 +1600,8 @@ class SettingsPage extends WNElement {
             setStat(searchEl, 'size',   fmtBytes(s.sizeBytes));
             setStat(searchEl, 'mtime',  fmtDate(s.mtime));
 
-            const e = d.embed || {};
-            const liveExtra = d.liveEmbed && d.liveEmbed.phase === 'ready' ? ` · live: ${d.liveEmbed.docCount} dok` : '';
-            setStat(embedEl, 'status', e.cacheExists ? ('✓ Cachet' + liveExtra) : 'Ingen cache (lagres ved første indeksering)');
-            setStat(embedEl, 'docs',   e.docs != null ? e.docs : '–');
-            setStat(embedEl, 'model',  e.model || '–');
-            setStat(embedEl, 'dim',    e.dim != null ? (e.dim + 'd') : '–');
-            setStat(embedEl, 'size',   fmtBytes(e.sizeBytes));
-            setStat(embedEl, 'mtime',  fmtDate(e.mtime));
         } catch (err) {
             setStat(searchEl, 'status', 'Feil: ' + (err.message || err));
-            setStat(embedEl,  'status', 'Feil: ' + (err.message || err));
         }
     }
 

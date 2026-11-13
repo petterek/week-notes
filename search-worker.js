@@ -24,7 +24,7 @@ let rebuildTimer = null;
 
 // Bump when the cache shape changes (e.g. doc fields added, tokenization
 // rules changed). Mismatched cache files are silently rebuilt.
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 3;
 
 function cachePathFor(contextDir) {
     return path.join(contextDir, '.cache', 'search-index.json');
@@ -343,7 +343,7 @@ function buildIndexUncached(contextDir) {
                 identifier: p.key || '',
                 title: display,
                 subtitle: p.title || p.email || ('@' + (p.key || '')),
-                href: '/people#p-' + encodeURIComponent(p.key || ''),
+                href: '/person/' + encodeURIComponent(p.key || ''),
                 searchText: blob,
                 body: blob
             });

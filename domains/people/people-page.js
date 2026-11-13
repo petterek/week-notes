@@ -1,5 +1,6 @@
 /**
  * <people-page> — SPA replacement for the legacy /people screen.
+ * The standalone attribute shows one person at /person/:key.
  *
  * Three tabs:
  *   - 👤 Personer  (people)
@@ -83,6 +84,9 @@ const STYLES = `
     .dir-pane { display: none; }
     .dir-pane.active { display: flex; flex-direction: column; flex: 1; min-height: 0; }
     .pp-scroll { flex: 1; min-height: 0; overflow-y: scroll; padding-bottom: 64px; }
+    .pp-back { display: inline-block; margin-bottom: 14px; color: var(--accent); }
+    :host([person-key]) { padding: 0; overflow: visible; }
+    :host([person-key]) .pp-scroll { flex: none; overflow: visible; padding-bottom: 0; }
 
     .pp-toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; flex-shrink: 0; }
     .pp-toolbar input[type=text] { flex: 0 1 280px; min-width: 180px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.95em; outline: none; background: var(--surface); color: var(--text); font: inherit; }
@@ -147,6 +151,7 @@ const STYLES = `
     .pp-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 9000; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; }
     .pp-modal.open { display: flex; }
     .pp-modal-card { background: var(--bg, white); color: var(--text-strong); border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,0.25); padding: 22px; max-width: 540px; width: 100%; max-height: 90vh; overflow: visible; box-sizing: border-box; }
+    :host([standalone]) .pp-modal-card { overflow-y: auto; }
     .pp-modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 10px; }
     .pp-modal-head h3 { margin: 0; font-family: var(--font-heading, Georgia, serif); color: var(--accent); font-weight: 400; }
     .pp-modal-x { background: none; border: none; font-size: 1.3em; cursor: pointer; color: var(--text-subtle); }
@@ -204,7 +209,7 @@ function extractMentions(text) {
 
 class PeoplePage extends WNElement {
     static get observedAttributes() {
-        return ['people_service', 'companies_service', 'places_service', 'teams_service',
+        return ['standalone', 'person-key', 'people_service', 'companies_service', 'places_service', 'teams_service',
                 'tasks_service', 'meetings_service', 'results_service'];
     }
 
@@ -244,13 +249,15 @@ class PeoplePage extends WNElement {
 
     css() { return STYLES + RICH_TEXT_CSS; }
 
+    get _standalone() { return this.hasAttribute('standalone'); }
+
     connectedCallback() {
         super.connectedCallback();
         this._readHash();
         this._onHash = () => { this._readHash(); this._applyTab(); this._scrollToHashKey(); };
         window.addEventListener('hashchange', this._onHash);
         this._onKey = (e) => {
-            if (e.key === 'Escape' && this._modal) { this._closeModal(); return; }
+            if (e.key === 'Escape' && this._modal) { e.preventDefault(); this._closeModal(); return; }
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && this._modal) {
                 e.preventDefault();
                 if (this._modal === 'person')       this._savePerson();
@@ -260,15 +267,23 @@ class PeoplePage extends WNElement {
             }
         };
         document.addEventListener('keydown', this._onKey);
+        this._onPersonChanged = (e) => {
+            if (e.target === this || !this._loaded) return;
+            const person = e.detail.person;
+            if (this._people.some(p => p.id === person.id)) this._patchPerson(person);
+        };
+        document.addEventListener('person:changed', this._onPersonChanged);
     }
 
     disconnectedCallback() {
         window.removeEventListener('hashchange', this._onHash);
         document.removeEventListener('keydown', this._onKey);
+        document.removeEventListener('person:changed', this._onPersonChanged);
         this._teardownLightModal();
     }
 
     _readHash() {
+        if (this._standalone) return;
         const h = (location.hash || '').replace(/^#/, '');
         const params = {};
         h.split('&').forEach(seg => {
@@ -310,20 +325,21 @@ class PeoplePage extends WNElement {
         const ps = this.serviceFor('people');
         const cs = this.serviceFor('companies');
         const pls = this.serviceFor('places');
-        if (!ps || !cs || !pls) return {};
+        if (!ps || !cs || (!this._standalone && !pls)) return {};
         const ts = this.serviceFor('tasks');
         const ms = this.serviceFor('meetings');
         const rs = this.serviceFor('results');
         const tms = this.serviceFor('teams');
         const sortName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'nb');
+        const list = service => this._standalone ? service.list() : service.list().catch(() => []);
         return {
-            people:    async () => ((await ps.list().catch(() => [])) || []).slice().sort(sortName),
-            companies: async () => ((await cs.list().catch(() => [])) || []).slice().sort(sortName),
-            places:    async () => ((await pls.list().catch(() => [])) || []).slice().sort(sortName),
-            teams:     async () => tms ? ((await tms.list().catch(() => [])) || []).slice().sort(sortName) : [],
-            tasks:     () => ts ? ts.list().catch(() => []) : Promise.resolve([]),
-            meetings:  () => ms ? ms.list().catch(() => []) : Promise.resolve([]),
-            results:   () => rs ? rs.list().catch(() => []) : Promise.resolve([]),
+            people:    async () => ((await list(ps)) || []).slice().sort(sortName),
+            companies: async () => ((await list(cs)) || []).slice().sort(sortName),
+            places:    async () => this._standalone ? [] : ((await list(pls)) || []).slice().sort(sortName),
+            teams:     async () => tms ? ((await list(tms)) || []).slice().sort(sortName) : [],
+            tasks:     () => ts ? list(ts) : Promise.resolve([]),
+            meetings:  () => ms ? list(ms) : Promise.resolve([]),
+            results:   () => rs ? list(rs) : Promise.resolve([]),
         };
     }
 
@@ -376,11 +392,17 @@ class PeoplePage extends WNElement {
     // ---------------- rendering -----------------------------------------
 
     render(data = {}) {
-        if (!this.serviceFor('people') || !this.serviceFor('companies') || !this.serviceFor('places')) {
+        if (!this.serviceFor('people') || !this.serviceFor('companies') || (!this._standalone && !this.serviceFor('places'))) {
             return this.renderNoService();
         }
+        const title = this._standalone ? 'Person' : '👥 Personer og steder';
         if (data._loading) {
-            return html`<h1 class="pp-title">👥 Personer og steder</h1><div class="pp-loading">Laster…</div>`;
+            return html`<h1 class="pp-title">${title}</h1><div class="pp-loading">Laster…</div>`;
+        }
+        if (this._standalone && ['people', 'companies', 'teams', 'tasks', 'meetings', 'results'].some(key => !Array.isArray(data[key]))) {
+            return html`<h1 class="pp-title">${title}</h1>
+                <div class="pp-error" role="alert">Kunne ikke laste personopplysninger.</div>
+                <div class="pp-toolbar"><button class="btn-ghost" data-act="retry-person">Prøv igjen</button></div>`;
         }
         if (!Array.isArray(data.people)) {
             return html`<h1 class="pp-title">👥 Personer og steder</h1><div class="pp-error">Kunne ikke laste</div>`;
@@ -394,6 +416,25 @@ class PeoplePage extends WNElement {
         this._results = data.results || [];
         this._buildIndexes();
         this._loaded = true;
+
+        if (this._standalone) {
+            let key;
+            try {
+                key = this.hasAttribute('person-key')
+                    ? this.getAttribute('person-key').toLowerCase()
+                    : decodeURIComponent(location.pathname.slice('/person/'.length)).toLowerCase();
+            } catch (error) {
+                return html`<h1 class="pp-title">Ugyldig personlenke</h1>
+                    <a class="pp-back" href="/people">Tilbake til personer</a>`;
+            }
+            const person = this._people.find(p => !p.deleted && this._personKey(p) === key);
+            const name = person ? this._personDisplay(person) : 'Person ikke funnet';
+            if (!this.hasAttribute('person-key')) document.title = name + ' · Person';
+            return html`${this.hasAttribute('person-key') ? '' : html`<div><a class="pp-back" href="/people">← Tilbake til personer</a></div>`}
+                <h1 class="pp-title">${name}</h1>
+                <div class="pp-scroll">${person ? this._renderPersonCard(person) : html`<p>Personen finnes ikke i denne konteksten.</p>`}</div>
+                ${this._renderModals()}`;
+        }
 
         const tabs = html`
             <div class="dir-tabs" role="tablist">
@@ -423,13 +464,15 @@ class PeoplePage extends WNElement {
     }
 
     afterRender(data) {
-        if (!data || data._loading || !Array.isArray(data.people)) return;
         this._wire();
+        if (!data || data._loading || !Array.isArray(data.people)) return;
         this._populateCompanyCards();
         this._populatePersonCards();
         this._populatePlaceCards();
-        this._applyTab();
-        requestAnimationFrame(() => this._scrollToHashKey());
+        if (!this._standalone) {
+            this._applyTab();
+            requestAnimationFrame(() => this._scrollToHashKey());
+        }
     }
 
     _populateCompanyCards() {
@@ -468,7 +511,7 @@ class PeoplePage extends WNElement {
             card.setData({
                 person: p, primaryCompany, extraCompanies, tasks, meetings, results,
                 people: this._people, companies: this._companies, teams: this._teams,
-                open: this._expanded.has('p-' + k),
+                open: this._standalone || this._expanded.has('p-' + k),
             });
         });
     }
@@ -525,12 +568,8 @@ class PeoplePage extends WNElement {
                 if (pl) this._openPlaceModal(pl);
             }
         });
-        root.addEventListener('select-person', (e) => {
-            if (!e.target.closest('company-card')) return;
-            this._gotoTabKey('people', e.detail.key);
-        });
         root.addEventListener('select-company', (e) => {
-            if (!e.target.closest('person-card')) return;
+            if (this._standalone || !e.target.closest('person-card')) return;
             this._gotoTabKey('companies', e.detail.key);
         });
     }
@@ -654,7 +693,7 @@ class PeoplePage extends WNElement {
 
     _renderPersonCard(p) {
         const k = this._personKey(p);
-        return html`<person-card data-key="${k}" data-id="${p.id || ''}"></person-card>`;
+        return html`<person-card ${this._standalone ? 'standalone' : ''} data-key="${k}" data-id="${p.id || ''}"></person-card>`;
     }
 
     _renderTaskList(tasks) {
@@ -877,6 +916,7 @@ class PeoplePage extends WNElement {
         const act = find('[data-act]');
         if (!act) return;
         const a = act.dataset.act;
+        if (a === 'retry-person') { this.invalidateAwait(); this.requestRender(); return; }
         if (a === 'toggle-card') {
             const card = path.find(n => n.dataset && n.dataset.card);
             if (!card) return;
@@ -1072,6 +1112,12 @@ class PeoplePage extends WNElement {
     }
 
     _gotoTabKey(tab, key) {
+        if (tab === 'people') {
+            this.dispatchEvent(new CustomEvent('select-person', {
+                detail: { key }, bubbles: true, composed: true, cancelable: true,
+            }));
+            return;
+        }
         this._tab = tab;
         const prefix = tab === 'people' ? 'p-' : tab === 'companies' ? 'c-' : 'pl-';
         this._expanded.add(prefix + key);
@@ -1171,7 +1217,12 @@ class PeoplePage extends WNElement {
                 const res = await svc.update(id, data);
                 const updated = res && res.person;
                 this._closeModal();
-                if (updated) this._patchPerson(updated);
+                if (updated) {
+                    this._patchPerson(updated);
+                    this.dispatchEvent(new CustomEvent('person:changed', {
+                        detail: { person: updated }, bubbles: true, composed: true,
+                    }));
+                }
                 else await this._reload();
             } else {
                 await svc.create(data);
@@ -1183,22 +1234,24 @@ class PeoplePage extends WNElement {
         }
     }
 
-    // Update a single person in the local state + DOM without re-rendering
-    // the whole list. Falls back to _reload() if the card can't be found.
+    // Patch cached people and visible cards; filtered-out cards use a cached render.
     _patchPerson(updated) {
         if (!updated || !updated.id) return;
         const idx = this._people.findIndex(x => x.id === updated.id);
         if (idx === -1) { this._reload(); return; }
         const prevKey = this._personKey(this._people[idx]);
-        this._people[idx] = updated;
+        if (updated.deleted) this._people.splice(idx, 1);
+        else this._people[idx] = updated;
         this._people.sort((a, b) =>
             String(a.name || '').localeCompare(String(b.name || ''), 'nb'));
         this._buildIndexes();
+        this._populateCompanyCards();
         // Keep the awaitAll cache consistent so a subsequent _reload() (or
         // attribute change) doesn't snap back to stale data.
         if (this._awaitCache) {
             this._awaitCache.people = Promise.resolve(this._people.slice());
         }
+        if (updated.deleted) { this.requestRender(); return; }
         const newKey = this._personKey(updated);
         const cardEl = this.shadowRoot.querySelector(
             'person-card[data-id="' + (CSS && CSS.escape ? CSS.escape(updated.id) : updated.id) + '"]'
@@ -1214,11 +1267,10 @@ class PeoplePage extends WNElement {
             cardEl.setData({
                 person: updated, primaryCompany, extraCompanies, tasks, meetings, results,
                 people: this._people, companies: this._companies, teams: this._teams,
-                open: this._expanded.has('p-' + newKey),
+                open: this._standalone || this._expanded.has('p-' + newKey),
             });
         } else {
-            // Card not present (filtered out, different tab) — full reload.
-            this._reload();
+            this.requestRender();
             return;
         }
         // Update the count badge in the toolbar.
@@ -1227,6 +1279,7 @@ class PeoplePage extends WNElement {
             const visible = this._filterPeople().length;
             countEl.textContent = visible + ' av ' + this._people.length;
         }
+        if (this._standalone) this.requestRender();
     }
 
     async _deletePerson() {
@@ -1234,10 +1287,14 @@ class PeoplePage extends WNElement {
         if (!id) return;
         const name = this._personDisplay(this._modalCtx) || 'denne personen';
         if (!confirm('Slette ' + name + '?')) return;
+        const deleted = { ...this._modalCtx, deleted: true };
         try {
             await this.serviceFor('people').remove(id);
-            await this._reload();
+            this._patchPerson(deleted);
             this._closeModal();
+            this.dispatchEvent(new CustomEvent('person:changed', {
+                detail: { person: deleted }, bubbles: true, composed: true,
+            }));
         } catch (e) { alert('Feil: ' + (e.message || e)); }
     }
 
@@ -1614,6 +1671,11 @@ class PeoplePage extends WNElement {
     // ---- Reload after mutation -----------------------------------------
 
     async _reload() {
+        if (this._standalone) {
+            this.invalidateAwait();
+            this.requestRender();
+            return;
+        }
         // Refresh the underlying data and re-render. Pre-populate the
         // awaitAll cache with fresh promises so requestRender() picks them
         // up without flashing the "Laster…" placeholder.

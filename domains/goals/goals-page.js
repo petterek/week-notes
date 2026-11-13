@@ -570,7 +570,7 @@ class GoalsPage extends WNElement {
                 ${(() => {
                     const participants = this._participantsFor(tasks);
                     if (!participants.length) return '';
-                    return html`<span class="gp-people" title="Deltakere fra oppgavene">👥 ${participants.map(p => html`<a class="gp-person" href="/people#p-${encodeURIComponent(p.key || '')}" title="${p.name || p.key}">@${p.name || p.key}</a>`)}</span>`;
+                    return html`<span class="gp-people" title="Deltakere fra oppgavene">👥 ${participants.map(p => html`<a class="gp-person" href="/person/${encodeURIComponent(p.key || '')}" title="${p.name || p.key}">@${p.name || p.key}</a>`)}</span>`;
                 })()}
             </div>
             ${this._renderDetail(g, tasks, results)}

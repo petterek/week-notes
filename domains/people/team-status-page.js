@@ -144,7 +144,7 @@ export class TeamStatusPage extends WNElement {
             const name = p.name || p.key;
             const meta = [p.title, p.primaryCompanyKey ? `🏢 ${p.primaryCompanyKey}` : ''].filter(Boolean).join(' · ');
             return html`
-                <a class="ts-member" href="/people#p-${encodeURIComponent(p.key)}">
+                <a class="ts-member" href="/person/${encodeURIComponent(p.key)}">
                     <span class="ts-member-icon">👤</span>
                     <span class="ts-member-info">
                         <span class="ts-member-name">${name}</span>

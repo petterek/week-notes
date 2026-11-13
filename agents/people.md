@@ -30,6 +30,7 @@ the same card shell:
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/people` | Tabbed directory page (3 panes) |
+| GET | `/person/:key` | Standalone person details and editing |
 | GET / POST | `/api/people` | List / create person |
 | PUT / DELETE | `/api/people/:id` | Update / tombstone person |
 | GET / POST | `/api/companies` | List / create company |
@@ -38,6 +39,41 @@ the same card shell:
 | PUT / DELETE | `/api/places/:id` | Update / tombstone place |
 
 People POST accepts `primaryCompanyKey` and `primaryCompanyKey`+`extraCompanyKeys` on PUT (deduped against primary). Places parse `lat`/`lng` as floats; null on empty/invalid.
+
+## Standalone person view
+
+`lib/page-routes.js` maps `/person/:key` to `pages/person.html`, mounting
+`<people-page standalone>` with the same services as the directory except
+places. It reuses the person card, reference indexes and edit modal, but
+shows only the selected person, always expanded, without directory tabs or
+filters. Unknown/deleted people get a not-found message; failed loads get
+an explicit error and retry action. Keys are URL-encoded and immutable
+after creation.
+
+Person-name links and `select-person` events open the card in a shared
+`<modal-container size="lg">` via `window.openPersonViewModal(key)` in
+`public/app-shell.js`, keeping the current URL and document title. Its
+`<people-page standalone person-key="…">` reuses the same rendering and editor
+without deriving the person from the current route. Search selections,
+team members, goal participants and meeting attendee links also open this
+modal; modified clicks and direct URLs still use `/person/:key`.
+Company/place/team
+destinations and old `/people#p-key` directory links remain supported.
+Search-index cache version 3 invalidates cached person hrefs.
+
+Edits/deletions emit `person:changed`; mounted people pages patch their
+people await cache and visible cards without refetching collections.
+Escape closes an open person editor first, then the outer modal on the next
+press; closing restores focus, and SPA navigation removes the modal.
+Task/meeting/result references
+are the same as the directory; weekly note cross-references are not loaded.
+The profile body and edit modal scroll independently so actions remain
+reachable on shorter screens.
+
+`tests/playwright/rich-text-people.spec.js` covers direct/encoded links,
+keyboard activation/close/focus, company/member and mention navigation,
+search selections, reference display, editing/deleting without reloads,
+missing/deleted people, load retries and opening direct links in a new tab.
 
 ## Tabs and deep links
 

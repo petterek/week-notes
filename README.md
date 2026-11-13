@@ -15,6 +15,7 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 - One folder per ISO week (`YYYY-WNN`) containing freeform markdown notes
 - Live markdown editor with autosave
 - `@person` mentions with hover tooltips backed by a people directory
+- Person links open a card in `<modal-container>` with contact details, notes, companies, tasks, meetings and results, without leaving the current page; edits update cached data without reloading lists. Direct links and new tabs still use `/person/:key`
 - Pin notes to the top of a week, give them types/icons
 - Render any note as a [reveal.js](https://revealjs.com/) presentation in **7 styles**: paper, noir, klassisk, levende, minimal, matrix (digital rain), and NAV (with Aksel design tokens + circular logo watermark)
 
@@ -46,6 +47,11 @@ Built for the daily reality of knowledge work: notes are markdown, tasks live ne
 - Tasks and results can each be linked to a goal — the goal page rolls up progress from linked tasks
 - Dedicated `/goals` page with status-grouped list, plus an `<active-goals>` widget on the home sidebar
 - Snarvei `Alt+M`
+
+### Search & weekly summaries
+- Global keyword search (`Ctrl+K`) across notes, tasks, meetings, people and results, with phrase and boolean operators
+- Optional weekly summaries through local Ollama; install models with `ollama pull`, then enable one in Settings → Oppsummer
+- The app does not download AI models. Experimental vector search and transformer-based summaries have been removed.
 
 ### Contexts (multiple workspaces)
 Switch between completely isolated workspaces — e.g. **work**, **side-project**, **golf** — each with its own notes, tasks, people, meeting types, and settings.
@@ -122,7 +128,7 @@ weeks/
 ├── pages/              # SPA fragments
 ├── schemas/            # JSON schemas and relationships
 ├── tests/              # Playwright scenarios/specs and isolated fixtures
-├── package.json        # markdown/emoji, local AI support, Playwright
+├── package.json        # markdown/emoji, Swagger UI, Playwright
 ├── run.sh / stop.sh    # PID-based start/stop scripts
 ├── .gitignore          # excludes data/ — context data is its own repo
 └── data/
@@ -174,6 +180,18 @@ and [`AGENTS.md`](AGENTS.md) for storage and request-context invariants.
 
 Mostly JSON, mostly REST-shaped. Useful endpoints:
 
+The complete [OpenAPI 3.1 specification](openapi.json) covers all API routes,
+request/response schemas, errors and context selection.
+The server serves it at [`/openapi.json`](/openapi.json).
+Open [`/api-explorer`](/api-explorer) for the interactive Swagger UI,
+also linked from the debug sidebar. Assets and validation stay local;
+the explorer does not send the specification to an external validator.
+
+**Requests use real data.** The browser's `wn_ctx` cookie selects the
+context (it is not authentication). The explorer asks for confirmation
+before mutations, including Git and deletion operations. Use a disposable
+context when experimenting.
+
 | Method | Path                                | Purpose                              |
 |--------|-------------------------------------|--------------------------------------|
 | GET    | `/api/contexts`                     | List all contexts + active           |
@@ -190,6 +208,8 @@ Mostly JSON, mostly REST-shaped. Useful endpoints:
 | GET    | `/meetings/:id/minutes`             | Printable/PDF meeting minutes export  |
 | GET    | `/api/notes/:week/:file/render`     | Rendered markdown for hover/preview  |
 | GET    | `/help.md`                          | In-app help content                  |
+| GET    | `/openapi.json`                     | Complete OpenAPI specification       |
+| GET    | `/api-explorer`                     | Interactive API explorer             |
 
 ---
 
@@ -209,6 +229,22 @@ No build step or bundler. Framework-free HTTP handlers and browser ES modules.
 MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
+
+### 2026-11-13 (v5.8 — personkort, API-utforsker og enklere søk)
+- **Personkort uten navigering:** personlenker åpner kontaktinformasjon, notater og relaterte oppgaver, møter og resultater i en modal. Redigering oppdaterer listene uten ny innlasting; direkte lenker og nye faner bruker `/person/:key`.
+- **Lesbare avsluttede møter:** sakslistepunktenes notater vises som Markdown under møtedatoen. Gjenåpning gir tilbake editoren.
+- **Dokumentert API:** OpenAPI 3.1 og lokal Swagger UI på `/api-explorer`, med bekreftelse før skriveoperasjoner.
+- **Enklere lokal AI:** vanlig søk og Ollama-oppsummeringer beholdes; eksperimentelt vektorsøk og transformer-modeller fjernes uten å slette eksisterende data eller modellfiler.
+- **Verifisert:** 180 Playwright-tester passerer; `npm audit` rapporterer ingen kjente sårbarheter.
+
+### 2026-11-06 (enklere søk og oppsummering)
+- **Vanlig søk beholdes:** eksperimentelt vektorsøk, embedding-indeks og tilhørende innstillinger er fjernet.
+- **Bare Ollama:** oppsummeringer bruker lokal Ollama. Transformer-modeller, nedlasting/sletting av modellfiler og status-/hendelsesendepunktene for AI-workerne er fjernet, sammen med `@huggingface/transformers`.
+- **Eksisterende data beholdes:** lagrede oppsummeringer, modellfiler og gamle embedding-cacher slettes ikke. En tidligere valgt modell som ikke støttes, slår av oppsummering med en advarsel i serverloggen; velg en Ollama-modell for å aktivere igjen.
+
+### 2026-11-06 (API-dokumentasjon)
+- **OpenAPI:** komplett OpenAPI 3.1-spesifikasjon for API-rutene, med skjemaer, eksisterende svarformater og kontekstvalg.
+- **API-utforsker:** interaktiv Swagger UI på `/api-explorer`, med lokale ressurser og bekreftelse før skriveoperasjoner. Spesifikasjonen er tilgjengelig på `/openapi.json`.
 
 ### 2026-11-05 (v5.7 — smidigere møter og felles oppgaveredigering)
 - **Uten full innlasting:** nye oppgaver, endringer i møteserier og arbeid i møteforekomster oppdaterer listene fra lagringssvaret. Ulagrede referater, saksnotater og påbegynt tekst beholdes.

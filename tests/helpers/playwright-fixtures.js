@@ -49,7 +49,6 @@ function seedPlaywrightData(rootDir) {
 
     fs.writeFileSync(path.join(rootDir, '.active'), `${TEST_CONTEXT_ID}\n`);
     writeJson(path.join(rootDir, 'app-settings.json'), {
-        vectorSearch: { enabled: false },
         searchIndex: { enabled: false },
         summarization: { enabled: false },
         crossContextCalendar: { enabled: false },

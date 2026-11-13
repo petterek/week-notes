@@ -16,6 +16,7 @@ tests/
 ├── scenarios.js                # shared scenario definitions (UMD-ish)
 ├── playwright/
 │   ├── pages.spec.js          # page-level smoke (real server, no mocks)
+│   ├── api-docs.spec.js       # OpenAPI validity/coverage + explorer requests
 │   └── scenarios.spec.js      # one Playwright test per scenario
 └── .last-run.json             # JSON reporter output (gitignored)
 
@@ -31,7 +32,7 @@ Server-side wiring:
 The Playwright runner starts `tests/server.js`, which:
 - creates a unique repo-local `.playwright-data/run-*` directory,
 - seeds a deterministic throwaway context (`playwright`) plus
-  `app-settings.json` with search / embedding / summarization disabled,
+  `app-settings.json` with keyword indexing / summarization disabled,
 - launches `server.js` with `PORT=$TEST_PORT` and `DATA_DIR=<isolated root>`,
 - shuts the child down on SIGINT/SIGTERM and removes only its own data dir.
 
@@ -111,6 +112,13 @@ TEST_PORT=3101 node tests/server.js
 Exit codes from `npm test` are real (good for CI). Playwright writes
 a JSON report to `tests/.last-run.json`, which the `/debug/tests`
 page reads to render the "Last Playwright run" panel.
+
+For API documentation changes, run
+`npm test -- tests/playwright/api-docs.spec.js`. These tests validate the
+OpenAPI 3.1 document, compare its paths to route definitions, check real
+response schemas, and exercise Swagger UI with local requests and mutation
+confirmation. Date formats are checked by the app's existing domain tests;
+the documentation response checks focus on JSON structure.
 
 ---
 
