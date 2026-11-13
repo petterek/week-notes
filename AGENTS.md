@@ -556,8 +556,10 @@ do not retain a read-modify-write snapshot across another `await`.
 
 - Release tag: `v5.7` → `513c750` (cached meeting workflows,
   shared tasks, occurrence participants and rich editing).
-- Latest release tag: `v5.8` → `1479146` (person modals, local API
+- Release tag: `v5.8` → `1479146` (person modals, local API
   explorer, readable closed meeting notes and keyword/Ollama-only AI).
+- Latest release tag: `v5.9` → `998b044` (timestamped task comment
+  history shared across task details, home and meeting series).
 
 ---
 
