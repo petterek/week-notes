@@ -1,6 +1,6 @@
 # 📜 Changelog
 
-### 2026-11-13 (dokumentasjon)
+### 2026-11-13 (v5.10 — dokumentasjon)
 - **Kompakt README:** oppstart, funksjonsoversikt og dokumentasjonslenker beholdes i README; komplett utgivelseshistorikk er flyttet til `CHANGELOG.md`.
 
 ### 2026-11-13 (v5.9 — oppgavekommentarer)

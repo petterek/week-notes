@@ -72,10 +72,7 @@ and [AGENTS.md](AGENTS.md) for the code map and contributor conventions.
 
 ## 📜 Changelog
 
-**Unreleased · 2026-11-13:** compact README; complete history moved to `CHANGELOG.md`.
-
-**v5.9 · 2026-11-13:** timestamped task comments across task details, home
-and meeting series, separate from notes and completion. 184 tests passing.
+**v5.10 · 2026-11-13:** compact README; complete history moved to `CHANGELOG.md`.
 
 [Complete release history](CHANGELOG.md).
 
