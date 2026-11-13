@@ -6,6 +6,7 @@
  * PUT    /api/tasks/:id     {text?,note?} → update(id, patch)
  * DELETE /api/tasks/:id              → remove(id)
  * PUT    /api/tasks/:id/toggle {comment?} → toggle(id, comment?)
+ * POST   /api/tasks/:id/comments {text} → addComment(id, text)
  * POST   /api/tasks/merge   {srcId,tgtId} → merge(srcId, tgtId)
  * POST   /api/tasks/reorder {ids}    → reorder(ids)
  *
@@ -27,6 +28,7 @@ export const TaskService = {
     update:  (id, patch)         => req('PUT',    `${BASE}/${encodeURIComponent(id)}`, patch),
     remove:  (id)                => req('DELETE', `${BASE}/${encodeURIComponent(id)}`),
     toggle:  (id, comment = '')  => req('PUT',    `${BASE}/${encodeURIComponent(id)}/toggle`, { comment }),
+    addComment: (id, text)       => req('POST',   `${BASE}/${encodeURIComponent(id)}/comments`, { text }),
     merge:   (srcId, tgtId)      => req('POST',   `${BASE}/merge`, { srcId, tgtId }),
     reorder: (ids)               => req('POST',   `${BASE}/reorder`, { ids }),
 };

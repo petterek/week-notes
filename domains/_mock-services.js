@@ -128,6 +128,13 @@
             return delay(JSON.parse(JSON.stringify(tasks)));
         },
         update: (id, patch) => { const i = tasks.findIndex(x => x.id === id); if (i < 0) return Promise.reject(new Error('not found')); Object.assign(tasks[i], patch); return delay(tasks[i]); },
+        addComment: (id, text) => {
+            const task = tasks.find(t => t.id === id);
+            if (!task) return Promise.reject(new Error('not found'));
+            if (typeof text !== 'string' || !text.trim()) return Promise.reject(new Error('Comment text must be a non-empty string'));
+            task.comments = [...(task.comments || []), { id: uid('comment'), text: text.trim(), created: now() }];
+            return delay(JSON.parse(JSON.stringify(tasks)));
+        },
         remove: (id) => { const i = tasks.findIndex(x => x.id === id); if (i >= 0) tasks.splice(i, 1); return delay({ ok: true }); },
         toggle: (id, comment = '') => {
             const i = tasks.findIndex(x => x.id === id);

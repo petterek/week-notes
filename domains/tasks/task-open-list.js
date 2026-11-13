@@ -232,6 +232,11 @@ class TaskOpenList extends WNElement {
     taskCreated()     { this.refresh(); }
     taskCompleted()   { this.refresh(); }
     taskUncompleted() { this.refresh(); }
+    taskCommented({ task }) {
+        if (!this._lastOpen?.some(t => t.id === task.id)) return;
+        this._lastOpen = this._lastOpen.map(t => t.id === task.id ? task : t);
+        this._awaitCache.open = Promise.resolve(this._lastOpen);
+    }
 
     attributeChangedCallback(name, oldVal, newVal) {
         if (oldVal !== newVal) this.invalidateAwait();
@@ -453,7 +458,11 @@ class TaskOpenList extends WNElement {
         const modals = html`<task-note-modal people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
                     companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
                     teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"
-                    tasks_service="${this.getAttribute('tasks_service') || 'week-note-services.tasks_service'}"></task-note-modal><task-view-modal></task-view-modal>`;
+                    tasks_service="${this.getAttribute('tasks_service') || 'week-note-services.tasks_service'}"></task-note-modal>
+                <task-view-modal tasks_service="${this.getAttribute('tasks_service') || 'week-note-services.tasks_service'}"
+                    people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
+                    companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
+                    teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"></task-view-modal>`;
         if (data._loading) return html`${header('', 0)}<p class="empty-quiet">Laster…</p>${modals}`;
         const open = Array.isArray(data.open) ? data.open : null;
         if (!open) return html`${header('', 0)}<p class="empty-quiet">Kunne ikke laste oppgaver</p>${modals}`;

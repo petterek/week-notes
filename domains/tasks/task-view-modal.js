@@ -1,10 +1,10 @@
 /**
  * <task-view-modal>
  *
- * Read-only modal that displays all details of a task using the standard
+ * Detail modal that displays task attributes and accepts timestamped comments using
  * <modal-container>. Shows text, note (rendered as markdown), week, due
  * date, status, participants, responsible, goal, creation/completion
- * dates, and completion comment.
+ * dates, completion comment and separate comment history.
  *
  *   const modal = document.querySelector('task-view-modal');
  *   modal.open(taskObj, { onEdit, onComplete });
@@ -20,6 +20,7 @@
 import { WNElement, html, escapeHtml, linkMentions } from './_shared.js';
 
 import { renderRichText, RICH_TEXT_CSS } from '/services/_shared/wn-rich-text.js';
+import './task-comments.js';
 
 const STYLES = `
     :host { display: inline-block; font: inherit; }
@@ -171,6 +172,8 @@ class TaskViewModal extends WNElement {
         // Keyboard shortcuts on the document when modal is open
         this._keyHandler = (ev) => {
             if (!this._modal || !this._modal.hasAttribute('open')) return;
+            if (ev.composedPath().some(el => el instanceof HTMLElement &&
+                (el.matches('input, textarea, select, feature-rich-text-area') || el.isContentEditable))) return;
             if (ev.key === 'e' || ev.key === 'E') { if (!ev.ctrlKey && !ev.metaKey) this._doEdit(); }
             else if (ev.key === 'c' || ev.key === 'C') { if (!ev.ctrlKey && !ev.metaKey) { this._task?.done ? this._doUncomplete() : this._doComplete(); } }
         };
@@ -214,6 +217,9 @@ class TaskViewModal extends WNElement {
                 }
             }
         });
+        this._body.addEventListener('task:commented', ev => {
+            this._task = ev.detail.task;
+        });
 
         this._modal = modal;
         return modal;
@@ -228,6 +234,11 @@ class TaskViewModal extends WNElement {
         const modal = this._ensureModal();
         this._titleEl.innerHTML = linkMentions(escapeHtml(task?.text || 'Oppgave'), [], [], []);
         this._body.innerHTML = this._buildContent(task);
+        const comments = this._body.querySelector('task-comments');
+        for (const domain of ['tasks', 'people', 'companies', 'teams']) {
+            comments.setAttribute(`${domain}_service`, this.getAttribute(`${domain}_service`) || `week-note-services.${domain}_service`);
+        }
+        comments.task = task;
         modal.open();
     }
 
@@ -359,6 +370,7 @@ class TaskViewModal extends WNElement {
             <div class="meta">${metaHtml}</div>
             ${noteSection}
             ${commentSection}
+            <task-comments></task-comments>
             <div class="actions">
                 ${toggleBtn}
                 ${editBtn}

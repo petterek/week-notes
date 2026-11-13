@@ -1,5 +1,5 @@
 /**
- * <task-view> — read-only detail view that renders every attribute of a
+ * <task-view> — detail view with timestamped comments, rendering every attribute of a
  * task object. Schema-driven: shows id, text, done, week, created,
  * completedAt, completedWeek, author, responsible, dueDate, note,
  * commentFile (and any unknown future fields too — last fallback row).
@@ -14,7 +14,7 @@
  *              tasks_service="week-note-services.tasks_service"
  *              people_service="week-note-services.people_service"></task-view>
  *
- * Emits no events. Pure presentation.
+ * Comments emit task:commented with the updated task and task collection.
  */
 import {
     WNElement, html, unsafeHTML, escapeHtml,
@@ -22,6 +22,7 @@ import {
 } from './_shared.js';
 
 import { renderRichText, RICH_TEXT_CSS } from '/services/_shared/wn-rich-text.js';
+import './task-comments.js';
 
 const STYLES = `
     :host { display: block; color: var(--text-strong); font: inherit; font-size: 0.95em; }
@@ -160,6 +161,9 @@ class TaskView extends WNElement {
         if (!this._wired) {
             this._wired = true;
             wireMentionClicks(this.shadowRoot);
+            this.shadowRoot.addEventListener('task:commented', ev => {
+                this._task = this._taskOverride = ev.detail.task;
+            });
         }
     }
 
@@ -306,7 +310,7 @@ class TaskView extends WNElement {
 
         // Note and commentFile get their own dedicated sections below.
         const rows = ordered
-            .filter(k => k !== 'text' && k !== 'note' && k !== 'commentFile' && k !== 'comment')
+            .filter(k => k !== 'text' && k !== 'note' && k !== 'commentFile' && k !== 'comment' && k !== 'comments')
             .map(k => this._renderField(k, t[k]))
             .filter(Boolean);
 
@@ -323,15 +327,24 @@ class TaskView extends WNElement {
                 ${note ? html`<div class="section-h">Notat</div><div class="note rich-text">${unsafeHTML(renderRichText(t.note, { people: this._people, companies: this._companies }))}</div>` : null}
                 ${t.comment ? html`<div class="section-h">Fullføringskommentar</div><div class="completion-comment rich-text">${unsafeHTML(renderRichText(t.comment, { people: this._people, companies: this._companies }))}</div>` : null}
                 ${this._renderComment()}
+                <task-comments tasks_service="${this.getAttribute('tasks_service') || 'week-note-services.tasks_service'}"
+                    people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
+                    companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
+                    teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"></task-comments>
             </div>
         `;
+    }
+
+    afterRender() {
+        const comments = this.shadowRoot.querySelector('task-comments');
+        if (comments) comments.task = this._task;
     }
 }
 
 if (!customElements.get('task-view')) customElements.define('task-view', TaskView);
 
 // Page-level singleton + event handler. Any code that wants to show a
-// task in a read-only modal dispatches a bubbling `task:request-view`
+// task in a detail modal dispatches a bubbling `task:request-view`
 // event; a single document-level listener mounts <modal-container> +
 // <task-view> lazily, sets the task, and opens.
 //

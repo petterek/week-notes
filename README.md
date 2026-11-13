@@ -230,6 +230,11 @@ MIT — see [`LICENSE`](LICENSE).
 
 ## 📜 Changelog
 
+### 2026-11-13 (v5.9 — oppgavekommentarer)
+- **Kommentarhistorikk:** legg til kommentarer fra oppgavedetaljene uten å fullføre oppgaven. Hver kommentar får automatisk dato og klokkeslett; notater og fullføringskommentarer beholdes separat.
+- **Felles oppgavedetaljer:** kommentarer er tilgjengelige på hjemsiden, oppgavesiden og i møteserier. Historikken beholdes ved sammenslåing av oppgaver; lagringsfeil viser en melding uten å slette påbegynt tekst.
+- **Verifisert:** 184 Playwright-tester passerer; `npm audit` rapporterer ingen kjente sårbarheter.
+
 ### 2026-11-13 (v5.8 — personkort, API-utforsker og enklere søk)
 - **Personkort uten navigering:** personlenker åpner kontaktinformasjon, notater og relaterte oppgaver, møter og resultater i en modal. Redigering oppdaterer listene uten ny innlasting; direkte lenker og nye faner bruker `/person/:key`.
 - **Lesbare avsluttede møter:** sakslistepunktenes notater vises som Markdown under møtedatoen. Gjenåpning gir tilbake editoren.

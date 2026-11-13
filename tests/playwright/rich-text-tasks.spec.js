@@ -125,3 +125,164 @@ test('task note and completion displays render Markdown, emoji and escaped HTML'
         await expect(display.locator('b')).toHaveCount(0);
     }
 });
+
+test('task comments append server timestamps without changing notes or completion', async ({ request }) => {
+    const tasks = await (await request.post('/api/tasks', { data: { text: 'Comment history' } })).json();
+    const id = tasks.at(-1).id;
+    let sourceId;
+    try {
+        await request.put(`/api/tasks/${id}`, { data: { note: 'Keep this note' } });
+        const before = Date.now();
+        const responses = await Promise.all(['First comment', 'Second comment'].map(text =>
+            request.post(`/api/tasks/${id}/comments`, { data: { text, created: '2000-01-01T00:00:00Z' } })));
+        for (const response of responses) expect(response.status()).toBe(200);
+        const task = await storedTask(request, id);
+        expect(task.done).toBe(false);
+        expect(task.note).toBe('Keep this note');
+        expect(task.completedAt).toBeUndefined();
+        expect(task.comments.map(c => c.text).sort()).toEqual(['First comment', 'Second comment']);
+        expect(new Set(task.comments.map(c => c.id)).size).toBe(2);
+        for (const comment of task.comments) {
+            expect(new Date(comment.created).toISOString()).toBe(comment.created);
+            expect(Date.parse(comment.created)).toBeGreaterThanOrEqual(before);
+            expect(Date.parse(comment.created)).toBeLessThanOrEqual(Date.now());
+        }
+        await request.put(`/api/tasks/${id}/toggle`, { data: { comment: 'Completion stays separate' } });
+        const completed = await storedTask(request, id);
+        const appended = await request.post(`/api/tasks/${id}/comments`, { data: { text: 'After completion' } });
+        expect(appended.status()).toBe(200);
+        const after = await storedTask(request, id);
+        expect(after.done).toBe(true);
+        expect(after.completedAt).toBe(completed.completedAt);
+        expect(after.commentFile).toBe(completed.commentFile);
+        expect(after.comments).toHaveLength(3);
+        expect(after.comments.slice(0, 2)).toEqual(task.comments);
+
+        sourceId = (await (await request.post('/api/tasks', { data: { text: 'Merged comments' } })).json()).at(-1).id;
+        await request.post(`/api/tasks/${sourceId}/comments`, { data: { text: 'From source task' } });
+        expect((await request.post('/api/tasks/merge', { data: { srcId: sourceId, tgtId: id } })).ok()).toBe(true);
+        expect((await storedTask(request, id)).comments.map(c => c.text)).toContain('From source task');
+    } finally {
+        if (sourceId) await request.delete(`/api/tasks/${sourceId}`);
+        await request.delete(`/api/tasks/${id}`);
+    }
+});
+
+test('invalid task comments fail explicitly without changing task history', async ({ request }) => {
+    const id = (await (await request.post('/api/tasks', { data: { text: 'Comment validation' } })).json()).at(-1).id;
+    try {
+        const original = await storedTask(request, id);
+        for (const data of [{ text: ' \n ' }, { text: 123 }, {}, null, []]) {
+            const response = await request.post(`/api/tasks/${id}/comments`, { data: JSON.stringify(data), headers: { 'Content-Type': 'application/json' } });
+            expect(response.status()).toBe(400);
+            expect((await response.json()).error).toBeTruthy();
+        }
+        const malformed = await request.post(`/api/tasks/${id}/comments`, { data: '{', headers: { 'Content-Type': 'application/json' } });
+        expect(malformed.status()).toBe(400);
+        expect(await storedTask(request, id)).toEqual(original);
+        expect((await request.post('/api/tasks/missing-comment-task/comments', { data: { text: 'Missing' } })).status()).toBe(404);
+        await request.delete(`/api/tasks/${id}`);
+        expect((await request.post(`/api/tasks/${id}/comments`, { data: { text: 'Deleted' } })).status()).toBe(404);
+    } finally {
+        await request.delete(`/api/tasks/${id}`);
+    }
+});
+
+test('task details save timestamped rich comments, retain drafts on errors and update cached views', async ({ page, request }) => {
+    const id = (await (await request.post('/api/tasks', { data: { text: 'Comment UI history' } })).json()).at(-1).id;
+    try {
+        await page.goto('/tasks');
+        const row = page.locator(`tasks-page tr[data-taskid="${id}"]`);
+        await row.locator('[data-act="view"]').click();
+        const modal = page.locator('modal-container[open]').filter({ has: page.locator('task-comments') });
+        const comments = modal.locator('task-comments');
+        const input = comments.locator('feature-rich-text-area textarea');
+        await input.pressSequentially('Comment keeps the editor open');
+        await expect(modal).toBeVisible();
+        await input.fill(markdown);
+        await page.route(`**/api/tasks/${id}/comments`, route => route.fulfill({
+            status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Comment storage unavailable' }),
+        }));
+        await comments.getByRole('button', { name: 'Legg til kommentar' }).click();
+        await expect(comments.getByRole('alert')).toContainText('Comment storage unavailable');
+        await expect(input).toHaveValue(markdown);
+        await page.unroute(`**/api/tasks/${id}/comments`);
+        await input.press('Control+Enter');
+        const entry = comments.locator('.comment-entry');
+        await expect(entry).toHaveCount(1);
+        await expect(entry.locator('strong')).toHaveText('bold');
+        await expect(entry).toContainText('🚀');
+        await expect(entry).toContainText('<b>x</b>');
+        await expect(entry.locator('b')).toHaveCount(0);
+        await expect(entry.locator('entity-mention')).toHaveAttribute('key', 'ada');
+        const saved = await storedTask(request, id);
+        await expect(entry.locator('time')).toHaveAttribute('datetime', saved.comments[0].created);
+        await expect(entry.locator('time')).toHaveText(/\d{2}\.\d{2}\.\d{4}.*\d{2}:\d{2}/);
+        await expect(input).toHaveValue('');
+        expect(saved.done).toBe(false);
+        await modal.evaluate(el => el.close());
+        await row.locator('[data-act="view"]').click();
+        await expect(comments.locator('.comment-entry')).toHaveCount(1);
+        await input.fill('Another comment');
+        await comments.getByRole('button', { name: 'Legg til kommentar' }).click();
+        await expect(comments.locator('.comment-entry')).toHaveCount(2);
+        await modal.evaluate(el => el.close());
+        await page.reload();
+        await row.locator('[data-act="view"]').click();
+        await expect(comments.locator('.comment-entry')).toHaveCount(2);
+        await modal.evaluate(el => el.close());
+
+        const view = await mount(page, 'task-view', { task: await storedTask(request, id) });
+        await expect(view.locator('task-comments .comment-entry')).toHaveCount(2);
+        await view.locator('task-comments textarea').fill('From the shared task view');
+        await view.locator('task-comments').getByRole('button', { name: 'Legg til kommentar' }).click();
+        await expect(view.locator('task-comments .comment-entry')).toHaveCount(3);
+    } finally {
+        await request.delete(`/api/tasks/${id}`);
+    }
+});
+
+test('home and embedded series task lists retain comments when reopening cached details', async ({ page, request }) => {
+    const id = (await (await request.post('/api/tasks', {
+        data: { text: 'Shared comment views', meetingSeriesId: 'comment-series' },
+    })).json()).at(-1).id;
+    try {
+        await page.goto('/');
+        const list = page.locator('task-open-list').first();
+        const title = list.locator(`[data-act="view"][data-taskid="${id}"]`);
+        await title.click();
+        let modal = page.locator('modal-container[open]').filter({ has: page.locator('task-comments') });
+        await modal.locator('task-comments textarea').fill('From home');
+        await modal.locator('task-comments').getByRole('button', { name: 'Legg til kommentar' }).click();
+        await expect(modal.locator('.comment-entry')).toHaveCount(1);
+        await modal.evaluate(el => el.close());
+        await title.click();
+        await expect(modal.locator('.comment-entry')).toHaveCount(1);
+        await modal.evaluate(el => el.close());
+
+        const task = await storedTask(request, id);
+        await page.evaluate(async task => {
+            await import('/components/tasks-page.js');
+            const embedded = document.createElement('tasks-page');
+            embedded.id = 'comment-series-tasks';
+            embedded.setAttribute('embedded', '');
+            embedded.setAttribute('meeting-series-id', task.meetingSeriesId);
+            embedded.setAttribute('tasks_service', 'week-note-services.tasks_service');
+            embedded.addEventListener('tasks:changed', e => { window.commentSeriesTasks = e.detail.tasks; });
+            document.body.prepend(embedded);
+            embedded.setData({ tasks: [task], people: [], companies: [], goals: [] });
+        }, task);
+        const embedded = page.locator('#comment-series-tasks');
+        await embedded.locator(`[data-act="view"][data-taskid="${id}"]`).click();
+        modal = page.locator('modal-container[open]').filter({ has: page.locator('task-comments') });
+        await modal.locator('task-comments textarea').fill('From the meeting series');
+        await modal.locator('task-comments').getByRole('button', { name: 'Legg til kommentar' }).click();
+        await expect(modal.locator('.comment-entry')).toHaveCount(2);
+        await expect.poll(() => page.evaluate(id => window.commentSeriesTasks?.find(t => t.id === id)?.comments.length, id)).toBe(2);
+        await modal.evaluate(el => el.close());
+        await embedded.locator(`[data-act="view"][data-taskid="${id}"]`).click();
+        await expect(modal.locator('.comment-entry')).toHaveCount(2);
+    } finally {
+        await request.delete(`/api/tasks/${id}`);
+    }
+});

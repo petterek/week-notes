@@ -230,6 +230,11 @@ class TasksPage extends WNElement {
     taskCreated()     { this.refresh(); }
     taskCompleted()   { this.refresh(); }
     taskUncompleted() { this.refresh(); }
+    taskCommented({ task }) {
+        if (this._allTasks?.some(t => t.id === task.id)) {
+            this._acceptTasks(this._allTasks.map(t => t.id === task.id ? task : t), false);
+        }
+    }
 
     attributeChangedCallback(name, oldVal, newVal) {
         if (oldVal !== newVal) this.invalidateAwait();
@@ -246,12 +251,15 @@ class TasksPage extends WNElement {
         if (this.isConnected) this.requestRender();
     }
 
-    _acceptTasks(result) {
+    _acceptTasks(result, render = true) {
         if (!Array.isArray(result) && (!result || !result.id)) throw new Error('Ugyldig oppgavesvar');
         const tasks = Array.isArray(result) ? result : this._allTasks.map(t => t.id === result.id ? result : t);
         if (this._providedData) this._providedData = { ...this._providedData, tasks };
         else this._awaitCache.tasks = Promise.resolve(tasks);
-        this.requestRender();
+        this._allTasks = tasks;
+        const seriesId = this.getAttribute('meeting-series-id');
+        this._lastTasks = tasks.filter(t => !seriesId || t.meetingSeriesId === seriesId);
+        if (render) this.requestRender();
         this.dispatchEvent(new CustomEvent('tasks:changed', {
             bubbles: true, composed: true, detail: { tasks },
         }));
@@ -670,7 +678,10 @@ class TasksPage extends WNElement {
                     companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
                     teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"
                     tasks_service="${this.getAttribute('tasks_service') || 'week-note-services.tasks_service'}"></task-note-modal>
-                <task-view-modal></task-view-modal>
+                <task-view-modal tasks_service="${this.getAttribute('tasks_service') || 'week-note-services.tasks_service'}"
+                    people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
+                    companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
+                    teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"></task-view-modal>
             </div>
         `;
     }
