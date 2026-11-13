@@ -1,6 +1,17 @@
 const { test, expect } = require('@playwright/test');
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
+const fs = require('node:fs');
+
+test('Copilot setup pins an Ubuntu runner supported by installed Playwright Chromium dependencies', () => {
+    const workflow = fs.readFileSync(path.resolve(__dirname, '../../.github/workflows/copilot-setup-steps.yml'), 'utf8');
+    const runner = workflow.match(/^\s+runs-on:\s+(ubuntu-\d+\.\d+)\s*$/m)?.[1];
+    expect(runner, 'Pin an Ubuntu version instead of ubuntu-latest, which can advance beyond Playwright support').toBeTruthy();
+    const playwrightRoot = path.dirname(require.resolve('playwright-core/package.json'));
+    const { deps } = require(path.join(playwrightRoot, 'lib/server/registry/nativeDeps.js'));
+    const platform = `${runner.replace('ubuntu-', 'ubuntu')}-x64`;
+    expect(deps[platform]?.chromium?.length, `${runner} must have Chromium dependencies in the installed Playwright`).toBeGreaterThan(0);
+});
 
 test('the managed server gets graceful shutdown so isolated data cleanup can run', () => {
     const config = require('../../playwright.config');

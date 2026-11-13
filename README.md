@@ -72,6 +72,8 @@ and [AGENTS.md](AGENTS.md) for the code map and contributor conventions.
 
 ## 📜 Changelog
 
+**Unreleased · 2026-11-13:** pin the Copilot setup runner to a Playwright-supported Ubuntu version.
+
 **v5.10 · 2026-11-13:** compact README; complete history moved to `CHANGELOG.md`.
 
 [Complete release history](CHANGELOG.md).

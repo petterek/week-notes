@@ -1,5 +1,8 @@
 # 📜 Changelog
 
+### 2026-11-13 (GitHub Actions)
+- **Stabil Copilot-runner:** oppsettet bruker Ubuntu 24.04 i stedet for `ubuntu-latest`. Dette hindrer at nye runner-versjoner stopper Chromium-installasjonen før Playwright støtter operativsystemet; en regresjonstest kontrollerer kompatibiliteten.
+
 ### 2026-11-13 (v5.10 — dokumentasjon)
 - **Kompakt README:** oppstart, funksjonsoversikt og dokumentasjonslenker beholdes i README; komplett utgivelseshistorikk er flyttet til `CHANGELOG.md`.
 
