@@ -55,6 +55,9 @@ test('the served spec describes real task, meeting and series mutation responses
         const tasks = await check('/api/tasks', 'POST', { data: { text: 'OpenAPI contract test' } });
         taskId = tasks.at(-1).id;
         await check(`/api/tasks/${taskId}`, 'PUT', { data: { note: 'Contract note', dueDate: null } }, '/api/tasks/{id}');
+        await check(`/api/tasks/${taskId}/comments`, 'POST', { data: { text: 'Contract comment' } }, '/api/tasks/{id}/comments');
+        await check(`/api/tasks/${taskId}/comments`, 'POST', { data: { text: ' ' } }, '/api/tasks/{id}/comments', 400);
+        await check('/api/tasks/missing-comment-task/comments', 'POST', { data: { text: 'Missing' } }, '/api/tasks/{id}/comments', 404);
         const created = await check('/api/meeting-series', 'POST', { data: { title: 'OpenAPI contract series' } });
         seriesId = created.series.id;
         await check(`/api/meeting-series/${seriesId}`, 'GET', {}, '/api/meeting-series/{id}');

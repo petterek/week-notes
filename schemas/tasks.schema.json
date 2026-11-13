@@ -59,6 +59,19 @@
         "type": "string",
         "description": "Path to a sidecar markdown comment file (week/file)."
       },
+      "comments": {
+        "type": "array",
+        "description": "Append-only task comment history, separate from notes and completion comments.",
+        "items": {
+          "type": "object",
+          "required": ["id", "text", "created"],
+          "properties": {
+            "id": { "type": "string" },
+            "text": { "type": "string" },
+            "created": { "type": "string", "format": "date-time" }
+          }
+        }
+      },
       "meetingId": {
         "type": "string",
         "description": "Linked occurrence id for follow-up tasks created from a meeting."

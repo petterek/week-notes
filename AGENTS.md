@@ -178,6 +178,12 @@ with data supplied by the host. Keep its `tasks:changed`/`tasks:reordered`
 events connected to the host caches. Manual follow-up order lives in the
 series' optional `taskOrder`, saved via
 `POST /api/meeting-series/:id/tasks/reorder`, not in global task ordering.
+Task details share `<task-comments>` for an append-only `comments` history
+with server-assigned IDs and UTC timestamps, displayed in local time.
+`POST /api/tasks/:id/comments` accepts `{text}` without completing the task
+or changing notes. Keep `task:commented` wired to list caches without
+rerendering the open modal; embedded lists also emit `tasks:changed`.
+Completion comments remain separate. See `agents/tasks.md`.
 Running-meeting mutations also apply response data to the await cache;
 keep their meeting GET lazy and preserve unfinished input/notes drafts.
 Occurrence participants are stored in `meeting.attendees`, edited with

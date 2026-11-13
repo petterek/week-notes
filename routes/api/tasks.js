@@ -2,6 +2,8 @@
 module.exports = function(deps) {
     const fs = require('fs');
     const path = require('path');
+    const { randomUUID } = require('node:crypto');
+    const { HttpError, sendJson } = require('../../lib/http');
     const _core = deps.core;
     const {
         dataDir, extractMentions, getDataContext, getCurrentYearWeek, getMePersonKey, loadAllTasks,
@@ -19,6 +21,10 @@ module.exports = function(deps) {
             const parts = [tgt.note, src.text, src.note].filter(Boolean);
             const mergedNote = parts.join('\n');
             syncTaskNote(tgt, mergedNote);
+            if (src.comments?.length) {
+                tgt.comments = [...(tgt.comments || []), ...src.comments]
+                    .sort((a, b) => a.created.localeCompare(b.created));
+            }
             const filtered = tasks.filter(t => t.id !== body.srcId);
             // Remove results for deleted src task
             saveResults(loadResults().filter(r => r.taskId !== body.srcId));
@@ -50,6 +56,28 @@ module.exports = function(deps) {
         const includeDeleted = all === '1' || all === 'true';
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(includeDeleted ? loadAllTasks() : loadTasks()));
+        return;
+    }
+
+    const commentMatch = pathname.match(/^\/api\/tasks\/([^/]+)\/comments$/);
+    if (commentMatch && req.method === 'POST') {
+        const body = await readJsonBody(req);
+        if (!body || Array.isArray(body) || typeof body.text !== 'string' || !body.text.trim()) {
+            throw new HttpError(400, 'Comment text must be a non-empty string');
+        }
+        const tasks = loadAllTasks();
+        const task = tasks.find(t => t.id === commentMatch[1] && !t.deleted);
+        if (!task) throw new HttpError(404, 'Task not found');
+        if (task.comments !== undefined && !Array.isArray(task.comments)) {
+            throw new Error(`Invalid comment history for task ${task.id}`);
+        }
+        task.comments = [...(task.comments || []), {
+            id: randomUUID(),
+            text: body.text.trim(),
+            created: new Date().toISOString(),
+        }];
+        saveTasks(tasks);
+        sendJson(res, 200, tasks.filter(t => !t.deleted));
         return;
     }
 

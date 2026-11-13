@@ -61,6 +61,15 @@
         "responses": { "200": { "$ref": "#/components/responses/Tasks" }, "400": { "$ref": "#/components/responses/BadRequest" }, "500": { "$ref": "#/components/responses/ServerError" } }
       }
     },
+    "/api/tasks/{id}/comments": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "post": {
+        "operationId": "addTaskComment", "tags": ["Tasks"], "summary": "Append a timestamped comment and return all live tasks",
+        "description": "Adds to a separate append-only comment history without changing completion or task notes. The server assigns the comment ID and UTC creation timestamp. Comments can be added to open or completed tasks; missing or tombstoned tasks return 404.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["text"], "properties": { "text": { "type": "string", "minLength": 1, "pattern": "\\S", "description": "Markdown comment; whitespace-only text is rejected." } } } } } },
+        "responses": { "200": { "$ref": "#/components/responses/Tasks" }, "400": { "$ref": "#/components/responses/BadRequest" }, "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" } }
+      }
+    },
     "/api/tasks/{id}/close-from-note": {
       "parameters": [{ "$ref": "#/components/parameters/Id" }],
       "post": {
@@ -76,7 +85,7 @@
     "/api/tasks/merge": {
       "post": {
         "operationId": "mergeTasks", "tags": ["Tasks"], "summary": "Merge a source task into a target task",
-        "description": "Appends source text/note to the target note, removes the source task and its results, and returns live tasks.",
+        "description": "Appends source text/note to the target note, preserves both comment histories in timestamp order, removes the source task and its results, and returns live tasks.",
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["srcId", "tgtId"], "properties": { "srcId": { "type": "string" }, "tgtId": { "type": "string" } } } } } },
         "responses": { "200": { "$ref": "#/components/responses/Tasks" }, "400": { "$ref": "#/components/responses/BadRequest" }, "500": { "$ref": "#/components/responses/ServerError" } }
       }
@@ -811,6 +820,13 @@
           "goalId": { "type": ["string", "null"] }, "meetingSeriesId": { "type": ["string", "null"] }, "meetingId": { "type": ["string", "null"] }, "agendaItemId": { "type": ["string", "null"] }
         }
       },
+      "TaskComment": {
+        "type": "object", "required": ["id", "text", "created"],
+        "properties": {
+          "id": { "type": "string" }, "text": { "type": "string" },
+          "created": { "$ref": "#/components/schemas/DateTime" }
+        }
+      },
       "Task": {
         "type": "object", "required": ["id", "text"],
         "properties": {
@@ -818,6 +834,7 @@
           "created": { "$ref": "#/components/schemas/DateTime" }, "completedAt": { "$ref": "#/components/schemas/DateTime" }, "completedWeek": { "type": "string" }, "completedBy": { "type": "string" },
           "author": { "type": "string" }, "responsible": { "type": "string" }, "participants": { "$ref": "#/components/schemas/Strings" },
           "dueDate": { "$ref": "#/components/schemas/DueDate" }, "note": { "type": "string" }, "noteRef": { "type": "string" }, "commentFile": { "type": "string" },
+          "comments": { "type": "array", "items": { "$ref": "#/components/schemas/TaskComment" }, "description": "Separate timestamped comment history; absent on older tasks." },
           "goalId": { "type": "string" }, "meetingSeriesId": { "type": "string" }, "meetingId": { "type": "string" }, "agendaItemId": { "type": "string" },
           "deleted": { "type": "boolean" }, "deletedAt": { "$ref": "#/components/schemas/DateTime" }
         }

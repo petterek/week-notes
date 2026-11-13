@@ -7,6 +7,7 @@ Per-week task list with comments, drag-reorder, merge, completion log.
 - Files: `CONTEXTS_DIR/<ctx>/tasks/<id>.json` (legacy `tasks.json`
   arrays remain readable until the directory exists).
 - Record shape: `{ id, text, week, done, completedWeek?, comment?,
+  comments?: [{ id, text, created }],
   due?, dueDate?, order?, notes?, responsible?, participants?, goalId?,
   meetingSeriesId?, meetingId?, agendaItemId?, author? }`
 - `completedWeek` is set on the toggle that marks `done=true`. It
@@ -31,6 +32,7 @@ Per-week task list with comments, drag-reorder, merge, completion log.
 | POST | `/api/tasks` | Create `{text, week}` |
 | PUT | `/api/tasks/:id` | Edit fields |
 | PUT | `/api/tasks/:id/toggle` | Toggle done; body may include `comment` |
+| POST | `/api/tasks/:id/comments` | Append `{text}` with server ID/time; return live tasks |
 | POST | `/api/tasks/:id/close-from-note` | Set completion and update the source note marker |
 | POST | `/api/tasks/merge` | Body `{srcId, tgtId}` |
 | POST | `/api/tasks/reorder` | Body `{ids:[id,id,...]}` |
@@ -75,6 +77,19 @@ Per-week task list with comments, drag-reorder, merge, completion log.
 - Completion API comments are persisted as `commentFile` Markdown notes
   (legacy inline `comment` remains displayable). Keep passing the raw
   comment to `service.toggle(id, comment)`.
+- Separate task comments live in the optional `comments` array with a
+  server-generated ID and UTC ISO `created` timestamp. They can be appended
+  to open or completed tasks without modifying notes/completion. Empty
+  text returns 400; missing/deleted tasks return 404. Append reads
+  `loadAllTasks()` after body parsing to retain tombstones and concurrent
+  entries. Merging tasks preserves both histories in timestamp order.
+- `<task-comments>` is shared by both task detail views, including home
+  and embedded series tasks. It uses the injected task service's
+  `addComment(id, text)`, displays local date/time with `<time datetime>`,
+  and emits `task:commented`. The shell patches list caches without
+  rerendering/closing the modal; embedded tasks also emit `tasks:changed`.
+  Save failures keep the draft and display an inline error. Typing in the
+  comment editor must not trigger the detail modal's E/C shortcuts.
 - `{{X}}`/`[[X]]` in task notes and `[[X]]` in completion comments are
   converted by the rich editor's `convert()` before the host saves (see
   `agents/notes.md`); the server no longer parses them. `POST /api/tasks`
@@ -126,3 +141,6 @@ Ctrl+Enter and list continuation, rich note/comment displays and HTML
 escaping. Existing task modal scenarios query the nested editor's shadow
 root for autocomplete and dispatch `input` after programmatic changes to
 its inner textarea.
+It also covers timestamped comment append/validation/merge, concurrent
+entries, completion independence, persistence, safe rendering, failed-save
+retry, modal keyboard isolation and cached reopening in both detail views.

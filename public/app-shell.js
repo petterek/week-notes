@@ -599,6 +599,9 @@
             notify('task-open-list', 'taskUncompleted', e.detail || {});
             notify('task-completed', 'taskUncompleted', e.detail || {});
         });
+        document.addEventListener('task:commented', function(e){
+            notify('tasks-page, task-open-list', 'taskCommented', e.detail);
+        });
 
         document.addEventListener('task-closed', function(e){
             var d = e.detail || {};
