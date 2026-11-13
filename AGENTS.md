@@ -134,9 +134,8 @@ PORT=4000 node server.js
 
 Do not restart the user's server for automated tests. Playwright owns a
 separate server and disposable data root; see `agents/tests.md`.
-Copilot setup pins `ubuntu-24.04`; do not use a moving `ubuntu-latest`
-image that can exceed Playwright's supported platforms. The runner-support
-regression in `tests/playwright/test-server.spec.js` must stay green.
+GitHub Actions workflows are intentionally absent. Run `npm test` locally
+before pushing; do not rely on GitHub setup checks for validation.
 For a requested restart, use the project's `stop.sh` / `run.sh` helpers
 or identify the exact PID with `lsof -ti:3001`. Never kill by process name.
 

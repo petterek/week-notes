@@ -23,10 +23,8 @@ tests/
 playwright.config.js            # baseURL :TEST_PORT, spawns tests/server.js
 ```
 
-Copilot's setup workflow pins `ubuntu-24.04`. Do not use `ubuntu-latest`:
-runner upgrades can introduce an OS unsupported by the installed Playwright.
-`test-server.spec.js` checks the pinned Ubuntu version against Playwright's
-Chromium dependency platform map; review this check when upgrading Playwright.
+There are no GitHub Actions workflows. Run `npm test` locally before
+pushing; the isolated Playwright server and fixture cleanup stay unchanged.
 
 Server-side wiring:
 - `GET /debug/tests`              → page (in-browser runner UI)
