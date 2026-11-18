@@ -569,8 +569,10 @@ do not retain a read-modify-write snapshot across another `await`.
   history shared across task details, home and meeting series).
 - Release tag: `v5.10` → `aedf4a0` (documentation-only:
   compact README and complete release history in CHANGELOG.md).
-- Latest release tag: `v5.11` → `dd73998` (GitHub setup workflow
+- Release tag: `v5.11` → `dd73998` (GitHub setup workflow
   removed; validation remains local with Playwright).
+- Latest release tag: `v5.12` → `df85b36` (meeting-instance agenda
+  notes grow with content up to 25 visible rows, then scroll).
 
 ---
 
