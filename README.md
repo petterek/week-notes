@@ -72,8 +72,9 @@ and [AGENTS.md](AGENTS.md) for the code map and contributor conventions.
 
 ## 📜 Changelog
 
-**v5.11 · 2026-11-13:** GitHub workflow removed; validation runs locally.
-184 Playwright tests passing.
+**v5.12 · 2026-11-18:** Meeting-instance agenda notes grow with the text,
+up to 25 visible rows, then scroll.
+185 Playwright tests passing.
 
 [Complete release history](CHANGELOG.md).
 

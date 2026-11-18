@@ -189,6 +189,8 @@ rerendering the open modal; embedded lists also emit `tasks:changed`.
 Completion comments remain separate. See `agents/tasks.md`.
 Running-meeting mutations also apply response data to the await cache;
 keep their meeting GET lazy and preserve unfinished input/notes drafts.
+Occurrence agenda notes use `<feature-rich-text-area rows="2" max-rows="25">`
+to grow with content up to 25 visible rows, then scroll internally.
 Occurrence participants are stored in `meeting.attendees`, edited with
 `<person-multi-picker>` through the meeting PUT response, and shown by name
 from cached people data. Do not change series defaults; closed occurrences

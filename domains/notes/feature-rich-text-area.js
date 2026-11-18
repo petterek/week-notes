@@ -184,6 +184,7 @@ const STYLES = `
     :host([rows]) { height: auto; }
     :host([rows]) .editor { height: auto; }
     :host([rows]) textarea { flex: none; min-height: 3.2em; padding: 8px 10px; resize: vertical; font-family: inherit; }
+    :host([rows][max-rows]) textarea { resize: none; }
     textarea[readonly] { background: var(--surface-alt, var(--surface)); color: var(--text-muted); }
     .editor { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; }
     textarea { flex: 1 1 auto; width: 100%; min-height: 0; padding: 14px; border: 1px solid var(--border); border-radius: 8px; font-family: var(--font-mono, monospace); font-size: 0.95em; line-height: 1.5; resize: none; outline: none; box-sizing: border-box; background: var(--surface); color: var(--text-strong); overflow: auto; }
@@ -203,7 +204,7 @@ const STYLES = `
 
 class FeatureRichTextArea extends WNElement {
     static get domain() { return 'notes'; }
-    static get observedAttributes() { return ['value', 'placeholder', 'disabled', 'readonly', 'rows', 'features']; }
+    static get observedAttributes() { return ['value', 'placeholder', 'disabled', 'readonly', 'rows', 'max-rows', 'features']; }
     static get formAssociated() { return true; }
 
     constructor() {
@@ -303,12 +304,23 @@ class FeatureRichTextArea extends WNElement {
     }
 
     afterRender() {
+        this._sizeObserver?.disconnect();
         this._shortcutHandles?.forEach(handle => handle.destroy());
         this._shortcutHandles = [];
         this._acHandle?.destroy();
         this._acHandle = null;
         const textarea = this.textarea;
         if (!textarea) return;
+        this._resizeToContent();
+        if (this.hasAttribute('rows') && this.hasAttribute('max-rows')) {
+            let width = textarea.clientWidth;
+            this._sizeObserver = new ResizeObserver(() => {
+                if (textarea.clientWidth === width) return;
+                width = textarea.clientWidth;
+                this._resizeToContent();
+            });
+            this._sizeObserver.observe(textarea);
+        }
         if (this._selection) {
             textarea.setSelectionRange(this._selection.start, this._selection.end, this._selection.direction);
         }
@@ -332,6 +344,7 @@ class FeatureRichTextArea extends WNElement {
         textarea.addEventListener('input', () => {
             this._value = textarea.value;
             this._syncFormValue();
+            this._resizeToContent();
             this.dispatchEvent(new CustomEvent('feature-rich-text-area:input', {
                 bubbles: true,
                 composed: true,
@@ -347,6 +360,7 @@ class FeatureRichTextArea extends WNElement {
     }
 
     disconnectedCallback() {
+        this._sizeObserver?.disconnect();
         this._shortcutHandles?.forEach(handle => handle.destroy());
         this._shortcutHandles = [];
         this._acHandle?.destroy();
@@ -468,11 +482,27 @@ class FeatureRichTextArea extends WNElement {
     }
 
     get textarea() { return this.shadowRoot?.querySelector('textarea') || null; }
+    _resizeToContent() {
+        const textarea = this.textarea;
+        const maxRows = Number(this.getAttribute('max-rows'));
+        if (!textarea || !this.hasAttribute('rows') || !Number.isFinite(maxRows) || maxRows <= 0) return;
+        const css = getComputedStyle(textarea);
+        const lineHeight = parseFloat(css.lineHeight);
+        const padding = parseFloat(css.paddingTop) + parseFloat(css.paddingBottom);
+        const border = parseFloat(css.borderTopWidth) + parseFloat(css.borderBottomWidth);
+        const minHeight = textarea.rows * lineHeight + padding + border;
+        const maxHeight = Math.max(textarea.rows, maxRows) * lineHeight + padding + border;
+        textarea.style.maxHeight = `${maxHeight}px`;
+        textarea.style.height = '0px';
+        textarea.style.height = `${Math.min(maxHeight, Math.max(minHeight, textarea.scrollHeight + border))}px`;
+    }
+
     get value() { return this._value == null ? '' : String(this._value); }
     set value(value) {
         this._value = value == null ? '' : String(value);
         if (this.textarea && this.textarea.value !== this._value) this.textarea.value = this._value;
         this._syncFormValue();
+        this._resizeToContent();
     }
 
     _replace(start, end, insertion, selectionStart = null, selectionEnd = null) {

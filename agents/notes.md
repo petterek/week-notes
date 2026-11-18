@@ -75,6 +75,8 @@ Freeform markdown notes, one folder per ISO week.
   attach to `el.textarea` directly. A trigger's optional `help` string is
   appended to the help line; `note-editor` passes `#` tag and `{{m:?` meeting
   triggers this way (meetings via `meetings_service`).
+  `max-rows` opts a `rows` editor into content-driven height, capped at that
+  many visible rows with scrolling beyond the cap (instead of manual resizing).
 - Inline create markers are converted by the editor, not the server:
   `await el.convert({ week, noteRef, taskId, taskText, replaceWith })`
   creates entities through the injected services, gated by `features` —
