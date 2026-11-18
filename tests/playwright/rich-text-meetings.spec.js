@@ -125,6 +125,66 @@ test('occurrence rich-text editors save minutes and render previous agenda notes
     }
 });
 
+test('occurrence agenda notes grow while typing up to 25 rows and shrink after deletion', async ({ page, request }) => {
+    const series = (await (await request.post('/api/meeting-series', {
+        data: { title: 'Growing occurrence notes' },
+    })).json()).series;
+    let meeting;
+    try {
+        const item = (await (await request.post(`/api/meeting-series/${series.id}/agenda`, {
+            data: { title: 'Growing agenda item' },
+        })).json()).item;
+        meeting = (await (await request.post('/api/meetings', {
+            data: { seriesId: series.id, date: '2099-06-05' },
+        })).json()).meeting;
+        await page.goto(`/meeting-occurrence/${meeting.id}`);
+        const notes = page.locator(`meeting-occurrence-page feature-rich-text-area[data-agenda="${item.id}"] textarea`);
+        await expect(notes).toBeVisible();
+        const metrics = () => notes.evaluate(el => {
+            const css = getComputedStyle(el);
+            return {
+                height: el.getBoundingClientRect().height,
+                lineHeight: parseFloat(css.lineHeight),
+                extra: parseFloat(css.paddingTop) + parseFloat(css.paddingBottom)
+                    + parseFloat(css.borderTopWidth) + parseFloat(css.borderBottomWidth),
+                scrollHeight: el.scrollHeight,
+                clientHeight: el.clientHeight,
+            };
+        });
+        const initial = await metrics();
+        await notes.fill(Array(5).fill('Notes').join('\n'));
+        const growing = await metrics();
+        expect(growing.height).toBeGreaterThan(initial.height);
+        expect(growing.scrollHeight).toBeLessThanOrEqual(growing.clientHeight + 1);
+        await notes.press('End');
+        await notes.press('Enter');
+        await notes.pressSequentially('More notes');
+        expect((await metrics()).height).toBeGreaterThan(growing.height);
+
+        const longNotes = Array(40).fill('Notes').join('\n');
+        await notes.fill(longNotes);
+        const capped = await metrics();
+        expect(capped.height).toBeCloseTo(25 * capped.lineHeight + capped.extra, 0);
+        expect(capped.scrollHeight).toBeGreaterThan(capped.clientHeight);
+        await notes.press('Tab');
+        await expect.poll(async () => (await (await request.get(`/api/meetings/${meeting.id}`)).json())
+            .agenda.find(a => a.agendaItemId === item.id).notes).toBe(longNotes);
+        await page.reload();
+        await expect(notes).toHaveValue(longNotes);
+        expect((await metrics()).height).toBeCloseTo(capped.height, 0);
+
+        await notes.fill('Wrapped words '.repeat(100));
+        const wrapped = await metrics();
+        expect(wrapped.height).toBeGreaterThan(initial.height);
+        expect(wrapped.height).toBeLessThanOrEqual(capped.height);
+        await notes.fill('Short');
+        expect((await metrics()).height).toBeCloseTo(initial.height, 0);
+    } finally {
+        if (meeting) await request.delete(`/api/meetings/${meeting.id}`);
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
 test('rich text renderers neutralise unsafe link and image URLs', async ({ page, request }) => {
     const payload = '[a](javascript:alert(1)) [b](java&#x73;cript:alert(2)) ![i](vbscript:x) [d](data:text/html,x) [ok](https://example.com) [rel](/tasks)';
     await page.goto('/results');

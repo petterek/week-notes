@@ -147,6 +147,8 @@ Closed occurrences show each agenda item's saved notes as rendered Markdown
 in a div under a date heading, not a read-only editor. Open/reopened meetings
 keep the editable notes and autosave behavior. The free-text minutes section
 is unchanged.
+Open occurrence agenda notes grow and shrink with their content from 2 to
+25 visible rows (`rows="2" max-rows="25"`); longer notes scroll internally.
 
 The series dashboard updates its cached series list from successful
 create/edit/archive and agenda mutation responses, without refetching

@@ -1,5 +1,10 @@
 # 📜 Changelog
 
+### 2026-11-18 (v5.12 — voksende møtenotater)
+- **Tilpasset skrivefelt:** notater på sakslistepunkter i en møteforekomst vokser og krymper med teksten, fra 2 til maksimalt 25 synlige linjer. Lengre notater rulles i feltet; lagring og avsluttede møter er uendret.
+- **Regresjonstest:** dekker skriving, linjebryting, høydegrensen, sletting og ny innlasting av lagrede notater.
+- **Verifisert:** 185 Playwright-tester passerer; `npm audit` rapporterer ingen kjente sårbarheter.
+
 ### 2026-11-13 (v5.11 — lokal testkjøring)
 - **GitHub-workflow fjernet:** Copilot-oppsettet og den tilhørende runner-testen er fjernet. Playwright-testene kjøres fortsatt lokalt med isolert server og midlertidige data.
 - **Verifisert:** 184 Playwright-tester passerer lokalt; `npm audit` rapporterer ingen kjente sårbarheter.

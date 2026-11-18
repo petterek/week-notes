@@ -501,7 +501,7 @@ class MeetingOccurrencePage extends WNElement {
                         <div class="rich-text">${unsafeHTML(renderRichText(a.notes || ''))}</div>
                     </div>
                 ` : html`
-                    <feature-rich-text-area placeholder="Notater…" data-agenda="${a.agendaItemId}" rows="2" features="lists,emoji,mentions,dates" value="${this._agendaDrafts?.[a.agendaItemId] ?? a.notes ?? ''}"
+                    <feature-rich-text-area placeholder="Notater…" data-agenda="${a.agendaItemId}" rows="2" max-rows="25" features="lists,emoji,mentions,dates" value="${this._agendaDrafts?.[a.agendaItemId] ?? a.notes ?? ''}"
                         people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
                         companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
                         teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"></feature-rich-text-area>
