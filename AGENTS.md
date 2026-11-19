@@ -588,8 +588,10 @@ do not retain a read-modify-write snapshot across another `await`.
   compact README and complete release history in CHANGELOG.md).
 - Release tag: `v5.11` → `dd73998` (GitHub setup workflow
   removed; validation remains local with Playwright).
-- Latest release tag: `v5.12` → `df85b36` (meeting-instance agenda
+- Release tag: `v5.12` → `df85b36` (meeting-instance agenda
   notes grow with content up to 25 visible rows, then scroll).
+- Latest release tag: `v5.13` → `21f6e38` (task source grouping,
+  derived origins, live backlinks and note preview/edit links).
 
 ---
 
