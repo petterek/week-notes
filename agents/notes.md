@@ -18,7 +18,7 @@ Freeform markdown notes, one folder per ISO week.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/note/:week/:file.md` | Rendered view |
+| GET | `/:week/:file.md` | Rendered view (direct note links; no `/note` prefix) |
 | GET | `/editor/:week/:file.md` | Full-page editor (split pane, autosave) |
 | GET | `/present/:week/:file.md?style=...` | Reveal.js presentation (see `presentations.md`) |
 | POST | `/api/save` | Save body `{week, file, content}` |

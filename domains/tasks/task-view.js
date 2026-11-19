@@ -23,6 +23,7 @@ import {
 
 import { renderRichText, RICH_TEXT_CSS } from '/services/_shared/wn-rich-text.js';
 import './task-comments.js';
+import './task-references.js';
 
 const STYLES = `
     :host { display: block; color: var(--text-strong); font: inherit; font-size: 0.95em; }
@@ -163,6 +164,9 @@ class TaskView extends WNElement {
             wireMentionClicks(this.shadowRoot);
             this.shadowRoot.addEventListener('task:commented', ev => {
                 this._task = this._taskOverride = ev.detail.task;
+            });
+            this.shadowRoot.addEventListener('task-references:navigate', () => {
+                this.closest('modal-container')?.close();
             });
         }
     }
@@ -327,6 +331,8 @@ class TaskView extends WNElement {
                 ${note ? html`<div class="section-h">Notat</div><div class="note rich-text">${unsafeHTML(renderRichText(t.note, { people: this._people, companies: this._companies }))}</div>` : null}
                 ${t.comment ? html`<div class="section-h">Fullføringskommentar</div><div class="completion-comment rich-text">${unsafeHTML(renderRichText(t.comment, { people: this._people, companies: this._companies }))}</div>` : null}
                 ${this._renderComment()}
+                <task-references taskid="${t.id}"
+                    tasks_service="${this.getAttribute('tasks_service') || 'week-note-services.tasks_service'}"></task-references>
                 <task-comments tasks_service="${this.getAttribute('tasks_service') || 'week-note-services.tasks_service'}"
                     people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
                     companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"

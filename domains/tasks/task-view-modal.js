@@ -21,6 +21,7 @@ import { WNElement, html, escapeHtml, linkMentions } from './_shared.js';
 
 import { renderRichText, RICH_TEXT_CSS } from '/services/_shared/wn-rich-text.js';
 import './task-comments.js';
+import './task-references.js';
 
 const STYLES = `
     :host { display: inline-block; font: inherit; }
@@ -220,6 +221,7 @@ class TaskViewModal extends WNElement {
         this._body.addEventListener('task:commented', ev => {
             this._task = ev.detail.task;
         });
+        this._body.addEventListener('task-references:navigate', () => this.close());
 
         this._modal = modal;
         return modal;
@@ -239,6 +241,8 @@ class TaskViewModal extends WNElement {
             comments.setAttribute(`${domain}_service`, this.getAttribute(`${domain}_service`) || `week-note-services.${domain}_service`);
         }
         comments.task = task;
+        this._body.querySelector('task-references').setAttribute('tasks_service',
+            this.getAttribute('tasks_service') || 'week-note-services.tasks_service');
         modal.open();
     }
 
@@ -370,6 +374,7 @@ class TaskViewModal extends WNElement {
             <div class="meta">${metaHtml}</div>
             ${noteSection}
             ${commentSection}
+            <task-references taskid="${escapeHtml(t.id || '')}"></task-references>
             <task-comments></task-comments>
             <div class="actions">
                 ${toggleBtn}

@@ -15,11 +15,13 @@
  *   people_service.list()              → Person[]
  *   companies_service.list()           → Company[]
  */
-import { WNElement, html, unsafeHTML, escapeHtml, linkMentions, wireMentionClicks } from './_shared.js';
+import { WNElement, html, unsafeHTML, escapeHtml, linkMentions, wireMentionClicks, isoWeek } from './_shared.js';
 import './task-complete-modal.js';
 import './task-note-modal.js';
 import './task-edit-modal.js';
 import './task-view-modal.js';
+import { taskOrigin } from '/services/_shared/task-origin.js';
+import { renderSourceLinks, openNoteSourcePreview, SOURCE_LINK_STYLES } from '/services/_shared/task-source-links.js';
 
 function isOverdue(due, done) {
     if (done || !due) return false;
@@ -42,7 +44,14 @@ function weekLabel(w) {
     return m ? `W${+m[1]}` : w;
 }
 
+const ORIGIN_GROUPS = { meetings: 'Møter', notes: 'Notater', goals: 'Mål', other: 'Andre' };
+
+function sourceKey(origin) {
+    return origin.kind ? `${origin.kind}:${origin.id}` : 'other';
+}
+
 const STYLES = `
+    ${SOURCE_LINK_STYLES}
     :host { display: block; padding: 20px 24px 60px; color: var(--text-strong); font: inherit; }
     body:has(tasks-page) { max-width: none; }
 
@@ -157,6 +166,14 @@ const STYLES = `
     .tp-table .task-title:hover { color: var(--accent); }
     .tp-table .task-title a { color: var(--accent); text-decoration: none; }
     .tp-table .task-title a:hover { text-decoration: underline; }
+    .tp-table .tp-origin-heading {
+        text-transform: none; letter-spacing: normal; font-size: 0.85em;
+        white-space: normal; overflow-wrap: anywhere; cursor: default;
+    }
+    .tp-source-heading td { background: var(--surface-head); white-space: normal; overflow-wrap: anywhere; }
+    .tp-source-heading h3 { margin: 0; font: inherit; font-weight: 600; }
+    .tp-source-heading a { color: var(--accent); text-decoration: none; }
+    .tp-source-heading a:hover { text-decoration: underline; }
     .tp-table .task-done .task-title {
         text-decoration: line-through; color: var(--text-subtle);
         font-weight: 400;
@@ -215,7 +232,7 @@ const STYLES = `
 
 class TasksPage extends WNElement {
     static get domain() { return 'tasks'; }
-    static get observedAttributes() { return ['tasks_service', 'people_service', 'companies_service', 'meeting-series-id']; }
+    static get observedAttributes() { return ['tasks_service', 'people_service', 'companies_service', 'meetings_service', 'meeting-series-id']; }
 
     css() { return STYLES; }
 
@@ -225,6 +242,15 @@ class TasksPage extends WNElement {
         this._filter = '';
         this._tab = 'open';
         if (!this._wired) this._wire();
+        this._onTaskHash ||= () => {
+            this._openedTaskId = null;
+            this._openHashTask();
+        };
+        window.addEventListener('hashchange', this._onTaskHash);
+    }
+
+    disconnectedCallback() {
+        window.removeEventListener('hashchange', this._onTaskHash);
     }
 
     taskCreated()     { this.refresh(); }
@@ -278,11 +304,14 @@ class TasksPage extends WNElement {
         const peopleSvc = this.serviceFor('people');
         const compSvc = this.serviceFor('companies');
         const goalsSvc = this.serviceFor('goals');
+        const meetingsSvc = this.serviceFor('meetings');
         return {
             tasks:     () => this.service.list(),
             people:    () => peopleSvc ? peopleSvc.list() : Promise.resolve([]),
             companies: () => compSvc   ? compSvc.list()   : Promise.resolve([]),
             goals:     () => goalsSvc  ? goalsSvc.list()  : Promise.resolve([]),
+            meetingSeries: () => meetingsSvc ? meetingsSvc.listSeries() : Promise.resolve([]),
+            meetings:  () => meetingsSvc ? meetingsSvc.list() : Promise.resolve([]),
         };
     }
 
@@ -328,9 +357,10 @@ class TasksPage extends WNElement {
         });
 
         this.shadowRoot.addEventListener('click', (ev) => {
+            if (openNoteSourcePreview(ev)) return;
             // View task (click on title cell)
             const viewCell = ev.target.closest('td[data-act="view"]');
-            if (viewCell && !ev.target.closest('.entity-mention')) {
+            if (viewCell && !ev.target.closest('.entity-mention, a')) {
                 const task = this._findTask(viewCell.dataset.taskid);
                 if (!task) return;
                 this._openViewModal(task);
@@ -579,6 +609,14 @@ class TasksPage extends WNElement {
             row.style.display = match ? '' : 'none';
             if (match) visibleCount++;
         });
+        this.shadowRoot.querySelectorAll('.tp-origin-group').forEach(group => {
+            const visibleSources = new Set([...group.querySelectorAll('tr[data-taskid]')]
+                .filter(row => row.style.display !== 'none').map(row => row.dataset.source));
+            group.querySelectorAll('.tp-source-heading').forEach(heading => {
+                heading.hidden = !visibleSources.has(heading.dataset.source);
+            });
+            group.hidden = visibleSources.size === 0;
+        });
         const empty = this.shadowRoot.querySelector('.tp-empty');
         if (empty) empty.style.display = visibleCount === 0 ? '' : 'none';
     }
@@ -594,6 +632,19 @@ class TasksPage extends WNElement {
             input.value = this._filter;
             this._applyFilter();
         }
+        this._openHashTask();
+    }
+
+    _openHashTask() {
+        if (this.hasAttribute('embedded') || !this.shadowRoot.querySelector('task-view-modal')) return;
+        const match = location.hash.match(/^#t-(.+)$/);
+        if (!match) return;
+        const id = decodeURIComponent(match[1]);
+        if (this._openedTaskId === id) return;
+        const task = this._allTasks?.find(t => t.id === id);
+        if (!task) return;
+        this._openedTaskId = id;
+        this._openViewModal(task);
     }
 
     render(data = {}) {
@@ -631,7 +682,37 @@ class TasksPage extends WNElement {
         };
 
         const goals = this._lastGoals || [];
-        const rows = visible.map(t => this._renderRow(t, people, companies, goals));
+        const origins = new Map(visible.map(t => [t.id, taskOrigin(t, data, isoWeek)]));
+        const renderRow = t => this._renderRow(t, people, companies, goals, origins.get(t.id));
+        let taskGroups;
+        if (this.hasAttribute('embedded')) {
+            taskGroups = html`<tbody>${visible.map(renderRow)}</tbody>`;
+        } else {
+            const groups = new Map(Object.keys(ORIGIN_GROUPS).map(type => [type, new Map()]));
+            for (const task of visible) {
+                const origin = origins.get(task.id);
+                const sources = groups.get(origin.type);
+                const key = sourceKey(origin);
+                if (!sources.has(key)) sources.set(key, { origin, tasks: [] });
+                sources.get(key).tasks.push(task);
+            }
+            taskGroups = [...groups].filter(([, sources]) => sources.size)
+                .map(([type, sources]) => html`
+                    <tbody class="tp-origin-group" data-origin="${type}">
+                        <tr><th class="tp-origin-heading" scope="rowgroup" colspan="9">
+                            ${ORIGIN_GROUPS[type]}
+                        </th></tr>
+                        ${[...sources].sort(([, a], [, b]) => a.origin.label.localeCompare(b.origin.label, 'nb'))
+                            .map(([key, { origin, tasks }]) => html`
+                                <tr class="tp-source-heading" data-source="${key}">
+                                    <td colspan="9"><h3>${origin.label
+                                        ? renderSourceLinks(origin) : 'Uten registrert kilde'}</h3></td>
+                                </tr>
+                                ${tasks.map(renderRow)}
+                            `)}
+                    </tbody>
+                `);
+        }
 
         return html`
             <div class="tp">
@@ -669,7 +750,7 @@ class TasksPage extends WNElement {
                                     <th style="width:70px"></th>
                                 </tr>
                             </thead>
-                            <tbody>${rows}</tbody>
+                            ${taskGroups}
                         </table>
                         <div class="tp-empty" style="display:none">Ingen treff</div>
                     `
@@ -686,7 +767,7 @@ class TasksPage extends WNElement {
         `;
     }
 
-    _renderRow(t, people, companies, goals) {
+    _renderRow(t, people, companies, goals, origin) {
         const id = t.id || '';
         const overdue = isOverdue(t.dueDate, t.done);
         const textHtml = unsafeHTML(linkMentions(escapeHtml(t.text || ''), people, companies));
@@ -721,10 +802,10 @@ class TasksPage extends WNElement {
                 : html`<span class="badge badge-open">Åpen</span>`);
         const hasNote = !!(t.note && t.note.trim());
         const noteCls = hasNote ? '' : ' style="opacity:0.4"';
-        const filterText = [t.text || '', t.note || '', respName, partsStr, goalName, t.responsible || ''].join(' ');
+        const filterText = [t.text || '', t.note || '', respName, partsStr, goalName, origin.label, t.responsible || ''].join(' ');
 
         return html`
-            <tr class="${t.done ? 'task-done' : ''}" draggable="${!this.getAttribute('meeting-series-id')}" data-taskid="${id}" data-filtertext="${escapeHtml(filterText)}">
+            <tr class="${t.done ? 'task-done' : ''}" draggable="${!this.getAttribute('meeting-series-id')}" data-taskid="${id}" data-source="${sourceKey(origin)}" data-filtertext="${escapeHtml(filterText)}">
                 <td>
                     ${this.getAttribute('meeting-series-id') && !t.done ? html`
                         <button type="button" class="tp-drag-handle" draggable="true" data-taskid="${id}"

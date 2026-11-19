@@ -4,6 +4,7 @@ module.exports = function(deps) {
     const path = require('path');
     const { randomUUID } = require('node:crypto');
     const { HttpError, sendJson } = require('../../lib/http');
+    const { getTaskReferences } = require('../../lib/task-references');
     const _core = deps.core;
     const {
         dataDir, extractMentions, getDataContext, getCurrentYearWeek, getMePersonKey, loadAllTasks,
@@ -56,6 +57,14 @@ module.exports = function(deps) {
         const includeDeleted = all === '1' || all === 'true';
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(includeDeleted ? loadAllTasks() : loadTasks()));
+        return;
+    }
+
+    const referencesMatch = pathname.match(/^\/api\/tasks\/([^/]+)\/references$/);
+    if (referencesMatch && req.method === 'GET') {
+        const task = loadTasks().find(t => t.id === referencesMatch[1]);
+        if (!task) throw new HttpError(404, 'Task not found');
+        sendJson(res, 200, getTaskReferences(task, _core));
         return;
     }
 
