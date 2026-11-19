@@ -1,5 +1,12 @@
 # 📜 Changelog
 
+### 2026-11-19 (v5.13 — oppgavekilder og omtaler)
+- **Gruppert oppgaveliste:** åpne og fullførte oppgaver grupperes etter kildetype og konkret kilde, med lenker til møteserie, møte, notat eller mål. Filtrering inkluderer kildenavn; innebygde lister i møteserier beholdes flate.
+- **Opphav og omtaler:** oppgavedetaljer viser avledet opphav og steder der oppgaven er nevnt med oppgavemarkører. Omtaler hentes fra gjeldende notater og øvrig innhold i aktiv kontekst, uten nye lagrede kildefelt.
+- **Notatlenker:** separate øye- og blyantlenker åpner forhåndsvisning og redigering. Rettede notatadresser støtter også filnavn med mellomrom og spesialtegn.
+- **Regresjonstester:** dekker gruppering, filtrering, kildelenker, omtaler, feilmeldinger og nytt forsøk uten tap av påbegynt kommentar.
+- **Verifisert:** 189 Playwright-tester passerer; `npm audit` rapporterer ingen kjente sårbarheter.
+
 ### 2026-11-18 (v5.12 — voksende møtenotater)
 - **Tilpasset skrivefelt:** notater på sakslistepunkter i en møteforekomst vokser og krymper med teksten, fra 2 til maksimalt 25 synlige linjer. Lengre notater rulles i feltet; lagring og avsluttede møter er uendret.
 - **Regresjonstest:** dekker skriving, linjebryting, høydegrensen, sletting og ny innlasting av lagrede notater.

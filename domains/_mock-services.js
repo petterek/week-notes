@@ -114,6 +114,7 @@
 
     window.MockTaskService = {
         list:   () => delay(JSON.parse(JSON.stringify(tasks))),
+        references: () => delay({ origin: null, mentions: [] }),
         create: (text, opts = {}) => {
             const t = {
                 id: uid('t'), text: String(text || ''), done: false,

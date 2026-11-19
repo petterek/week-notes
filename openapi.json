@@ -61,6 +61,20 @@
         "responses": { "200": { "$ref": "#/components/responses/Tasks" }, "400": { "$ref": "#/components/responses/BadRequest" }, "500": { "$ref": "#/components/responses/ServerError" } }
       }
     },
+    "/api/tasks/{id}/references": {
+      "parameters": [{ "$ref": "#/components/parameters/Id" }],
+      "get": {
+        "operationId": "getTaskReferences", "tags": ["Tasks"], "summary": "Get the derived origin and places mentioning a task",
+        "description": "Read-only scan of the selected context's current notes and live domain content for {{?id}} and {{!id}} task markers. Each source appears once; the task's own fields, deleted records, bare IDs and unconverted create markers are excluded. Origin is independently derived from existing links in this order: meeting series, meeting, source note, goal. Neither backlinks nor origin are written to storage.",
+        "responses": {
+          "200": { "description": "Derived origin and current backlinks", "content": { "application/json": { "schema": { "type": "object", "required": ["origin", "mentions"], "properties": {
+            "origin": { "anyOf": [{ "$ref": "#/components/schemas/TaskReference" }, { "type": "null" }] },
+            "mentions": { "type": "array", "items": { "$ref": "#/components/schemas/TaskReference" } }
+          } } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }, "500": { "$ref": "#/components/responses/ServerError" }
+        }
+      }
+    },
     "/api/tasks/{id}/comments": {
       "parameters": [{ "$ref": "#/components/parameters/Id" }],
       "post": {
@@ -825,6 +839,17 @@
         "properties": {
           "id": { "type": "string" }, "text": { "type": "string" },
           "created": { "$ref": "#/components/schemas/DateTime" }
+        }
+      },
+      "TaskReference": {
+        "type": "object",
+        "required": ["kind", "id", "label", "href"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["note", "task", "meeting", "meeting-series", "goal", "result", "person", "company", "place", "team"] },
+          "id": { "type": "string", "description": "Source record ID, entity key or week/file note path." },
+          "label": { "type": "string", "description": "Plain-text display label; HTML must be escaped by consumers." },
+          "href": { "type": ["string", "null"], "description": "Local source URL, or null when a linked meeting no longer exists." },
+          "type": { "type": "string", "enum": ["meetings", "notes", "goals"], "description": "Origin group, present on a derived origin." }
         }
       },
       "Task": {

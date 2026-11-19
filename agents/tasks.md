@@ -29,6 +29,7 @@ Per-week task list with comments, drag-reorder, merge, completion log.
 | --- | --- | --- |
 | GET | `/tasks` | Full tasks page |
 | GET | `/api/tasks` | List |
+| GET | `/api/tasks/:id/references` | Derived origin + current content backlinks |
 | POST | `/api/tasks` | Create `{text, week}` |
 | PUT | `/api/tasks/:id` | Edit fields |
 | PUT | `/api/tasks/:id/toggle` | Toggle done; body may include `comment` |
@@ -45,6 +46,26 @@ Per-week task list with comments, drag-reorder, merge, completion log.
 - **Per-week sections** on home: tasks for that week, with `+` add
   button.
 - **`/tasks` page**: full management UI, drag-reorder.
+  Both open and completed tabs group tasks first by origin type (Møter,
+  Notater, Mål, Andre), then by the specific source within that type.
+  Source headings are alphabetical and link to the source; tasks with the
+  same source share one heading. Each task appears once, using the first available origin:
+  meeting series, meeting, valid `noteRef`, goal, or other. Column sorting
+  applies within each source subgroup; filtering includes source labels and
+  hides empty source headings and type groups. Links open the series dashboard,
+  meeting workspace/calendar, note, or goal; missing names fall back to IDs.
+  Direct note links use `/<week>/<file>.md`, with encoded path segments,
+  not the unsupported `/note/<week>/<file>.md` path.
+  Note headings and detail references share `task-source-links.js`: the
+  eye link opens the existing note preview; the pencil navigates to
+  `/editor/<week>/<file>.md`. Both have accessible labels. Modified clicks
+  follow their normal URLs; without the preview host the eye URL still
+  opens the rendered note.
+  Other tasks share an "Uten registrert kilde" subgroup.
+  Series and meetings are loaded once via the injected `meetings_service`.
+  Embedded series task lists keep the existing host-supplied flat task list
+  without redundant grouping or fetching series.
+  `/tasks#t-<id>` opens that task's details, including completed tasks.
 
 ## Code map
 
@@ -52,6 +73,23 @@ Per-week task list with comments, drag-reorder, merge, completion log.
   strict per-item storage in `lib/collection-store.js`.
 - `/tasks` SPA stub: `routes/spa.js`; browser UI: `domains/tasks/`.
 - API handlers: `routes/api/tasks.js`.
+- `domains/_shared/task-origin.js` derives origin for both the list and the
+  API, using the caller's canonical ISO-week helper for calendar URLs.
+- `lib/task-references.js` scans saved weekly Markdown plus live collection
+  content on demand: task text/notes/completion comments/comment history,
+  meeting notes/minutes/agenda/decisions, series descriptions/agenda,
+  goal descriptions, result text, and people/company/place/team notes.
+  It reuses `extractTaskRefs` for open and closed markers and returns each
+  source once. The task itself, tombstones, bare IDs and unconverted create
+  markers are not backlinks. No writes or cached manifests are involved;
+  unreadable notes or corrupt collections fail rather than returning a
+  partial success.
+- `<task-references>` is shared by both task detail views. Its injected
+  task service supplies `references(id)`; it shows "Opphav" independently
+  from "Omtalt i", with explicit load errors and retry. Retry only rerenders
+  this component, preserving comment drafts. Plain source-link clicks emit
+  `task-references:navigate` so detail hosts close their modal before navigation;
+  modified clicks retain normal browser behavior.
 - Body handling: `await readJsonBody(req)` before loading mutable task
   snapshots. Malformed JSON must return 400 without toggling/completing
   a task; empty bodies remain valid for toggling.

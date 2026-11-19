@@ -181,6 +181,23 @@ with data supplied by the host. Keep its `tasks:changed`/`tasks:reordered`
 events connected to the host caches. Manual follow-up order lives in the
 series' optional `taskOrder`, saved via
 `POST /api/meeting-series/:id/tasks/reorder`, not in global task ordering.
+The standalone `/tasks` page injects `meetings_service` and groups tasks by
+origin type (Møter, Notater, Mål, Andre), then specific source with linked
+alphabetical source headings.
+Origin precedence is series, meeting, noteRef, goal, other. Column sorting
+stays within source subgroups; filtering includes source labels and hides
+empty source headings and type groups.
+Embedded series task lists remain flat and host-supplied without extra reads.
+`<task-references>` in both task detail views loads
+`GET /api/tasks/:id/references` lazily: derived origin is separate from
+deduplicated content backlinks. The scan is request-context scoped and
+read-only; keep strict read errors visible and retries isolated from drafts.
+`/tasks#t-<id>` opens the referenced task, including completed tasks.
+Direct source-note links use `/<week>/<file>.md` (encoded path segments),
+not `/note/<week>/<file>.md`; the rendered-note handler has no `/note` prefix.
+Task note sources/backlinks share eye (existing preview modal) and pencil
+(`/editor/<week>/<file>.md`) actions from `task-source-links.js`; preserve
+encoded filenames, accessible labels and normal modified-click behavior.
 Task details share `<task-comments>` for an append-only `comments` history
 with server-assigned IDs and UTC timestamps, displayed in local time.
 `POST /api/tasks/:id/comments` accepts `{text}` without completing the task
@@ -569,8 +586,10 @@ do not retain a read-modify-write snapshot across another `await`.
   history shared across task details, home and meeting series).
 - Release tag: `v5.10` → `aedf4a0` (documentation-only:
   compact README and complete release history in CHANGELOG.md).
-- Latest release tag: `v5.11` → `dd73998` (GitHub setup workflow
+- Release tag: `v5.11` → `dd73998` (GitHub setup workflow
   removed; validation remains local with Playwright).
+- Latest release tag: `v5.12` → `df85b36` (meeting-instance agenda
+  notes grow with content up to 25 visible rows, then scroll).
 
 ---
 

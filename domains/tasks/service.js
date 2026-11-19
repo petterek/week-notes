@@ -2,6 +2,7 @@
  * TaskService — wraps /api/tasks endpoints.
  *
  * GET    /api/tasks                  → list()
+ * GET    /api/tasks/:id/references    → references(id)
  * POST   /api/tasks         {text}   → create(text)
  * PUT    /api/tasks/:id     {text?,note?} → update(id, patch)
  * DELETE /api/tasks/:id              → remove(id)
@@ -19,6 +20,7 @@ import { apiRequest as req } from '/services/_shared/http.js';
 
 export const TaskService = {
     list:    ()                  => req('GET',    BASE),
+    references: (id)             => req('GET', `${BASE}/${encodeURIComponent(id)}/references`),
     /**
      * Create a task.
      *   create('Send rapport')
