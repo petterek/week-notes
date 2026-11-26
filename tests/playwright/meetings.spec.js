@@ -588,6 +588,8 @@ test('ending a meeting closes its popup only after a successful close', async ({
         const popup = await popupPromise;
         const closeButton = popup.locator('meeting-occurrence-page .mo-close');
         await expect(closeButton).toBeVisible();
+        const minutesInput = popup.locator('meeting-occurrence-page [data-el="minutes"] textarea');
+        await minutesInput.fill('Minutes saved before popup closes');
         const dialogs = [];
         popup.on('dialog', async dialog => { dialogs.push(dialog.message()); await dialog.accept(); });
 
@@ -597,6 +599,8 @@ test('ending a meeting closes its popup only after a successful close', async ({
         await expect.poll(() => dialogs.some(message => message.includes('503'))).toBe(true);
         expect(popup.isClosed()).toBe(false);
         expect((await (await request.get(`/api/meetings/${occurrence.id}`)).json()).status).toBe('in-progress');
+        await expect(minutesInput).toHaveValue('Minutes saved before popup closes');
+        await minutesInput.fill('Updated minutes on retry');
 
         await popup.unroute(`**/api/meetings/${occurrence.id}/close`);
         const reload = page.waitForEvent('load');
@@ -604,6 +608,7 @@ test('ending a meeting closes its popup only after a successful close', async ({
         await expect.poll(() => popup.isClosed()).toBe(true);
         await reload;
         expect((await (await request.get(`/api/meetings/${occurrence.id}`)).json()).status).toBe('closed');
+        expect((await (await request.get(`/api/meetings/${occurrence.id}`)).json()).minutes).toBe('Updated minutes on retry');
         await expect(page).toHaveURL(/\/meeting-series/);
         expect(await page.evaluate(() => performance.getEntriesByType('navigation')[0]?.type)).toBe('reload');
         await expect(row).toContainText('Avsluttet');
@@ -612,6 +617,63 @@ test('ending a meeting closes its popup only after a successful close', async ({
         await request.delete(`/api/meeting-series/${series.id}`);
     }
 });
+
+for (const popup of [false, true]) {
+    test(`running meeting header stays visible while scrolling in ${popup ? 'a narrow popup' : 'the regular workspace'}`, async ({ page, request }) => {
+        await page.setViewportSize({ width: popup ? 360 : 1000, height: 600 });
+        const title = 'Running meeting with a longer title that wraps on small screens';
+        const series = (await (await request.post('/api/meeting-series', { data: { title } })).json()).series;
+        let meeting;
+        try {
+            for (let i = 0; i < 6; i++) {
+                await request.post(`/api/meeting-series/${series.id}/agenda`, { data: { title: `Topic ${i + 1}` } });
+            }
+            meeting = (await (await request.post('/api/meetings', {
+                data: { seriesId: series.id, date: '2099-06-01', start: '10:00', end: '11:00', location: 'Meeting room' },
+            })).json()).meeting;
+            const url = `/meeting-occurrence/${meeting.id}${popup ? '?popup=1' : ''}`;
+            await page.goto(url);
+            const host = page.locator('meeting-occurrence-page');
+            const header = host.locator('.mo-header');
+            await expect(header.getByRole('heading', { name: title, exact: true })).toBeVisible();
+            await expect(header).not.toHaveCSS('position', 'sticky');
+            await expect(header.locator('.mo-close')).toHaveCount(0);
+
+            await request.post(`/api/meetings/${meeting.id}/start`);
+            await page.reload();
+            const endButton = header.getByRole('button', { name: 'Avslutt møte', exact: false });
+            await expect(endButton).toBeVisible();
+            await expect(host.locator('.mo-close')).toHaveCount(1);
+            await expect(header).toContainText('2099-06-01 10:00–11:00');
+            await expect(header).toContainText('Meeting room');
+            await expect(header).toContainText('Pågår');
+            await expect(header.getByRole('button')).toHaveCount(1);
+            await expect(host.locator('.mo-toolbar .mo-edit-head')).toBeVisible();
+            await expect(host.locator('.mo-toolbar a')).toHaveAttribute('href', `/meetings/${meeting.id}/minutes`);
+            await host.locator('[data-el="minutes"] textarea').fill('Minutes from the sticky header');
+            await page.locator('#content').evaluate(el => { el.scrollTop = 500; });
+            await expect.poll(() => page.locator('#content').evaluate(el => el.scrollTop)).toBeGreaterThan(300);
+            const contentBox = await page.locator('#content').boundingBox();
+            await expect.poll(async () => Math.abs((await header.boundingBox()).y - contentBox.y)).toBeLessThan(2);
+            const buttonBox = await endButton.boundingBox();
+            expect(buttonBox.x).toBeGreaterThanOrEqual(0);
+            expect(buttonBox.x + buttonBox.width).toBeLessThanOrEqual(popup ? 360 : 1000);
+            expect(buttonBox.y + buttonBox.height).toBeLessThan(600);
+            expect(await page.locator('#content').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+
+            page.on('dialog', dialog => dialog.accept());
+            await endButton.click();
+            await expect(header).toContainText('Avsluttet');
+            await expect(header).not.toHaveCSS('position', 'sticky');
+            await expect(host.locator('.mo-close')).toHaveCount(0);
+            expect((await (await request.get(`/api/meetings/${meeting.id}`)).json()).minutes)
+                .toBe('Minutes from the sticky header');
+        } finally {
+            if (meeting) await request.delete(`/api/meetings/${meeting.id}`);
+            await request.delete(`/api/meeting-series/${series.id}`);
+        }
+    });
+}
 
 test('blocking the setup popup does not create an occurrence', async ({ page, request }) => {
     const seriesResp = await request.post('/api/meeting-series', { data: { title: 'Blocked popup series' } });
@@ -733,15 +795,8 @@ test('meeting occurrence workspace: full lifecycle via UI', async ({ page, reque
         });
         await expect.poll(shadowText).toContain('We decided to ship it');
 
-        // Save freeform minutes.
-        await host.evaluate(el => {
-            el.shadowRoot.querySelector('[data-el="minutes"]').value = 'Referat: alt gikk bra.';
-            el.shadowRoot.querySelector('.mo-save-minutes').click();
-        });
-        await expect.poll(async () => {
-            const m = await (await request.get(`/api/meetings/${occ.id}`)).json();
-            return m.minutes;
-        }).toBe('Referat: alt gikk bra.');
+        await host.locator('[data-el="minutes"] textarea').fill('Referat: alt gikk bra.');
+        await expect(host.locator('.mo-save-minutes')).toHaveCount(0);
 
         // PDF export link present and points at the print route.
         const pdfHref = await host.evaluate(el => el.shadowRoot.querySelector('a[href*="/minutes"]').getAttribute('href'));
@@ -754,6 +809,7 @@ test('meeting occurrence workspace: full lifecycle via UI', async ({ page, reque
         await host.evaluate(el => el.shadowRoot.querySelector('.mo-close').click());
         await expect.poll(shadowText).toContain('Avsluttet');
         const closed = await (await request.get(`/api/meetings/${occ.id}`)).json();
+        expect(closed.minutes).toBe('Referat: alt gikk bra.');
         const item2Entry = closed.agenda.find(a => a.title === 'Agenda item two');
         expect(item2Entry.outcome).toBe('deferred');
         const resolvedEntry = closed.agenda.find(a => a.title === 'Agenda item one');
@@ -935,6 +991,7 @@ test('meeting minutes support mention autocomplete and save the selected mention
     let meeting;
     try {
         meeting = (await (await request.post('/api/meetings', { data: { seriesId: series.id, date: '2099-06-01' } })).json()).meeting;
+        await request.post(`/api/meetings/${meeting.id}/start`);
         await page.goto(`/meeting-occurrence/${meeting.id}`);
         const workspace = page.locator('meeting-occurrence-page');
         const minutes = workspace.locator('[data-el="minutes"]');
@@ -946,7 +1003,8 @@ test('meeting minutes support mention autocomplete and save the selected mention
         await minutesInput.press('ArrowDown');
         await minutesInput.press('Enter');
         await expect(minutesInput).toHaveValue(/@me /);
-        await workspace.locator('.mo-save-minutes').click();
+        page.on('dialog', dialog => dialog.accept());
+        await workspace.locator('.mo-close').click();
         await expect.poll(async () => (await (await request.get(`/api/meetings/${meeting.id}`)).json()).minutes)
             .toContain('@me ');
         expect((await (await request.get('/api/people')).json()).some(p => p.key === 'me')).toBe(false);

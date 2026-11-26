@@ -32,15 +32,22 @@ const STYLES = `
     :host { display: block; padding: 20px 24px; box-sizing: border-box; color: var(--text-strong); font: inherit; max-width: 900px; margin: 0 auto; }
     .mo-back { font-size: 0.85em; color: var(--accent); text-decoration: none; }
     .mo-back:hover { text-decoration: underline; }
-    .mo-head { display: flex; align-items: flex-start; gap: 10px; margin: 10px 0 4px; flex-wrap: wrap; }
-    .mo-head h1 { margin: 0; flex: 1; font-family: var(--font-heading, Georgia, serif); font-weight: 400; color: var(--accent); }
+    .mo-header { margin: 10px 0 8px; }
+    .mo-header.is-running { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 16px; background: var(--accent-soft); border: 1px solid var(--accent); border-left-width: 5px; border-radius: 8px; }
+    .mo-header-info { flex: 1 1 320px; min-width: 0; }
+    .mo-header.is-running h1 { font-size: 1.3em; line-height: 1.3; font-weight: 600; color: var(--accent-strong); }
+    .mo-header.is-running .mo-status { background: var(--accent); color: var(--text-on-accent); font-weight: 600; }
+    .mo-header .mo-close { flex-shrink: 0; }
+    .mo-head { display: flex; align-items: flex-start; gap: 10px; margin: 0 0 4px; flex-wrap: wrap; }
+    .mo-head h1 { margin: 0; flex: 1 1 180px; min-width: 0; overflow-wrap: anywhere; font-family: var(--font-heading, Georgia, serif); font-weight: 400; color: var(--accent); }
     .mo-status { font-size: 0.8em; padding: 2px 10px; border-radius: 10px; background: var(--surface-alt); color: var(--text-muted); white-space: nowrap; }
-    .mo-meta { color: var(--text-subtle); font-size: 0.9em; margin-bottom: 16px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+    .mo-meta { color: var(--text-subtle); font-size: 0.9em; display: flex; gap: 8px 14px; flex-wrap: wrap; align-items: center; overflow-wrap: anywhere; }
     .mo-act { background: none; border: 1px solid var(--border); cursor: pointer; font-size: 0.88em; padding: 6px 12px; border-radius: 6px; font-family: inherit; color: var(--text-strong); background: var(--surface); }
     .mo-act:hover { background: var(--surface-alt); }
     .mo-act.primary { background: var(--accent); color: var(--text-on-accent); border-color: var(--accent); font-weight: 600; }
     .mo-act.primary:hover { filter: brightness(0.95); }
     .mo-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+    .mo-toolbar { justify-content: flex-end; }
     .mo-warn { color: var(--danger, #c53030); }
 
     .mo-section { margin-bottom: 26px; }
@@ -51,6 +58,7 @@ const STYLES = `
     .mo-participant-actions { display: flex; gap: 8px; }
     .mo-edit-attendees { margin-top: 10px; }
     @media (max-width: 600px) {
+        .mo-header .mo-close { width: 100%; }
         .mo-participant-edit { grid-template-columns: minmax(0, 1fr); }
         .mo-participant-actions { grid-row: 1; }
     }
@@ -83,7 +91,6 @@ const STYLES = `
 
     .mo-minutes feature-rich-text-area { display: block; }
     .mo-minutes .hint { font-size: 0.78em; color: var(--text-subtle); margin-top: 4px; }
-    .mo-minutes .save-row { display: flex; justify-content: flex-end; margin-top: 6px; }
 
     .mo-tasks ul { list-style: none; margin: 0; padding: 0; }
     .mo-tasks li { padding: 5px 0; font-size: 0.92em; display: flex; align-items: baseline; gap: 8px; }
@@ -240,18 +247,28 @@ class MeetingOccurrencePage extends WNElement {
 
         if (act('mo-start')) { this._startMeeting(); return; }
         if (act('mo-close')) {
+            if (this._closing) return;
             const meeting = this._meeting;
             const undecided = (meeting && Array.isArray(meeting.agenda)) ? meeting.agenda.filter(a => !a.outcome).length : 0;
             const msg = undecided
                 ? `${undecided} saklistepunkt(er) har ingen utfall og vil bli utsatt automatisk. Avslutte møtet?`
                 : 'Avslutte møtet?';
             if (!confirm(msg)) return;
+            const closeButton = act('mo-close');
+            this._closing = true;
+            closeButton.disabled = true;
             try {
+                const minutes = this.shadowRoot.querySelector('[data-el="minutes"]').value;
+                await this.service.update(this._id, { minutes });
                 const result = await this.service.close(this._id);
+                if (this._minutesDraft === minutes) this._minutesDraft = undefined;
                 if (new URLSearchParams(location.search).get('popup') === '1' && window.opener) window.close();
                 else this._applyData({ meeting: result.meeting });
             } catch (error) {
                 alert((error && error.message) || 'Feil');
+            } finally {
+                this._closing = false;
+                closeButton.disabled = false;
             }
             return;
         }
@@ -279,17 +296,6 @@ class MeetingOccurrencePage extends WNElement {
         if (act('mo-decision-add-btn')) { this._addDecision(); return; }
         const rmDecision = act('mo-decision-rm');
         if (rmDecision) { await this._call(() => this.service.removeDecision(this._id, rmDecision.dataset.id)); return; }
-
-        if (act('mo-save-minutes')) {
-            const ta = this.shadowRoot.querySelector('[data-el="minutes"]');
-            if (ta) await this._call(async () => {
-                const minutes = ta.value;
-                const result = await this.service.update(this._id, { minutes });
-                if (this._minutesDraft === minutes) this._minutesDraft = undefined;
-                return result;
-            });
-            return;
-        }
 
         if (act('mo-edit-head')) { this._openHeaderModal(); return; }
         if (act('mo-edit-attendees')) {
@@ -553,6 +559,7 @@ class MeetingOccurrencePage extends WNElement {
         const decisions = Array.isArray(meeting.decisions) ? meeting.decisions : [];
         const isSeriesOccurrence = !!meeting.seriesId;
         const isClosed = meeting.status === 'closed';
+        const isRunning = isSeriesOccurrence && meeting.status === 'in-progress';
         const attendees = meeting.attendees || [];
         const people = new Map((data.people || []).map(p => [p.key, p.name || p.key]));
         const timeRange = [meeting.start, meeting.end].filter(Boolean).join('–');
@@ -566,13 +573,20 @@ class MeetingOccurrencePage extends WNElement {
         return html`
             <div class="mo">
                 ${series && new URLSearchParams(location.search).get('popup') !== '1' ? html`<a class="mo-back" href="/meeting-series#ms-${encodeURIComponent(series.id)}">← ${series.title}</a>` : ''}
-                <div class="mo-head">
-                    <h1>${meeting.title || 'Møte'}</h1>
-                    ${isSeriesOccurrence ? html`<span class="mo-status">${STATUS_ICON[meeting.status] || ''} ${STATUS_LABEL[meeting.status] || ''}</span>` : ''}
-                </div>
-                <div class="mo-meta">
-                    <span>📅 ${meeting.date}${timeRange ? ' ' + timeRange : ''}</span>
-                    ${meeting.location ? html`<span>📍 ${meeting.location}</span>` : ''}
+                <header class="mo-header ${isRunning ? 'is-running' : ''}">
+                    <div class="mo-header-info">
+                        <div class="mo-head">
+                            <h1>${meeting.title || 'Møte'}</h1>
+                            ${isSeriesOccurrence ? html`<span class="mo-status">${STATUS_ICON[meeting.status] || ''} ${STATUS_LABEL[meeting.status] || ''}</span>` : ''}
+                        </div>
+                        <div class="mo-meta">
+                            <span>📅 ${meeting.date}${timeRange ? ' ' + timeRange : ''}</span>
+                            ${meeting.location ? html`<span>📍 ${meeting.location}</span>` : ''}
+                        </div>
+                    </div>
+                    ${isRunning ? html`<button type="button" class="mo-act primary mo-close" ${this._closing ? 'disabled' : ''}>✅ Avslutt møte</button>` : ''}
+                </header>
+                <div class="mo-actions mo-toolbar">
                     ${!isClosed ? html`<button type="button" class="mo-act mo-edit-head" title="Rediger møte">✏️ Rediger</button>` : ''}
                     <a class="mo-act" href="/meetings/${encodeURIComponent(this._id)}/minutes" target="_blank" rel="noopener">📄 Eksporter til PDF</a>
                 </div>
@@ -602,11 +616,10 @@ class MeetingOccurrencePage extends WNElement {
                 </div>
 
                 ${isSeriesOccurrence ? html`
-                    <div class="mo-actions">
+                    ${!isRunning ? html`<div class="mo-actions">
                         ${meeting.status === 'planned' ? html`<button type="button" class="mo-act primary mo-start">▶️ Start møte</button>` : ''}
-                        ${meeting.status === 'in-progress' ? html`<button type="button" class="mo-act primary mo-close">✅ Avslutt møte</button>` : ''}
                         ${meeting.status === 'closed' ? html`<button type="button" class="mo-act mo-reopen">↻ Gjenåpne</button>` : ''}
-                    </div>
+                    </div>` : ''}
 
                     <div class="mo-section">
                         <h2>📋 Saksliste <span class="c">${agenda.length}</span></h2>
@@ -647,8 +660,7 @@ class MeetingOccurrencePage extends WNElement {
                         companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
                         teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"
                         tasks_service="${this.getAttribute('tasks_service') || 'week-note-services.tasks_service'}"></feature-rich-text-area>
-                    <div class="hint">Støtter markdown. Vises i PDF-eksporten.</div>
-                    ${!isClosed ? html`<div class="save-row"><button type="button" class="mo-act mo-save-minutes">💾 Lagre referat</button></div>` : ''}
+                    <div class="hint">Støtter markdown. Vises i PDF-eksporten.${!isClosed ? ' Lagres når møtet avsluttes.' : ''}</div>
                 </div>
 
                 <div class="mo-section mo-tasks">
