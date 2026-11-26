@@ -223,7 +223,12 @@ card overflow visible so date pickers do not get clipped. Both meeting
 popup entry points and history rows share the saved window size in
 `localStorage`; opening history does not change occurrence status.
 Ending a meeting closes its popup only after the close API succeeds;
-regular occurrence tabs stay open. The meeting-series dashboard reloads when
+regular occurrence tabs stay open.
+Only the meeting-instance workspace has a sticky header while in progress,
+keeping meeting info and the end-meeting action in the `#content` scroller.
+The workspace saves free-text minutes before calling close, with no separate
+minutes save button. Failed saves leave the meeting open and preserve drafts.
+The meeting-series dashboard reloads when
 a popup it opened closes (including setup/history), preserving its URL hash;
 watch the popup handle rather than `pagehide`, which also fires when setup
 navigates into the occurrence. Calendar clicks on series occurrences use
@@ -590,8 +595,10 @@ do not retain a read-modify-write snapshot across another `await`.
   removed; validation remains local with Playwright).
 - Release tag: `v5.12` → `df85b36` (meeting-instance agenda
   notes grow with content up to 25 visible rows, then scroll).
-- Latest release tag: `v5.13` → `21f6e38` (task source grouping,
+- Release tag: `v5.13` → `21f6e38` (task source grouping,
   derived origins, live backlinks and note preview/edit links).
+- Latest release tag: `v5.14` (minutes saved before closing and a
+  sticky, theme-aware meeting-instance header).
 
 ---
 

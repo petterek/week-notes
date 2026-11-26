@@ -1,5 +1,11 @@
 # 📜 Changelog
 
+### 2026-11-26 (v5.14 — trygg møteavslutning og fast møtetopp)
+- **Referat lagres ved avslutning:** møteforekomstens fritekstreferat lagres før møtet avsluttes. Den separate lagreknappen er fjernet; lagringsfeil lar møtet stå åpent og beholder utkastet for nytt forsøk.
+- **Fast møtetopp:** pågående møteforekomster beholder tittel, status, dato, klokkeslett, sted og «Avslutt møte» synlig under rulling. Tydelig bakgrunn følger temaet; redigering og PDF-eksport ligger i en egen verktøylinje under. På smale skjermer får avslutningsknappen en egen rad.
+- **Regresjonstester:** dekker lagring, avbrudd, feil og nytt forsøk, tomme referater, popup-lukking og fast møtetopp på store og små skjermer.
+- **Verifisert:** 192 Playwright-tester passerer; `npm audit` rapporterer ingen kjente sårbarheter.
+
 ### 2026-11-19 (v5.13 — oppgavekilder og omtaler)
 - **Gruppert oppgaveliste:** åpne og fullførte oppgaver grupperes etter kildetype og konkret kilde, med lenker til møteserie, møte, notat eller mål. Filtrering inkluderer kildenavn; innebygde lister i møteserier beholdes flate.
 - **Opphav og omtaler:** oppgavedetaljer viser avledet opphav og steder der oppgaven er nevnt med oppgavemarkører. Omtaler hentes fra gjeldende notater og øvrig innhold i aktiv kontekst, uten nye lagrede kildefelt.

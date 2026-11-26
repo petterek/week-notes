@@ -93,6 +93,7 @@ test('occurrence rich-text editors save minutes and render previous agenda notes
         currentMeeting = (await (await request.post('/api/meetings', {
             data: { seriesId: series.id, date: '2099-06-04' },
         })).json()).meeting;
+        await request.post(`/api/meetings/${currentMeeting.id}/start`);
         await page.goto(`/meeting-occurrence/${currentMeeting.id}`);
 
         const host = page.locator('meeting-occurrence-page');
@@ -110,9 +111,14 @@ test('occurrence rich-text editors save minutes and render previous agenda notes
         await expect(minutes).toHaveAttribute('features', 'lists,emoji,mentions,tasks,dates,help');
         await expect(minutes).toHaveAttribute('rows', '8');
         await minutes.locator('textarea').fill('**Minutes** :rocket: <b>literal</b>');
-        await host.locator('.mo-save-minutes').click();
+        page.on('dialog', dialog => dialog.accept());
+        await host.locator('.mo-close').click();
         await expect.poll(async () => (await (await request.get(`/api/meetings/${currentMeeting.id}`)).json()).minutes)
             .toBe('**Minutes** :rocket: <b>literal</b>');
+        await expect(host.locator('.mo-save-minutes')).toHaveCount(0);
+        await expect(minutes).toHaveAttribute('readonly', '');
+        await page.reload();
+        await expect(minutes.locator('textarea')).toHaveValue('**Minutes** :rocket: <b>literal</b>');
 
         const pdf = await (await request.get(`/meetings/${currentMeeting.id}/minutes`)).text();
         expect(pdf).toContain('<strong>Minutes</strong> 🚀');
@@ -121,6 +127,58 @@ test('occurrence rich-text editors save minutes and render previous agenda notes
     } finally {
         if (currentMeeting) await request.delete(`/api/meetings/${currentMeeting.id}`);
         if (previousMeeting) await request.delete(`/api/meetings/${previousMeeting.id}`);
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
+test('closing an occurrence keeps drafts on cancellation or save failure and retries empty minutes', async ({ page, request }) => {
+    const series = (await (await request.post('/api/meeting-series', {
+        data: { title: 'Minutes close recovery' },
+    })).json()).series;
+    let meeting;
+    try {
+        meeting = (await (await request.post('/api/meetings', {
+            data: { seriesId: series.id, date: '2099-06-04' },
+        })).json()).meeting;
+        await request.put(`/api/meetings/${meeting.id}`, { data: { minutes: 'Old minutes' } });
+        await request.post(`/api/meetings/${meeting.id}/start`);
+        await page.goto(`/meeting-occurrence/${meeting.id}`);
+        const host = page.locator('meeting-occurrence-page');
+        const input = host.locator('[data-el="minutes"] textarea');
+        await input.fill('Keep this draft');
+        const mutations = [];
+        page.on('request', req => {
+            if (req.method() !== 'GET' && req.url().includes(`/api/meetings/${meeting.id}`)) {
+                mutations.push(req.method());
+            }
+        });
+        page.once('dialog', dialog => dialog.dismiss());
+        await host.locator('.mo-close').click();
+        await expect(input).toHaveValue('Keep this draft');
+        expect(mutations).toEqual([]);
+
+        const dialogs = [];
+        page.on('dialog', async dialog => { dialogs.push(dialog.message()); await dialog.accept(); });
+        await page.route(`**/api/meetings/${meeting.id}`, route =>
+            route.request().method() === 'PUT'
+                ? route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Save failed"}' })
+                : route.continue());
+        await host.locator('.mo-close').click();
+        await expect.poll(() => dialogs.some(message => message.includes('503'))).toBe(true);
+        expect(mutations).toEqual(['PUT']);
+        await expect(input).toHaveValue('Keep this draft');
+        expect((await (await request.get(`/api/meetings/${meeting.id}`)).json()).status).toBe('in-progress');
+
+        await page.unroute(`**/api/meetings/${meeting.id}`);
+        await input.fill('');
+        await host.locator('.mo-close').click();
+        await expect(input).toHaveAttribute('readonly', '');
+        const saved = await (await request.get(`/api/meetings/${meeting.id}`)).json();
+        expect(saved.status).toBe('closed');
+        expect(saved.minutes).toBe('');
+        expect(mutations).toEqual(['PUT', 'PUT', 'POST']);
+    } finally {
+        if (meeting) await request.delete(`/api/meetings/${meeting.id}`);
         await request.delete(`/api/meeting-series/${series.id}`);
     }
 });

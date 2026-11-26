@@ -72,9 +72,10 @@ and [AGENTS.md](AGENTS.md) for the code map and contributor conventions.
 
 ## 📜 Changelog
 
-**v5.13 · 2026-11-19:** Tasks grouped by source type and source, with
-derived origins, automatic backlinks, and separate note preview/edit links.
-189 Playwright tests passing.
+**v5.14 · 2026-11-26:** Meeting minutes save before closing, with drafts
+preserved on failure. Running meeting instances have a sticky, theme-aware
+header with meeting info and the end-meeting action.
+192 Playwright tests passing.
 
 [Complete release history](CHANGELOG.md).
 

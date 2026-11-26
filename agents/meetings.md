@@ -234,6 +234,12 @@ occurrences' minutes.
    `queued` state (this is how carry-forward from a previous
    occurrence surfaces). `status` starts at `planned`.
 2. **Start** — `POST /api/meetings/:id/start` → `status: in-progress`.
+   Only the occurrence workspace gets a sticky running-meeting header:
+   title, status, date/time, location and the single "Avslutt møte" button
+   stay at the top of the `#content` scroller in both regular tabs and
+   popups. Planned/closed occurrence headers remain non-sticky.
+   Edit and PDF export live in a separate, non-sticky toolbar below it.
+   On narrow screens the end-meeting action takes its own full-width row.
 3. **Work the agenda** — `PUT /api/meetings/:id/agenda/:agendaItemId`
    with `{ notes?, outcome? }`. `outcome` is one of
    `resolved | deferred | cancelled | null` (null clears it — no guard
@@ -262,6 +268,9 @@ occurrences' minutes.
    which is exactly what makes it reappear on the *next* occurrence
    created for the series. Closed occurrences render read-only in the
    workspace; only existing follow-up task completion stays actionable.
+   The workspace saves the current free-text minutes via the meeting PUT
+   before closing; there is no separate minutes save button. A save failure
+   prevents closing and preserves the draft for retry.
    Closing successfully from a popup also closes that popup; a failed or
    cancelled close leaves it open. Regular tabs remain on the closed workspace.
 6. **Reopen** — `POST /api/meetings/:id/reopen` → `status:
