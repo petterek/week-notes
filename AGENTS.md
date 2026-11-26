@@ -228,6 +228,17 @@ Only the meeting-instance workspace has a sticky header while in progress,
 keeping meeting info and the end-meeting action in the `#content` scroller.
 The workspace saves free-text minutes before calling close, with no separate
 minutes save button. Failed saves leave the meeting open and preserve drafts.
+Before saving, it awaits the minutes editor's `convert({ meetingId,
+meetingSeriesId })` so task markers become linked follow-ups and saved task
+references. Conversion failures also block closing; keep partially converted
+drafts on retry to avoid duplicate tasks.
+Agenda-item notes use the same conversion on blur with `agendaItemId` as
+well. Closing waits for pending agenda saves and saves all current item
+notes before minutes and close; conversion/save errors keep the meeting open.
+Plain-note autosaves must preserve editor focus and unrelated cached data.
+On the series dashboard, queued and resolved agenda notes share rich
+Markdown rendering. Supply the cached task-id-to-text map for notes and
+the series description so converted task references stay readable.
 The meeting-series dashboard reloads when
 a popup it opened closes (including setup/history), preserving its URL hash;
 watch the popup handle rather than `pagehide`, which also fires when setup
@@ -597,7 +608,7 @@ do not retain a read-modify-write snapshot across another `await`.
   notes grow with content up to 25 visible rows, then scroll).
 - Release tag: `v5.13` → `21f6e38` (task source grouping,
   derived origins, live backlinks and note preview/edit links).
-- Latest release tag: `v5.14` (minutes saved before closing and a
+- Latest release tag: `v5.14` → `4fb9d0b` (minutes saved before closing and a
   sticky, theme-aware meeting-instance header).
 
 ---

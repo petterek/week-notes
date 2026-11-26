@@ -257,8 +257,22 @@ class MeetingOccurrencePage extends WNElement {
             const closeButton = act('mo-close');
             this._closing = true;
             closeButton.disabled = true;
+            const minutesInput = this.shadowRoot.querySelector('[data-el="minutes"]');
+            minutesInput.setAttribute('readonly', '');
             try {
-                const minutes = this.shadowRoot.querySelector('[data-el="minutes"]').value;
+                for (const editor of this.shadowRoot.querySelectorAll('feature-rich-text-area[data-agenda]')) {
+                    await this._saveAgendaNotes(editor);
+                }
+                let minutes;
+                try {
+                    ({ value: minutes } = await minutesInput.convert({
+                        meetingId: this._id,
+                        meetingSeriesId: meeting.seriesId,
+                    }));
+                } finally {
+                    this._minutesDraft = minutesInput.value;
+                    this.invalidateAwait('tasks');
+                }
                 await this.service.update(this._id, { minutes });
                 const result = await this.service.close(this._id);
                 if (this._minutesDraft === minutes) this._minutesDraft = undefined;
@@ -269,6 +283,7 @@ class MeetingOccurrencePage extends WNElement {
             } finally {
                 this._closing = false;
                 closeButton.disabled = false;
+                if (this._meeting.status !== 'closed') minutesInput.removeAttribute('readonly');
             }
             return;
         }
@@ -418,16 +433,44 @@ class MeetingOccurrencePage extends WNElement {
         }
     }
 
-    async _saveAgendaNotes(agendaItemId, notes) {
-        try {
-            await this.service.updateOccurrenceAgendaItem(this._id, agendaItemId, { notes });
-            this._meeting = {
-                ...this._meeting,
-                agenda: this._meeting.agenda.map(a => a.agendaItemId === agendaItemId ? { ...a, notes } : a),
-            };
-            this._awaitCache.meeting = Promise.resolve(this._meeting);
-        }
-        catch (e) { console.error('meeting-occurrence-page: save notes failed', e); }
+    _saveAgendaNotes(editor) {
+        const agendaItemId = editor.dataset.agenda;
+        this._agendaSaves ||= new Map();
+        if (this._agendaSaves.has(agendaItemId)) return this._agendaSaves.get(agendaItemId);
+        const save = Promise.resolve().then(async () => {
+            const before = editor.value;
+            if (before.includes('{{')) editor.setAttribute('readonly', '');
+            try {
+                let converted;
+                try {
+                    converted = await editor.convert({
+                        meetingId: this._id,
+                        meetingSeriesId: this._meeting.seriesId,
+                        agendaItemId,
+                    });
+                } finally {
+                    this._agendaDrafts ||= {};
+                    this._agendaDrafts[agendaItemId] = editor.value;
+                    if (editor.value !== before) this.invalidateAwait('tasks');
+                }
+                const notes = converted.value;
+                await this.service.updateOccurrenceAgendaItem(this._id, agendaItemId, { notes });
+                this._meeting = {
+                    ...this._meeting,
+                    agenda: this._meeting.agenda.map(a => a.agendaItemId === agendaItemId ? { ...a, notes } : a),
+                };
+                this._awaitCache.meeting = Promise.resolve(this._meeting);
+                if (converted.created.tasks.length && !this._closing) this.requestRender();
+            } finally {
+                this._agendaSaves.delete(agendaItemId);
+                if (this._meeting.status !== 'closed') {
+                    editor.removeAttribute('readonly');
+                    this.shadowRoot.querySelector(`feature-rich-text-area[data-agenda="${CSS.escape(agendaItemId)}"]`)?.removeAttribute('readonly');
+                }
+            }
+        });
+        this._agendaSaves.set(agendaItemId, save);
+        return save;
     }
 
     async _saveAttendees() {
@@ -507,10 +550,12 @@ class MeetingOccurrencePage extends WNElement {
                         <div class="rich-text">${unsafeHTML(renderRichText(a.notes || ''))}</div>
                     </div>
                 ` : html`
-                    <feature-rich-text-area placeholder="Notater…" data-agenda="${a.agendaItemId}" rows="2" max-rows="25" features="lists,emoji,mentions,dates" value="${this._agendaDrafts?.[a.agendaItemId] ?? a.notes ?? ''}"
+                    <feature-rich-text-area placeholder="Notater…" data-agenda="${a.agendaItemId}" rows="2" max-rows="25" features="lists,emoji,mentions,tasks,dates" value="${this._agendaDrafts?.[a.agendaItemId] ?? a.notes ?? ''}"
+                        ${this._closing || (this._agendaSaves?.has(a.agendaItemId) && (this._agendaDrafts?.[a.agendaItemId] ?? a.notes ?? '').includes('{{')) ? 'readonly' : ''}
                         people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
                         companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
-                        teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"></feature-rich-text-area>
+                        teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"
+                        tasks_service="${this.getAttribute('tasks_service') || 'week-note-services.tasks_service'}"></feature-rich-text-area>
                 `}
                 <div class="mo-outcome-btns">
                     ${outcomes.map(o => html`
@@ -655,7 +700,7 @@ class MeetingOccurrencePage extends WNElement {
 
                 <div class="mo-section mo-minutes">
                     <h2>📝 Referat (fritekst)</h2>
-                    <feature-rich-text-area data-el="minutes" rows="8" features="lists,emoji,mentions,tasks,dates,help" value="${this._minutesDraft !== undefined ? this._minutesDraft : (meeting.minutes || '')}" placeholder="Skriv referat i markdown…" ${isClosed ? 'readonly' : ''}
+                    <feature-rich-text-area data-el="minutes" rows="8" features="lists,emoji,mentions,tasks,dates,help" value="${this._minutesDraft !== undefined ? this._minutesDraft : (meeting.minutes || '')}" placeholder="Skriv referat i markdown…" ${isClosed || this._closing ? 'readonly' : ''}
                         people_service="${this.getAttribute('people_service') || 'week-note-services.people_service'}"
                         companies_service="${this.getAttribute('companies_service') || 'week-note-services.companies_service'}"
                         teams_service="${this.getAttribute('teams_service') || 'week-note-services.teams_service'}"
@@ -715,7 +760,7 @@ class MeetingOccurrencePage extends WNElement {
         if (minutesInput) {
             minutesInput.addEventListener('input', () => { this._minutesDraft = minutesInput.value; });
         }
-        root.querySelectorAll('feature-rich-text-area[data-agenda]:not([readonly])').forEach(ta => {
+        root.querySelectorAll('feature-rich-text-area[data-agenda]').forEach(ta => {
             if (ta._wired) return;
             ta._wired = true;
             ta.addEventListener('input', () => {
@@ -724,7 +769,9 @@ class MeetingOccurrencePage extends WNElement {
             });
             ta.addEventListener('focusout', event => {
                 if (event.composedPath().some(node => node instanceof HTMLTextAreaElement)) {
-                    this._saveAgendaNotes(ta.dataset.agenda, ta.value);
+                    this._saveAgendaNotes(ta).catch(error => {
+                        if (!this._closing) alert((error && error.message) || 'Feil ved lagring av saklistenotater');
+                    });
                 }
             });
         });

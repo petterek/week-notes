@@ -525,7 +525,7 @@ class FeatureRichTextArea extends WNElement {
     //   meetings {{m:Title @ YYYY-MM-DD HH:MM[ Nm]}} → meetings_service.create
     // replaceWith 'ref' writes {{?id}} / [[?id]] / {{m:?id}}; 'text' keeps
     // only the plain text. Returns { value, created }.
-    async convert({ week = '', noteRef = '', taskId = '', taskText = '', replaceWith = 'ref' } = {}) {
+    async convert({ week = '', noteRef = '', meetingId = '', meetingSeriesId = '', agendaItemId = '', taskId = '', taskText = '', replaceWith = 'ref' } = {}) {
         const asText = replaceWith === 'text';
         const noteMentions = extractMentions(this.value);
         const created = { tasks: [], results: [], meetings: [] };
@@ -568,6 +568,9 @@ class FeatureRichTextArea extends WNElement {
                     }
                     if (week) opts.week = week;
                     if (noteRef) opts.noteRef = noteRef;
+                    if (meetingId) opts.meetingId = meetingId;
+                    if (meetingSeriesId) opts.meetingSeriesId = meetingSeriesId;
+                    if (agendaItemId) opts.agendaItemId = agendaItemId;
                     const res = await need('tasks').create(text, opts);
                     const task = Array.isArray(res) ? res[res.length - 1] : (res?.task || res);
                     if (!task?.id) throw new Error('Kunne ikke opprette oppgave');

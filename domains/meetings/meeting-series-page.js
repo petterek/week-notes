@@ -627,7 +627,12 @@ class MeetingSeriesPage extends WNElement {
             const date = new Date(value);
             return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('nb-NO');
         };
-        const richOptions = { people: this._state.people, companies: this._state.companies, teams: this._state.teams };
+        const richOptions = {
+            people: this._state.people,
+            companies: this._state.companies,
+            teams: this._state.teams,
+            taskTextById: Object.fromEntries((this._state.tasks || []).map(t => [t.id, t.text])),
+        };
         const renderMentions = (text) => unsafeHTML(linkMentions(
             escapeHtml(text || ''), this._state.people, this._state.companies, this._state.teams,
         ));
@@ -726,7 +731,7 @@ class MeetingSeriesPage extends WNElement {
                                     <span class="text">${renderMentions(a.title)}</span>
                                     ${addedDate(a.createdAt) ? html`<span class="mp-agenda-added">Lagt til ${addedDate(a.createdAt)}${addedDate(a.updatedAt) ? ` · Løst ${addedDate(a.updatedAt)}` : ''}</span>` : ''}
                                     ${itemNotes(a.id).map(n => html`
-                                        <div class="mp-agenda-note"><span class="mp-agenda-note-date">${n.date}</span>${renderMentions(n.notes)}</div>
+                                        <div class="mp-agenda-note"><span class="mp-agenda-note-date">${n.date}</span><div class="rich-text">${renderRichNotes(n.notes)}</div></div>
                                     `)}
                                 </div>
                             </div>

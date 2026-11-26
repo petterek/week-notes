@@ -72,10 +72,11 @@ and [AGENTS.md](AGENTS.md) for the code map and contributor conventions.
 
 ## 📜 Changelog
 
-**v5.14 · 2026-11-26:** Meeting minutes save before closing, with drafts
-preserved on failure. Running meeting instances have a sticky, theme-aware
-header with meeting info and the end-meeting action.
-192 Playwright tests passing.
+**v5.15 · 2026-11-26:** Task markers in meeting minutes and agenda notes
+create linked follow-up tasks, with safe retries and saves completed before
+closing. Queued and resolved series notes render full Markdown and readable
+task references.
+197 Playwright tests passing.
 
 [Complete release history](CHANGELOG.md).
 

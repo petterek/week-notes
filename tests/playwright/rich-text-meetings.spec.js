@@ -98,7 +98,7 @@ test('occurrence rich-text editors save minutes and render previous agenda notes
 
         const host = page.locator('meeting-occurrence-page');
         const currentNotes = host.locator(`feature-rich-text-area[data-agenda="${item.id}"]`);
-        await expect(currentNotes).toHaveAttribute('features', 'lists,emoji,mentions,dates');
+        await expect(currentNotes).toHaveAttribute('features', 'lists,emoji,mentions,tasks,dates');
         await expect(currentNotes).toHaveAttribute('rows', '2');
         await expect(currentNotes).not.toHaveAttribute('readonly', '');
         const previousNotes = host.locator('.mo-prev-note');
@@ -183,6 +183,223 @@ test('closing an occurrence keeps drafts on cancellation or save failure and ret
     }
 });
 
+test('closing occurrence minutes creates linked tasks once and saves reference markers', async ({ page, request }) => {
+    const series = (await (await request.post('/api/meeting-series', {
+        data: { title: 'Minutes task markers' },
+    })).json()).series;
+    let meeting;
+    try {
+        meeting = (await (await request.post('/api/meetings', {
+            data: { seriesId: series.id, date: '2099-06-04' },
+        })).json()).meeting;
+        await request.post(`/api/meetings/${meeting.id}/start`);
+        await page.goto(`/meeting-occurrence/${meeting.id}`);
+        const host = page.locator('meeting-occurrence-page');
+        const input = host.locator('[data-el="minutes"] textarea');
+        await input.fill('Follow up: {{Send summary @ 2099-06-05 10:30}} and {{Book review}}');
+        page.on('dialog', dialog => dialog.accept());
+        await host.locator('.mo-close').click();
+        await expect(input).toHaveAttribute('readonly', '');
+
+        const tasks = (await (await request.get('/api/tasks')).json()).filter(t => t.meetingId === meeting.id);
+        expect(tasks.map(t => t.text)).toEqual(['Send summary', 'Book review']);
+        expect(tasks.every(t => t.meetingSeriesId === series.id)).toBe(true);
+        expect(tasks[0].dueDate).toBe('2099-06-05 10:30');
+        const converted = `Follow up: {{?${tasks[0].id}}} and {{?${tasks[1].id}}}`;
+        expect((await (await request.get(`/api/meetings/${meeting.id}`)).json()).minutes).toBe(converted);
+        await expect(host.locator('.mo-tasks li')).toHaveCount(2);
+        await page.reload();
+        await expect(input).toHaveValue(converted);
+        await host.locator('.mo-reopen').click();
+        await host.locator('.mo-close').click();
+        await expect(input).toHaveAttribute('readonly', '');
+        expect((await (await request.get('/api/tasks')).json()).filter(t => t.meetingId === meeting.id)).toHaveLength(2);
+    } finally {
+        if (meeting) {
+            const tasks = (await (await request.get('/api/tasks')).json()).filter(t => t.meetingId === meeting.id);
+            for (const task of tasks) await request.delete(`/api/tasks/${task.id}`);
+            await request.delete(`/api/meetings/${meeting.id}`);
+        }
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
+test('minutes task conversion failures preserve converted markers and block closing until retry succeeds', async ({ page, request }) => {
+    const series = (await (await request.post('/api/meeting-series', {
+        data: { title: 'Minutes marker recovery' },
+    })).json()).series;
+    let meeting;
+    try {
+        meeting = (await (await request.post('/api/meetings', {
+            data: { seriesId: series.id, date: '2099-06-04' },
+        })).json()).meeting;
+        await request.post(`/api/meetings/${meeting.id}/start`);
+        await page.goto(`/meeting-occurrence/${meeting.id}`);
+        const host = page.locator('meeting-occurrence-page');
+        const input = host.locator('[data-el="minutes"] textarea');
+        await input.fill('{{First follow-up}} then {{Second follow-up}}');
+        const dialogs = [];
+        page.on('dialog', async dialog => { dialogs.push(dialog.message()); await dialog.accept(); });
+        await page.route('**/api/tasks', route =>
+            route.request().method() === 'POST' && route.request().postDataJSON().text === 'Second follow-up'
+                ? route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Task creation failed"}' })
+                : route.continue());
+        await host.locator('.mo-close').click();
+        await expect.poll(() => dialogs.some(message => message.includes('503'))).toBe(true);
+        let tasks = (await (await request.get('/api/tasks')).json()).filter(t => t.meetingId === meeting.id);
+        expect(tasks).toHaveLength(1);
+        await expect(input).toHaveValue(`{{?${tasks[0].id}}} then {{Second follow-up}}`);
+        expect((await (await request.get(`/api/meetings/${meeting.id}`)).json()).status).toBe('in-progress');
+
+        // A re-render must keep the partially converted draft, not recreate the first task.
+        await host.locator('[data-el="agenda-add"]').fill('Keep draft while editing');
+        await host.locator('.mo-agenda-add-btn').click();
+        await expect(host.locator('.mo-agenda-item')).toHaveCount(1);
+        await expect(input).toHaveValue(`{{?${tasks[0].id}}} then {{Second follow-up}}`);
+        await page.unroute('**/api/tasks');
+        await page.route(`**/api/meetings/${meeting.id}`, route =>
+            route.request().method() === 'PUT'
+                ? route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Save failed"}' })
+                : route.continue());
+        await host.locator('.mo-close').click();
+        await expect.poll(() => dialogs.filter(message => message.includes('503')).length).toBe(2);
+        tasks = (await (await request.get('/api/tasks')).json()).filter(t => t.meetingId === meeting.id);
+        expect(tasks).toHaveLength(2);
+        const converted = `{{?${tasks[0].id}}} then {{?${tasks[1].id}}}`;
+        await expect(input).toHaveValue(converted);
+        expect((await (await request.get(`/api/meetings/${meeting.id}`)).json()).status).toBe('in-progress');
+
+        await page.unroute(`**/api/meetings/${meeting.id}`);
+        await host.locator('.mo-close').click();
+        await expect(input).toHaveAttribute('readonly', '');
+        expect((await (await request.get(`/api/meetings/${meeting.id}`)).json()).minutes).toBe(converted);
+        expect((await (await request.get('/api/tasks')).json()).filter(t => t.meetingId === meeting.id)).toHaveLength(2);
+    } finally {
+        if (meeting) {
+            const tasks = (await (await request.get('/api/tasks')).json()).filter(t => t.meetingId === meeting.id);
+            for (const task of tasks) await request.delete(`/api/tasks/${task.id}`);
+            await request.delete(`/api/meetings/${meeting.id}`);
+        }
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
+test('agenda item notes create linked tasks on blur and finish saving before meeting close', async ({ page, request }) => {
+    const series = (await (await request.post('/api/meeting-series', {
+        data: { title: 'Agenda task markers' },
+    })).json()).series;
+    let meeting;
+    try {
+        const item = (await (await request.post(`/api/meeting-series/${series.id}/agenda`, {
+            data: { title: 'Follow-up topic' },
+        })).json()).item;
+        meeting = (await (await request.post('/api/meetings', {
+            data: { seriesId: series.id, date: '2099-06-04' },
+        })).json()).meeting;
+        await request.post(`/api/meetings/${meeting.id}/start`);
+        await page.goto(`/meeting-occurrence/${meeting.id}`);
+        const host = page.locator('meeting-occurrence-page');
+        const input = host.locator(`[data-agenda="${item.id}"] textarea`);
+        const tasksForMeeting = async () => (await (await request.get('/api/tasks')).json()).filter(t => t.meetingId === meeting.id);
+        await input.fill('{{Send agenda summary @ 2099-06-05}}');
+        await input.press('Tab');
+        await expect.poll(async () => (await tasksForMeeting()).length).toBe(1);
+        const [first] = await tasksForMeeting();
+        expect(first).toMatchObject({ text: 'Send agenda summary', meetingSeriesId: series.id, agendaItemId: item.id, dueDate: '2099-06-05' });
+        await expect(input).toHaveValue(`{{?${first.id}}}`);
+        await expect(host.locator('.mo-tasks li')).toHaveCount(1);
+        await expect.poll(async () => (await (await request.get(`/api/meetings/${meeting.id}`)).json()).agenda[0].notes)
+            .toBe(`{{?${first.id}}}`);
+
+        await page.route('**/api/tasks', async route => {
+            if (route.request().method() === 'POST') {
+                await new Promise(resolve => setTimeout(resolve, 150));
+            }
+            await route.continue();
+        });
+        await input.fill(`{{?${first.id}}} then {{Schedule agenda review}}`);
+        page.on('dialog', dialog => dialog.accept());
+        await host.locator('.mo-close').click();
+        await expect(host.locator('.mo-reopen')).toBeVisible();
+        const tasks = await tasksForMeeting();
+        expect(tasks).toHaveLength(2);
+        expect(tasks[1]).toMatchObject({ text: 'Schedule agenda review', meetingSeriesId: series.id, agendaItemId: item.id });
+        const saved = await (await request.get(`/api/meetings/${meeting.id}`)).json();
+        expect(saved.agenda[0].notes).toBe(`{{?${first.id}}} then {{?${tasks[1].id}}}`);
+        await page.reload();
+        await expect(host.locator('[data-agenda]')).toHaveCount(0);
+        await host.locator('.mo-reopen').click();
+        await host.locator('.mo-close').click();
+        await expect(host.locator('.mo-reopen')).toBeVisible();
+        expect(await tasksForMeeting()).toHaveLength(2);
+    } finally {
+        if (meeting) {
+            for (const task of (await (await request.get('/api/tasks')).json()).filter(t => t.meetingId === meeting.id)) {
+                await request.delete(`/api/tasks/${task.id}`);
+            }
+            await request.delete(`/api/meetings/${meeting.id}`);
+        }
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
+test('agenda task conversion and save failures preserve drafts and prevent closing until retry', async ({ page, request }) => {
+    const series = (await (await request.post('/api/meeting-series', {
+        data: { title: 'Agenda marker recovery' },
+    })).json()).series;
+    let meeting;
+    try {
+        const item = (await (await request.post(`/api/meeting-series/${series.id}/agenda`, {
+            data: { title: 'Retry topic' },
+        })).json()).item;
+        meeting = (await (await request.post('/api/meetings', {
+            data: { seriesId: series.id, date: '2099-06-04' },
+        })).json()).meeting;
+        await request.post(`/api/meetings/${meeting.id}/start`);
+        await page.goto(`/meeting-occurrence/${meeting.id}`);
+        const host = page.locator('meeting-occurrence-page');
+        const input = host.locator(`[data-agenda="${item.id}"] textarea`);
+        const dialogs = [];
+        page.on('dialog', async dialog => { dialogs.push(dialog.message()); await dialog.accept(); });
+        await page.route('**/api/tasks', route =>
+            route.request().method() === 'POST' && route.request().postDataJSON().text === 'Second agenda task'
+                ? route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Task failed"}' })
+                : route.continue());
+        await input.fill('{{First agenda task}} then {{Second agenda task}}');
+        await input.press('Tab');
+        await expect.poll(() => dialogs.filter(message => message.includes('503')).length).toBe(1);
+        const [first] = (await (await request.get('/api/tasks')).json()).filter(t => t.meetingId === meeting.id);
+        await expect(input).toHaveValue(`{{?${first.id}}} then {{Second agenda task}}`);
+        await host.locator('.mo-close').click();
+        await expect.poll(() => dialogs.filter(message => message.includes('503')).length).toBe(2);
+        expect((await (await request.get(`/api/meetings/${meeting.id}`)).json()).status).toBe('in-progress');
+
+        await page.unroute('**/api/tasks');
+        await page.route(`**/api/meetings/${meeting.id}/agenda/${item.id}`, route =>
+            route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"Agenda save failed"}' }));
+        await host.locator('.mo-close').click();
+        await expect.poll(() => dialogs.filter(message => message.includes('503')).length).toBe(3);
+        const tasks = (await (await request.get('/api/tasks')).json()).filter(t => t.meetingId === meeting.id);
+        expect(tasks).toHaveLength(2);
+        const converted = `{{?${first.id}}} then {{?${tasks[1].id}}}`;
+        await expect(input).toHaveValue(converted);
+        expect((await (await request.get(`/api/meetings/${meeting.id}`)).json()).status).toBe('in-progress');
+        await page.unroute(`**/api/meetings/${meeting.id}/agenda/${item.id}`);
+        await host.locator('.mo-close').click();
+        await expect(host.locator('.mo-reopen')).toBeVisible();
+        expect((await (await request.get(`/api/meetings/${meeting.id}`)).json()).agenda[0].notes).toBe(converted);
+        expect((await (await request.get('/api/tasks')).json()).filter(t => t.meetingId === meeting.id)).toHaveLength(2);
+    } finally {
+        if (meeting) {
+            for (const task of (await (await request.get('/api/tasks')).json()).filter(t => t.meetingId === meeting.id)) {
+                await request.delete(`/api/tasks/${task.id}`);
+            }
+            await request.delete(`/api/meetings/${meeting.id}`);
+        }
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
 test('occurrence agenda notes grow while typing up to 25 rows and shrink after deletion', async ({ page, request }) => {
     const series = (await (await request.post('/api/meeting-series', {
         data: { title: 'Growing occurrence notes' },
@@ -238,6 +455,62 @@ test('occurrence agenda notes grow while typing up to 25 rows and shrink after d
         await notes.fill('Short');
         expect((await metrics()).height).toBeCloseTo(initial.height, 0);
     } finally {
+        if (meeting) await request.delete(`/api/meetings/${meeting.id}`);
+        await request.delete(`/api/meeting-series/${series.id}`);
+    }
+});
+
+test('meeting-series renders full Markdown and task references in queued and resolved agenda notes', async ({ page, request }) => {
+    const series = (await (await request.post('/api/meeting-series', {
+        data: { title: 'Complete agenda Markdown' },
+    })).json()).series;
+    let meeting;
+    let task;
+    try {
+        const queued = (await (await request.post(`/api/meeting-series/${series.id}/agenda`, {
+            data: { title: 'Queued topic' },
+        })).json()).item;
+        const resolved = (await (await request.post(`/api/meeting-series/${series.id}/agenda`, {
+            data: { title: 'Resolved topic' },
+        })).json()).item;
+        meeting = (await (await request.post('/api/meetings', {
+            data: { seriesId: series.id, date: '2099-06-04' },
+        })).json()).meeting;
+        const tasks = await (await request.post('/api/tasks', {
+            data: { text: 'Readable follow-up <details>', meetingId: meeting.id, meetingSeriesId: series.id },
+        })).json();
+        task = tasks[tasks.length - 1];
+        const notes = `## Summary\n\n**Agreed** with @ada :rocket: <b>literal</b>\n\n- First point\n- Second point\n\n[Details](https://example.com)\n\n{{?${task.id}}}\n\n{{!${task.id}}}`;
+        for (const item of [queued, resolved]) {
+            await request.put(`/api/meetings/${meeting.id}/agenda/${item.id}`, {
+                data: { notes, ...(item.id === resolved.id ? { outcome: 'resolved' } : {}) },
+            });
+        }
+        await request.put(`/api/meeting-series/${series.id}`, { data: { description: `Follow-up: {{?${task.id}}}` } });
+        await page.goto(`/meeting-series#ms-${series.id}`);
+        const host = page.locator('meeting-series-page');
+        for (const row of [
+            host.locator(`.mp-agenda-row[data-item="${queued.id}"]`),
+            host.locator('.mp-agenda-resolved'),
+        ]) {
+            const display = row.locator('.mp-agenda-note .rich-text');
+            await expect(display.locator('h2')).toHaveText('Summary');
+            await expect(display.locator('strong')).toHaveText('Agreed');
+            await expect(display.locator('ul li')).toHaveText(['First point', 'Second point']);
+            await expect(display.locator('a')).toHaveAttribute('href', 'https://example.com');
+            await expect(display.locator('entity-mention[key="ada"]')).toHaveCount(1);
+            await expect(display).toContainText('🚀 <b>literal</b>');
+            await expect(display.locator('b, details')).toHaveCount(0);
+            await expect(display).toContainText(task.text);
+            await expect(display).not.toContainText(`{{?${task.id}}}`);
+            await expect(display).not.toContainText(`{{!${task.id}}}`);
+            await expect(display.locator('input[type="checkbox"][disabled]')).toHaveCount(2);
+            await expect(display.locator('input[type="checkbox"][checked]')).toHaveCount(1);
+        }
+        await expect(host.locator('.mp-desc')).toContainText(task.text);
+        await expect(host.locator('.mp-desc input[type="checkbox"]')).toHaveCount(1);
+    } finally {
+        if (task) await request.delete(`/api/tasks/${task.id}`);
         if (meeting) await request.delete(`/api/meetings/${meeting.id}`);
         await request.delete(`/api/meeting-series/${series.id}`);
     }

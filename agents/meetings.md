@@ -244,6 +244,12 @@ occurrences' minutes.
    with `{ notes?, outcome? }`. `outcome` is one of
    `resolved | deferred | cancelled | null` (null clears it — no guard
    against re-deciding after reopen, intentionally permissive).
+   Agenda notes enable the rich editor's `tasks` feature and inject its
+   task service. Blur awaits `convert({ meetingId, meetingSeriesId,
+   agendaItemId })` before saving, linking created tasks to all three
+   sources. Keep partially converted drafts on errors, surface the error,
+   and reuse pending per-item saves rather than converting twice.
+   Plain-note autosaves must not reset editor focus or invalidate tasks.
    Selecting "Løst" from another outcome saves the outcome and prompts
    for an optional decision. Saving a decision links it directly to that
    occurrence's agenda item; skipping leaves the item resolved.
@@ -269,8 +275,16 @@ occurrences' minutes.
    created for the series. Closed occurrences render read-only in the
    workspace; only existing follow-up task completion stays actionable.
    The workspace saves the current free-text minutes via the meeting PUT
-   before closing; there is no separate minutes save button. A save failure
-   prevents closing and preserves the draft for retry.
+   before closing; there is no separate minutes save button. It first awaits
+   the rich editor's `convert({ meetingId, meetingSeriesId })`, creating
+   `{{Task text}}` follow-ups linked to both the occurrence and series and
+   replacing markers with `{{?id}}` references. Conversion or save failures
+   prevent closing and preserve the partially converted draft for retry
+   without duplicating tasks. The task cache is invalidated after conversion
+   so the next render includes created follow-ups.
+   Closing first waits for agenda-item saves (including a blur-triggered
+   save already in flight) and saves all current agenda notes. An agenda
+   conversion/save failure also prevents closing.
    Closing successfully from a popup also closes that popup; a failed or
    cancelled close leaves it open. Regular tabs remain on the closed workspace.
 6. **Reopen** — `POST /api/meetings/:id/reopen` → `status:
@@ -370,6 +384,10 @@ autocomplete for people, teams, companies and `@me`; the selected mention
 key is saved as part of the agenda title. Agenda titles and notes render
 those references as the shared `entity-mention` chips in both the running
 queue and resolved-item list.
+Occurrence notes in both lists use the same rich Markdown renderer
+(headings, lists, links, emoji and escaped raw HTML). Pass the cached tasks'
+id-to-text map to that renderer and the series description so saved task
+references display readable task text rather than raw markers or IDs.
 
 Attributes: `meetings_service`, `tasks_service`, `people_service`
 (all dot-path service references, e.g.
@@ -393,7 +411,7 @@ its parent series once the meeting resolves. Renders:
   refetching, and preserves minutes/agenda drafts. It does not change series
   defaults or other occurrences. Closed meetings show the list read-only.
 - Agenda list: per-item notes use `<feature-rich-text-area>` with lists,
-  emoji, mentions and date insertion; notes autosave on blur. Previous
+  emoji, mentions, tasks and date insertion; notes convert task markers and autosave on blur. Previous
   occurrence notes render Markdown and emoji; the series dashboard also
   links mentions using its already-loaded entity lists.
   (✅ Løst / ⏭️ Utsatt / 🚫 Avlyst — click the active one again to
