@@ -1,5 +1,12 @@
 # 📜 Changelog
 
+### 2026-11-26 (v5.15 — oppgaver fra møtenotater og komplett Markdown)
+- **Oppgaver fra referat og saksliste:** `{{Oppgavetekst}}` oppretter oppfølgingsoppgaver fra møteforekomstens referat og sakslistepunkter, med støtte for frist. Oppgavene knyttes til møtet, serien og eventuelt sakslistepunktet gjennom den felles editoren.
+- **Trygg lagring og nytt forsøk:** saksnotater konverteres og lagres når feltet mister fokus. Avslutning venter på sakslagring før referatet lagres og møtet lukkes. Feil beholder utkast og konverterte oppgavereferanser uten å opprette duplikater ved nytt forsøk.
+- **Komplett Markdown i møteserier:** både ventende og løste saker viser overskrifter, lister, lenker, emojier og omtaler. Oppgavereferanser viser oppgavetekst i saksnotater og seriebeskrivelse; rå HTML vises som tekst.
+- **Regresjonstester:** dekker oppgavekoblinger, frister, pågående lagring ved avslutning, delvise feil, nytt forsøk og Markdown i ventende og løste saker.
+- **Verifisert:** 197 Playwright-tester passerer; `npm audit` rapporterer ingen kjente sårbarheter.
+
 ### 2026-11-26 (v5.14 — trygg møteavslutning og fast møtetopp)
 - **Referat lagres ved avslutning:** møteforekomstens fritekstreferat lagres før møtet avsluttes. Den separate lagreknappen er fjernet; lagringsfeil lar møtet stå åpent og beholder utkastet for nytt forsøk.
 - **Fast møtetopp:** pågående møteforekomster beholder tittel, status, dato, klokkeslett, sted og «Avslutt møte» synlig under rulling. Tydelig bakgrunn følger temaet; redigering og PDF-eksport ligger i en egen verktøylinje under. På smale skjermer får avslutningsknappen en egen rad.

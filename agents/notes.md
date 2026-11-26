@@ -78,13 +78,15 @@ Freeform markdown notes, one folder per ISO week.
   `max-rows` opts a `rows` editor into content-driven height, capped at that
   many visible rows with scrolling beyond the cap (instead of manual resizing).
 - Inline create markers are converted by the editor, not the server:
-  `await el.convert({ week, noteRef, taskId, taskText, replaceWith })`
+  `await el.convert({ week, noteRef, meetingId, meetingSeriesId, agendaItemId, taskId, taskText, replaceWith })`
   creates entities through the injected services, gated by `features` —
   `tasks` `{{X}}` / `{{X @ YYYY-MM-DD[ HH:MM]}}` (→ `dueDate`), `results` `[[X]]`/`[[X+]]`/`[[X-]]` (people = note ∪ text
   mentions), `meetings` `{{m:Title @ YYYY-MM-DD HH:MM[ Nm]}}`. Markers are
   replaced one at a time (`replaceWith: 'ref'` → `{{?id}}`/`[[?id]]`/
   `{{m:?id}}`, `'text'` → plain text), so a failure keeps earlier ones
-  converted. `note-editor` awaits it before an explicit save (not autosave)
+  converted. Optional `meetingId` / `meetingSeriesId` / `agendaItemId` link
+  created tasks to their source occurrence, series and agenda item.
+  `note-editor` awaits it before an explicit save (not autosave)
   and aborts the save on error. `/api/save` only applies `{{!id}}` and
   `~~text~~` close markers.
 - Displays of those fields use `domains/_shared/wn-rich-text.js`
