@@ -597,7 +597,7 @@ do not retain a read-modify-write snapshot across another `await`.
   notes grow with content up to 25 visible rows, then scroll).
 - Release tag: `v5.13` → `21f6e38` (task source grouping,
   derived origins, live backlinks and note preview/edit links).
-- Latest release tag: `v5.14` (minutes saved before closing and a
+- Latest release tag: `v5.14` → `4fb9d0b` (minutes saved before closing and a
   sticky, theme-aware meeting-instance header).
 
 ---
